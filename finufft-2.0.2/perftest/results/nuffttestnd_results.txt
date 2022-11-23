@@ -1,0 +1,97 @@
+nuffttestnd output:
+what CPUs do I have?...
+(I'm in a linux OS)
+model name	: Intel(R) Core(TM) i7-6500U CPU @ 2.50GHz
+Architecture:                    x86_64
+CPU op-mode(s):                  32-bit, 64-bit
+Byte Order:                      Little Endian
+Address sizes:                   39 bits physical, 48 bits virtual
+CPU(s):                          4
+On-line CPU(s) list:             0-3
+Thread(s) per core:              2
+Core(s) per socket:              2
+Socket(s):                       1
+NUMA node(s):                    1
+Vendor ID:                       GenuineIntel
+CPU family:                      6
+Model:                           78
+Model name:                      Intel(R) Core(TM) i7-6500U CPU @ 2.50GHz
+Stepping:                        3
+CPU MHz:                         2733.935
+CPU max MHz:                     3100.0000
+CPU min MHz:                     400.0000
+BogoMIPS:                        5199.98
+Virtualization:                  VT-x
+L1d cache:                       64 KiB
+L1i cache:                       64 KiB
+L2 cache:                        512 KiB
+L3 cache:                        4 MiB
+NUMA node0 CPU(s):               0-3
+Vulnerability Itlb multihit:     KVM: Mitigation: VMX disabled
+Vulnerability L1tf:              Mitigation; PTE Inversion; VMX conditional cache flushes, SMT vulnerable
+Vulnerability Mds:               Mitigation; Clear CPU buffers; SMT vulnerable
+Vulnerability Meltdown:          Mitigation; PTI
+Vulnerability Spec store bypass: Mitigation; Speculative Store Bypass disabled via prctl and seccomp
+Vulnerability Spectre v1:        Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+Vulnerability Spectre v2:        Mitigation; Full generic retpoline, IBPB conditional, IBRS_FW, STIBP conditional, RSB filling
+Vulnerability Srbds:             Mitigation; Microcode
+Vulnerability Tsx async abort:   Not affected
+Flags:                           fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf pni pclmulqdq dtes64 monitor ds_cpl vmx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb invpcid_single pti ssbd ibrs ibpb stibp tpr_shadow vnmi flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid mpx rdseed adx smap clflushopt intel_pt xsaveopt xsavec xgetbv1 xsaves dtherm ida arat pln pts hwp hwp_notify hwp_act_window hwp_epp md_clear flush_l1d
+
+double-precision 2-thread tests: size = 1e6, tol = 1e-6...
+test 1d type 1:
+	1000000 NU pts to 1000000 modes in 0.618 s 	1.62e+06 NU pts/s
+	one mode: rel err in F[370000] is 6.23e-08
+test 1d type 2:
+	1000000 modes to 1000000 NU pts in 0.439 s 	2.28e+06 NU pts/s
+	one targ: rel err in c[500000] is 2.37e-07
+test 1d type 3:
+	1000000 NU to 1000000 NU in 1.25 s        	1.6e+06 tot NU pts/s
+	one targ: rel err in F[500000] is 1.47e-07
+test 2d type 1:
+	1000000 NU pts to (500,2000) modes in 1.12 s 	8.93e+05 NU pts/s
+	one mode: rel err in F[185,520] is 5.98e-09
+test 2d type 2:
+	(500,2000) modes to 1000000 NU pts in 0.963 s 	1.04e+06 NU pts/s
+	one targ: rel err in c[500000] is 2.91e-07
+test 2d type 3:
+	1000000 NU to 1000000 NU in 2.34 s         	8.56e+05 tot NU pts/s
+	one targ: rel err in F[500000] is 4.81e-07
+test 3d type 1:
+     1000000 NU pts to (100,200,50) modes in 2.55 s 	3.93e+05 NU pts/s
+	one mode: rel err in F[37,52,-19] is 1.14e-07
+test 3d type 2:
+     (100,200,50) modes to 1000000 NU pts in 2.04 s 	4.9e+05 NU pts/s
+	one targ: rel err in c[500000] is 6.44e-07
+test 3d type 3:
+	1000000 NU to 1000000 NU in 10.2 s         	1.96e+05 tot NU pts/s
+	one targ: rel err in F[500000] is 1.2e-07
+
+double-precision 1-thread tests: size = 1e6, tol = 1e-6...
+test 1d type 1:
+	1000000 NU pts to 1000000 modes in 0.897 s 	1.11e+06 NU pts/s
+	one mode: rel err in F[370000] is 6.23e-08
+test 1d type 2:
+	1000000 modes to 1000000 NU pts in 0.792 s 	1.26e+06 NU pts/s
+	one targ: rel err in c[500000] is 2.37e-07
+test 1d type 3:
+	1000000 NU to 1000000 NU in 2.14 s        	9.34e+05 tot NU pts/s
+	one targ: rel err in F[500000] is 1.47e-07
+test 2d type 1:
+	1000000 NU pts to (500,2000) modes in 2.02 s 	4.95e+05 NU pts/s
+	one mode: rel err in F[185,520] is 5.98e-09
+test 2d type 2:
+	(500,2000) modes to 1000000 NU pts in 1.85 s 	5.39e+05 NU pts/s
+	one targ: rel err in c[500000] is 2.91e-07
+test 2d type 3:
+	1000000 NU to 1000000 NU in 4.26 s         	4.7e+05 tot NU pts/s
+	one targ: rel err in F[500000] is 4.81e-07
+test 3d type 1:
+     1000000 NU pts to (100,200,50) modes in 4.62 s 	2.17e+05 NU pts/s
+	one mode: rel err in F[37,52,-19] is 1.14e-07
+test 3d type 2:
+     (100,200,50) modes to 1000000 NU pts in 3.82 s 	2.62e+05 NU pts/s
+	one targ: rel err in c[500000] is 6.44e-07
+test 3d type 3:
+	1000000 NU to 1000000 NU in 18.7 s         	1.07e+05 tot NU pts/s
+	one targ: rel err in F[500000] is 1.2e-07

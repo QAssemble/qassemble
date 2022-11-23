@@ -1,0 +1,91 @@
+spreadtestnd output:
+what CPUs do I have?...
+(I'm in a linux OS)
+model name	: Intel(R) Core(TM) i7-6500U CPU @ 2.50GHz
+Architecture:                    x86_64
+CPU op-mode(s):                  32-bit, 64-bit
+Byte Order:                      Little Endian
+Address sizes:                   39 bits physical, 48 bits virtual
+CPU(s):                          4
+On-line CPU(s) list:             0-3
+Thread(s) per core:              2
+Core(s) per socket:              2
+Socket(s):                       1
+NUMA node(s):                    1
+Vendor ID:                       GenuineIntel
+CPU family:                      6
+Model:                           78
+Model name:                      Intel(R) Core(TM) i7-6500U CPU @ 2.50GHz
+Stepping:                        3
+CPU MHz:                         2730.093
+CPU max MHz:                     3100.0000
+CPU min MHz:                     400.0000
+BogoMIPS:                        5199.98
+Virtualization:                  VT-x
+L1d cache:                       64 KiB
+L1i cache:                       64 KiB
+L2 cache:                        512 KiB
+L3 cache:                        4 MiB
+NUMA node0 CPU(s):               0-3
+Vulnerability Itlb multihit:     KVM: Mitigation: VMX disabled
+Vulnerability L1tf:              Mitigation; PTE Inversion; VMX conditional cache flushes, SMT vulnerable
+Vulnerability Mds:               Mitigation; Clear CPU buffers; SMT vulnerable
+Vulnerability Meltdown:          Mitigation; PTI
+Vulnerability Spec store bypass: Mitigation; Speculative Store Bypass disabled via prctl and seccomp
+Vulnerability Spectre v1:        Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+Vulnerability Spectre v2:        Mitigation; Full generic retpoline, IBPB conditional, IBRS_FW, STIBP conditional, RSB filling
+Vulnerability Srbds:             Mitigation; Microcode
+Vulnerability Tsx async abort:   Not affected
+Flags:                           fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf pni pclmulqdq dtes64 monitor ds_cpl vmx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb invpcid_single pti ssbd ibrs ibpb stibp tpr_shadow vnmi flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid mpx rdseed adx smap clflushopt intel_pt xsaveopt xsavec xgetbv1 xsaves dtherm ida arat pln pts hwp hwp_notify hwp_act_window hwp_epp md_clear flush_l1d
+
+single-precision 2-thread tests: #NU = 1e6, #U = 1e6, tol = 1e-6...
+making random data...
+spreadinterp 1D, 1e+06 U pts, dir=1, tol=1e-06: nspread=7
+    1e+06 NU pts in 0.292 s 	3.43e+06 pts/s 	2.4e+07 spread pts/s
+    rel err in total over grid:      3.9e-05
+making more random NU pts...
+spreadinterp 1D, 1e+06 U pts, dir=2, tol=1e-06: nspread=7
+    1e+06 NU pts in 0.241 s 	4.15e+06 pts/s 	2.91e+07 spread pts/s
+    max rel err in values at NU pts: 1.24e-06
+making random data...
+spreadinterp 2D, 1e+06 U pts, dir=1, tol=1e-06: nspread=7
+    1e+06 NU pts in 0.628 s 	1.59e+06 pts/s 	7.8e+07 spread pts/s
+    rel err in total over grid:      3.42e-06
+making more random NU pts...
+spreadinterp 2D, 1e+06 U pts, dir=2, tol=1e-06: nspread=7
+    1e+06 NU pts in 0.543 s 	1.84e+06 pts/s 	9.03e+07 spread pts/s
+    max rel err in values at NU pts: 2.44e-06
+making random data...
+spreadinterp 3D, 1e+06 U pts, dir=1, tol=1e-06: nspread=7
+    1e+06 NU pts in 2.11 s 	4.74e+05 pts/s 	1.62e+08 spread pts/s
+    rel err in total over grid:      0
+making more random NU pts...
+spreadinterp 3D, 1e+06 U pts, dir=2, tol=1e-06: nspread=7
+    1e+06 NU pts in 1.64 s 	6.1e+05 pts/s 	2.09e+08 spread pts/s
+    max rel err in values at NU pts: 0
+
+single-precision 1-thread tests: #NU = 1e6, #U = 1e6, tol = 1e-6...
+making random data...
+spreadinterp 1D, 1e+06 U pts, dir=1, tol=1e-06: nspread=7
+    1e+06 NU pts in 0.518 s 	1.93e+06 pts/s 	1.35e+07 spread pts/s
+    rel err in total over grid:      3.18e-05
+making more random NU pts...
+spreadinterp 1D, 1e+06 U pts, dir=2, tol=1e-06: nspread=7
+    1e+06 NU pts in 0.468 s 	2.14e+06 pts/s 	1.49e+07 spread pts/s
+    max rel err in values at NU pts: 1.24e-06
+making random data...
+spreadinterp 2D, 1e+06 U pts, dir=1, tol=1e-06: nspread=7
+    1e+06 NU pts in 1.19 s 	8.39e+05 pts/s 	4.11e+07 spread pts/s
+    rel err in total over grid:      1.48e-05
+making more random NU pts...
+spreadinterp 2D, 1e+06 U pts, dir=2, tol=1e-06: nspread=7
+    1e+06 NU pts in 1.09 s 	9.19e+05 pts/s 	4.5e+07 spread pts/s
+    max rel err in values at NU pts: 2.44e-06
+making random data...
+spreadinterp 3D, 1e+06 U pts, dir=1, tol=1e-06: nspread=7
+    1e+06 NU pts in 3.76 s 	2.66e+05 pts/s 	9.13e+07 spread pts/s
+    rel err in total over grid:      0
+making more random NU pts...
+spreadinterp 3D, 1e+06 U pts, dir=2, tol=1e-06: nspread=7
+    1e+06 NU pts in 3.3 s 	3.03e+05 pts/s 	1.04e+08 spread pts/s
+    max rel err in values at NU pts: 0
