@@ -1,0 +1,405 @@
+program TestMoment
+  implicit none
+
+  integer :: iomega, itau,ii,ierr, l,itheta
+  double precision :: beta, pi,moment(3),erg,xx
+
+  integer*8 :: ntau,nomega
+  complex*16 :: ai, ftau_temp(3)
+
+  integer*8, allocatable :: null
+  double precision, allocatable :: tau(:),taupi(:),omega(:), theta(:), tauin(:), poly_array(:)
+  complex*16,allocatable :: fomega(:),fomegaout(:),m1omega(:),m2omega(:),m3omega(:),ftau(:),m1tau(:),m2tau(:),m3tau(:),ftau_tot(:), ftau_tot_w_weight(:), ftau_tot_analytic(:), ftau_exa(:), chebyshev_temp(:),chebyshev_coeff(:), chebyshev_coeff2(:), ftheta(:),chebyshev_array(:)
+
+
+  integer, external :: ttind
+  double precision, external :: eulerpolynomial, factorial_int
+
+  nomega=3000
+  ntau=30000
+  erg=-2.0d0
+
+  ai=dcmplx(0.0d0, 1.0d0)
+
+  allocate(tau((-ntau):(ntau-1)))
+  tau=0.0d0
+
+
+  allocate(theta((-ntau):(ntau-1)))
+  theta=0.0d0
+
+  allocate(ftheta((-ntau):(ntau-1)))
+  ftheta=0.0d0    
+
+  allocate(taupi((-ntau):(ntau-1)))
+  taupi=0.0d0
+
+  allocate(ftau((-ntau):(ntau-1)))
+  ftau=0.0d0
+
+  allocate(chebyshev_temp((-ntau):(ntau-1)))
+  chebyshev_temp=0.0d0
+
+  allocate(chebyshev_array((-ntau):(ntau-1)))
+  chebyshev_array=0.0d0  
+
+  allocate(chebyshev_coeff(0:(ntau-1)))
+  chebyshev_coeff=0.0d0    
+
+  allocate(chebyshev_coeff2(0:(ntau-1)))
+  chebyshev_coeff2=0.0d0    
+
+  allocate(ftau_tot((-ntau):(ntau-1)))
+  ftau_tot=0.0d0
+  allocate(ftau_tot_w_weight((-ntau):(ntau-1)))
+  ftau_tot_w_weight=0.0d0
+
+  allocate(ftau_tot_analytic((-ntau):(ntau-1)))
+  ftau_tot_analytic=0.0d0    
+
+  allocate(ftau_exa((-ntau):(ntau-1)))
+  ftau_exa=0.0d0    
+  allocate(m1tau((-ntau):(ntau-1)))
+  m1tau=0.0d0
+  allocate(m2tau((-ntau):(ntau-1)))
+  m2tau=0.0d0
+  allocate(m3tau((-ntau):(ntau-1)))
+  m3tau=0.0d0      
+
+  allocate(omega((-2*nomega+1):(2*nomega-1)))
+  omega=0.0d0
+
+  allocate(fomega((-2*nomega+1):(2*nomega-1)))
+  fomega=0.0d0
+  allocate(fomegaout((-2*nomega+1):(2*nomega-1)))
+  fomegaout=0.0d0  
+  allocate(m1omega((-2*nomega+1):(2*nomega-1)))
+  m1omega=0.0d0
+  allocate(m2omega((-2*nomega+1):(2*nomega-1)))
+  m2omega=0.0d0
+  allocate(m3omega((-2*nomega+1):(2*nomega-1)))
+  m3omega=0.0d0  
+
+  beta=1.0d0/(8.617333262145d-5*300.0d0)
+  pi=datan2(1.0d0,1.0d0)*4.0d0
+
+  do iomega=-2*nomega+1, 2*nomega-1
+    omega(iomega)=pi/beta*iomega
+  enddo
+
+  do iomega=-2*nomega+1, 2*nomega-1
+    if (modulo(iomega, 2) .eq. 1) then
+      fomega(iomega)=1.0d0/(omega(iomega)*ai-erg)
+      m1omega(iomega)=1.0d0/(omega(iomega)*ai)
+      m2omega(iomega)=1.0d0/(omega(iomega)*ai)**2
+      m3omega(iomega)=1.0d0/(omega(iomega)*ai)**3                  
+    endif
+  enddo
+
+  do itheta=0, ntau-1
+    theta(itheta)=pi*(itheta+0.5d0)/dble(ntau)
+    theta(-itheta-1)=-theta(itheta)
+  enddo
+
+  do itau=0, ntau-1
+    itheta=ttind(itau, ntau)
+    tau(itau)=beta/2.0d0*(dcos(theta(itheta))+1)
+    tau(-itau-1)=-tau(itau)    
+    taupi(itau)=pi/2.0d0*(dcos(theta(itheta))+1)
+    taupi(-itau-1)=-taupi(itau)
+  enddo
+
+  open(unit=8, file='tau.dat')
+  do itau=-ntau, ntau-1  
+    write(8,*) itau, tau(itau), taupi(itau)
+  enddo
+  close(8)
+
+  open(unit=8, file='theta.dat')
+  do itheta=-ntau, ntau-1  
+    write(8,*) itheta, theta(itheta)
+  enddo
+  close(8)  
+
+  call finufft1d2(2*ntau,taupi,ftau,-1, 1.0d-12, 4*nomega-1,fomega,null,ierr)
+  call finufft1d2(2*ntau,taupi,m1tau,-1, 1.0d-12, 4*nomega-1,m1omega,null,ierr)
+  call finufft1d2(2*ntau,taupi,m2tau,-1, 1.0d-12, 4*nomega-1,m2omega,null,ierr)
+  call finufft1d2(2*ntau,taupi,m3tau,-1, 1.0d-12, 4*nomega-1,m3omega,null,ierr)
+
+! fomega_mat(1,1,1,:)=fomega
+! call FLocDyn_M(1,1,nomega,omega,fomega,1,1,fmoment,fhigh)
+! moment=fmoment(1,1,1,:)
+
+  moment(1)=1.0d0
+  moment(2) &
+    =moment(2) &
+    +(fomega(-2*nomega+1)+fomega(2*nomega-1)) &
+    /2.0d0*(omega(2*nomega-1)*ai)**2
+
+  moment(3) &
+    =moment(3) &
+    +(-fomega(-2*nomega+1)+fomega(2*nomega-1)-1.0d0*2.0d0/(omega(2*nomega-1)*ai))/2.0d0*(omega(2*nomega-1)*ai)**3
+  print *, moment
+! moment=(/1.0d0, -erg, erg**2/)
+
+  do itau=0, ntau-1
+    ftau_tot(itau)=ftau(itau)/beta-moment(1)*m1tau(itau)/beta-moment(2)*m2tau(itau)/beta-moment(3)*m3tau(itau)/beta
+    do ii=1, 3
+      xx=tau(itau)/beta                
+      ftau_tot(itau) &
+        =ftau_tot(itau) &
+        +1.0d0/2.0d0*beta**(ii-1)/factorial_int(ii-1)*(-1)**ii*eulerpolynomial(xx, ii-1)*moment(ii)
+    enddo
+    ftau_tot_w_weight(itau)=ftau_tot(itau)*dsqrt(tau(itau)*(beta-tau(itau)))*pi/ntau
+    ftau_tot(itau-ntau)=-ftau_tot(itau)
+    ftau_tot_w_weight(itau-ntau)=-ftau_tot_w_weight(itau)
+  enddo
+
+
+  do itheta=0, ntau-1
+    itau=ttind(itheta, ntau)
+    ftheta(itheta)=ftau_tot(itau)
+    ftheta(-itheta-1)=ftheta(itheta)
+  enddo
+
+  call finufft1d1(2*ntau,taupi,ftau_tot_w_weight,1, 1.0d-12, 4*nomega-1,fomegaout,null,ierr)
+
+  call finufft1d1(2*ntau,theta,ftheta,1, 1.0d-12, 2*ntau,chebyshev_temp,null,ierr)
+
+  chebyshev_coeff=chebyshev_temp(0:(ntau-1))/ntau
+  chebyshev_coeff(0)=chebyshev_coeff(0)/2.0d0
+
+
+
+  allocate(tauin(3))
+
+  tauin=pi-(/0.0d0, beta/2.0d0, beta/)/beta*pi
+
+  do itau=0, ntau-1
+    chebyshev_array(itau)=chebyshev_coeff(itau)/2.0d0
+    chebyshev_array(-itau-1)=chebyshev_coeff(itau)/2.0d0
+  enddo
+
+  allocate(poly_array((-ntau):(ntau-1)))
+
+  do l=0, ntau-1  
+    poly_array(l)=l
+    poly_array(-l-1)=-l
+  enddo
+
+
+  call finufft1d2(3,tauin,ftau_temp,-1, 1.0d-12, 2*ntau,chebyshev_array,null,ierr)
+
+  print *, ftau_temp
+
+! do l=0,  ntau-1
+!   do itau=0, ntau-1    
+!     if (l .eq. 0) then
+!       chebyshev_coeff2(l)=chebyshev_coeff2(l)+1.0d0/dble(ntau)*ftau_tot(itau)*dcos(l*dacos(2.0*tau(itau)/beta-1.0d0))
+!     else
+!       chebyshev_coeff2(l)=chebyshev_coeff2(l)+2.0d0/dble(ntau)*ftau_tot(itau)*dcos(l*dacos(2.0*tau(itau)/beta-1.0d0))
+!     endif
+!   enddo
+! enddo
+
+! open(unit=8, file='chebyshev.dat')
+! do l=0, ntau-1
+!   write(8,'(i5, 3(2f20.12, 2x))') l, chebyshev_coeff(l), chebyshev_coeff2(l), chebyshev_coeff(l)-chebyshev_coeff2(l)
+! enddo
+! close(8)
+
+
+
+  do itau=0, ntau-1
+    do l=0,  ntau-1    
+      ftau_tot_analytic(itau)=ftau_tot_analytic(itau)+chebyshev_coeff(l)*dcos(l*dacos(2.0*tau(itau)/beta-1.0d0))
+    enddo
+    ftau_tot_analytic(itau-ntau)=-ftau_tot_analytic(itau)    
+  enddo
+
+
+! ftau_temp=0.0d0
+! do l=0,  ntau-1    
+!   ftau_temp(1)=ftau_temp(1)+chebyshev_coeff(l)
+!   ftau_temp(2)=ftau_temp(2)+chebyshev_coeff(l)*dcos(l*pi/2.0d0)
+! enddo
+
+! print *, ftau_temp
+
+  call ftau_nonint(2*ntau, tau, beta, erg, ftau_exa)  
+
+  open(unit=8, file='ftau.dat')
+  do itau=-ntau, ntau-1
+    write(8,'(i6, 7(f20.12, 3x))') itau, ftau_tot(itau), ftau_exa(itau), ftau_tot_analytic(itau)
+  enddo
+  close(8)
+
+
+  call finufft1d1(2*ntau,taupi,ftau_tot_w_weight,1, 1.0d-12, 4*nomega-1,fomegaout,null,ierr)
+
+  open(unit=8, file='fomega.dat')  
+  do iomega=0, 2*nomega-1
+    if (modulo(iomega, 2) .eq. 1) then
+      write(8,'(i6, 5(f12.6, 3x))') iomega, fomega(iomega), fomegaout(iomega)/2
+    endif
+  enddo
+  close(8)
+  print *, cdabs(fomegaout(1))/cdabs(fomega(1))
+
+
+
+end program TestMoment
+
+
+subroutine ftau_nonint(ntau, tau, beta, energy, ftau)
+  implicit none
+
+
+  integer, intent(in) :: ntau
+  double precision, intent(in) :: tau(ntau), energy, beta
+
+
+  integer :: unitnum
+  double precision :: machep,taumod,taunew
+  complex*16 :: ftau(ntau)
+
+
+  integer :: itau
+
+
+  machep = epsilon ( machep )
+
+  do itau=1, ntau
+    taumod=modulo(tau(itau), beta)
+    unitnum=nint(tau(itau)-taumod)/beta
+    if (taumod .lt. machep) then
+      unitnum=unitnum-1
+    endif
+    taunew=tau(itau)-beta*unitnum          
+
+
+    if (energy .gt. 0) then
+      ftau(itau)=(-1)**(unitnum+1)*dexp(-energy*taunew)*(1-1.0d0/(dexp(energy*beta)+1))
+    else
+      ftau(itau)=(-1)**(unitnum+1)*dexp(-energy*(taunew-beta))*(1.0d0/(dexp(energy*beta)+1))
+    endif
+  enddo
+end subroutine ftau_nonint
+
+
+
+subroutine btau_nonint(ntau, tau, beta, energy, ftau)
+  implicit none
+
+
+  integer, intent(in) :: ntau
+  double precision, intent(in) :: tau(0:(ntau-1)), energy, beta
+
+
+  integer :: unitnum
+  double precision :: machep,taumod,taunew
+  complex*16 :: ftau(ntau)
+
+
+  integer :: itau
+
+
+  do itau=0, ntau-1
+    ftau(itau)=dexp(-energy*tau(itau))*(1-1.0d0/(dexp(energy*beta)-1))-dexp(energy*(tau(itau)-beta))*(1.0d0/(dexp(-energy*beta)-1))
+  enddo
+end subroutine btau_nonint
+
+
+
+
+
+
+double precision function BernoulliPolynomial(x, n)
+  implicit none
+  integer, intent(in) :: n
+  double precision, intent(in) :: x
+  double precision :: xmat(7), coeff(7)
+
+  xmat=(/x**6, x**5, x**4, x**3, x**2, x, 1.0d0/)
+  BernoulliPolynomial=0.0d0
+  if (n .eq. 0) then
+    BernoulliPolynomial=sum(xmat*(/      0.0d0,       0.0d0,       0.0d0,       0.0d0,       0.0d0,       0.0d0,       1.0d0/))
+  elseif (n .eq. 1) then
+    BernoulliPolynomial=sum(xmat*(/      0.0d0,       0.0d0,       0.0d0,       0.0d0,       0.0d0,       1.0d0,-1.0d0/2.0d0/))
+  elseif (n .eq. 2) then
+    BernoulliPolynomial=sum(xmat*(/      0.0d0,       0.0d0,       0.0d0,       0.0d0,       1.0d0,      -1.0d0, 1.0d0/6.0d0/))
+  elseif (n .eq. 3) then
+    BernoulliPolynomial=sum(xmat*(/      0.0d0,       0.0d0,       0.0d0,       1.0d0,-3.0d0/2.0d0, 1.0d0/2.0d0,       0.0d0/))
+  elseif (n .eq. 4) then
+    BernoulliPolynomial=sum(xmat*(/      0.0d0,       0.0d0,       1.0d0,      -2.0d0,       1.0d0,       0.0d0, 1.0d0/3.0d1/))
+  elseif (n .eq. 5) then
+    BernoulliPolynomial=sum(xmat*(/      0.0d0,       1.0d0,-5.0d0/2.0d0, 5.0d0/3.0d0,       0.0d0,-1.0d0/6.0d0,       0.0d0/))
+  elseif (n .eq. 6) then
+    BernoulliPolynomial=sum(xmat*(/      1.0d0,      -3.0d0, 5.0d0/2.0d0,       0.0d0,-1.0d0/2.0d0,       0.0d0, 1.0d0/42.0d0/))
+  endif
+
+end function BernoulliPolynomial
+
+Double precision function EulerPolynomial(x, n)
+  implicit none
+  integer, intent(in) :: n
+  double precision, intent(in) :: x
+  double precision :: xmat(7), coeff(7)
+
+  EulerPolynomial=0.0d0
+
+  xmat=(/x**6, x**5, x**4, x**3, x**2, x, 1.0d0/)
+  if (n .eq. 0) then
+    EulerPolynomial=sum(xmat*(/      0.0d0,       0.0d0,       0.0d0,       0.0d0,       0.0d0,       0.0d0,       1.0d0/))
+  elseif (n .eq. 1) then
+    EulerPolynomial=sum(xmat*(/      0.0d0,       0.0d0,       0.0d0,       0.0d0,       0.0d0,       1.0d0,-1.0d0/2.0d0/))
+  elseif (n .eq. 2) then
+    EulerPolynomial=sum(xmat*(/      0.0d0,       0.0d0,       0.0d0,       0.0d0,       1.0d0,      -1.0d0,       0.0d0/))
+  elseif (n .eq. 3) then
+    EulerPolynomial=sum(xmat*(/      0.0d0,       0.0d0,       0.0d0,       1.0d0,-3.0d0/2.0d0,        0.d0, 1.0d0/4.0d0/))
+  elseif (n .eq. 4) then
+    EulerPolynomial=sum(xmat*(/      0.0d0,       0.0d0,       1.0d0,      -2.0d0,       0.0d0,       1.0d0,       0.0d0/))
+  elseif (n .eq. 5) then
+    EulerPolynomial=sum(xmat*(/      0.0d0,       1.0d0,-5.0d0/2.0d0,       0.0d0, 5.0d0/2.0d0,       0.0d0,-1.0d0/2.0d0/))
+  elseif (n .eq. 6) then
+    EulerPolynomial=sum(xmat*(/      1.0d0,      -3.0d0,       0.0d0,       5.0d0,       0.0d0,      -3.0d0,        0.0d0/))
+  endif
+
+end function EulerPolynomial
+
+
+
+DOUBLE PRECISION function factorial_int(j)
+  IMPLICIT NONE
+  INTEGER, intent(in) :: j
+  INTEGER :: i
+  DOUBLE PRECISION :: x
+  if (j<0) print *, &
+    "factorial_int defined only for non-negative numbers!"
+  x=1
+  factorial_int = x
+  if (j.eq.1) return
+  DO i=2,j
+    x = x*i
+  END DO
+  factorial_int = x
+  return
+end function factorial_int
+
+
+
+integer function ttind(itheta, ntau)
+! both possible    
+! itau in, itheta out
+! itheta in, itau out    
+  implicit none
+  integer, intent(in) :: itheta, ntau
+  if (itheta .ge. 0) then
+    ttind=ntau-1-itheta
+  else
+    ttind=-ntau-1-itheta
+  endif
+
+end function ttind
+
+

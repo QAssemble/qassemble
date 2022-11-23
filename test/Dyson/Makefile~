@@ -1,0 +1,30 @@
+include ../../arch.mk
+
+.SUFFIXES: .f90 .o
+
+TARGET = TestDyson
+
+OBJ = \
+  TestDyson.o
+
+OBJCommon = \
+  ../../modules/DiagEDyson.o \
+  ../../modules/DiagECommon.o \
+  ../../modules/DiagEBare.o \
+  ../Common/Common.o
+
+all: $(OBJ)   
+	$(FC)  $(FFLAG) $(INCLUDE) $(LOADLIBES) $(OBJ) $(OBJCommon) -I../../modules -o $(TARGET)
+.f90.o: 
+	$(FC) -c $(FFLAG) $(INCLUDE) $(LOADLIBES) -I../../modules $<
+
+new:
+	make clean
+	make all 
+clean:
+	rm -rf *.so
+	rm -rf *.o
+	rm -rf *.mod
+	rm -rf $(TARGET)
+
+

@@ -1,0 +1,75 @@
+program TestBareG
+  use DiagEBare
+  implicit none
+
+  integer :: iomega,iorb,jorb,ik,is
+  complex*16 :: omega(0:9), hmat(2,2,2,2), glatt(2,2,2,2,0:9), glattref(2,2,2,2,0:9), tempmat1(2,2), tempmat2(2,2), identity(2,2), err
+
+  do iomega=0, 9
+    omega(iomega)=dcmplx(0.0d0, (2*iomega+1))
+  enddo
+  identity=0.0d0
+  identity(1,1)=1.0d0
+  identity(2,2)=1.0d0  
+
+  do ik=1, 2
+    do is=1, 2
+      do iorb=1, 2
+        do jorb=1, 2
+          if (iorb .eq. jorb) then
+            hmat(iorb,jorb,is,ik)=1.0d0+ik+is*0.1d0
+          else
+            hmat(iorb,jorb,is,ik)=0.1d0+ik+is*0.1d0
+          end if
+        enddo
+      enddo
+    enddo
+  enddo
+  
+  call BareG(2,2,2,10,hmat,omega,glatt)
+
+  do ik=1, 2  
+    do is=1, 2
+      do iomega=0, 9
+        tempmat1=identity*omega(iomega)-hmat(:,:,is,ik)
+        call matrixinv2by2(tempmat1, tempmat2)
+        glattref(:,:,is,ik,iomega)=tempmat2
+      enddo
+    enddo
+  enddo
+
+  do iomega=0, 9
+    do ik=1, 2
+      do is=1, 2
+        do iorb=1, 2
+          do jorb=1, 2
+            err=glattref(iorb,jorb,is,ik,iomega)-glatt(iorb,jorb,is,ik,iomega)
+            if (cdabs(err) .gt. 1.0d-6) then
+              print '(5i5, 5f12.6)', iorb, jorb, is,ik, iomega, cdabs(err), glattref(iorb,jorb,is,ik,iomega), glatt(iorb,jorb,is,ik,iomega)
+            endif
+          enddo
+        enddo
+      enddo
+    enddo
+  enddo
+      
+end program TestBareG
+    
+
+  
+subroutine matrixinv2by2(matin, matout)
+  implicit none
+  complex*16, intent(in) :: matin(2,2)
+  complex*16, intent(out) :: matout(2,2)
+
+  complex*16 :: determinant
+
+  matout=0.0d0
+
+  determinant=matin(1,1)*matin(2,2)-matin(2,1)*matin(1,2)
+
+  matout(1,1)=matin(2,2)/determinant
+  matout(2,2)=matin(1,1)/determinant
+  matout(1,2)=-matin(1,2)/determinant
+  matout(2,1)=-matin(2,1)/determinant
+end subroutine matrixinv2by2

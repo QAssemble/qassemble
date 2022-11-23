@@ -1,0 +1,50 @@
+subroutine p_quadrature_rule ( nt, t, wts )
+
+!*****************************************************************************80
+!
+!! P_QUADRATURE_RULE: quadrature for Legendre function P(n,x).
+!
+!  Licensing:
+!
+!    This code is distributed under the GNU LGPL license.
+!
+!  Modified:
+!
+!    11 March 2012
+!
+!  Author:
+!
+!    John Burkardt
+!
+!  Parameters:
+!
+!    Input, integer ( kind = 4 ) NT, the order of the rule.
+!
+!    Output, real ( kind = 8 ) T(NT), WTS(NT), the points and weights
+!    of the rule.
+!
+  implicit none
+
+  integer ( kind = 4 ) nt
+
+  real ( kind = 8 ) bj(nt)
+  integer ( kind = 4 ) i
+  real ( kind = 8 ) t(nt)
+  real ( kind = 8 ) wts(nt)
+  
+  t(1:nt) = 0.0D+00
+
+  do i = 1, nt
+    bj(i) = real ( i * i, kind = 8 ) / real ( 4 * i * i - 1, kind = 8 )
+  end do
+  bj(1:nt) = sqrt ( bj(1:nt) )
+
+  wts(1) = sqrt ( 2.0D+00 )
+  wts(2:nt) = 0.0D+00
+
+  call imtqlx ( nt, t, bj, wts )
+
+  wts(1:nt) = wts(1:nt) ** 2
+
+  return
+end

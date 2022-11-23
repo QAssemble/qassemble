@@ -1,0 +1,20 @@
+ifort -c DiagECommon.f90 -L${MKLROOT}/lib/intel64 -lmkl_intel_ilp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl -lfftw3xf_intel -I/opt/intel/compilers_and_libraries_2020.2.254/linux/mkl/include/fftw
+
+
+f2py -c  --fcompiler=intelem --compiler=intelem  -L${MKLROOT}/lib/intel64 -lmkl_intel_ilp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl -lfftw3xf_intel -I/opt/intel/compilers_and_libraries_2020.2.254/linux/mkl/include/fftw DiagECommon.f90  DiagEFourier.f90  -m DiagEFourier
+
+
+
+fomega2=DiagEFourier.diagefourier.tautofreq(tau, ftau, omega)
+ftau=DiagEFourier.diagefourier.fermionomegatotau(omega,fomega,moment,tau)
+
+
+
+or
+
+
+
+f2py -c  --fcompiler=intelem --compiler=intelem  -L${MKLROOT}/lib/intel64 -lmkl_intel_ilp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl -lfftw3xf_intel -I/opt/intel/compilers_and_libraries_2020.2.254/linux/mkl/include/fftw DiagECommon.f90  DiagEFourier.f90  -m DiagE
+
+fomega2=DiagE.diagefourier.tautofreq(tau, ftau, omega)
+ftau=DiagE.diagefourier.fermionomegatotau(omega,fomega,moment,tau)

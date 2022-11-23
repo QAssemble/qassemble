@@ -12,7 +12,63 @@ import itertools
 import green_sub
 from scipy.fftpack import fftn, ifftn
 
-class lattice():
+# I need projector, noninteracting_term
+
+class CProjector():
+    def __init__(self,projector):
+        self.projector=projector
+
+class CNoninteracting():
+    def __init__(self,hmat,rkpoint,k_or_r,uniformrk,beta=None,nomega=None):
+
+        self.norb=hmat[0]
+        self.ns=hmat[2]
+        self.beta=beta
+        self.nomega=nomega
+        
+        if (k_or_r is 'k'):
+            self.onk=True
+            self.hmat_k=hmat
+            self.kpoint=rkpoint
+            self.nk=hmat[3]
+        elif (k_or_r is 'r'):
+            self.onr=True
+            self.hmat_r=hmat
+            self.rpoint=rpoint
+            self.nr=hmat[3]
+
+        if ((beta is not None) and (nomega is not None)):
+            self.opoint=np.pi/beta*(1+2*np.arange(self.nomega))*1j
+        
+    def FourierR2K(self):
+        if (onr .and. uniformrk):
+            self.hmat_k=green_sub.fermion_mat_fft(self.rkmesh,self.hmat_r, -1, 1.0) # check_sign
+        else:
+            print("no Fermion function on R space\n")
+            return
+
+    def FourierK2R(self):
+        if (onk .and. uniformrk):
+            self.hmat_r=green_sub.fermion_mat_fft(self.rkmesh,self.hmat_k, 1, 1.0/self.nrk) # check_sign
+        else:
+            print("no Fermion function on R space\n")
+            return
+
+    def NoninteractingG(self):
+        if ((onk) and (beta is not None) and (nomega is not None)):
+            self.green0=green_sub.non_interacting_single_ptl_g(self.lat_k,self.opoint)
+            
+            
+
+class CBareCoulomb():
+    def __init__(self,coulomb):
+        self.coulomb=coulomb
+
+class CFermionProjector(CProjector):
+    def __init__(self):
+        pass    
+
+class CLattice():
     def __init__(self, avec):
         avec=np.array(avec)
         self.avec = avec
@@ -22,7 +78,7 @@ class lattice():
         self.bvec[:,1]=2*np.pi*np.cross(avec[:,2], avec[:,0])/self.vol
         self.bvec[:,2]=2*np.pi*np.cross(avec[:,0], avec[:,1])/self.vol
 
-class kpoint():
+class CKpoint():
     def __init__(self,fname=None, meshgrid=None, karray=None):
         self.fname=fname
         self.meshgrid=meshgrid
@@ -33,6 +89,7 @@ class kpoint():
             self.nk=len(self.kpoint)
         elif (self.meshgrid is not None):
             meshgrid=np.array(meshgrid)
+            self.rkmesh=meshgrid
             self.nk=meshgrid[0]*meshgrid[1]*meshgrid[2]
             kpoint_temp=np.array(list(itertools.product(np.linspace(-0.5, 0.5, num=meshgrid[2], endpoint=False),  np.linspace(-0.5, 0.5, num=meshgrid[1], endpoint=False), np.linspace(-0.5, 0.5, num=meshgrid[0], endpoint=False))))
             self.kpoint=np.fliplr(kpoint_temp)
@@ -43,7 +100,7 @@ class kpoint():
             self.nk=len(self.kpoint)            
 
 
-class omega():
+class COmega():
     def __init__(self,beta,cutoff):
         self.beta=beta
         self.temp=1.0/(8.617333262145×10**(-5)*beta)        
@@ -51,7 +108,7 @@ class omega():
         self.nomega=int(floor((cutoff/np.pi*beta-1)/2.0))+1
         self.point=np.pi/beta*(1+2*np.arange(self.nomega))*1j
 
-class nu():
+class CNu():
     def __init__(self,beta,cutoff):
         self.beta=beta
         self.temp=1.0/(8.617333262145×10**(-5)*beta)
@@ -59,7 +116,7 @@ class nu():
         self.nnu=int(floor((cutoff/np.pi*beta)/2.0))+1
         self.point=np.pi/beta*2*np.arange(self.nnu)*1j            
         
-class tau():
+class CTau():
     def __init__(self,beta,cutoff=None,ntau=None )
         self.beta=beta
         self.temp=1.0/(8.617333262145×10**(-5)*beta)
@@ -99,7 +156,7 @@ class tau():
         
 
 
-class Greens():
+class CGreens():
     
     def __init__(self,gf,beta,rkpoint,tfpoint,onf,onk,uniformrk,moment=None):
         self.beta=beta
@@ -109,16 +166,16 @@ class Greens():
         self.moment=moment
         
         if (onf and onk):
-            self.kf=True
-            self.fun_kf=gf
+            self.onkf=True
+            self.lat_kf=gf
             self.kpoint=rkpoint
             self.fpoint=tfpoint
             self.nk=np.len(rkpoint)
             self.nf=np.len(tfpoint)                                    
         
         elif ((not onf) and onk):
-            self.kt=True            
-            self.fun_kt=gf
+            self.onkt=True            
+            self.lat_kt=gf
             self.kpoint=rkpoint
             self.tpoint=tfpoint
             self.nk=np.len(rkpoint)
@@ -126,8 +183,8 @@ class Greens():
             
             
         elif (onf and (not onk)):
-            self.rf=True                        
-            self.fun_rf=gf
+            self.onrf=True                        
+            self.lat_rf=gf
             self.rpoint=rkpoint
             self.fpoint=tfpoint
             self.nf=np.len(rkpoint)
@@ -135,44 +192,89 @@ class Greens():
             
             
         elif ((not onf) and (not onk)):
-            self.rt=True                                    
-            self.fun_rt=gf
+            self.onrt=True                                    
+            self.lat_rt=gf
             self.rpoint=rkpoint
             self.tpoint=tfpoint
             self.nr=np.len(rkpoint)
             self.nt=np.len(tfpoint)                                    
             
             
+class CNonHamiltonian():
 
 
-class FermionG(Greens):
+class CFermionG(Greens):
 
-    def __init__(self):
+    def __init__(self, projector=None):
         Greens.__init__(self,gf,beta,rkpoint,tfpoint,onf,onk,uniformrk,moment=None)
         self.ns=np.shape(gf)[2]
+        self.projector=projector
+
+    def FourierR2K(self):
+        if (onr .and. uniformrk):
+            if (onf):
+                self.lat_kf=green_sub.fermion_mat_fft(self.rkmesh,self.lat_rf, -1, 1.0) # check_sign
+            elif (ont):
+                self.lat_kt=green_sub.fermion_mat_fft(self.rkmesh,self.lat_rt, -1, 1.0) # check_sign
+        else:
+            print("no Fermion function on R space\n")
+            return
+
+    def FourierK2R(self):
+        if (onk .and. uniformrk):
+            if (onf):
+                self.lat_rf=green_sub.fermion_mat_fft(self.rkmesh,self.lat_kf, 1, 1.0/self.nrk) # check_sign
+            elif (ont):
+                self.lat_rt=green_sub.fermion_mat_fft(self.rkmesh,self.lat_kt, 1, 1.0/self.nrk) # check_sign
+        else:
+            print("no Fermion function on R space\n")
+            return
 
 
-    def fourier_r2k(inmat):
-        # exp(-ikr)            
-        ourmat=ifftn(inmat,axis=(2,3,4))
-        return outmat
+
+    def FourierT2F(self):
+        if (ont):
+            if (onk):
+                self.lat_kf=green_sub.fermion_mat_tau_to_freq(self.tpoint,self.lat_kt,self.freq)
+            elif (onr):
+                self.lat_rf=green_sub.fermion_mat_tau_to_freq(self.tpoint,self.lat_rt,self.freq)
+        else:
+            print("no Fermion function on tau-space space\n")
+            return
             
-    def fourier_k2r(inmat):
-        # exp(ikr)/N
-        ourmat=ifftn(inmat,axis=(2,3,4))/np.shape(inmat)[2]/np.shape(inmat)[3]/np.shape(inmat)[4]
-        return outmat
+        
+    def FourierF2T(self):
+        if (onf):
+            if (moment is not None):
+                if (onk):
+                    self.lat_kt=green_sub.fermion_mat_omega_to_tau(self.fpoint,self.lat_kf,self.moment,self.tau)
+                # elif (onr):
+                #     self.lat_rt=green_sub.fermion_mat_omega_to_tau(self.fpoint,self.lat_rf,self.moment,self.tau)
+        else:
+            print("no Fermion function on tau-space space\n")
+            return
+
+
+    def Projection(self):
+        if (self.onkf and uniformrk):
+            self.loc_kt=self.green_sub.fermion_projection(self.lat_kf,self.projector)
+        else:
+            print("no Fermion function on k-omega-space\n")
+            return
+        
         
     
-class SingleptlG(FermionG):
 
+class CSinglePtlG(FermionG):
+    
     def __init__(self):
         FermionG.__init__(self)
-        if ((self.moment is None) and self.kf):
-            self.moment=green_sub.single_ptl_green_moment(self.fun_kf,self.fpoint)
-        
+        if ((self.moment is None) and self.onkf):
+            self.moment=green_sub.single_ptl_green_moment(self.lat_kf,self.fpoint)
+    
 
                                                
-    
+class CSelfE(FermionG):    
 
     def LGFunInv(self,nonhmat,projector,embeded):
         nk=np.shape(nunhmat)[2]
