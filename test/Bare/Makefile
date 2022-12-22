@@ -1,11 +1,11 @@
-include ../../arch.mk
+include ../../barch.mk
 
 .SUFFIXES: .f90 .o
 
-TARGET = TestBare
+TARGET = TestBareFreq
 
 OBJ = \
-  TestBare.o
+  TestBareFreq.o
 
 OBJCommon = \
   ../../modules/Bare.o \

@@ -30,9 +30,9 @@ program TestBare
     enddo
   enddo
   
-  call FLocDyn(4,2,10,hmat(:,:,:,1),omega,gloc)
+  call FLocFreq(4,2,10,hmat(:,:,:,1),omega,gloc)
 
-  call FLatDyn(4,2,5,10,hmat,omega,glatt)  
+  call FLatFreq(4,2,5,10,hmat,omega,glatt)  
   
   do ik=1, 5  
     do is=1, 2
