@@ -8,12 +8,17 @@ Module Bare
 ! interface G0
 !    module procedure &
   public :: &
-    FLatDyn, &
-    FLocDyn, &
+    FLatFreq, &
+    FLocFreq, &
     FTau, &
-    FFreq, &    
+    BTau, &
+    FFreq, &
+    BLocFreq, &
+    BLatFreq, &
     FLocTau, &
-    FLatTau, &    
+    FLatTau, &
+    BLocTau, &
+    BFreq
 
 ! end interface Dyson
 
@@ -32,7 +37,7 @@ contains
     glatt=0.0d0
 
     do ik=1, nk
-      call FLocDyn(norb,ns,nfreq,hlatt(:,:,:,ik), freq,glatt(:,:,:,ik,:))
+      call FLocFreq(norb,ns,nfreq,hlatt(:,:,:,ik), freq,glatt(:,:,:,ik,:))
     enddo
 
   end subroutine FLatFreq
@@ -45,9 +50,9 @@ contains
     complex*16, intent(in) :: hloc(norb,norb,ns)
     complex*16,intent(out) :: gloc(norb,norb,ns,0:(nfreq-1))
 
-    integer :: is,ifreq,iorb
+    integer :: is,ifreq,iorb,jorb
     double precision :: w(norb)
-    complex*16 :: tempmat(norb,norb), ai, ffreq(0:(nfreq-1),norb)
+    complex*16 :: tempmat(norb,norb), ai, gfreq(0:(nfreq-1),norb),tempmat2(norb,norb)
 
     ai=dcmplx(0.0d0, 1.0d0)
     gloc=0.0d0
@@ -56,15 +61,15 @@ contains
       tempmat=hloc(:,:,is)
       call hermitianeigen_dcmplx(norb, w, tempmat)
 
-      ffreq=0.0d0
+      gfreq=0.0d0
       do iorb=1, norb
-        call FFreq(nfreq, freq, w(iorb), ffreq(:,iorb))
+        call FFreq(nfreq, freq, w(iorb), gfreq(:,iorb))
       enddo
 
       do ifreq=0, nfreq-1
         do iorb=1, norb
           do jorb=1, norb
-            tempmat2(iorb,jorb)=tempmat(iorb, jorb)*ffreq(ifreq, iorb)
+            tempmat2(iorb,jorb)=tempmat(iorb, jorb)*gfreq(ifreq, jorb)
           enddo
         enddo
 
@@ -75,19 +80,19 @@ contains
   end subroutine FLocFreq
 
 
-  subroutine FTau(ntau, tau, energy, ftau)
+  subroutine FTau(ntau, tau, energy, gtau)
 ! from wikipedia: https://en.wikipedia.org/wiki/Matsubara_frequency
     implicit none
     
     integer, intent(in) :: ntau
     double precision, intent(in) :: tau(0:(ntau-1)), energy
-    complex*16, intent(out) :: ftau(0:(ntau-1))    
+    complex*16, intent(out) :: gtau(0:(ntau-1))    
     
     integer :: unitnum
-    double precision :: machep,taumod,taunew, beta
-
+    double precision :: machep,taumod,taunew, beta, pi
     integer :: itau
     
+    pi = datan2(1.0d0, 1.0d0)*4.0d0
     
     beta= tau(0)*2.0d0/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)    
     
@@ -103,27 +108,28 @@ contains
       
       
       if (energy .gt. 0) then
-        ftau(itau)=(-1)**(unitnum+1)*dexp(-energy*taunew)*(1-1.0d0/(dexp(energy*beta)+1))
+        gtau(itau)=(-1)**(unitnum+1)*dexp(-energy*taunew)*(1-1.0d0/(dexp(energy*beta)+1))
       else
-        ftau(itau)=(-1)**(unitnum+1)*dexp(-energy*(taunew-beta))*(1.0d0/(dexp(energy*beta)+1))
+        gtau(itau)=(-1)**(unitnum+1)*dexp(-energy*(taunew-beta))*(1.0d0/(dexp(energy*beta)+1))
       endif
     enddo
   end subroutine FTau
 
 
-  subroutine BTau(ntau, tau, energy, btau)
+  subroutine BTau(ntau, tau, energy, wtau)
 ! from wikipedia: https://en.wikipedia.org/wiki/Matsubara_frequency
     implicit none
     
     integer, intent(in) :: ntau
     double precision, intent(in) :: tau(0:(ntau-1)), energy
-    complex*16, intent(out) :: btau(0:(ntau-1))    
+    complex*16, intent(out) :: wtau(0:(ntau-1))    
     
     integer :: unitnum
-    double precision :: machep,taumod,taunew, beta
+    double precision :: machep,taumod,taunew, beta, pi
     
     integer :: itau
     
+    pi = datan2(1.0d0, 1.0d0)*4.0d0
     
     beta= tau(0)*2.0d0/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)    
     
@@ -142,20 +148,20 @@ contains
       taunew=tau(itau)-beta*unitnum          
       
       if (energy .gt. 0) then
-        btau(itau)=-dexp(-energy*taunew)*(1-1.0d0/(dexp(energy*beta)-1))
+        wtau(itau)=-dexp(-energy*taunew)*(1-1.0d0/(dexp(energy*beta)-1))
       else
-        btau(itau)=-dexp(-energy*(taunew-beta))*(1.0d0/(dexp(energy*beta)-1))
+        wtau(itau)=-dexp(-energy*(taunew-beta))*(1.0d0/(dexp(energy*beta)-1))
       endif
     enddo
   end subroutine BTau
   
-  subroutine FFreq(nfreq, freq, energy, ffreq)
+  subroutine FFreq(nfreq, freq, energy, gfreq)
 ! from wikipedia: https://en.wikipedia.org/wiki/Matsubara_frequency
     implicit none
     
     integer, intent(in) :: nfreq
     double precision, intent(in) :: freq(0:(nfreq-1)), energy
-    complex*16, intent(out) :: ffreq(0:(nfreq-1))
+    complex*16, intent(out) :: gfreq(0:(nfreq-1))
     
     integer :: ifreq
     complex*16 :: ai
@@ -163,18 +169,18 @@ contains
     ai=dcmplx(0.0d0, 1.0d0)    
     
     do ifreq=0, nfreq-1
-      ffreq(ifreq)=1.0d0/(ai*freq(ifreq)-energy)
+      gfreq(ifreq)=1.0d0/(ai*freq(ifreq)-energy)
     enddo
   end subroutine FFreq
 
 
-  subroutine BFreq(nfreq, freq, energy, bfreq)
+  subroutine BFreq(nfreq, freq, energy, wfreq)
 ! from wikipedia: https://en.wikipedia.org/wiki/Matsubara_frequency
     implicit none
     
     integer, intent(in) :: nfreq
     double precision, intent(in) :: freq(0:(nfreq-1)), energy
-    complex*16, intent(out) :: bfreq(0:(nfreq-1))
+    complex*16, intent(out) :: wfreq(0:(nfreq-1))
     
     
     integer :: ifreq
@@ -183,8 +189,180 @@ contains
     ai=dcmplx(0.0d0, 1.0d0)    
     
     do ifreq=0, nfreq-1
-      bfreq(ifreq)=1.0d0/(ai*freq(ifreq)-energy)
+      wfreq(ifreq)=1.0d0/(ai*freq(ifreq)-energy)
     enddo
   end subroutine BFreq  
+
+  subroutine BLocFreq(norb,ns,nfreq,hloc,freq,wloc)
+    implicit none
+
+    integer, intent(in) :: norb,ns,nfreq
+    double precision, intent(in) :: freq(0:(nfreq-1))
+    complex*16, intent(in) :: hloc(norb,norb,ns,ns)
+    complex*16,intent(out) :: wloc(norb,norb,ns,ns,0:(nfreq-1))
+
+    integer :: is,js,ifreq,iorb,jorb
+    double precision :: w(norb)
+    complex*16 :: tempmat(norb,norb), ai, wfreq(0:(nfreq-1),norb),tempmat2(norb,norb)
+
+    ai=dcmplx(0.0d0, 1.0d0)
+    wloc=0.0d0
+
+    do is=1, ns
+        do js = 1, ns
+           tempmat=hloc(:,:,is,js)
+           call hermitianeigen_dcmplx(norb, w, tempmat)
+
+           wfreq=0.0d0
+           do iorb=1, norb
+              call BFreq(nfreq, freq, w(iorb), wfreq(:,iorb))
+           enddo
+
+           do ifreq=0, nfreq-1
+              do iorb=1, norb
+                 do jorb=1, norb
+                    tempmat2(iorb,jorb)=tempmat(iorb, jorb)*wfreq(ifreq, jorb)
+                  enddo
+              enddo
+
+              call zgemm('n','c',norb,norb,norb,(1.0d0,0.0d0),tempmat2,norb,tempmat,norb,(0.0d0,0.0d0),wloc(1,1,is,js,ifreq),norb)
+
+           enddo
+        enddo
+    enddo
+  end subroutine BLocFreq
   
+  subroutine BLatFreq(norb,ns,nk,nfreq,hlatt,freq,wlatt)
+    implicit none
+
+    integer, intent(in) :: norb, ns, nk, nfreq
+    double precision, intent(in) :: freq(0:(nfreq-1))
+    complex*16, intent(in) :: hlatt(norb, norb, ns, ns, nk)
+    complex*16, intent(out) :: wlatt(norb, norb, ns, ns, nk, 0:(nfreq-1))
+
+    integer :: ik
+
+    wlatt = 0.0d0
+
+    do ik = 1, nk
+      call BLocFreq(norb, ns, nfreq, hlatt(:, :, :, :, ik), freq, wlatt(:, :, :, :, ik,:))
+    enddo
+
+  end subroutine BLatFreq
+
+  subroutine FLocTau(norb,ns,ntau,hloc,tau,gloc)
+    implicit none
+
+    integer, intent(in) :: norb, ns, ntau
+    double precision, intent(in) :: tau(0:(ntau-1))
+    complex*16, intent(in) :: hloc(norb, norb, ns)
+    complex*16, intent(out) :: gloc(norb, norb, ns, 0:(ntau-1))
+
+    integer :: is, itau, iorb, jorb
+    double precision :: w(norb)
+    complex*16 :: tempmat(norb, norb), ai, gtau(0:(ntau-1),norb), tempmat2(norb,norb)
+
+    ai = dcmplx(0.0d0, 1.0d0)
+    gloc = 0.0d0
+
+    do is = 1, ns
+      tempmat = hloc(:,:,is)
+      call hermitianeigen_dcmplx(norb, w, tempmat)
+
+      gtau = 0.0d0
+      do iorb = 1, norb
+        call FTau(ntau, tau, w(iorb), gtau)
+      enddo
+
+      do itau = 0, ntau-1
+        do iorb = 1, norb
+          do jorb = 1, norb
+            tempmat2(iorb, jorb) = tempmat(iorb, jorb)*gtau(itau, jorb)
+          enddo
+        enddo
+
+        call zgemm('n', 'c', norb, norb, norb, (1.0d0, 0.0d0), tempmat2, norb,tempmat, norb, (0.0d0, 0.0d0), gloc(1,1,is,itau),norb)
+        
+      enddo
+    enddo
+  end subroutine FLocTau 
+
+
+  subroutine FLatTau(norb,ns,nk,ntau,hlatt,tau,glatt)
+    implicit none
+
+    integer, intent(in) :: norb,ns,nk,ntau
+    double precision, intent(in) :: tau(0:(ntau-1))
+    complex*16, intent(in) :: hlatt(norb,norb,ns,nk)
+    complex*16,intent(out) :: glatt(norb,norb,ns,nk,0:(ntau-1))
+
+    integer :: ik
+
+    glatt=0.0d0
+
+    do ik=1, nk
+      call FLocTau(norb,ns,ntau,hlatt(:,:,:,ik), tau,glatt(:,:,:,ik,:))
+    enddo
+
+  end subroutine FLatTau 
+
+  subroutine BLocTau(norb, ns, ntau, hloc, tau, wloc)
+    implicit none
+    
+    integer, intent(in) :: norb, ns, ntau
+    double precision, intent(in) :: tau(0:(ntau-1))
+    complex*16, intent(in) :: hloc(norb, norb, ns, ns)
+    complex*16, intent(out) :: wloc(norb, norb, ns, ns,0:(ntau-1))
+  
+    integer :: is, js, itau, iorb, jorb
+    double precision :: w(norb)
+    complex*16 :: tempmat(norb, norb), ai, wtau(0:(ntau-1), norb), tempmat2(norb,norb)
+  
+    ai = dcmplx(0.0d0, 1.0d0)
+    wloc = 0.0d0
+  
+    do is = 1, ns
+      do js = 1, ns
+        tempmat = hloc(:, :, is, js)
+        call hermitianeigen_dcmplx(norb, w, tempmat)
+  
+        wtau = 0.0d0
+        do iorb = 1, norb
+          call BTau(ntau, tau, w(iorb), wtau(:,iorb))
+        enddo
+  
+        do itau = 0, ntau-1
+          do iorb = 1,norb
+            do jorb = 1, norb
+              tempmat2(iorb, jorb) = tempmat(iorb, jorb)*wtau(itau, jorb)
+            enddo
+          enddo
+  
+          call zgemm('n', 'c', norb, norb, norb, (1.0d0, 0.0d0), tempmat2, norb,tempmat, norb, (0.0d0,0.0d0), wloc(1,1, is, js, itau), norb)
+  
+        enddo
+      enddo
+    enddo
+  
+  end subroutine BLocTau
+
+  subroutine BLatTau(norb, ns, nk, ntau, hlatt, tau, wlatt)
+    implicit none
+
+    integer, intent(in) :: norb, ns, nk, ntau
+    double precision, intent(in) :: tau(0:(ntau-1))
+    complex*16, intent(in) :: hlatt(norb, norb, ns, ns, nk)
+    complex*16, intent(out) :: wlatt(norb, norb, ns, ns, nk, 0:(ntau-1))
+
+    integer :: ik
+
+    wlatt = 0.0d0
+
+    do ik = 1, nk
+      call BLocTau(norb, ns, ntau, hlatt(:,:,:,:,ik), tau, wlatt(:,:,:,:,ik,:))
+    enddo
+
+  end subroutine BLatTau
+
+ 
 end Module Bare

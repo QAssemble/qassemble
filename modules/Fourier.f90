@@ -468,7 +468,7 @@ contains
     complex*16, intent(out) :: fout(norb,norb,ns,nrk)
     double precision :: norm
     norm=1.0d0/dble(nrk)
-    call FLat_KR(norb,ns,nrk,rkgrid,fin,fout,1,norm)
+    call FLat_KR(norb,ns,nrk,rkgrid,fin,fout,-1,norm)
   end subroutine FLatStc_K2R
 
 
@@ -479,7 +479,7 @@ contains
     complex*16, intent(out) :: fout(norb,norb,ns,nrk)
     double precision :: norm
     norm=1.0d0
-    call FLat_KR(norb,ns,nrk,rkgrid,fin,fout,-1,norm)
+    call FLat_KR(norb,ns,nrk,rkgrid,fin,fout,1,norm)
   end subroutine FLatStc_R2K
 
 

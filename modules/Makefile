@@ -5,11 +5,10 @@ include ../arch.mk
 OBJ = \
   Common.o\
   Dyson.o\
-  Bare.o\
   Projection.o\
   Embedding.o\
   Fourier.o\
-  MatsubaraBasis.o\
+  Bare.o\
 
 all: $(OBJ)
 

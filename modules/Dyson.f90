@@ -8,11 +8,11 @@ Module Dyson
   ! interface Dyson
 !    module procedure &
   public :: &
-    FLatDyn, &
-    FLocDyn, &
-    BLatDyn, &
-    BLocDyn, &
-    FLatStc, &
+    FLatDyn, & ! Fermion, Lattice, dynamic
+    FLocDyn, & ! Fermion, local, dynamic
+    BLatDyn, & ! Boson, lattice, dynamic
+    BLocDyn, & ! Boson, local, dynamic
+    FLatStc, & ! Fermion, lattice, static
     FLocStc, &
     BLatStc, &
     BLocStc
