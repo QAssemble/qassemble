@@ -7,10 +7,10 @@
 
 
 FC = ifort
-INCLUDE = -I../finufft-2.0.2/include
+INCLUDE = -I../../finufft-2.0.2/include
 FFLAGS = -debug -g -CB -check bounds -traceback -check uninit -fp-model precise
 LDFLAGS = # -L
-LOADLIBES = ../finufft-2.0.2/lib/libfinufft.so -lfftw3xf_intel -mkl
+LOADLIBES = ../../finufft-2.0.2/lib/libfinufft.so -mkl
 fortran2python = f2py -c --fcompiler=intelem --compiler=intelem $(LOADLIBES) $(INCLUDE)
 
 
