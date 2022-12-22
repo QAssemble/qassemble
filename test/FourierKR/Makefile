@@ -1,4 +1,4 @@
-include ../../arch.mk
+include ../../barch.mk
 
 .SUFFIXES: .f90 .o
 
@@ -8,8 +8,8 @@ OBJ = \
   TestFourierKR.o
 
 OBJCommon = \
-  ../../modules/DiagEFourier.o \
-  ../../modules/DiagECommon.o \
+  ../../modules/Fourier.o \
+  ../../modules/Common.o \
   ../Common/Common.o
 
 all: $(OBJ)   

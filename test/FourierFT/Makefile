@@ -2,13 +2,13 @@ include ../../barch.mk
 
 .SUFFIXES: .f90 .o
 
-TARGET = TestDyson
+TARGET = TestFourierFT
 
 OBJ = \
-  TestDyson.o
+  TestFourierFT.o
 
 OBJCommon = \
-  ../../modules/Dyson.o \
+  ../../modules/Fourier.o \
   ../../modules/Common.o \
   ../Common/Common.o
 

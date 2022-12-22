@@ -1,6 +1,6 @@
 program TestFourierKR
-  use DiagEFourier
-  use DiagECommon
+  use Fourier
+  use Common
   implicit none
 
   integer :: iorb1, iorb2, is, ik, iomega, ik1, ik2, ik3, irk, ind(3),is1,is2
@@ -36,10 +36,8 @@ program TestFourierKR
 
 
 
-  call LatticeFermionKR(3,2,125,10,(/5,5,5/),fk,fr,1, 1.0d0)
-
-  call LatticeFermionKR(3,2,125,10,(/5,5,5/),fr,fk2,-1, 1.0d0/125)
-
+  call FLatDyn_K2R(3,2,125,10,(/5,5,5/),fk,fr)
+  call FLatDyn_R2K(3,2,125,10,(/5,5,5/),fr,fk2)
 
   do iomega=0, 9
     do irk=1, 125
@@ -87,9 +85,9 @@ program TestFourierKR
 
 
 
-  call LatticeBosonKR(3,2,125,10,(/5,5,5/),bk,br,1, 1.0d0)
+  call BLatDyn_K2R(3,2,125,10,(/5,5,5/),bk,br)
 
-  call LatticeBosonKR(3,2,125,10,(/5,5,5/),br,bk2,-1, 1.0d0/125)
+  call BLatDyn_R2K(3,2,125,10,(/5,5,5/),br,bk2)
 
 
   do iomega=0, 9

@@ -1,4 +1,4 @@
-include ../../arch.mk
+include ../../barch.mk
 
 .SUFFIXES: .f90 .o
 
