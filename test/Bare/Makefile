@@ -2,14 +2,15 @@ include ../../barch.mk
 
 .SUFFIXES: .f90 .o
 
-TARGET = TestBareFreq
+TARGET = TestBare
 
 OBJ = \
-  TestBareFreq.o
+  TestBare.o
 
 OBJCommon = \
   ../../modules/Bare.o \
   ../../modules/Common.o \
+  ../../modules/Fourier.o \
   ../Common/Common.o
 
 all: $(OBJ)
