@@ -3,12 +3,12 @@ include ../../barch.mk
 .SUFFIXES: .f90 .o
 
 # TARGET = FourierFtoT_Finu_chebyshev_boson
-TARGET = Test
+TARGET = TestFourierF2T_Fermion
 
 # OBJ = \
   # FourierFtoT_Finu_chebyshev_boson.o
 OBJ = \
-  TestFTConvolution.o
+  TestFourierF2T_Fermion.o
 
 OBJCommon = \
   ../../modules/MatsubaraBasis.o

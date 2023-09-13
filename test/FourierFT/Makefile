@@ -10,12 +10,12 @@ OBJ = \
 OBJCommon = \
   ../../modules/Fourier.o \
   ../../modules/Common.o \
-  ../Common/Common.o
+#  ../Common/Common.o
 
 all: $(OBJ)   
-	$(FC)  $(FFLAGS) $(INCLUDE) $(LOADLIBES) $(OBJ) $(OBJCommon) -I../../modules -o $(TARGET)
+	$(FC)  $(FFLAGS) $(FFTW) $(MKL) $(LIBES) $(INCLUDE) $(LOADLIBES) $(OBJ) $(OBJCommon) -I../../modules -o $(TARGET)
 .f90.o: 
-	$(FC) -c $(FFLAGS) $(INCLUDE) $(LOADLIBES) -I../../modules $<
+	$(FC) -c $(FFLAGS) $(INCLUDE) -L$(LOADLIBES) -I../../modules $<
 
 new:
 	make clean
