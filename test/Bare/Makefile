@@ -2,7 +2,7 @@ include ../../barch.mk
 
 .SUFFIXES: .f90 .o
 
-TARGET = TestBare
+TARGET = TestBare  
 
 OBJ = \
   TestBare.o
@@ -11,10 +11,9 @@ OBJCommon = \
   ../../modules/Bare.o \
   ../../modules/Common.o \
   ../../modules/Fourier.o \
-  ../Common/Common.o
 
 all: $(OBJ)
-	$(FC) $(FFLAGS) $(INCLUDE) $(LOADLIBES) $(OBJ) $(OBJCommon) -I../../modules -o $(TARGET)
+	$(FC) $(FFLAGS) $(MKL) $(FFTW) $(LIBES) $(INCLUDE) $(LOADLIBES) $(OBJ) $(OBJCommon) -I../../modules -o $(TARGET)
 new:
 	make clean
 	make all
