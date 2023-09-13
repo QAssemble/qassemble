@@ -13,7 +13,7 @@ OBJCommon = \
   ../Common/Common.o
 
 all: $(OBJ)   
-	$(FC)  $(FFLAGS) $(INCLUDE) $(LOADLIBES) $(OBJ) $(OBJCommon) -I../../modules -o $(TARGET)
+	$(FC)  $(FFLAGS) $(MKL) $(FFTW) $(LIBES)  $(INCLUDE) $(LOADLIBES) $(OBJ) $(OBJCommon) -I../../modules -o $(TARGET)
 .f90.o: 
 	$(FC) -c $(FFLAGS) $(INCLUDE) $(LOADLIBES) -I../../modules $<
 

@@ -3,7 +3,8 @@ program TestDyson
   use Common
   implicit none
 
-  integer :: iomega,iorb1,iorb2,ik,is1,is2,inu,is, ind(2), nn1(2), nn2(2), ind1,ind2
+  integer :: iomega,iorb1,iorb2,ik,is1,is2,inu,is
+  integer*8 :: ind(2), nn1(2), nn2(2), ind1,ind2
   complex*16 :: omega(0:9), nu(0:9), tempmat1(4,4), tempmat2(4,4),err, &
     glatt0(4,4,2,5,0:9), glattref(4,4,2,5,0:9), siglatt(4,4,2,5,0:9), &
     glocstc(4,4,2), glatstc(4,4,2,5), glocdyn(4,4,2,0:9), glatdyn(4,4,2,5,0:9), &
@@ -12,7 +13,7 @@ program TestDyson
     wlocstc(4,4,2,2), wlatstc(4,4,2,2,5), wlocdyn(4,4,2,2,0:9), wlatdyn(4,4,2,2,5,0:9)  
 
   do iomega=0, 9
-    omega(iomega)=dcmplx(0.0d0, (2*iomega+1))
+    omega(iomega)=dcmplx(0.0d0,(2*iomega+1))
   enddo
 
   do iomega=0,9
@@ -152,6 +153,7 @@ program TestDyson
         do is1=1, 2
           nn1=(/iorb1,is1/)
           call indexing(8,2,(/4,2/),1,ind1,nn1)
+          print *, ind1
           do iorb2=1, 4
             do is2=1, 2
               nn2=(/iorb2,is2/)

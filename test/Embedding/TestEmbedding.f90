@@ -50,7 +50,11 @@ program TestEmbedding
       enddo
     enddo
   enddo
-
+  do iorb1=1,4
+     do iorb2=1,4
+        print *, glattref(iorb1,iorb2,1,1,1)
+     enddo
+  enddo                 
   call FLocStc(4,2,gloc(:,:,:,0),3,gproj(:,:,:,1),glocstc)
   call FLatStc(4,2,5,gloc(:,:,:,0),3,gproj,glatstc)
   call FLocDyn(4,2,10,gloc,3,gproj(:,:,:,1),glocdyn)
