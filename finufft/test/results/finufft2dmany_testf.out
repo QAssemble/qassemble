@@ -1,0 +1,18 @@
+test 2d1 many vs repeated single: ------------------------------------
+ntr=3: 1000 NU pts to (100,10) modes in 0.00145 s 	2.06e+06 NU pts/s
+	one mode: rel err in F[37,2] of trans#2 is 2.58e-06
+3 of: 1000 NU pts to (100,10) modes in 0.000764 s 	3.93e+06 NU pts/s
+			speedup 	 T_FINUFFT2D1 / T_finufft2d1many = 0.525
+	consistency check: sup ( ||f_many-f||_2 / ||f||_2  ) =  2.24e-08
+test 2d2 many vs repeated single: ------------------------------------
+ntr=3: (100,10) modes to 1000 NU pts in 0.000295 s 	1.02e+07 NU pts/s
+	one targ: rel err in c[500] of trans#2 is 3.41e-06
+3 of: (100,10) modes to 1000 NU pts in 0.00073 s 	4.11e+06 NU pts/s
+			speedup 	 T_FINUFFT2D2 / T_finufft2d2many = 2.47
+	consistency check: sup ( ||c_many-c||_2 / ||c||_2 ) =  0
+test 2d3 many vs repeated single: ------------------------------------
+ntr=3: 1000 NU to 1000 NU in 0.000846 s      	7.09e+06 tot NU pts/s
+	one targ: rel err in F[250] of trans#2 is 8.75e-06
+3 of: 1000 NU to 1000 NU in 0.0017 s       	3.53e+06 tot NU pts/s
+			speedup 	 T_FINUFFT2D3 / T_finufft2d3many = 2.01
+	consistency check: sup ( ||f_many-f||_2 / ||f||_2 ) =  8.91e-06

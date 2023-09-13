@@ -1,0 +1,72 @@
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+spreadcheck NU pt not in valid range (central three periods): kx[0]=9.424777960769381, N1=20 (pirange=1)
+FINUFFT invokeGuru: setpts error (ier=4)!
+spreadcheck NU pt not in valid range (central three periods): kx[0]=inf, N1=20 (pirange=1)
+FINUFFT invokeGuru: setpts error (ier=4)!
+spreadcheck NU pt not in valid range (central three periods): kx[0]=nan, N1=20 (pirange=1)
+FINUFFT invokeGuru: setpts error (ier=4)!
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+[finufft_setpts t3] fwBatch would be bigger than MAX_NF, not attempting malloc!
+FINUFFT invokeGuru: setpts error (ier=2)!
+[finufft_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+[finufft_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+[finufft_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+[finufft_setpts t3] fwBatch would be bigger than MAX_NF, not attempting malloc!
+FINUFFT invokeGuru: setpts error (ier=2)!
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+[finufft_setpts t3] fwBatch would be bigger than MAX_NF, not attempting malloc!
+FINUFFT invokeGuru: setpts error (ier=2)!
+[finufft_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+[finufft_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+[finufft_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+[finufft_setpts t3] fwBatch would be bigger than MAX_NF, not attempting malloc!
+FINUFFT invokeGuru: setpts error (ier=2)!
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+[finufft_setpts t3] fwBatch would be bigger than MAX_NF, not attempting malloc!
+FINUFFT invokeGuru: setpts error (ier=2)!
+[finufft_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+[finufft_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+[finufft_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=1.1e-16.
+setup_spreader warning: at upsampfac=2, tol=1.1e-16 would need kernel width ns=17; clipping to max 16.
+[finufft_setpts t3] fwBatch would be bigger than MAX_NF, not attempting malloc!
+FINUFFT invokeGuru: setpts error (ier=2)!

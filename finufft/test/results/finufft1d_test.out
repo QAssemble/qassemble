@@ -1,0 +1,12 @@
+test 1d type 1:
+	200 NU pts to 100 modes in 0.00186 s 	1.08e+05 NU pts/s
+	one mode: rel err in F[37] is 3.86e-13
+	dirft1d: rel l2-err of result F is 1.66e-12
+test 1d type 2:
+	100 modes to 200 NU pts in 0.000182 s 	1.1e+06 NU pts/s
+	one targ: rel err in c[100] is 4.7e-13
+	dirft1d: rel l2-err of result c is 1.81e-12
+test 1d type 3:
+	200 NU to 100 NU in 0.000293 s        	1.02e+06 tot NU pts/s
+	one targ: rel err in F[50] is 5.75e-13
+	dirft1d: rel l2-err of result F is 2.27e-12

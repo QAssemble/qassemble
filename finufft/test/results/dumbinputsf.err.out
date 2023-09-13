@@ -1,0 +1,54 @@
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+spreadcheck NU pt not in valid range (central three periods): kx[0]=9.424778938293457, N1=20 (pirange=1)
+FINUFFT invokeGuru: setpts error (ier=4)!
+spreadcheck NU pt not in valid range (central three periods): kx[0]=inf, N1=20 (pirange=1)
+FINUFFT invokeGuru: setpts error (ier=4)!
+spreadcheck NU pt not in valid range (central three periods): kx[0]=nan, N1=20 (pirange=1)
+FINUFFT invokeGuru: setpts error (ier=4)!
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+[finufftf_setpts t3] fwBatch would be bigger than MAX_NF, not attempting malloc!
+FINUFFT invokeGuru: setpts error (ier=2)!
+[finufftf_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+[finufftf_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+[finufftf_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+[finufftf_setpts t3] fwBatch would be bigger than MAX_NF, not attempting malloc!
+FINUFFT invokeGuru: setpts error (ier=2)!
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+[finufftf_setpts t3] fwBatch would be bigger than MAX_NF, not attempting malloc!
+FINUFFT invokeGuru: setpts error (ier=2)!
+[finufftf_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+[finufftf_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+[finufftf_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+[finufftf_setpts t3] fwBatch would be bigger than MAX_NF, not attempting malloc!
+FINUFFT invokeGuru: setpts error (ier=2)!
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+[finufftf_setpts t3] fwBatch would be bigger than MAX_NF, not attempting malloc!
+FINUFFT invokeGuru: setpts error (ier=2)!
+[finufftf_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+[finufftf_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+[finufftf_makeplan] ntrans (0) should be at least 1.
+FINUFFT invokeGuru: plan error (ier=9)!
+setup_spreader warning: increasing tol=0 to eps_mach=6e-08.
+[finufftf_setpts t3] fwBatch would be bigger than MAX_NF, not attempting malloc!
+FINUFFT invokeGuru: setpts error (ier=2)!

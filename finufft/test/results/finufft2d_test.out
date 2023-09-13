@@ -1,0 +1,12 @@
+test 2d type 1:
+	1000 NU pts to (100,10) modes in 0.00248 s 	4.03e+05 NU pts/s
+	one mode: rel err in F[37,2] is 4.24e-13
+	dirft2d: rel l2-err of result F is 1.64e-12
+test 2d type 2:
+	(100,10) modes to 1000 NU pts in 0.000964 s 	1.04e+06 NU pts/s
+	one targ: rel err in c[500] is 4.8e-13
+	dirft2d: rel l2-err of result c is 1.74e-12
+test 2d type 3:
+	1000 NU to 1000 NU in 0.002 s         	1e+06 tot NU pts/s
+	one targ: rel err in F[500] is 1.12e-12
+	dirft2d: rel l2-err of result F is 2.68e-12
