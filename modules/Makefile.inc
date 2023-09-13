@@ -7,7 +7,7 @@ OBJ = \
   Dyson.o\
   Projection.o\
   Embedding.o\
-  Fourier.o\
+  Fourier2.o\
   Bare.o\
 
 all: $(OBJ)
@@ -16,7 +16,7 @@ new:
 	make clean
 	make all
 .f90.o: 
-	$(FC) -c $(FFLAGS) $(MKL) $(FFTW) $(LIBES) $(INCLUDE) $(LOADLIBES) $<
+	$(FC) -c $(FFLAGS) $(INCLUDE) -L$(LOADLIBES) $<
 clean:
 	rm -rf *.so
 	rm -rf *.o

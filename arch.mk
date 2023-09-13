@@ -7,10 +7,16 @@
 
 
 FC = ifort
-INCLUDE = -I../finufft-2.0.2/include
+INCLUDE = -I../finufft/include
 FFLAGS = -debug -g -CB -check bounds -traceback -check uninit -fp-model precise
 LDFLAGS = # -L
-LOADLIBES = ../finufft-2.0.2/lib/libfinufft.so -lfftw3xf_intel -mkl
+LOADLIBES = /home/momichael98/temp/Fortran/DiagE/finufft/lib/libfinufft.so -lfftw3 -mkl
+#LOADLIBES = ../finufft/lib/libfinufft.so -lfftw3 -mkl
+LIBES = -L${MKLROOT}/lib/intel64_lin -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -lm
+FFTW = -I${MKLROOT}/include/fftw
+MKL = -I${MKLROOT}/include
+#LIBES = -L/home/momichael98/temp/Fortran/DiagE/modules/fftw3/fftw-3.3.10/lib -lfftw3 -mkl
+#FFTW = -I/home/momichael98/temp/Fortran/DiagE/modules/fftw3/fftw-3.3.10/include
 fortran2python = f2py -c --fcompiler=intelem --compiler=intelem $(LOADLIBES) $(INCLUDE)
 
 

@@ -1,8 +1,8 @@
 Module Common
   implicit None
 
-  private :: gcoeff
-  public :: dcmplx_matinv, indexing, fderiv_dcmplx,spline_dcmplx, fftw3_1d, fftw3_2d, fftw3_3d, factorial_int,hermitianeigen_dcmplx, BernoulliPolynomial, EulerPolynomial, ttind, Legendre2Chebyshev
+! private :: gcoeff
+  public :: dcmplx_matinv, indexing, fderiv_dcmplx,spline_dcmplx, fftw3_1d, fftw3_2d, fftw3_3d, factorial_int,hermitianeigen_dcmplx, BernoulliPolynomial, EulerPolynomial, ttind, Legendre2Chebyshev,gcoeff
 
 contains
 
@@ -32,9 +32,9 @@ contains
   subroutine indexing(ntot,ndivision,divisionarray,flag,n1,n2)
     implicit none
     integer, intent(in) :: ntot,ndivision,  divisionarray(ndivision),flag
-    integer, intent(inout) :: n1, n2(ndivision)
+    integer*8, intent(inout) :: n1, n2(ndivision)
     integer :: ii,jj,tempcnt,tmpsize
-
+    
     tmpsize=1
     do ii=1, ndivision
       tmpsize=tmpsize*divisionarray(ii)
@@ -70,9 +70,9 @@ contains
     double precision, intent(out) :: w(dimen)
     integer :: lwork, info, j, i, ifail, lwkopt
     complex*16, allocatable :: work(:)
-    complex*16 :: worktemp(2*dimen)
+    complex*16 :: worktemp(2*dimen),tempmat(dimen,dimen)
     double precision :: rwork(dimen*3), rcondz(dimen), zerrbd(dimen), eerrbd, eps
-    
+!   tempmat = datamat                                 
     call zheev('V','U',dimen,datamat,dimen, w,worktemp,-1,rwork, info)
     lwkopt = worktemp(1)
     allocate(work(lwkopt))

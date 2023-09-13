@@ -2,14 +2,14 @@ Module Fourier
   use Common
   implicit None
 
-  private:: &
-    Dyn_T2F,& 
-    FLat_KR,BLat_KR
+! private:: &
+!   Dyn_T2F,& 
+!   FLat_KR,BLat_KR
 
 
   Public :: &
 ! T2F, F2T, M, K2R, R2K
-    
+    Dyn_T2F, FLat_KR, BLat_KR, &    
     ! FLatDyn_Normalization, & !
     ! FLocDyn_Normalization, &!
     
@@ -551,13 +551,14 @@ contains
     implicit none
 
     integer, intent(in) :: norb,ns,nrk,rkgrid(3)
+    integer :: iorb,jorb,is,js,irk
 
     complex*16, intent(in) :: fin(norb,norb,ns,ns,nrk)
     complex*16, intent(out) :: fout(norb,norb,ns,ns,nrk)
     double precision :: norm
     norm=1.0d0/nrk
-
     call BLat_KR(norb,ns,nrk,rkgrid,fin,fout,1,norm)
+
   end subroutine BLatStc_K2R
 
 

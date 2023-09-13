@@ -18,6 +18,7 @@ Module Bare
     FLocTau, &
     FLatTau, &
     BLocTau, &
+    BLatTau, &
     BFreq
 
 ! end interface Dyson
@@ -94,10 +95,9 @@ contains
     
     pi = datan2(1.0d0, 1.0d0)*4.0d0
     
-    beta= tau(0)*2.0d0/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)    
-    
+    beta= tau(0)/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)*2.0d0   
     machep = epsilon ( machep )
-    
+
     do itau=0, ntau-1
       taumod=modulo(tau(itau), beta)
       unitnum=nint(tau(itau)-taumod)/beta
@@ -105,7 +105,7 @@ contains
         unitnum=unitnum-1
       endif
       taunew=tau(itau)-beta*unitnum          
-      
+ 
       
       if (energy .gt. 0) then
         gtau(itau)=(-1)**(unitnum+1)*dexp(-energy*taunew)*(1-1.0d0/(dexp(energy*beta)+1))
@@ -271,7 +271,7 @@ contains
 
       gtau = 0.0d0
       do iorb = 1, norb
-        call FTau(ntau, tau, w(iorb), gtau)
+        call FTau(ntau, tau, w(iorb), gtau(:,iorb))
       enddo
 
       do itau = 0, ntau-1

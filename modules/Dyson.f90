@@ -109,7 +109,8 @@ contains
     complex*16,intent(in) :: ffin(norb,norb,ns,ns), sig(norb,norb,ns,ns)
     complex*16,intent(out) :: ffout(norb,norb,ns,ns)
 
-    integer :: iorb,jorb,is,js,ndim,ind1,ind2,nn1(2),nn2(2)
+    integer :: iorb,jorb,is,js,ndim
+    integer*8 :: ind1, ind2,nn1(2),nn2(2)
     complex*16 :: tempmat1(norb*ns,norb*ns), tempmat2(norb*ns,norb*ns),sigtemp(norb*ns,norb*ns),ffintemp(norb*ns,norb*ns)
 
     ndim=norb*ns
