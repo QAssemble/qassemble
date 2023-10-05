@@ -14,6 +14,7 @@ from sympy.physics.wigner import gaunt, wigner_3j
 from scipy.fftpack import fftn, ifftn
 import scipy.linalg
 import sys
+from Common import *
 path = "/home/momichael98/temp/Fortran/DiagE/modules"
 sys.path.append(path)
 import DiagE
@@ -24,7 +25,7 @@ class Crystal():
     def __init__(self,latt : list,basis_position : list):
         latt = np.array(latt,dtype=float)
         basis_position = np.array(basis_position,dtype=float)
-        self.lat = latt
+        self.latt = latt
         self.basis_f = basis_position
         self.basis_c = None
         self.bvec = np.zeros((3,3))
@@ -65,7 +66,7 @@ class Crystal():
 
         kpath = np.array(kpath,dtype=float)
         nnod = kpath.shape[0]
-        k_mat = np.linalg.inv(np.dot(self.lat,self.lat.T))
+        k_mat = np.linalg.inv(np.dot(self.latt,self.latt.T))
         knode = np.zeros(nnod,dtype=float)
         for n in range(1,nnod):
             dk = kpath[n] - kpath[n-1]
@@ -97,199 +98,155 @@ class Crystal():
 
 class FHamiltonian(object):
 
-    def __init__(self,crystal=None, ns : int = None, SOC : bool = False):
+    def __init__(self,crystal : Crystal, ns : int = None, SOC : bool = False):
 
         self.ns = ns
         self.basis_f = crystal.basis_f
         self.basis_c = crystal.basis_c
-        self.latt = crystal.lat
+        self.latt = crystal.latt
         self.bvec = crystal.bvec
         self.kpoint = crystal.kpoint
         self.kpath = crystal.kpath
         self.vol = crystal.vol
-        self.grid = crystal.grid
+        self.rkgrid = crystal.grid
         self.SOC = SOC
-        self.idx = {}
-        self.orbidx = {}
-        self.b2f = []
+        self.find = {}
         self.Hopping = []
         self.rvec = []
-        self.On_site = []
+        self.Onsite = []
         self.Ham_R = None
-
-    def set_basis_index(self,option : list)->dict:
-        idx = []
-        for m1 in range(option[1]):
-            idx.append([option[0],m1])
-        norbc = len(self.idx)
-        ind = 0
-        for iorb in range(norbc,norbc+option[1]):
-            self.idx[iorb] = idx[ind]
-            ind +=1
-        idx1 = []
-        orb_ind = []
-        orb_ind = list(range(option[1]))
-        for m1, m2 in itertools.product(orb_ind,orb_ind):
-            idx1.append([option[0],[m1,m2]])
-
-
-        norb = len(self.orbidx)
-        ind = 0
-        for iorb in range(norb,norb+option[1]**2):
-            self.orbidx[iorb] = idx1[ind]
-            ind +=1
-            self.boson2fermion(iorb)
-        
-        norb = len(self.orbidx)
-        norbc = len(self.idx)
-
-        self.Ham_R = np.zeros((norb,norb),dtype=complex,order='F')
-        
-        self.V_loc = np.zeros((norb,norb,self.ns,self.ns),dtype=complex,order='F')
-        
     
-    def boson2fermion(self,iorb):
+    def set_basis_index(self,option : list = None)->dict:
+
+        ind = []
+        for m1 in range(option[1]):
+            ind.append([option[0],m1])
         
+        norbc = len(self.find)
+        ii = 0
+        for iorbc in range(norbc,norbc+option[1]):
+            self.find[iorbc] = ind[ii]
+            ii +=1
+        norbc = len(self.find)
+
+        self.Ham_R = np.zeros((norbc,norbc),dtype=complex,order='F')
+
+    def Fatomorb(self,key : int = None) -> list:
+        '''
+        input : composite index for fermion
+        output : atom and orbital index in fermion case
+
+        e.g.
+        0 -> [0,0]
+        '''
+        return self.find[key]
+    
+    def Findex(self,val : list = None) -> int:
+        '''
+        input : atom and orbital index with list
+        output : composite index for fermion
+
+        e.g.
+        [0,0] -> 0
+        '''
         
-        [a,[m1,m2]] = self.orbkey2val(iorb)
-        iorbc1 = self.val2key([a,m1])
-        iorbc2 = self.val2key([a,m2])
-        self.b2f.append([iorbc1,iorbc2])
-
-        
-
-    def key2val(self,key : int = None) -> list:
-        return self.idx[key]
-
-    def val2key(self,val : list = None) -> int :
-
-        for key, value in self.idx.items():
+        for key, value in self.find.items():
             if value == val:
                 return key
+    
+    def Hoppinglist(self,hopping : float = 0, ind_i : int = 0, ind_j : int = 0, R : list = [])->list:
 
-    def orbkey2val(self,key : int = None) -> list:
-        return self.orbidx[key]
-
-    def orbval2key(self,val : list = None) -> int :
-        for key, value in self.orbidx.items():
-            if value==val:
-                return key
-
-#    def block_val(self,val : complex):
-
-#        if self.ns == 1:
-#            return val
-#        elif self.ns == 2:
-#            val_temp = np.zeros((self.ns),dtype=complex)
-#            val_arr = np.array(val)
-
-#            if val_arr.shape==():
-#                val_temp[0] += val_arr
-#                val_temp[1] += val_arr
-
-#                return val_temp
-
-
-    def Hoppinglist(self,hopping : float = 0, ind_i : int = 0, ind_j : int = 0, sx : int = 0, sy : int = 0, sz : int = 0) -> list:
-
-        
-        stride = np.array([sx,sy,sz])
-
-
+        R = np.array(R)
         self.Ham_R[ind_i,ind_j] = hopping
         self.Ham_R[ind_j,ind_i] = hopping
-        alpha = self.key2val(ind_i)
-        beta = self.key2val(ind_j)
 
-        
-        rv = self.basis_f[alpha,:]-self.basis_f[beta,:]+stride
-        
+        alpha = self.Fatomorb(ind_i)[0]
+        beta = self.Fatomorb(ind_j)[0]
 
-        self.rvec.append([ind_i,ind_j,rv[0]])
+        rv = self.basis_f[alpha,:] - self.basis_f[beta,:] + R
 
-        self.Hopping.append([hopping,ind_i,ind_j,stride])
-        
-        
+        self.rvec.append([ind_i, ind_j, rv])
 
-    def On_site_list(self,Energy : list) -> list :
+        self.Hopping.append([hopping,ind_i,ind_j,R])
+
+    def On_site_list(self,Energy : list = []) -> list:
+
+        self.Onsite.append(Energy)
 
         for iorb, e in enumerate(Energy):
             self.Ham_R[iorb,iorb] = e
 
-    def Hamiltonian(self,option : str = 'mesh') -> np.ndarray:
+    def Hamiltonian(self, flag : int = 0) -> np.ndarray:
 
-        if option == 'mesh':
+        if flag == 0:
             kvec = self.kpoint
-        elif option == 'path':
+        elif flag == 1:
             kvec = self.kpath
+        else:
+            print("flag has onle 0 or 1")
+            sys.exit()
+        
         nk = len(kvec)
-        norb = len(self.idx)
-        ham = np.zeros((norb,norb,self.ns,nk),dtype=complex,order='F')
+        norb = len(self.find)
+        ns = self.ns
+        Hmat = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
+        
+        for js in range(ns):
+            for iorb in range(norb):
+                Hmat[iorb,iorb,js,:] = self.Ham_R[iorb,iorb]
 
-        # Ham_R = self.Ham_R/len(self.rvec)
-        for js in range(self.ns):
+        for js in range(ns):
             for iorb,jorb,R in self.rvec:
                 phase = np.exp(-2.0j*np.pi*np.dot(kvec,R))
                 for ik in range(nk):
-                    ham[iorb,jorb,js,ik] += self.Ham_R[iorb,jorb]*phase[ik]
-                    ham[jorb,iorb,js,ik] += self.Ham_R[iorb,jorb]*np.conjugate(phase[ik])
+                    Hmat[iorb,jorb,js,ik] += self.Ham_R[iorb,jorb]*phase[ik]
+                    Hmat[jorb,iorb,js,ik] += self.Ham_R[iorb,jorb]*np.conjugate(phase[ik])
 
+        self.Ham_tb = Hmat
+        
+    
+    def diagonalize(self,Hmat : np.ndarray, eigvec : bool = False):
 
-        # for hopp in self.Hopping:
-        #     amp = hopp[0]
-        #     iorb = hopp[1]
-        #     jorb = hopp[2]
-        #     R = hopp[3]
-            
-        #     [a,m1] = self.key2val(iorb)
-        #     [b,m2] = self.key2val(jorb)
-            
-
-        #     rvec = self.basis_f[a,:] - self.basis_f[b,:] + R
-            
-
-        #     phase = np.exp(-2.0j*np.pi*np.dot(kinput,rvec))
-        #     for s1 in range(self.ns):
-        #         for ik in range(nk):
-        #             ham[iorb,jorb,s1,ik] += amp*phase[ik]
-        #             ham[jorb,iorb,s1,ik] += amp*phase[ik].conjugate()
-
-        return ham
-
-    def diagonalization(self,ham : np.ndarray,eigvec : bool = False):
-
-        nk = ham.shape[3]
-        norb = ham.shape[0]
-        E = np.zeros((nk,self.ns,norb),dtype=float)
-        evec = np.zeros((norb,norb,self.ns,nk),dtype=complex)
+        nk = Hmat.shape[3]
+        norb = Hmat.shape[0]
+        ns = self.ns
+        
+        Energy = np.zeros((norb,norb,ns,nk),dtype=float)
+        evec = np.zeros((norb,norb,ns,nk),dtype=complex)
 
         if eigvec == False:
             for ik in range(nk):
-                for js in range(self.ns):
-                    E[ik,js,:] = np.linalg.eigvalsh(ham[:,:,js,ik])
-            return E
+                for js in range(ns):
+                    e = np.linalg.eigvalsh(Hmat[:,:,js,ik])
+                    Energy[:,:,js,ik] = np.diag(e)
+            return Energy
         else:
             for ik in range(nk):
-                for js in range(self.ns):
-                    (energy,eig_vec) = np.linalg.eig(ham[:,:,js,ik])
-                    E[ik,js,:] = energy
-                    evec[:,:,js,ik] = eig_vec
-            return E, evec
+                for js in range(ns):
+                    (e,v) = np.linalg.eig(Hmat[:,:,js,ik])
+                    Energy[:,:,js,ik] = np.diag(e)
+                    evec[:,:,js,ik] = v
+            return Energy, evec
+    
+    def visualization(self,energy : np.ndarray, filename : str = None):
+        '''
+        For test the code
+        '''
 
-    def visualization(self,energy : np.ndarray,filename : str = None):
-        
-        if self.grid[2] ==1 :
-            norb = energy.shape[2]
+        if self.rkgrid[2]==1:
+            norb = energy.shape[0]
+            ns = self.ns
             fig = plt.figure()
             ax = fig.add_subplot(projection='3d')
-            kx = self.kpoint[:,0].reshape(self.grid[0],self.grid[1],self.grid[2])
-            ky = self.kpoint[:,1].reshape(self.grid[0],self.grid[1],self.grid[2])
-            
-            energy = energy.reshape(self.grid[0],self.grid[1],self.grid[2],self.ns,norb)
+            kx = self.kpoint[:,0].reshape(self.rkgrid[0],self.rkgrid[1],self.rkgrid[2])
+            ky = self.kpoint[:,1].reshape(self.rkgrid[0],self.rkgrid[1],self.rkgrid[2])
 
-            for js in range(self.ns):
+            energy = energy.T
+            energy = energy.reshape(self.rkgrid[0],self.rkgrid[1],self.rkgrid[2],ns,norb,norb)
+
+            for js in range(ns):
                 for iorb in range(norb):
-                    ax.plot_surface(kx[:,:,0],ky[:,:,0],energy[:,:,0,js,iorb])
+                    ax.plot_surface(kx[:,:,0],ky[:,:,0],energy[:,:,0,js,iorb,iorb])
             
             ax.view_init(azim=-120,elev=0)
             ax.set_xlabel('kx')
@@ -298,25 +255,38 @@ class FHamiltonian(object):
             plt.show()
             if filename is not None:
                 fig.savefig(filename)
-        elif self.grid[2] is not 1:
+        
+        elif self.rkgrid[2] != 1:
             print('Error, kz must be 1')
             sys.exit()
-        
 
-    def band(self,energy : np.ndarray):
+    def band(self, energy : np.ndarray):
 
         import matplotlib.pyplot as plt
 
-        if self.ns == 1:
-            plot_energy = energy[:,0,:]
-            plt.plot(plot_energy)
-        else:
-            plot_energy_up = energy[:,0,:]
-            plot_energy_down = energy[:,1,:]
+        norb = energy.shape[0]
+        ns = self.ns
+        nk = energy.shape[3]
 
-            plt.plot(plot_energy_up,'k-')
-            plt.plot(plot_energy_down,'r-')
+        energy_plot = np.zeros((norb,ns,nk),dtype=complex)
+
+        for ik in range(nk):
+            for js in range(ns):
+                for iorb in range(norb):
+                    energy_plot[iorb,js,ik] = energy[iorb,iorb,js,ik]
+
+        if ns == 1:
+            plt.plot(energy_plot.T[:,0,:])
+            plt.show()
+        elif ns == 2:
             
+            up = energy_plot.T[:,0,:]
+            down = energy_plot.T[:,1,:]
+
+            plt.plot(up,'k-')
+            plt.plot(down,'r-')
+            plt.show()
+    
     def FInv(self,mat : np.ndarray) -> np.ndarray:
 
         norb = mat.shape[0]
@@ -391,8 +361,8 @@ class FHamiltonian(object):
 
         for iorb in range(norb):
             for jorb in range(norb):
-                [a,m1] = self.key2val(iorb)
-                [b,m2] = self.key2val(jorb)
+                [a,m1] = self.Fatomorb(iorb)
+                [b,m2] = self.Fatomorb(jorb)
 
                 delta = self.basis_f[a,:]-self.basis_f[b,:]
                 phase = np.exp(2.0j*np.pi*np.dot(rkvec,delta))
@@ -418,8 +388,8 @@ class FHamiltonian(object):
         for iorb in range(norb):
             for jorb in range(norb):
 
-                [a,m1] = self.key2val(iorb)
-                [b,m2] = self.key2val(jorb)
+                [a,m1] = self.Fatomorb(iorb)
+                [b,m2] = self.Fatomorb(jorb)
 
                 delta = self.basis_f[a,:]-self.basis_f[b,:]
                 phase = np.exp(-(2.0j)*np.pi*np.dot(rkvec,delta))
@@ -489,8 +459,7 @@ class FHamiltonian(object):
         nk = ftau.shape[3]
         ff = np.empty_like(ftau,dtype=complex,order='F')
 
-        for ik in range(nk):
-            ff[:,:,:,ik,:]  = self.FLocDyn_T2F(tau,ftau[:,:,:,ik,:],freq)
+        ff = DiagE.fourier.flatdyn_t2f(tau,ftau,freq)
         
         return ff
     
@@ -506,68 +475,130 @@ class FHamiltonian(object):
     def FLatDyn_F2T(self, omega : np.ndarray = None, ff : np.ndarray = None, tau : np.ndarray = None, isgreen : int = None, highzero : int = None) -> np.ndarray:
         
         nk = ff.shape[3]
+        momentum, high = self.FLatDyn_M(omega,ff,isgreen,highzero)
         ftau = np.empty_like(ff,dtype=complex,order='F')
 
-        for ik in range(nk):
-            ftau[:,:,:,ik,:] = self.FLocDyn_F2T(omega,ff[:,:,:,ik,:],tau,isgreen,highzero)
+        ftau = DiagE.fourier.flatdyn_f2t(omega,ff,momentum,tau)
 
         return ftau
     
-    def FProjLocStc(self,ff : np.ndarray, projector : np.ndarray)->np.ndarray:
+    def FmixLocStc(self,iter : int, mix : float, Fb : np.ndarray, Fm : np.ndarray)->np.ndarray:
 
-        norb = ff.shape[0]
-        ns = ff.shape[2]
-        norbc = projector.shape[0]
+        norb = Fb.shape[0]
+        ns = Fb.shape[2]
+        F_new = np.zeros((norb,norb,ns),dtype=complex,order='F')
 
-        ffc = np.zeros((norbc,norbc,ns),dtype=complex,order='F')
-
-        ffc = DiagE.projection.flocstc(ff,projector)
-
-        return ffc
-    
-    def FProjLatStc(self,ff : np.ndarray, projector : np.ndarray)->np.ndarray:
-
-        norb = ff.shape[0]
-        ns = ff.shape[2]
-        nk = ff.shape[3]
-        norbc = projector.shape[0]
-
-        ffc = np.zeros((norbc,norbc,ns,nk),dtype=complex,order='F')
-
-        for ik in range(nk):
-            ffc[:,:,:,ik] = self.FProjLocStc(ff[:,:,:,ik],projector[:,:,:,ik])
-    
-        return ffc
-    
-    def FProjLocDyn(self,ff : np.ndarray, projector : np.ndarray)->np.ndarray:
-
-        norb = ff.shape[0]
-        ns = ff.shape[2]
-        norbc = projector.shape[0]
-        nt = ff.shape[3]
-
-        ffc = np.zeros((norbc,norbc,ns,nt),dtype=complex,order='F')
-
-        for it in range(nt):
-            ffc[:,:,:,it] = self.FProjLocStc(ff[:,:,:,it],projector[:,:,:,it])
-
-        return ffc
-    
-    def FProjLatDyn(self,ff : np.ndarray, projector : np.ndarray)->np.ndarray:
-
-        norb = ff.shape[0]
-        ns = ff.shape[2]
-        nk = ff.shape[3]
-        nt = ff.shape[4]
-        norbc = projector.shape[0]
-
-        ffc = np.zeros((norbc,norbc,ns,nk,nt),dtype=complex,order='F')
-
-        for it in range(nt):
-            ffc[:,:,:,:,it] = self.FProjLatStc(ff[:,:,:,:,it],projector[:,:,:,:,it])
+        if iter == 1:
+            mix = 1.0
         
-        return ffc
+        for js in range(ns):
+            for iorb in range(norb):
+                for jorb in range(norb):
+                    F_new[iorb,jorb,js] = mix*Fb[iorb,jorb,js]+(1-mix)*Fm[iorb,jorb,js]
+        
+        return F_new
+    
+    def FmixLatStc(self,iter : int, mix : float, Fb : np.ndarray, Fm : np.ndarray)->np.ndarray:
 
+        norb = Fb.shape[0]
+        ns = Fb.shape[2]
+        nrk = Fb.shape[3]
+
+        F_new = np.zeros((norb,norb,ns,nrk),dtype=complex,order='F')
+
+        if iter == 1:
+            mix = 1.0
+        for irk in range(nrk):
+            for js in range(ns):
+                for iorb in range(norb):
+                    for jorb in range(norb):
+                        F_new[iorb,jorb,js,irk] = mix*Fb[iorb,jorb,js,irk]+(1-mix)*Fm[iorb,jorb,js,irk]
+        
+        return F_new
+    
+    def FmixLocDyn(self,iter : int, mix : float, Fb : np.ndarray, Fm : np.ndarray)->np.ndarray:
+
+        norb = Fb.shape[0]
+        ns = Fb.shape[2]
+        nft = Fb.shape[3]
+
+        F_new = np.zeros((norb,norb,ns,nft),dtype=complex,order='F')
+
+        if iter == 1:
+            mix = 1.0
+
+        for ift in range(nft):
+            for js in range(ns):
+                for iorb in range(norb):
+                    for jorb in range(norb):
+                        F_new[iorb,jorb,js,ift] = mix*Fb[iorb,jorb,js,ift] + (1-mix)*Fm[iorb,jorb,js,ift]
+
+        return F_new
+    
+    def FmixLatDyn(self,iter : int, mix : float, Fb : np.ndarray, Fm : np.ndarray)->np.ndarray:
+
+        norb = Fb.shape[0]
+        ns = Fb.shape[2]
+        nrk = Fb.shape[3]
+        nft = Fb.shape[4]
+
+        F_new = np.zeros((norb,norb,ns,nrk,nft),dtype=complex,order='F')
+
+        if iter == 1:
+            mix = 1.0
+        print(mix)
+        for ift in range(nft):
+            for irk in range(nrk):
+                for js in range(ns):
+                    for iorb in range(norb):
+                        for jorb in range(norb):
+                            F_new[iorb,jorb,js,irk,ift] = mix*Fb[iorb,jorb,js,irk,ift] + (1-mix)*Fm[iorb,jorb,js,irk,ift]
+
+        return F_new
+    
+    def mapping_mR_R(self,rkgrid : list = None): # -> fermion
+        
+        if rkgrid == None:
+            rkvec = self.kpoint 
+        else:
+            rkgrid = np.array(rkgrid,dtype=int,order='F')
+            rkvec = np.array(list(itertools.product(np.arange(0,rkgrid[2])/rkgrid[2],np.arange(0,rkgrid[1])/rkgrid[1],np.arange(0,rkgrid[0])/rkgrid[0])))
+            rkvec = np.fliplr(rkvec)
+
+        mrkvec = np.array(1.0-rkvec,dtype=float)
+
+        for i in range(mrkvec.shape[0]):
+            for j in range(mrkvec.shape[1]):
+                if mrkvec[i,j] == 1.0:
+                    mrkvec[i,j] = 0
+        
+        mapping_idx = []
+
+        for i in range(rkvec.shape[0]):
+            for j in range(mrkvec.shape[0]):
+                if(abs(rkvec[i,0]-mrkvec[j,0])<=1.0e-6)and(abs(rkvec[i,1]-mrkvec[j,1])<=1.0e-6)and((abs(rkvec[i,2]-mrkvec[j,2])<=1.0e-6)):
+                    mapping_idx.append([i,j])
+
+        self.mapping_idx = mapping_idx
+    
+    def FLatTau_m(self,flattau : np.ndarray) -> np.ndarray: # -> fermion
+
+        self.mapping_mR_R()
+
+        nk = flattau.shape[3]
+        ntau = flattau.shape[4]
+        norb = flattau.shape[0]
+
+        flattau_m = np.zeros((norb,norb,self.ns,nk,ntau),dtype=complex,order='F')
+
+        for itau in range(ntau):
+            for kp in self.mapping_idx:
+                for js in range(self.ns):
+                    for iorb in range(norb):
+                        for jorb in range(norb):
+                            flattau_m[iorb,jorb,js,kp[0],itau] = -flattau[iorb,jorb,js,kp[1],ntau-itau-1]
+
+        return flattau_m
     
     def num_of_e_tau(self, mu : float, Nt : float, hmat : np.ndarray, tau : np.ndarray):
         
@@ -601,42 +632,47 @@ class FHamiltonian(object):
     def num_of_e_freq(self,mu :float, Nt : float, G : np.ndarray,omega : np.ndarray, tau : np.ndarray):
 
         norb = G.shape[0]
+        ns = self.ns
         nk = G.shape[3]
         nomega = G.shape[4]
 
-        chem = np.empty_like(G,dtype=complex,order='F')
-        G_cal = np.empty_like(G,dtype=complex,order='F')
-        tempmat = np.empty_like(G,dtype=complex,order='F')
+        G_cal_f = np.zeros((norb,norb,ns,nk,nomega),dtype=complex,order='F')
+        G_cal_t = np.zeros((norb,norb,ns,nk,nomega),dtype=complex,order='F')
+        tempmat = np.zeros((norb,norb,ns,nk,nomega),dtype=complex,order='F')
 
-        for iomega in range(nomega):
-            for ik in range(nk):
-                for js in range(self.ns):
-                    tempmat[:,:,js,ik,iomega] = np.linalg.inv(G[:,:,js,ik,iomega])
-                    for iorb in range(norb):
-                        chem[iorb,iorb,js,ik,iomega] = mu
+        tempmat = self.FInvLatDyn(G)
         
+        # for iomega in range(nomega):
+        #     for ik in range(nk):
+        #         for js in range(self.ns):
+        #             for iorb in range(norb):
+        #                 tempmat[iorb,iorb,js,ik,iomega] += mu
+
+        # 
         for iomega in range(nomega):
             for ik in range(nk):
-                for js in range(self.ns):
+                for js in range(ns):
                     for iorb in range(norb):
-                        for jorb in range(norb):
-                            tempmat[iorb,jorb,js,ik,iomega] = tempmat[iorb,jorb,js,ik,iomega] + chem[iorb,jorb,js,ik,iomega]
+                        tempmat[iorb,iorb,js,ik,iomega] = -mu
+        # for iomega in range(nomega):
+        #     for ik in range(nk):
+        #         for js in range(ns):
+        #             for iorb in range(norb):
+        #                 tempmat[iorb,iorb,js,ik,iomega] += mu
+        G_cal_f = DiagE.dyson.flatdyn(G,tempmat)
+        # G_cal_f = self.FInvLatDyn(tempmat)
+        G_cal_t = self.FLatDyn_F2T(omega,G_cal_f,tau,1,1)
 
-        for iomega in range(nomega):
-            for ik in range(nk):
-                for js in range(self.ns):
-                    G_cal[:,:,js,ik,iomega] = np.linalg.inv(tempmat[:,:,js,ik,iomega])
- 
-        G_cal = self.FLatDyn_F2T(omega,G_cal,tau,1,1)
-
-        ntau = G_cal.shape[4]
+        ntau = G_cal_t.shape[4]
         Ne = 0
+        
         for ik in range(nk):
             for js in range(self.ns):
                 for iorb in range(norb):
-                    Ne += -G_cal[iorb,iorb,js,ik,ntau-1]
+                        Ne += -G_cal_t[iorb,iorb,js,ik,ntau-1]
+        Ne /= nk
 
-        return Nt-Ne/nk
+        return np.real(Nt-Ne)
     
     def root_find_for_GW(self,Nt : float, G : np.ndarray, omega : np.ndarray, tau : np.ndarray):
         
@@ -650,33 +686,38 @@ class FHamiltonian(object):
     def occupation_matrix(self, flattau : np.ndarray = None):
         '''
         input : G(k,tau)
-        output : occupancy matrix
+        output : occupancy matrix(norb,norb,ns)
         '''
 
         
         norb = flattau.shape[0]
         nk = flattau.shape[3]
         ntau = flattau.shape[4]
-        nmat = np.zeros((norb,norb,self.ns),dtype=float)
+        nmat = np.zeros((norb,norb,self.ns,nk),dtype=float)
 
         for ik in range(nk):
             for js in range(self.ns):
                 for iorb in range(norb):
-                    nmat[iorb,iorb,js] += -flattau[iorb,iorb,js,ik,ntau-1]
-        nmat /= nk
+                    for jorb in range(norb):
+                        nmat[iorb,jorb,js,ik] += -flattau[iorb,jorb,js,ik,ntau-1]
+        
         return nmat
     
-    def Hartree(self, Vinput : np.ndarray, Gnot : np.ndarray) -> np.ndarray:
+    def Hartree(self,Gnot : np.ndarray, boson = None) -> np.ndarray:
         '''
         input : Vinput(k,tau), Gnot(k,tau)
         output : Energy(k,tau)
-        '''
 
+        it save the hartree self-energy in the class Fhamiltonian
+        '''
+        V = boson.V_bare
+        bf_list = boson.b2f
         nk = Gnot.shape[3]
         ntau = Gnot.shape[4]
-        norb = Vinput.shape[0]
+        norbc = Gnot.shape[0]
+        norb = V.shape[0]
 
-        norbc = len(self.idx)
+        
         # 3**2 + 5**2 -> norb norbc -> 3+5
         tempmat = np.zeros((norb*self.ns,norb*self.ns,nk),dtype=complex,order='F')
 
@@ -687,21 +728,17 @@ class FHamiltonian(object):
                 for s1 in range(self.ns):
                     for iorb in range(norb):
                         nn1 = [iorb,s1]
-                        ind1, nn1 = self.indexing(norb*self.ns,2,[norb,self.ns],1,0,nn1)
-                        [a,[m1,m2]] = self.orbkey2val(iorb)
-                        iorb1 = self.val2key([a,m1])
-                        iorb2 = self.val2key([a,m2])
+                        ind1, nn1 = indexing(norb*self.ns,2,[norb,self.ns],1,0,nn1)
+                        iorb1, iorb2 = bf_list[iorb]
                         for s2 in range(self.ns):
                             for jorb in range(norb):
                                 nn2 = [jorb,s2]
-                                ind2, nn2 = self.indexing(norb*self.ns,2,[norb,self.ns],1,0,nn2)
-                                [b,[m3,m4]] = self.orbkey2val(jorb)
-                                iorb3 = self.val2key([b,m3])
-                                iorb4 = self.val2key([b,m4])
+                                ind2, nn2 = indexing(norb*self.ns,2,[norb,self.ns],1,0,nn2)
+                                iorb3, iorb4 = bf_list[jorb]
                                 Gf_temp = np.zeros((norbc,norbc,self.ns),dtype=complex)
                                 for jk in range(nk):
                                     Gf_temp[iorb4,iorb3,s2] += Gnot[iorb4,iorb3,s2,jk,-1]
-                                tempmat[ind1,ind2,ik] = Vinput[iorb,jorb,s1,s2,ik]
+                                tempmat[ind1,ind2,ik] = V[iorb,jorb,s1,s2,ik]
                                 Energy[iorb1,iorb2,s1,ik] += -tempmat[ind1,ind2,0]*1/nk*Gf_temp[iorb4,iorb3,s2]
 
                     # for iorb in range(norb):
@@ -732,115 +769,120 @@ class FHamiltonian(object):
                 C = 1
                 for ik in range(nk):
                     for iorb in range(norb):
-                        [a,[m1,m2]] = self.orbkey2val(iorb)
-                        iorb1 = self.val2key([a,m1])
-                        iorb2 = self.val2key([a,m2])
-                        if (iorb1==None)or(iorb2==None):
-                            continue
+                        iorb1, iorb2 = bf_list[iorb]
                         for jorb in range(norb):
-                            [b,[m3,m4]] = self.orbkey2val(jorb)
-                            jorb1 = self.val2key([b,m3])
-                            jorb2 = self.val2key([b,m4])
-                            if (jorb1==None)or(jorb2==None):
-                               continue
+                            jorb1, jorb2 = bf_list[jorb]
                             Gf_temp = np.zeros((norbc,norbc,1))
                             for jk in range(nk):
                                 Gf_temp[jorb2,jorb1,0] += Gnot[jorb2,jorb1,0,jk,ntau-1]
-                            Energy[iorb1,iorb2,0,ik] += -Vinput[iorb,jorb,0,0,0]*1/nk*Gf_temp[jorb2,jorb1,0]*C
+                            Energy[iorb1,iorb2,0,ik] += -V[iorb,jorb,0,0,0]*1/nk*Gf_temp[jorb2,jorb1,0]*C
             else:
                 C = 2
                 for ik in range(nk):
                     for iorb in range(norb):
-                        [a,[m1,m2]] = self.orbkey2val(iorb)
-                        iorb1 = self.val2key([a,m1])
-                        iorb2 = self.val2key([a,m2])
-                        if (iorb1==None)or(iorb2==None):
-                            continue
+                        iorb1, iorb2 = bf_list[iorb]
                         for jorb in range(norb):
-                            [b,[m3,m4]] = self.orbkey2val(jorb)
-                            jorb1 = self.val2key([b,m3])
-                            jorb2 = self.val2key([b,m4])
-                            if (jorb1==None)or(jorb2==None):
-                               continue
+                            jorb1, jorb2 = bf_list[jorb]
                             Gf_temp = np.zeros((norbc,norbc,1))
                             for jk in range(nk):
                                 Gf_temp[jorb2,jorb1,0] += Gnot[jorb2,jorb1,0,jk,ntau-1]
-                            Energy[iorb1,iorb2,0,ik] += -Vinput[iorb,jorb,0,0,0]*1/nk*Gf_temp[jorb2,jorb1,0]*C
+                            Energy[iorb1,iorb2,0,ik] += -V[iorb,jorb,0,0,0]*1/nk*Gf_temp[jorb2,jorb1,0]*C
 
-        return Energy   
- 
-    def Exchange(self, Vinput : np.ndarray, Gf : np.ndarray) -> np.ndarray:
+        self.Sigma_H = Energy
+    
+    def Exchange(self, Gf : np.ndarray, boson )-> np.ndarray:
+            #(self,Gf, Boson : )
         '''
-        input : Vinpu(R,tau), Gf(R,tau)
-        output : Energy_ex(R,tau)
+        input : Vinput(R,tau), Gf(k,tau), rkgrid-> optional
+        output : self_energy(R)
+
+        it save the fock self-energy(k) in Fhamiltonian 
         '''
-
-
-
-        nk = Gf.shape[3]
+        Gf = self.FLatDyn_K2R(self.rkgrid,Gf)
+        Vk = boson.V_bare
+        Vr = boson.BLatStc_K2R(boson.rkgrid,Vk)
+        bf_list = boson.b2f
+        nr = Gf.shape[3]
         ntau = Gf.shape[4]
-        norb = Vinput.shape[0]
+        norb = Vr.shape[0]
+        norbc = Gf.shape[0]
+        
+        
 
-
+        Energy = np.zeros((norbc,norbc,self.ns,nr),dtype=complex,order='F')
 
         
-        Gf = Gf[:,:,:,:,ntau-1]
-    
 
-        norbc = len(self.idx)
-        Energy = np.zeros((norbc,norbc,self.ns,nk))
-        
-        for ik in range(nk):
-            for s1 in range(self.ns):
+        for ir in range(nr):
+            for js in range(self.ns):
                 for iorb in range(norb):
-                    [a,[m1,m4]] = self.orbkey2val(iorb)
-                    iorb1 = self.val2key([a,m1])
-                    iorb2 = self.val2key([a,m4])
-                    if (iorb1==None)or(iorb2==None):
-                        continue
+                    iorb1, iorb2 = bf_list[iorb]
                     for jorb in range(norb):
-                        [b,[m2,m3]] = self.orbkey2val(jorb)
-                        jorb1 = self.val2key([b,m2])
-                        jorb2 = self.val2key([b,m3])
-                        if (jorb1==None)or(jorb2==None):
-                            continue
-                        Energy[iorb1,jorb1,s1,ik] = Gf[iorb2,jorb2,s1,ik] * Vinput[iorb,jorb,s1,s1,ik]
+                        jorb1, jorb2 = bf_list[jorb]
+                        Energy[iorb1,jorb1,js,ir] = Gf[iorb2,jorb2,js,ir,ntau-1] * Vr[iorb,jorb,js,js,ir]
 
-
-        return Energy
-    
-    def Correlated_self_energy(self, Wc : np.ndarray = None, Gf : np.ndarray = None) -> np.ndarray:
+        Energy_k = self.FLatStc_R2K(self.rkgrid,Energy)
+        self.Sigma_F = Energy_k
         
+    
+    def Correlated_self_energy(self, Gf : np.ndarray, boson, FT,rkgrid : list = None) -> np.ndarray:
+        '''
+        input : Wc(R,tau), Gf(k,tau)
+
+        return : Sigma_C(k,freq)
+
+        it save the correlated self-energy(k,f) in Fhamiltonian
+        '''
+        
+        if rkgrid == None:
+            rkgrid=self.rkgrid
+        else:
+            rkgrid = rkgrid
+        Gf = self.FLatDyn_K2R(rkgrid,Gf)
+        Wc = boson.Wc
+        bf_list = boson.b2f
+        tau = FT.tau
+        omega = FT.omega
+
+        norbc = Gf.shape[0]
+        ns = Gf.shape[2]
         nr = Gf.shape[3]
         ntau = Gf.shape[4]
         norb = Wc.shape[0]
-        norbc = Gf.shape[0]
 
-        Energy = np.zeros((norbc,norbc,self.ns,nr,ntau),dtype=complex,order='F')
-        
+        Energy = np.zeros((norbc,norbc,ns,nr,ntau),dtype=complex,order='F')
+
         for itau in range(ntau):
             for ir in range(nr):
-                for s1 in range(self.ns):
-                    for s2 in range(self.ns):
+                for js in range(ns):
+                    for ks in range(ns):
                         for iorb in range(norb):
-                            [a,[m1,m4]] = self.orbkey2val(iorb)
-                            iorb1 = self.val2key([a,m1])
-                            iorb2 = self.val2key([a,m4])
-                            if (iorb1==None)and(iorb2==None):
-                                continue
+                            iorb1, iorb2 = bf_list[iorb]
                             for jorb in range(norb):
-                                [b,[m2,m3]] = self.orbkey2val(jorb)
-                                jorb1 = self.val2key([b,m2])
-                                jorb2 = self.val2key([b,m3])
-                                if (jorb1==None)and(jorb2==None):
-                                    continue
-                                if (s1==s2):
-                                    Energy[iorb1,jorb1,s1,ir,itau] += Gf[iorb2,jorb2,s1,ir,itau]*Wc[iorb,jorb,s1,s2,ir,itau]
+                                jorb1, jorb2 = bf_list[jorb]
+                                if js == ks:
+                                    Energy[iorb1,jorb1,js,ir,itau] += Gf[iorb2,jorb2,js,ir,itau]*Wc[iorb,jorb,js,ks,ir,itau]
         
-        return Energy
+        Energy_kt = self.FLatDyn_R2K(self.rkgrid,Energy)
+        Energy_kf = self.FLatDyn_T2F(tau,Energy_kt,omega)
+
+
+        self.Sigma_C = Energy_kf
+    
+    def Combine_self_energy(self):
+        norb = self.Sigma_C.shape[0]
+        ns = self.Sigma_C.shape[2]
+        nk = self.Sigma_C.shape[3]
+        nfreq = self.Sigma_C.shape[4]
+
+        Sigma = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
+        for ifreq in range(nfreq):
+            Sigma[:,:,:,:,ifreq] = self.Sigma_C[:,:,:,:,ifreq] + self.Sigma_H + self.Sigma_H
+        
+        self.Sigma = Sigma
     
     def int_FLatFreq(self,G_not : np.ndarray = None, Energy : np.ndarray = None) -> np.ndarray:
-        
+        # call dyson
         norb = G_not.shape[0]
         nk = G_not.shape[3]
         nomega = G_not.shape[4]
@@ -865,10 +907,10 @@ class FHamiltonian(object):
                 for js in range(self.ns):
                     FLatTau_int[:,:,js,ik,iomega] = np.linalg.inv(tempmat[:,:,js,ik,iomega])
         
-        return FLatTau_int
-    
-    def Stc_Correlated_self_energy(self, Sigma_C : np.ndarray) -> np.ndarray:
-        
+        return FLatTau_int    
+
+    def Stc_self_energy(self,Sigma_C : np.ndarray)->np.ndarray:
+
         norb = Sigma_C.shape[0]
         ns = Sigma_C.shape[2]
         nk = Sigma_C.shape[3]
@@ -881,17 +923,16 @@ class FHamiltonian(object):
             for ik in range(nk):
                 for js in range(ns):
                     tempmat[:,:,js,ik,iomega] = np.transpose(np.conjugate(Sigma_C[:,:,js,ik,iomega]))
-                    
+
         for ik in range(nk):
             for js in range(ns):
                 for iorb in range(norb):
                     for jorb in range(norb):
                         Sigma_C_stc[iorb,jorb,js,ik] = (Sigma_C[iorb,jorb,js,ik,0]+tempmat[iorb,jorb,js,ik,0])/2
-
         
         return Sigma_C_stc
-
-    def z_factor(self, Sigma : np.ndarray, beta : float)-> np.ndarray:
+    
+    def z_factor(self,Sigma : np.ndarray, beta : float)->np.ndarray:
 
         norb = Sigma.shape[0]
         ns = Sigma.shape[2]
@@ -899,16 +940,15 @@ class FHamiltonian(object):
         nomega = Sigma.shape[4]
 
         Z = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
+        I = np.zeros((norb,norb,ns,nk,nomega),dtype=complex,order='F')
         tempmat = np.zeros((norb,norb,ns,nk,nomega),dtype=complex,order='F')
         tempmat2 = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
-        I = np.zeros((norb,norb,ns,nk,nomega),dtype=complex,order='F')
 
         for iomega in range(nomega):
             for ik in range(nk):
                 for js in range(ns):
-                    I[:,:,js,ik,iomega] = np.eye(norb,norb,dtype=complex,order='F')
+                    I[:,:,js,ik,iomega] = np.eye(norb,norb,dtype=complex,order="F")
                     tempmat[:,:,js,ik,iomega] = np.transpose(np.conjugate(Sigma[:,:,js,ik,iomega]))
-                        
 
         for iomega in range(nomega):
             for ik in range(nk):
@@ -917,22 +957,20 @@ class FHamiltonian(object):
                         for jorb in range(norb):
                             tempmat2[iorb,jorb,js,ik] = (I[iorb,jorb,js,ik,iomega]-beta*(Sigma[iorb,jorb,js,ik,iomega]-tempmat[iorb,jorb,js,ik,iomega])/(2*np.pi))
         
-        
         for ik in range(nk):
             for js in range(ns):
                 Z[:,:,js,ik] = np.linalg.inv(tempmat2[:,:,js,ik])
-        
+
         return Z
     
-    def QP_Hamiltonian(self,H_not : np.ndarray = None, Hartree : np.ndarray = None, Fock : np.ndarray = None, GW_self : np.ndarray = None, mu : float = None, Z : np.ndarray = None) -> np.ndarray:
+    def QP_Hamiltonian(self,H_not : np.ndarray, Hartree : np.ndarray, Fock : np.ndarray, Sigma_C : np.ndarray, mu : float, Z :np.ndarray)-> np.ndarray:
 
         norb = H_not.shape[0]
         ns = H_not.shape[2]
         nk = H_not.shape[3]
 
         H_QP = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
-        # Chem = np.zeros()
-        tempmat = np.zeros((norb,norb,ns,nk),dtype=complex,order='F') # sqrt of z factor
+        tempmat = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
         tempmat2 = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
 
         for ik in range(nk):
@@ -942,149 +980,120 @@ class FHamiltonian(object):
                     if 0<=(eig_val[iorb])<=1:
                         continue
                     else:
-                        print("Error: The z-factor was calculated incorrectly. Please rerun the code.")
-                        exit_code = 1
-                        sys.exit(exit_code)
+                        print("Error : The z-factor was calculated incorrectly. Please rerun the code.")
+                        sys.exit()
                 D = np.diag(eig_val)
                 tempmat[:,:,js,ik] = np.dot(np.dot(eig_vec,np.sqrt(D)),np.linalg.inv(eig_vec))
+
         
         for ik in range(nk):
             for js in range(ns):
                 for iorb in range(norb):
                     for jorb in range(norb):
-                        tempmat2[iorb,jorb,js,ik] = H_not[iorb,jorb,js,ik] + Hartree[iorb,jorb,js,ik] + Fock[iorb,jorb,js,ik] + GW_self[iorb,jorb,js,ik] 
+                        tempmat2[iorb,jorb,js,ik] = H_not[iorb,jorb,js,ik] + Hartree[iorb,jorb,js,ik] + Fock[iorb,jorb,js,ik] + Sigma_C[iorb,jorb,js,ik] 
                         if iorb == jorb:
-                            tempmat2[iorb,jorb,js,ik] = H_not[iorb,jorb,js,ik] + Hartree[iorb,jorb,js,ik] + Fock[iorb,jorb,js,ik] + GW_self[iorb,jorb,js,ik] -mu
-        
+                            tempmat2[iorb,jorb,js,ik] = H_not[iorb,jorb,js,ik] + Hartree[iorb,jorb,js,ik] + Fock[iorb,jorb,js,ik] + Sigma_C[iorb,jorb,js,ik] -mu
+
         for ik in range(nk):
             for js in range(ns):
                 H_QP[:,:,js,ik] = np.dot(np.dot(tempmat[:,:,js,ik],tempmat2[:,:,js,ik]),tempmat[:,:,js,ik])
-
+        
         return H_QP
+    
+    def Energy_imp(self,Hmat : np.ndarray, mu : float,projector : np.ndarray):
 
+        norb = Hmat.shape[0]
+        ns = Hmat.shape[2]
+        nk = Hmat.shape[3]
 
+        for ik in range(nk):
+            for js in range(ns):
+                for iorb in range(norb):
+                    Hmat[iorb,iorb,js,ik] -= mu
+        
+        E_imp = np.zeros((norb,norb,ns),dtype=complex,order='F')
+        E_imp = DiagE.projection.flatstc(Hmat,projector)
+
+        return E_imp
+    
+    def hybridization(self,omega : np.ndarray, E_imp : np.ndarray, G_lat : np.ndarray, Sigma : np.ndarray,projector : np.ndarray):
+
+        norb = G_lat.shape[0]
+        ns = G_lat.shape[2]
+        nfreq = G_lat.shape[4]
+
+        hyb = np.zeros((norb,norb,ns,nfreq),dtype=complex,order='F')
+        G_loc = np.zeros((norb,norb,ns,nfreq),dtype=complex,order='F')
+        G_loc_inv = np.zeros((norb,norb,ns,nfreq),dtype=complex,order='F')
+
+        G_loc = DiagE.projection.flatdyn(G_lat,projector)
+
+        G_loc_inv = self.FInvLocDyn(G_loc)
+
+        for ifreq in range(nfreq):
+            for js in range(ns):
+                for iorb in range(norb):
+                    for jorb in range(norb):
+                        if iorb == jorb:
+                            hyb[iorb,jorb,js,ifreq] = 1j*omega[ifreq] - E_imp[iorb,jorb,js] - G_loc_inv[iorb,jorb,js,ifreq] - Sigma[iorb,jorb,js,ifreq]
+                        else:
+                            hyb[iorb,jorb,js,ifreq] = - E_imp[iorb,jorb,js] - G_loc_inv[iorb,jorb,js,ifreq] - Sigma[iorb,jorb,js,ifreq]
+        
+        return hyb
 class BHamiltonian(object):
 
-    def __init__(self,crystal=None,ns : int = None, SOC : bool = False):
-        self.ns = ns
+    def __init__(self,crystal : Crystal, fermion :FHamiltonian = None):
+        
         self.basis_f = crystal.basis_f
         self.basis_c = crystal.basis_c
-        self.latt = crystal.lat
+        self.latt = crystal.latt
         self.bvec = crystal.bvec
         self.kpoint = crystal.kpoint
-        self.rkgrid = crystal.grid
-        self.nk = crystal.nk
+        self.kpath = crystal.kpath
         self.vol = crystal.vol
-        self.SOC = SOC
-        self.idx = {}
-        self.orbidx = {}
-        self.int_term = [] 
+        self.rkgrid = crystal.grid
+        self.ns = fermion.ns
+        self.SOC = fermion.SOC
+        self.fermion = fermion
+        self.bind = {}
+        self.int_term = []
         self.b2f = []
-        self.full_sub = []
+        self.c2b = []
+        self.c2f = []
         self.V_loc = None
         self.V_nloc = None
         self.V_bare = None
+    
+    def set_basis_index(self,option : list):
 
+        ind = []
+        
+        norb = len(self.bind)
 
-    def set_basis_index(self,option : list)->dict:
-        idx = []
-        for m1 in range(option[1]):
-            idx.append([option[0],m1])
-        orb = len(self.idx)
-        ind = 0
-        for iorb in range(orb,orb+option[1]):
-            self.idx[iorb] = idx[ind]
-            ind +=1
-        idx1 = []
-        orb_ind = []
+        ii = 0
         orb_ind = list(range(option[1]))
         for m1, m2 in itertools.product(orb_ind,orb_ind):
-            idx1.append([option[0],[m1,m2]])
+            ind.append([option[0],[m1,m2]])
 
-
-        norb = len(self.orbidx)
-        ind = 0
         for iorb in range(norb,norb+option[1]**2):
-            self.orbidx[iorb] = idx1[ind]
-            ind +=1
+            self.bind[iorb] = ind[ii]
+            ii+=1
             self.boson2fermion(iorb)
-        
-        norb = len(self.orbidx)
-        
+        self.composite2fermion()
+        self.composite2boson()
+        norb = len(self.bind)
+
         self.V_loc = np.zeros((norb,norb,self.ns,self.ns),dtype=complex,order='F')
-        
+
+    def Batomorb(self,key : int) -> list:
+        return self.bind[key]
     
-    def boson2fermion(self,iorb):
-        
-        
-        [a,[m1,m2]] = self.orbkey2val(iorb)
-        iorbc1 = self.val2key([a,m1])
-        iorbc2 = self.val2key([a,m2])
-        self.b2f.append([iorbc1,iorbc2])
+    def Bindex(self,val:list) -> int:
 
-        
-
-    def key2val(self,key : int = None) -> list:
-        return self.idx[key]
-
-    def val2key(self,val : list = None) -> int :
-
-        for key, value in self.idx.items():
-            if value == val:
+        for key, value in self.bind.items():
+            if val==value:
                 return key
-
-    def orbkey2val(self,key : int = None) -> list:
-        return self.orbidx[key]
-
-    def orbval2key(self,val : list = None) -> int :
-        for key, value in self.orbidx.items():
-            if value==val:
-                return key
-
-    def Four2Two(self,mat : np.ndarray = None) -> np.ndarray:
-
-        norbc = mat.shape[0]
-        norb = len(self.orbidx)
-
-        mat_ret = np.zeros((norb,norb),dtype=complex)
-
-        for iorbc in range(norbc):
-            for jorbc in range(norbc):
-                for korbc in range(norbc):
-                    for lorbc in range(norbc):
-                        [a,m1] = self.key2val(iorbc)
-                        [b,m2] = self.key2val(jorbc)
-                        [b_prime,m3] = self.key2val(korbc)
-                        [a_prime,m4] = self.key2val(lorbc)
-
-                        if (a==a_prime)and(b==b_prime):
-                            iorb = self.orbval2key([a,[m1,m4]])
-                            jorb = self.orbval2key([b,[m2,m3]])
-                            mat_ret[iorb,jorb] = mat[iorbc,jorbc,korbc,lorbc]
-                            
-        
-        return mat_ret
-    
-    def Two2Four(self,mat : np.ndarray = None) -> np.ndarray:
-        
-        norb = mat.shape[0]
-        norbc = len(self.idx)
-
-        mat_ret = np.zeros((norbc,norbc,norbc,norbc),dtype=complex)
-
-        for iorb in range(norb):
-            for jorb in range(norb):
-                [a,[m1,m4]] = self.orbkey2val(iorb)
-                [b,[m2,m3]] = self.orbkey2val(jorb)
-
-                iorbc = self.val2key([a,m1])
-                jorbc = self.val2key([b,m2])
-                korbc = self.val2key([b,m3])
-                lorbc = self.val2key([a,m4])
-                mat_ret[iorbc,jorbc,korbc,lorbc] = mat[iorb,jorb]
-        
-        return mat_ret
-
+            
     def local_interacting(self,option : dict = None) -> np.ndarray:
         '''
         the orbital is fermionic orbital so have to translate to bosoninc orbital
@@ -1095,18 +1104,17 @@ class BHamiltonian(object):
 
         if option["KorS"]=="K":
             tempmat = self.Kanamori(norbc,option["value"])
-            print(tempmat.shape)
             for iorbc in option["orbital"]:
                 for jorbc in option["orbital"]:
                     for korbc in option["orbital"]:
                         for lorbc in option["orbital"]:
-                            [a,m1] = self.key2val(iorbc)
-                            [b,m2] = self.key2val(jorbc)
-                            [b_prime,m3] = self.key2val(korbc)
-                            [a_prime,m4] = self.key2val(lorbc)
+                            [a,m1] = self.fermion.Fatomorb(iorbc)
+                            [b,m2] = self.fermion.Fatomorb(jorbc)
+                            [b_prime,m3] = self.fermion.Fatomorb(korbc)
+                            [a_prime,m4] = self.fermion.Fatomorb(lorbc)
                             if (a==a_prime)and(b==b_prime):
-                                iorb = self.orbval2key([a,[m1,m4]])
-                                jorb = self.orbval2key([b,[m2,m3]])
+                                iorb = self.Bindex([a,[m1,m4]])
+                                jorb = self.Bindex([b,[m2,m3]])
                                 for s1, s2 in itertools.product(list(range(ns)),list(range(ns))):
                                     self.V_loc[iorb,jorb,s1,s2] = tempmat[m1,m2,m3,m4,s1,s2]
         elif option["KorS"]=="S":
@@ -1115,13 +1123,13 @@ class BHamiltonian(object):
                 for jorbc in option["orbital"]:
                     for korbc in option["orbital"]:
                         for lorbc in option["orbital"]:
-                            [a,m1] = self.key2val(iorbc)
-                            [b,m2] = self.key2val(jorbc)
-                            [b_prime,m3] = self.key2val(korbc)
-                            [a_prime,m4] = self.key2val(lorbc)
+                            [a,m1] = self.fermion.Fatomorb(iorbc)
+                            [b,m2] = self.fermion.Fatomorb(jorbc)
+                            [b_prime,m3] = self.fermion.Fatomorb(korbc)
+                            [a_prime,m4] = self.fermion.Fatomorb(lorbc)
                             if (a==a_prime)and(b==b_prime):
-                                iorb = self.orbval2key([a,[m1,m4]])
-                                jorb = self.orbval2key([b,[m2,m3]])
+                                iorb = self.Bindex([a,[m1,m4]])
+                                jorb = self.Bindex([b,[m2,m3]])
                                 for s1, s2 in itertools.product(list(range(ns)),list(range(ns))):
                                     self.V_loc[iorb,jorb,s1,s2] = tempmat[m1,m2,m3,m4,s1,s2]
 
@@ -1187,19 +1195,21 @@ class BHamiltonian(object):
             return V
 
     def set_int_amp(self,int_amp : float = None,ind_i : int = None,ind_j : int = None,ind_R : list = None) -> list:
+        
         new_int = [int_amp,int(ind_i),int(ind_j),np.array(ind_R)]
 
         self.int_term.append(new_int)
 
-    def gen_nl_int_ham(self,kgrid : list = None) -> np.ndarray:
+    def gen_nl_int_ham(self) -> np.ndarray:
 
+        kgrid = self.rkgrid
         kgrid = np.array(kgrid)
         nk = kgrid[0]*kgrid[1]*kgrid[2]
 
         kvec = np.array(list(itertools.product(np.arange(0,kgrid[2])/kgrid[2],np.arange(0,kgrid[1])/kgrid[1],np.arange(0,kgrid[0])/kgrid[0])))
         kvec = np.fliplr(kvec)
 
-        norb = len(self.orbidx)
+        norb = len(self.bind)
 
         self.V_nloc = np.zeros((norb,norb,self.ns,self.ns,nk),dtype=complex,order='F')
 
@@ -1209,8 +1219,8 @@ class BHamiltonian(object):
             iorb = int_term[1]
             jorb = int_term[2]
 
-            [alpha,[m1,m4]] = self.orbkey2val(iorb)
-            [beta,[m2,m3]] = self.orbkey2val(jorb)
+            [alpha,[m1,m4]] = self.Batomorb(iorb)
+            [beta,[m2,m3]] = self.Batomorb(jorb)
 
             R = np.array(int_term[3])
 
@@ -1234,11 +1244,7 @@ class BHamiltonian(object):
         norb = self.V_loc.shape[0]
         self.V_bare = np.zeros((norb,norb,self.ns,self.ns,nk),dtype=complex,order='F')
         for ik in range(nk):
-            for js in range(self.ns):
-                for ks in range(self.ns):
-                    for iorb in range(norb):
-                        for jorb in range(norb):
-                            self.V_bare[iorb,jorb,js,ks,ik] = self.V_loc[iorb,jorb,js,ks]+self.V_nloc[iorb,jorb,js,ks,ik]
+            self.V_bare[:,:,:,:,ik] = self.V_loc+self.V_nloc[:,:,:,:,ik]
         
         
 
@@ -1333,113 +1339,447 @@ class BHamiltonian(object):
 
         return V
     
-    def indexing(self, ntot, ndivision, divisionarray, flag, n1, n2):
-        tmpsize = 1
-        for size in divisionarray:
-            tmpsize *= size
+    def boson2fermion(self,ind : int):
 
-        if tmpsize != ntot:
-            print('array_division wrong')
-            return
+        [a, [m1,m2]] = self.Batomorb(ind)
+        iorbc1 = self.fermion.Findex([a,m1])
+        iorbc2 = self.fermion.Findex([a,m2])
+        self.b2f.append([iorbc1,iorbc2])
+    
+    def composite2fermion(self):
+
+        norbc = len(self.fermion.find)
+        norb = norbc*norbc
+        c2f = []
+
+        for iorbc in range(norbc):
+            for jorbc in range(norbc):
+                nn1 = [iorbc,jorbc]
+                iorb, nn1 = indexing(norb,2,[norbc,norbc],1,0,nn1)
+                c2f.append([iorbc,jorbc])
+        self.c2f = c2f
+    
+    def composite2boson(self):
+
+        norbc = len(self.fermion.find)
+        ndim = norbc*norbc
+        c2b = []
+
+        for ind in range(ndim):
+            nn1 = [0]*2
+            ind,[iorbc,jorbc] = indexing(ndim,2,[norbc,norbc],0,ind,nn1)
+            [a,m1] = self.fermion.Fatomorb(iorbc)
+            [a_p,m2] = self.fermion.Fatomorb(jorbc)
+            if a==a_p:
+                borb = self.Bindex([a,[m1,m2]])
+                if borb is not None:
+                    c2b.append([borb,ind])
+        self.c2b = c2b
+    
+    def Convert_4_2(self,mat : np.ndarray = None, flag : int = None) -> np.ndarray: # 4 index <-> 2 index
+
+        norb = len(self.bind)
+        norbc = len(self.fermion.find)
+        if flag == 1:
+            
+
+            mat_ret = np.zeros((norb,norb),dtype=complex)
+
+            for iorb, [iorbc,lorbc] in enumerate(self.b2f):
+                for jorb, [jorbc,korbc] in enumerate(self.b2f):
+                    mat_ret[iorb,jorb] = mat[iorbc,jorbc,korbc,lorbc]
+
+            return mat_ret
+        
+        elif flag == 0:
+            
+
+
+            mat_ret = np.zeros((norbc,norbc,norbc,norbc),dtype=complex,order='F')
+
+            for iorb, [iorbc,lorbc] in enumerate(self.b2f):
+                for jorb, [jorbc,korbc] in enumerate(self.b2f):
+                    mat_ret[iorbc,jorbc,korbc,lorbc] = mat[iorb,jorb]
+
+            return mat_ret
+        
+    def Convert_4_2_LocStc(self,mat : np.ndarray = None, flag : int = None) -> np.ndarray:
+
+        norb = len(self.bind)
+        norbc = len(self.fermion.find)
 
         if flag == 1:
-            n1 = n2[0]
-            for ii in range(1, ndivision):
-                tempcnt = 1
-                for jj in range(ii):
-                    tempcnt *= divisionarray[jj]
-                n1 += (n2[ii] ) * tempcnt
-        else:
-            n2_array = [0] * ndivision
-            tempcnt = n1
-            for ii in range(ndivision - 1):
-                n2_array[ii] = tempcnt - ((tempcnt) // divisionarray[ii]) * divisionarray[ii]
-                tempcnt = (tempcnt - n2_array[ii])//divisionarray[ii]
-            n2_array[ndivision - 1] = tempcnt
 
-            # Copy the values from the temporary array to the n2 output array
-            for i in range(ndivision):
-                n2[i] = n2_array[i]
+            mat_ret = np.zeros((norb,norb,self.ns,self.ns),dtype=complex,order='F')
 
-        return n1, n2
+            for js in range(self.ns):
+                for ks in range(self.ns):
+                    mat_ret[:,:,js,ks] = self.Convert_4_2(mat[:,:,:,:,js,ks],flag)
+
+            return mat_ret
+        elif flag == 0:
+
+            mat_ret = np.zeros((norbc,norbc,norbc,norbc,self.ns,self.ns),dtype=complex,order='F')
+
+            for js in range(self.ns):
+                for ks in range(self.ns):
+                    mat_ret[:,:,:,:,js,ks] = self.Convert_4_2(mat[:,:,js,ks],flag)
+
+            return mat_ret
+        
+    def Convert_4_2_LatStc(self,mat : np.ndarray, flag :int) -> np.ndarray:
+        
+        norb = len(self.bind)
+        norbc = len(self.fermion.find)
+
+        if flag == 1:
+            nk = mat.shape[6]
+            mat_ret = np.zeros((norb,norb,self.ns,self.ns,nk),dtype=complex,order='F')
+            for ik in range(nk):
+                mat_ret[:,:,:,:,ik] = self.Convert_4_2_LocStc(mat[:,:,:,:,:,:,ik],flag)
+            
+            return mat_ret
+        
+        elif flag == 0:
+            nk = mat.shape[4]
+            mat_ret = np.zeros((norbc,norbc,norbc,norbc,self.ns,self.ns,nk),dtype=complex,order='F')
+
+            for ik in range(nk):
+                mat_ret[:,:,:,:,:,:,ik] = self.Convert_4_2_LocStc(mat[:,:,:,:,ik],flag)
+            
+            return mat_ret
+        
+    def Convert_4_2_LocDyn(self,mat : np.ndarray, flag :int) -> np.ndarray:
+        
+        norb = len(self.bind)
+        norbc = len(self.fermion.find)
+
+        if flag == 1:
+            nt = mat.shape[6]
+            mat_ret = np.zeros((norb,norb,self.ns,self.ns,nt),dtype=complex,order='F')
+            for it in range(nt):
+                mat_ret[:,:,:,:,it] = self.Convert_4_2_LocStc(mat[:,:,:,:,:,:,it],flag)
+            
+            return mat_ret
+        
+        elif flag == 0:
+            nt = mat.shape[4]
+            mat_ret = np.zeros((norbc,norbc,norbc,norbc,self.ns,self.ns,nt),dtype=complex,order='F')
+
+            for it in range(nt):
+                mat_ret[:,:,:,:,:,:,it] = self.Convert_4_2_LocStc(mat[:,:,:,:,it],flag)
+            
+            return mat_ret
     
-    def mapping_full_sub(self):
-        norbc = len(self.idx)
-        ndim = norbc**2
-        ndivision = 2
-        divisionarray = [norbc,norbc]
+    def Convert_4_2_LatDyn(self,mat : np.ndarray, flag :int) -> np.ndarray:
+        
+        norb = len(self.bind)
+        norbc = len(self.fermion.find)
+    
+        if flag == 1:
 
-        for ind in range(norbc**2):
+            nk = mat.shape[6]
+            nt = mat.shape[7]
+            mat_ret = np.zeros((norb,norb,self.ns,self.ns,nk,nt),dtype=complex,order='F')
+
+            for it in range(nt):
+                mat_ret[:,:,:,:,:,it] = self.Convert_4_2_LatStc(mat[:,:,:,:,:,:,:,it],flag)
+            
+            return mat_ret
+        elif flag == 0:
+
+            nk = mat.shape[4]
+            nt = mat.shape[5]
+            mat_ret = np.zeros((norbc,norbc,norbc,norbc,self.ns,self.ns,nk,nt),dtype=complex,order='F')
+            
+            for it in range(nt):
+                mat_ret[:,:,:,:,:,:,:,it] = self.Convert_4_2_LatStc(mat[:,:,:,:,:,it],flag)
+
+            return mat_ret
+    
+    def full_2_4(self,mat : np.ndarray, flag : int) -> np.ndarray: # 4index <-> new 2 index
+
+        norbc = len(self.fermion.find)
+        norb = norbc*norbc
+        
+
+        if flag == 1:
+            mat_ret = np.zeros((norb,norb),dtype=complex,order='F')
+            for iorb,[iorbc,lorbc] in enumerate(self.c2f):
+                for jorb, [jorbc,korbc] in enumerate(self.c2f):
+                    mat_ret[iorb,jorb] = mat[iorbc,jorbc,korbc,lorbc]
+
+            return mat_ret
+        elif flag == 0:
+            mat_ret = np.zeros((norbc,norbc,norbc,norbc),dtype=complex,order='F')
+            for iorb, [iorbc,lorbc] in enumerate(self.c2f):
+                for jorb, [jorbc,korbc] in enumerate(self.c2f):
+                    mat_ret[iorbc,jorbc,korbc,lorbc] = mat_ret[iorb,jorb]
+            
+            return mat_ret
+    
+    def full_2_4LocStc(self,mat : np.ndarray, flag : int) -> np.ndarray:
+
+        norbc = len(self.fermion.find)
+        norb = norbc*norbc
+
+        if flag == 1:
+            
+            
+            mat_ret = np.zeros((norb,norb,self.ns,self.ns),dtype=complex,order='F')
+            
+            for js in range(self.ns):
+                for ks in range(self.ns):
+                    mat_ret[:,:,js,ks] = self.full_2_4(mat[:,:,:,:,js,ks],flag)
+            
+            return mat_ret
+        
+        elif flag == 0:
+
+            mat_ret = np.zeros((norbc,norbc,norbc,norbc,self.ns,self.ns),dtype=complex,order='F')
+
+            for js in range(self.ns):
+                for ks in range(self.ns):
+                    mat_ret[:,:,:,:,js,ks] = self.full_2_4(mat[:,:,js,ks],flag)
+
+            return mat_ret
+    
+    def full_2_4LatStc(self,mat : np.ndarray, flag : int) -> np.ndarray:
+
+        norbc = len(self.fermion.find)
+        norb = norbc*norbc
+
+        if flag == 1:
+
+            nk = mat.shape[6]
+
+            mat_ret = np.zeros((norb,norb,self.ns,self.ns,nk),dtype=complex,order='F')
+
+            for ik in range(nk):
+                mat_ret[:,:,:,:,ik] = self.full_2_4LocStc(mat[:,:,:,:,:,:,ik],flag)
+            
+            return mat_ret
+        elif flag == 0:
+
+            nk = mat.shape[4]
+
+            mat_ret = np.zeros((norbc,norbc,norbc,norbc,self.ns,self.ns,nk),dtype=complex,order='F')
+
+            for ik in range(nk):
+                mat_ret[:,:,:,:,:,:,ik] = self.full_2_4LocStc(mat[:,:,:,:,ik],flag)
+
+            return mat_ret
+    
+    def full_2_4LocDyn(self,mat : np.ndarray, flag : int) -> np.ndarray:
+
+        norbc = len(self.fermion.find)
+        norb = norbc*norbc
+
+        if flag == 1:
+
+            nt = mat.shape[6]
+
+            mat_ret = np.zeros((norb,norb,self.ns,self.ns,nt),dtype=complex,order='F')
+
+            for it in range(nt):
+                mat_ret[:,:,:,:,it] = self.full_2_4LocStc(mat[:,:,:,:,:,:,it],flag)
+            
+            return mat_ret
+        elif flag == 0:
+
+            nt = mat.shape[4]
+
+            mat_ret = np.zeros((norbc,norbc,norbc,norbc,self.ns,self.ns,nt),dtype=complex,order='F')
+
+            for it in range(nt):
+                mat_ret[:,:,:,:,:,:,it] = self.full_2_4LocStc(mat[:,:,:,:,it],flag)
+
+            return mat_ret
+        
+    def full_2_4LatDyn(self,mat : np.ndarray, flag : int) -> np.ndarray:
+
+        norbc = len(self.fermion.find)
+        norb = norbc*norbc
+
+        if flag == 1:
+
+            nk = mat.shape[6]
+            nt = mat.shape[7]
+
+            mat_ret = np.zeros((norb,norb,self.ns,self.ns,nk,nt),dtype=complex,order='F')
+
+            for it in range(nt):
+                mat_ret[:,:,:,:,:,it] = self.full_2_4LatStc(mat[:,:,:,:,:,:,:,it],flag)
+
+            return mat_ret
+        elif flag == 0:
+
+            nk = mat.shape[4]
+            nt = mat.shape[5]
+
+            mat_ret = np.zeros((norbc,norbc,norbc,norbc,self.ns,self.ns,nk,nt),dtype=complex,order='F')
+
+            for it in range(nt):
+                mat_ret[:,:,:,:,:,:,:,it] = self.full_2_4LatStc(mat[:,:,:,:,:,it],flag)
+
+            return mat_ret
+    
+    def full_2_2(self, mat : np.ndarray, flag : int) -> np.ndarray:
+
+        norb = len(self.bind)
+        norbc = len(self.fermion.find)
+        nind = norbc*norbc
+        
+
+        if flag == 1:
+            mat_ret = np.zeros((norb,norb),dtype=complex,order='F')
+            for iorb, ind1 in self.c2b:
+                for jorb, ind2 in self.c2b:
+                    mat_ret[iorb,jorb] = mat[ind1, ind2]
+            
+            return mat_ret
+        elif flag == 0:
+            mat_ret = np.zeros((nind,nind),dtype=complex,order='F')
+            for iorb, ind1 in enumerate(self.c2b):
+                for jorb, ind2 in enumerate(self.c2b):
+                    mat_ret[ind1,ind2] = mat[iorb,jorb]
+
+            return mat_ret
+    
+    def full_2_2LocStc(self,mat : np.ndarray, flag : int) -> np.ndarray:
+
+        norb = len(self.bind)
+        norbc = len(self.fermion.find)
+        nind = norbc*norbc
+        ns = self.ns
+
+        if flag == 1:
+            
+            
+            mat_ret = np.zeros((norb,norb,ns,ns),dtype=complex,order='F')
+
+            for js in range(ns):
+                for ks in range(ns):
+                    mat_ret[:,:,js,ks] = self.full_2_2(mat[:,:,js,ks],flag)
+
+            return mat_ret
+        elif flag == 0:
+
+            mat_ret = np.zeros((nind,nind,ns,ns),dtype=complex,order='F')
+
+            for js in range(ns):
+                for ks in range(ns):
+                    mat_ret[:,:,js,ks] = self.full_2_2(mat[:,:,js,ks],flag)
+
+            return mat_ret
+    
+    def full_2_2LatStc(self,mat : np.ndarray, flag : int) -> np.ndarray:
+
+        norb = len(self.bind)
+        norbc = len(self.fermion.find)
+        nind = norbc*norbc
+        ns = self.ns
+        nk = mat.shape[4]
+
+        if flag == 1:
+            
+            mat_ret = np.zeros((norb,norb,ns,ns,nk),dtype=complex,order='F')
+            for ik in range(nk):
+                mat_ret[:,:,:,:,ik] = self.full_2_2LocStc(mat[:,:,:,:,ik], flag)
+            
+            return mat_ret
+        elif flag == 0:
+
+            mat_ret = np.zeros((nind,nind,ns,ns,nk),dtype=complex,order='F')
+            for ik in range(nk):
+                mat_ret[:,:,:,:,ik] = self.full_2_2LocStc(mat[:,:,:,:,ik], flag)
+            
+            return mat_ret
+    
+
+    def full_2_2LocDyn(self,mat : np.ndarray, flag : int) -> np.ndarray:
+
+        norb = len(self.bind)
+        norbc = len(self.fermion.find)
+        nind = norbc*norbc
+        ns = self.ns
+        nt = mat.shape[4]
+
+        if flag == 1:
+            
+            mat_ret = np.zeros((norb,norb,ns,ns,nt),dtype=complex,order='F')
+            for it in range(nt):
+                mat_ret[:,:,:,:,it] = self.full_2_2LocStc(mat[:,:,:,:,it], flag)
+            
+            return mat_ret
+        elif flag == 0:
+
+            mat_ret = np.zeros((nind,nind,ns,ns,nt),dtype=complex,order='F')
+            for it in range(nt):
+                mat_ret[:,:,:,:,it] = self.full_2_2LocStc(mat[:,:,:,:,it], flag)
+            
+            return mat_ret
+    
+    def full_2_2LatDyn(self, mat : np.ndarray, flag : int) -> np.ndarray:
+
+        norb = len(self.bind)
+        norbc = len(self.fermion.find)
+        nind = norbc*norbc
+        ns = self.ns
+        nk = mat.shape[4]
+        nt = mat.shape[5]
+
+        if flag == 1:
+
+            mat_ret = np.zeros((norb,norb,ns,ns,nk,nt),dtype=complex, order='F')
+
+            for it in range(nt):
+                mat_ret[:,:,:,:,:,it] = self.full_2_2LatStc(mat[:,:,:,:,:,it],flag)
+            
+            return mat_ret
+        
+        elif flag == 0:
+
+            mat_ret = np.zeros((nind,nind,ns,ns,nk,nt),dtype=complex,order='F')
+
+            for it in range(nt):
+                mat_ret[:,:,:,:,:,it] = self.full_2_2LatStc(mat[:,:,:,:,:,it],flag)
+
+            return mat_ret
+    
+    def BMulLocStc(self, mat1 : np.ndarray, mat2 : np.ndarray)-> np.ndarray:
+
+        norb = mat1.shape[0]
+        ns = self.ns
+
+        mat_out = np.zeros((norb,norb,ns,ns),dtype=complex,order='F')
+
+        ndim = norb*ns
+        tempmat = np.zeros((ndim,ndim),dtype=complex)
+        tempmat2 = np.zeros((ndim,ndim),dtype=complex)
+        tempmat3 = np.zeros((ndim,ndim),dtype=complex)
+
+        for js in range(ns):
+            for iorb in range(norb):
+                nn1 = [iorb,js]
+                ind1, nn1 = indexing(ndim,2,[norb,ns],1,0,nn1)
+                for ks in range(ns):
+                    for jorb in range(norb):
+                        nn2 = [jorb,ks]
+                        ind2, nn2 = indexing(ndim,2,[norb,ns],1,0,nn2)
+                        tempmat[ind1,ind2] = mat1[iorb,jorb,js,ks]
+                        tempmat2[ind1,ind2] = mat2[iorb,jorb,js,ks]
+
+        tempmat3 = tempmat@tempmat2
+
+        for ind1 in range(ndim):
             nn1 = [0]*2
-            new_ind = 0
-            c_ind, nn1 = self.indexing(ndim,ndivision,divisionarray,0,ind,nn1)
-            # print(norbc,nn1)
-            [a,m1] = self.key2val(nn1[0])
-            [a_prime,m4] = self.key2val(nn1[1])
-            if a==a_prime:
-                b_ind = self.orbval2key([a,[m1,m4]])
-                if b_ind is not None:
-                    self.full_sub.append([b_ind,c_ind])
-
-    def mapping_mR_R(self):
+            ind1, [iorb,js] = indexing(ndim,2,[norb,ns],0,ind1,nn1)
+            for ind2 in range(ndim):
+                nn2 = [0]*2
+                ind2, [jorb,ks] = indexing(ndim,2,[norb,ns],0,ind2,nn2)
+                mat_out[iorb,jorb,js,ks] = tempmat3[ind1,ind2]
         
-        rkvec = self.kpoint
-
-        mrkvec = np.array(1.0-rkvec,dtype=float)
-
-        for i in range(mrkvec.shape[0]):
-            for j in range(mrkvec.shape[1]):
-                if mrkvec[i,j] == 1.0:
-                    mrkvec[i,j] = 0
-        
-        mapping_idx = []
-
-        for i in range(rkvec.shape[0]):
-            for j in range(mrkvec.shape[0]):
-                if(abs(rkvec[i,0]-mrkvec[j,0])<=1.0e-6)and(abs(rkvec[i,1]-mrkvec[j,1])<=1.0e-6)and((abs(rkvec[i,2]-mrkvec[j,2])<=1.0e-6)):
-                    mapping_idx.append([i,j])
-
-        self.mapping_idx = mapping_idx
-    
-    def FLatTau_m(self,flattau : np.ndarray) -> np.ndarray:
-
-        self.mapping_mR_R()
-
-        nk = flattau.shape[3]
-        ntau = flattau.shape[4]
-        norb = flattau.shape[0]
-
-        flattau_m = np.zeros((norb,norb,self.ns,nk,ntau),dtype=complex,order='F')
-
-        for itau in range(ntau):
-            for kp in self.mapping_idx:
-                for js in range(self.ns):
-                    for iorb in range(norb):
-                        for jorb in range(norb):
-                            flattau_m[iorb,jorb,js,kp[0],itau] = -flattau[iorb,jorb,js,kp[1],ntau-itau-1]
-
-        return flattau_m
-    
-    def BMul(self,mat1 : np.ndarray,mat2 : np.ndarray)->np.ndarray:
-
-        norb = mat1.shape[0]
-
-        mat_out = np.zeros((norb,norb),dtype=complex,order='F')
-
-        mat_out = np.dot(mat1,mat2)
-
-        return mat_out
-    
-    def BMulLocStc(self,mat1 : np.ndarray, mat2 : np.ndarray)->np.ndarray:
-
-        norb = mat1.shape[0]
-
-        mat_out = np.zeros((norb,norb,self.ns,self.ns),dtype=complex,order='F')
-
-        for js in range(self.ns):
-            for ks in range(self.ns):
-                mat_out[:,:,js,ks] = self.BMul(mat1[:,:,js,ks],mat2[:,:,js,ks])
-
         return mat_out
     
     def BMulLatStc(self,mat1 : np.ndarray, mat2 : np.ndarray)-> np.ndarray:
@@ -1479,31 +1819,31 @@ class BHamiltonian(object):
         
         return mat_out
     
-       
-    def BImMLocStc(self,mat1 : np.ndarray, mat2 : np.ndarray) -> np.ndarray:
+    def BImMLocStc(self,mat1 : np.ndarray, mat2 : np.ndarray)-> np.ndarray:
 
-        norb = mat1.shape[0]
+        norb = mat1.shape[0] # new 2 index
+        ns = self.ns
+        mat_out = np.zeros((norb,norb,ns,ns),dtype=complex,order='F')
+        I = np.zeros((norb,norb,ns,ns),dtype=complex,order='F')
+        tempmat = np.eye(norb*ns,norb*ns,dtype=complex)
+        ndim = norb*ns
 
-        mat_out = np.zeros((norb,norb,self.ns,self.ns),dtype=complex,order='F')
-        tempmat = np.eye(norb*self.ns,norb*self.ns,dtype=complex)
-        I = np.zeros((norb,norb,self.ns,self.ns),dtype=complex,order='F')
-
-        for ind1 in range(norb*self.ns):
+        for ind1 in range(ndim):
             nn1 = [0]*2
-            ind1,[iorb,js] = self.indexing(norb*self.ns,2,[norb,self.ns],0,ind1,nn1)
-            for ind2 in range(norb*self.ns):
+            ind1, [iorb,js] = indexing(ndim,2,[norb,ns],0,ind1,nn1)
+            for ind2 in range(ndim):
                 nn2 = [0]*2
-                ind2, [jorb,ks] = self.indexing(norb*self.ns,2,[norb,self.ns],0,ind2,nn2)
+                ind2, [jorb,ks] = indexing(ndim,2,[norb,ns],0,ind2,nn2)
                 I[iorb,jorb,js,ks] = tempmat[ind1,ind2]
         
         tempmat2 = self.BMulLocStc(mat1,mat2)
 
-        for js in range(self.ns):
-            for ks in range(self.ns):
+        for js in range(ns):
+            for ks in range(ns):
                 for iorb in range(norb):
                     for jorb in range(norb):
-                        mat_out[iorb,jorb,js,ks] = I[iorb,jorb,js,ks]-tempmat2[iorb,jorb,js,ks]
-        
+                        mat_out[iorb,jorb,js,ks] = I[iorb,jorb,js,ks] - tempmat2[iorb,jorb,js,ks]
+
         return mat_out
     
     def BImMLatStc(self,mat1 : np.ndarray, mat2 : np.ndarray) -> np.ndarray:
@@ -1546,33 +1886,35 @@ class BHamiltonian(object):
     def BIimMLocStc(self,mat1 : np.ndarray, mat2 : np.ndarray) -> np.ndarray:
 
         norb = mat1.shape[0]
+        ns = self.ns
 
-        mat_out = np.zeros((norb,norb,self.ns,self.ns),dtype=complex,order='F')
-        tempmat = np.zeros((norb*self.ns,norb*self.ns),dtype=complex,order='F')
-        tempmat2 = np.zeros((norb*self.ns,norb*self.ns),dtype=complex,order='F')
+        mat_out = np.zeros((norb,norb,ns,ns),dtype=complex,order='F')
+        tempmat = np.zeros((norb*ns,norb*ns),dtype=complex,order='F')
+        tempmat2 = np.zeros((norb*ns,norb*ns),dtype=complex,order='F')
         
 
         mat_temp = self.BImMLocStc(mat1,mat2)
+        ndim = norb*ns
 
-        for js in range(self.ns):
+        for js in range(ns):
             for iorb in range(norb):
                 nn1 = [iorb,js]
-                ind1, nn1 = self.indexing(norb*self.ns,2,[norb,self.ns],1,0,nn1)
-                for ks in range(self.ns):
+                ind1, nn1 = indexing(ndim,2,[norb,ns],1,0,nn1)
+                for ks in range(ns):
                     for jorb in range(norb):
                         nn2 = [jorb,ks]
-                        ind2, nn2 = self.indexing(norb*self.ns,2,[norb,self.ns],1,0,nn2)
+                        ind2, nn2 = indexing(ndim,2,[norb,ns],1,0,nn2)
                         tempmat[ind1,ind2] = mat_temp[iorb,jorb,js,ks]
+        
         tempmat2 = np.linalg.inv(tempmat)
-        
-        for ind1 in range(norb*self.ns):
+
+        for ind1 in range(ndim):
             nn1 = [0]*2
-            ind1, [iorb,js] = self.indexing(norb*self.ns,2,[norb,self.ns],0,ind1,nn1)
-            for ind2 in range(norb*self.ns):
+            ind1, [iorb,js] = indexing(ndim,2,[norb,ns],0,ind1,nn1)
+            for ind2 in range(ndim):
                 nn2 = [0]*2
-                ind2, [jorb,ks] = self.indexing(norb*self.ns,2,[norb,self.ns],0,ind2,nn2)
+                ind2, [jorb,ks] = indexing(ndim,2,[norb,ns],0,ind2,nn2)
                 mat_out[iorb,jorb,js,ks] = tempmat2[ind1,ind2]
-        
 
         return mat_out
     
@@ -1612,7 +1954,7 @@ class BHamiltonian(object):
             mat_out[:,:,:,:,:,it] = self.BIimMLatStc(mat1[:,:,:,:,:,it],mat2[:,:,:,:,:,it])
 
         return mat_out
-    
+
     def BLatStc_K2R(self,rkgrid : list = None, hmatk : np.ndarray = None) -> np.ndarray:
 
         rkgrid = np.array(rkgrid,dtype=int,order='F')
@@ -1623,12 +1965,12 @@ class BHamiltonian(object):
         rkvec = np.array(list(itertools.product(np.arange(0,rkgrid[2])/rkgrid[2],np.arange(0,rkgrid[1])/rkgrid[1],np.arange(0,rkgrid[0])/rkgrid[0])))
         rkvec = np.fliplr(rkvec)
 
-        if (norb==len(self.orbidx)):
+        if (norb==len(self.bind)):
             for iorb in range(norb):
                 for jorb in range(norb):
 
-                    alpha,[m1,m2] = self.orbkey2val(iorb)
-                    beta,[m3,m4] = self.orbkey2val(jorb)
+                    alpha,[m1,m2] = self.Batomorb(iorb)
+                    beta,[m3,m4] = self.Batomorb(jorb)
 
                     delta = self.basis_f[alpha,:] - self.basis_f[beta,:]
 
@@ -1639,14 +1981,14 @@ class BHamiltonian(object):
             hmatr = DiagE.fourier.blatstc_k2r(rkgrid,hmatk)
         else:
             tempmat = hmatk
-            hmatk = np.zeros((len(self.orbidx),len(self.orbidx),self.ns,self.ns,nrk),dtype=complex,order='F')
+            hmatk = np.zeros((len(self.bind),len(self.bind),self.ns,self.ns,nrk),dtype=complex,order='F')
             for js in range(self.ns):
                 for ks in range(self.ns):
-                    for iorb,ind1 in self.full_sub:
-                        for jorb,ind2 in self.full_sub:
+                    for iorb,ind1 in enumerate(self.c2b):
+                        for jorb,ind2 in enumerate(self.c2b):
                             
-                            alpha,[m1,m4] = self.orbkey2val(iorb)
-                            beta,[m2,m3] = self.orbkey2val(jorb)
+                            alpha,[m1,m4] = self.Batomorb(iorb)
+                            beta,[m2,m3] = self.Batomorb(jorb)
 
                             delta = self.basis_f[alpha,:] - self.basis_f[beta,:]
 
@@ -1663,8 +2005,8 @@ class BHamiltonian(object):
             for ir in range(nrk):
                 for js in range(self.ns):
                     for ks in range(self.ns):
-                        for iorb, ind1 in self.full_sub:
-                            for jorb, ind2 in self.full_sub:
+                        for iorb, ind1 in enumerate(self.c2b):
+                            for jorb, ind2 in enumerate(self.c2b):
                                 hmatr[ind1,ind2,js,ks,ir] = tempmat[iorb,jorb,js,ks,ir]
 
         
@@ -1683,12 +2025,12 @@ class BHamiltonian(object):
         rkvec = np.fliplr(rkvec)
 
 
-        if (norb==len(self.orbidx)):
+        if (norb==len(self.bind)):
             for iorb in range(norb):
                 for jorb in range(norb):
 
-                    alpha,[m1,m2] = self.orbkey2val(iorb)
-                    beta,[m3,m4] = self.orbkey2val(jorb)
+                    alpha,[m1,m2] = self.Batomorb(iorb)
+                    beta,[m3,m4] = self.Batomorb(jorb)
 
                     delta = self.basis_f[alpha,:]-self.basis_f[beta,:]
 
@@ -1698,15 +2040,15 @@ class BHamiltonian(object):
                         hmatk[iorb,jorb,:,:,ir] *= phase[ir]
         else:
             tempmat = hmatk
-            hmatk = np.zeros((len(self.orbidx),len(self.orbidx),self.ns,self.ns,nrk),dtype=complex,order='F')
+            hmatk = np.zeros((len(self.bind),len(self.bind),self.ns,self.ns,nrk),dtype=complex,order='F')
 
             for js in range(self.ns):
                 for ks in range(self.ns):
-                    for iorb, ind1 in self.full_sub:
-                        for jorb, ind2 in self.full_sub:
+                    for iorb, ind1 in enumerate(self.c2b):
+                        for jorb, ind2 in enumerate(self.c2b):
 
-                            alpha,[m1,m4] = self.orbkey2val(iorb)
-                            beta,[m2,m3] = self.orbkey2val(jorb)
+                            alpha,[m1,m4] = self.Batomorb(iorb)
+                            beta,[m2,m3] = self.Batomorb(jorb)
 
                             delta = self.basis_f[alpha,:] - self.basis_f[beta,:]
 
@@ -1721,8 +2063,8 @@ class BHamiltonian(object):
             for ik in range(nrk):
                 for js in range(self.ns):
                     for ks in range(self.ns):
-                        for iorb, ind1 in self.full_sub:
-                            for jorb, ind2 in self.full_sub:
+                        for iorb, ind1 in enumerate(self.c2b):
+                            for jorb, ind2 in enumerate(self.c2b):
                                 hmatk[ind1,ind2,js,ks,ik] = tempmat[iorb,jorb,js,ks,ik]
             
 
@@ -1791,196 +2133,248 @@ class BHamiltonian(object):
         
         bf  = np.empty_like(btau,dtype=complex,order='F')
 
-        for ik in range(nk):
-            bf[:,:,:,:,ik,:] = self.BLocDyn_T2F(tau,btau[:,:,:,:,ik,:],freq)
+        bf = DiagE.fourier.blatdyn_t2f(tau,btau,freq)
 
         return bf
     
-    def BLocDyn_F2T(self,nu : np.ndarray = None,bnu : np.ndarray = None, tau : np.ndarray = None, oddzero : int = None, highzero : int = None) -> np.ndarray:
+    def BLocDyn_F2T(self,freq : np.ndarray = None,bnu : np.ndarray = None, tau : np.ndarray = None, oddzero : int = None, highzero : int = None) -> np.ndarray:
 
-        momentum, high = self.BLocDyn_M(nu,bnu,oddzero,highzero)
+        momentum, high = self.BLocDyn_M(freq,bnu,oddzero,highzero)
 
         btau = np.empty_like(bnu, dtype=complex,order='F')
-        btau = DiagE.fourier.blocdyn_f2t(nu,bnu,momentum,tau)
+        btau = DiagE.fourier.blocdyn_f2t(freq,bnu,momentum,tau)
 
         return btau
     
-    def BLatDyn_F2T(self,nu : np.ndarray = None,bnu : np.ndarray = None, tau : np.ndarray = None, oddzero : int = None, highzero : int = None) -> np.ndarray:
+    def BLatDyn_F2T(self,freq : np.ndarray = None,bnu : np.ndarray = None, tau : np.ndarray = None, oddzero : int = None, highzero : int = None) -> np.ndarray:
 
         nk = bnu.shape[4]
+        momentum, high = self.BLatDyn_M(freq,bnu,oddzero,highzero)
         btau = np.empty_like(bnu,dtype=complex,order='F')
 
-        for ik in range(nk):
-            btau[:,:,:,:,ik,:] = self.BLocDyn_F2T(nu,bnu[:,:,:,:,ik,:],tau,oddzero,highzero)
+        btau = DiagE.fourier.blatdyn_f2t(freq,bnu,momentum,tau)
         
         return btau
     
-    def Polarizability(self, Gf : np.ndarray = None) -> np.ndarray:
+    def BmixLocStc(self,iter : int , mix : float, Bb : np.ndarray, Bm : np.ndarray)->np.ndarray:
+        norb = Bb.shape[0]
+        ns = Bb.shape[2]
 
-        norb = Gf.shape[0]
+        B_new = np.zeros((norb,norb,ns,ns),dtype=complex,order='F')
+
+        if iter == 1:
+            mix = 1.0
+        
+        for js in range(ns):
+            for ks in range(ns):
+                for iorb in range(norb):
+                    for jorb in range(norb):
+                        B_new[iorb,jorb,js,ks] = mix*Bb[iorb,jorb,js,ks]+(1-mix)*Bm[iorb,jorb,js,ks]
+
+        return B_new
+
+    def BmixLatStc(self, iter : int, mix : float, Bb : np.ndarray, Bm : np.ndarray)->np.ndarray:
+        
+        norb = Bb.shape[0]
+        ns = Bb.shape[2]
+        nrk = Bb.shape[4]
+
+        B_new = np.zeros((norb,norb,ns,ns,nrk),dtype=complex,order='F')
+
+        if iter == 1:
+            mix = 1.0
+        
+        
+
+        for irk in range(nrk):
+            for js in range(ns):
+                for ks in range(ns):
+                    for iorb in range(norb):
+                        for jorb in range(norb):
+                            B_new[iorb,jorb,js,ks,irk] = mix*Bb[iorb,jorb,js,ks,irk]+(1-mix)*Bm[iorb,jorb,js,ks,irk]
+        
+        return B_new
+    
+    def BmixLocDyn(self, iter : int, mix :float, Bb : np.ndarray, Bm : np.ndarray)->np.ndarray:
+
+        norb = Bb.shape[0]
+        ns = Bb.shape[2]
+        nft = Bb.shape[4]
+
+        B_new = np.zeros((norb,norb,ns,ns,nft),dtype=complex,order='F')
+
+        if iter == 1:
+            mix = 1.0
+
+        for ift in range(nft):
+            for js in range(ns):
+                for ks in range(ns):
+                    for iorb in range(norb):
+                        for jorb in range(norb):
+                            B_new[iorb,jorb,js,ks,ift] = mix*Bb[iorb,jorb,js,ks,ift] + (1-mix)*Bm[iorb,jorb,js,ks,ift]
+        
+        return B_new
+    
+    def BmixLatDyn(self, iter : int, mix : float, Bb : np.ndarray, Bm : np.ndarray)->np.ndarray:
+
+        norb = Bb.shape[0]
+        ns = Bb.shape[2]
+        nrk = Bb.shape[4]
+        nft = Bb.shape[5]
+
+        B_new = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=complex,order='F')
+
+        if iter == 1:
+            mix = 1.0
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                for js in range(ns):
+                    for ks in range(ns):
+                        for iorb in range(norb):
+                            for jorb in range(norb):
+                                B_new[iorb,jorb,js,ks,irk,ift] = mix*Bb[iorb,jorb,js,ks,irk,ift]+(1-mix)*Bm[iorb,jorb,js,ks,irk,ift]
+        
+        return B_new
+
+    
+    def Polarizability(self, Gf : np.ndarray, FT, rkgrid : list = None) -> np.ndarray:
+
+        '''
+        input : G(k,tau), tau, freq, rkgrid <- option
+        output : P(R,tau)
+        it save the Polarizability with k, frequency domain in BHamiltonian
+        '''
+        Gf = self.fermion.FLatDyn_K2R(self.rkgrid,Gf)
+        norbc = Gf.shape[0]
+        ns = self.ns
         nr = Gf.shape[3]
         ntau = Gf.shape[4]
-        borb = len(self.orbidx)
-        
-        tempmat = np.zeros((norb,norb,norb,norb,self.ns,self.ns,nr,ntau),dtype=complex,order='F')
-        Pol = np.zeros((borb,borb,self.ns,self.ns,nr,ntau),dtype=complex,order='F')
+        norb = len(self.bind)
+        tau = FT.tau
+        nu = FT.nu
 
-        Gf_m = self.FLatTau_m(Gf)
+        if rkgrid == None:
+            rkgrid = self.rkgrid
+        else:
+            rkgrid = rkgrid
 
-        
+        tempmat = np.zeros((norbc,norbc,norbc,norbc,ns,ns,nr,ntau),dtype=complex,order='F')
+        Pol = np.zeros((norb,norb,ns,ns,nr,ntau),dtype=complex,order='F')
+
+        Gf_m = self.fermion.FLatTau_m(Gf)
+
         if self.ns == 2:
             for itau in range(ntau):
                 for ir in range(nr):
-                    for js in range(self.ns):
-                        for ks in range(self.ns):
-                            for iorb, jorb, korb, lorb in itertools.product(list(range(norb)),list(range(norb)),list(range(norb)),list(range(norb))):
+                    for js in range(ns):
+                        for ks in range(ns):
+                            for iorbc, jorbc,korbc,lorbc in itertools.product(list(range(norbc)),list(range(norbc)),list(range(norbc)),list(range(norbc))):
                                 if js == ks:
-                                    tempmat[iorb,lorb,jorb,korb,js,ks,ir,itau] = Gf_m[jorb,iorb,js,ir,itau]*Gf[korb,lorb,ks,ir,itau]
+                                    tempmat[iorbc,lorbc,jorbc,korbc,js,ks,ir,itau] = Gf_m[jorbc,iorbc,js,ir,itau]*Gf[korbc,lorbc,ks,ir,itau]
         else:
             if self.SOC == True:
                 C = 1
                 for itau in range(ntau):
                     for ir in range(nr):
-                        for js in range(self.ns):
-                            for ks in range(self.ns):
-                                for iorb, jorb, korb, lorb in itertools.product(list(range(norb)),list(range(norb)),list(range(norb)),list(range(norb))):
-                                    tempmat[iorb,lorb,jorb,korb,js,ks,ir,itau] = Gf_m[jorb,iorb,js,ir,itau]*Gf[korb,lorb,ks,ir,itau]*C
+                        for iorbc, jorbc,korbc,lorbc in itertools.product(list(range(norbc)),list(range(norbc)),list(range(norbc)),list(range(norbc))):
+                            tempmat[iorbc,lorbc,jorbc,korbc,0,0,ir,itau] = Gf_m[jorbc,iorbc,0,ir,itau]*Gf[korbc,lorbc,0,ir,itau]*C
             else:
                 C = 2
                 for itau in range(ntau):
                     for ir in range(nr):
-                        for js in range(self.ns):
-                            for ks in range(self.ns):
-                                for iorb, jorb, korb, lorb in itertools.product(list(range(norb)),list(range(norb)),list(range(norb)),list(range(norb))):
-                                    tempmat[iorb,lorb,jorb,korb,js,ks,ir,itau] = Gf_m[jorb,iorb,js,ir,itau]*Gf[korb,lorb,ks,ir,itau]*C
+                        for iorbc, jorbc,korbc,lorbc in itertools.product(list(range(norbc)),list(range(norbc)),list(range(norbc)),list(range(norbc))):
+                            tempmat[iorbc,lorbc,jorbc,korbc,0,0,ir,itau] = Gf_m[jorbc,iorbc,0,ir,itau]*Gf[korbc,lorbc,0,ir,itau]*C
         
-        
-        for itau in range(ntau):
-            for ir in range(nr):
-                for js in range(self.ns):
-                    for ks in range(self.ns):
-                        Pol[:,:,js,ks,ir,itau] = self.Four2Two(tempmat[:,:,:,:,js,ks,ir,itau])
-            
-        
-        return Pol
-    
-    def dielectric_function(self,Pol : np.ndarray = None, V : np.ndarray = None) -> np.ndarray:
+        Pol = self.Convert_4_2_LatDyn(tempmat,1)
+        # Pol_kt = self.BLatStc_R2K(self.rkgrid,Pol)
+        # Pol_kf = self.BLatDyn_T2F(tau,Pol_kt,nu)
+        self.Pol = Pol # P(k,f)
+
+
+    def dielectric_function(self,Pol : np.ndarray, V : np.ndarray) -> np.ndarray:
 
         norb = Pol.shape[0]
+        ns = self.ns
         nk = Pol.shape[4]
-        nomega = Pol.shape[5]
-        norbc = len(self.idx)
-        tempmat = np.zeros((norbc,norbc,norbc,norbc,self.ns,self.ns,nk,nomega),dtype=complex,order='F')
-
-        V_dyn = np.zeros((norb,norb,self.ns,self.ns,nk,nomega),dtype=complex,order='F')
-
-        epsilon = np.zeros((norb,norb,self.ns,self.ns,nk,nomega),dtype=complex,order='F')
-
-        for iomega in range(nomega):
-            V_dyn[:,:,:,:,:,iomega] = V[:,:,:,:,:]
-
+        nnu = Pol.shape[5]
         
+        epsilon = np.zeros((norb,norb,ns,ns,nk,nnu),dtype=complex,order='F')
 
-        epsilon = self.BImMLatDyn(Pol,V_dyn)
 
+        epsilon = self.BImMLatDyn(Pol,V)
 
         return epsilon
     
-    def inv_dielectric_function(self,Pol : np.ndarray = None, V : np.ndarray = None) -> np.ndarray:
+    def inv_dielectric_function(self,Pol : np.ndarray, V : np.ndarray) -> np.ndarray:
 
         norb = Pol.shape[0]
-        ns = Pol.shape[2]
+        ns = self.ns
         nk = Pol.shape[4]
-        nomega = Pol.shape[5]
+        nnu = Pol.shape[5]
 
-        epsilon_inv = np.zeros((norb,norb,ns,ns,nk,nomega),dtype=complex,order='F')
-        V_dyn = np.zeros((norb,norb,ns,ns,nk,nomega),dtype=complex,order='F')
+        epsilon_inv = np.zeros((norb,norb,ns,ns,nk,nnu),dtype=complex,order='F')
 
-        for iomega in range(nomega):
-            for ik in range(nk):
-                for js in range(ns):
-                    for ks in range(ns):
-                        for iorb in range(norb):
-                            for jorb in range(norb):
-                                V_dyn[iorb,jorb,js,ks,ik,iomega] = V[iorb,jorb,js,ks,ik]
+        epsilon_inv = self.BIimMLatDyn(Pol,V)
+
+        return epsilon_inv
+    
+    def screened_coulomb(self, Pol : np.ndarray, V : np.ndarray) -> np.ndarray:
+
+        '''
+        input P(k,f), V(k)
+        return W(k,f)
         
-        epsilon_inv = self.BIimMLatDyn(Pol,V_dyn)
-
-        return epsilon_inv 
-
-    def screened_coulomb(self, Pol : np.ndarray = None, V : np.ndarray = None) -> np.ndarray:
+        it save the screened coulomb interaction with k frequency domain in BHamiltonian
+        '''
 
         norb = Pol.shape[0]
+        ns = self.ns
         nk = Pol.shape[4]
-        nomega = Pol.shape[5]
-        norbc = len(self.idx)
-        borb = len(self.orbidx) 
+        nnu = Pol.shape[5]
+        norbc = len(self.fermion.find)
+
+        tempmat = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nnu),dtype=complex,order='F')
+        W = np.zeros((norb,norb,ns,ns,nk,nnu),dtype=complex,order='F')
+        V_dyn = np.zeros((norb,norb,ns,ns,nk,nnu),dtype=complex,order='F')
+
+        for inu in range(nnu):
+            V_dyn[:,:,:,:,:,inu] = V[:,:,:,:,:]
+
+        Pol_comp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nnu),dtype=complex,order='F')
+        V_comp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nnu),dtype=complex,order='F')
+        epsilon_inv = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nnu),dtype=complex,order='F')
+
+        Pol_comp = self.full_2_2LatDyn(Pol,0)
+        V_comp = self.full_2_2LatDyn(V_dyn,0)
+        tempmat = DiagE.dyson.blatdyn(V_comp,Pol_comp) #-> check
+        # epsilon_inv = self.inv_dielectric_function(Pol_comp,V_comp)
         
-        tempmat = np.zeros((norbc**2,norbc**2,self.ns,self.ns,nk,nomega),dtype=complex,order='F')
-        W = np.zeros((borb,borb,self.ns,self.ns,nk,nomega),dtype=complex,order='F')
+        # tempmat = self.BMulLatDyn(V_comp,epsilon_inv)
 
-        Pol_comp = np.zeros((norbc**2,norbc**2,self.ns,self.ns,nk,nomega),dtype=complex,order='F')
-        V_comp = np.zeros((norbc**2,norbc**2,self.ns,self.ns,nk),dtype=complex,order='F')
-        V_comp2 = np.zeros((norbc**2,norbc**2,self.ns,self.ns,nk,nomega),dtype=complex,order='F')
-        epsilon_inv = np.zeros((norbc**2,norb**2,self.ns,self.ns,nk,nomega),dtype=complex,order='F')
 
-        for iomega in range(nomega):
-            for ik in range(nk):
-                for js in range(self.ns):
-                    for ks in range(self.ns):
-                        for iorb1, iorb2 in self.full_sub:
-                            for jorb1, jorb2 in self.full_sub:
-                                Pol_comp[iorb2,jorb2,js,ks,ik,iomega] = Pol[iorb1,jorb1,js,ks,ik,iomega]
-                                V_comp[iorb2,jorb2,js,ks,ik] = V[iorb1,jorb1,js,ks,ik]
-                                V_comp2[iorb2,jorb2,js,ks,ik,iomega] = V[iorb1,jorb1,js,ks,ik]
-
+        W = self.full_2_2LatDyn(tempmat,1)
         
+        self.W = W
 
-        
-        epsilon_inv = self.inv_dielectric_function(Pol_comp,V_comp)
-
-        tempmat = self.BMulLatDyn(V_comp2,epsilon_inv)
-        
-        for iomega in range(nomega):
-            for ik in range(nk):
-                for js in range(self.ns):
-                    for ks in range(self.ns):
-                        for iorb1, iorb2 in self.full_sub:
-                            for jorb1, jorb2 in self.full_sub:
-                                W[iorb1,jorb1,js,ks,ik,iomega] = tempmat[iorb2,jorb2,js,ks,ik,iomega]
-
-
-        return W
     
     def screened_coulomb_C(self,W : np.ndarray = None, V : np.ndarray = None) -> np.ndarray:
 
         norb = W.shape[0]
+        ns = self.ns
         nk = W.shape[4]
-        nomega = W.shape[5]
+        nnu = W.shape[5]
 
-        V_dyn = np.zeros((norb,norb,self.ns,self.ns,nk,nomega),dtype=complex,order='F')
+        
+        Wc = np.zeros((norb,norb,ns,ns,nk,nnu),dtype=complex,order='F')
+        
+        for inu in range(nnu):
+            Wc[:,:,:,:,:,inu] = W[:,:,:,:,:,inu] - V[:,:,:,:,:]
+        
+        self.Wc = Wc
 
-        for iomega in range(nomega):
-            for ik in range(nk):
-                for js in range(self.ns):
-                    for ks in range(self.ns):
-                        for iorb in range(norb):
-                            for jorb in range(norb):
-                                V_dyn[iorb,jorb,js,ks,ik,iomega] = V[iorb,jorb,js,ks,ik]
-        Wc = np.zeros((norb,norb,self.ns,self.ns,nk,nomega),dtype=complex,order='F')
 
-        for iomega in range(nomega):
-            for ik in range(nk):
-                for js in range(self.ns):
-                    for ks in range(self.ns):
-                        for iorb in range(norb):
-                            for jorb in range(norb):
-                                Wc[iorb,jorb,js,ks,ik,iomega] = W[iorb,jorb,js,ks,ik,iomega]-V_dyn[iorb,jorb,js,ks,ik,iomega]
-
-        return Wc
-    
-    
-class FT_grid():
+class FT_grid(object):
 
     def __init__(self,beta : float = None,size : int = None):
 
@@ -2011,76 +2405,91 @@ class FT_grid():
 
 class Method():
 
-    def __init__(self,fermion, boson,ft):
+    def __init__(self,fermion : FHamiltonian, boson : BHamiltonian ,FT : FT_grid):
 
         self.fermion = fermion
         self.boson = boson
-        self.ft = ft
-    
-    def Self_consistence_Hartree_Fock(self,iter_max : int, Hmat : np.ndarray, Nt : float, rkgrid : list = None):
+        self.ft = FT
         
+
+    def Hartree_Fock(self, iter_max : int, Hmat : np.ndarray, N : float, mix : float, rkgrid : list = None):
+        '''
+        return H_hf, Sigma_H, Sigma_F, density_matrix, mu
+        '''
         norbc = Hmat.shape[0]
-        ns = self.boson.ns
+        ns = Hmat.shape[2]
         nk = Hmat.shape[3]
         if rkgrid == None:
             rkgrid = self.boson.rkgrid
         Vk = self.boson.V_bare
         Vr = self.boson.BLatStc_K2R(rkgrid,Vk)
+
         tau = self.ft.tau
 
-        Nt *= ns
+        N *= ns
 
-        flattau = DiagE.bare.flattau(Hmat,tau)
+        flattau_init = DiagE.bare.flattau(Hmat,tau)
 
-        n_init = self.fermion.occupation_matrix(flattau)
+        n_init = self.fermion.occupation_matrix(flattau_init)
 
-        for iter in range(1,iter_max):
+        for iter in range(1,iter_max+1):
             if iter == 1:
                 n_old = n_init
-                flattau_old = flattau
-            Sigma_H = self.fermion.Hartree(Vk,flattau_old)
-            flattau_r = self.fermion.FLatDyn_K2R(rkgrid,flattau_old)
-            tempmat = self.fermion.Exchange(Vr,flattau_r)
-            Sigma_F = self.fermion.FLatStc_R2K(rkgrid,tempmat)
+                flattau_old = flattau_init
+            # Sigma_H = self.fermion.Hartree(Vk,flattau_old,self.boson.b2f)
+            # flattau_r = self.fermion.FLatDyn_K2R(rkgrid,flattau_old)
+            # Sigma_F = self.fermion.Exchange(Vr,flattau_r,self.boson.b2f)
+            # Sigma_F = self.fermion.FLatStc_R2K(rkgrid,Sigma_F)
+            self.fermion.Hartree(flattau_old,self.boson)
+            self.fermion.Exchange(flattau_old,self.boson)
+            Sigma_H = self.fermion.Sigma_H
+            Sigma_F = self.fermion.Sigma_F
             Hmat_hf = np.zeros((norbc,norbc,ns,nk),dtype=complex,order='F')
+
+            for ik in range(nk):
+                for js in range(ns):
+                    for iorbc in range(norbc):
+                        for jorbc in range(norbc):
+                            Hmat_hf[iorbc,jorbc,js,ik] = Hmat[iorbc,jorbc,js,ik]+Sigma_H[iorbc,jorbc,js,ik]+Sigma_F[iorbc,jorbc,js,ik]
+            
+            
+            num = 0
+            mu = self.fermion.root_find_for_hf(N,Hmat_hf,tau)
+
+            for ik in range(nk):
+                for js in range(ns):
+                    for iorbc in range(norbc):
+                        Hmat_hf[iorbc,iorbc,js,ik] -= mu
+
+            flattau_new = DiagE.bare.flattau(Hmat_hf,tau)
+
+            n = self.fermion.occupation_matrix(flattau_new)
+
+            n_new = self.fermion.FmixLatStc(iter,mix,n,n_old)
+
+            diff = abs(n_new-n_old)
             
             for ik in range(nk):
                 for js in range(ns):
                     for iorbc in range(norbc):
                         for jorbc in range(norbc):
-                            Hmat_hf[iorbc,jorbc,js,ik] = Hmat[iorbc,jorbc,js,ik] + Sigma_H[iorbc,jorbc,js,ik] + Sigma_F[iorbc,jorbc,js,ik]
+                            num += diff[iorbc,jorbc,js,ik]/(norbc*norbc*ns*nk)
             
-            num = 0
-            mu = self.fermion.root_find_for_hf(Nt,Hmat_hf,tau)
-            
-            for ik in range(nk):
-                for js in range(ns):
-                    for iorbc in range(norbc):
-                        Hmat_hf[iorbc,iorbc,js,ik] -= mu
-            
-            flattau_hf = DiagE.bare.flattau(Hmat_hf,tau)
-            
-            n_new = self.fermion.occupation_matrix(flattau_hf)
-
-            diff = abs(n_new-n_old)
-
-            for js in range(ns):
-                for iorbc in range(norbc):
-                    num += diff[iorbc,iorbc,js]/(norbc*ns)
-            
-            print(f'iteration : {iter} \n n_new : \n {n_new} \n n_old : \n {n_old} \n chemical potential : {mu}')
+            print(f'iteration : {iter} \n Criteria \n {num} \n chemical potential : {mu}')
 
             if (num <= 1.0e-3):
                 print(f"Self-consistency is achived with iteration : {iter}")
-                return Hmat_hf, Sigma_H, Sigma_F, n_new
+                return Hmat_hf, Sigma_H, Sigma_F, n_new, mu
             elif (iter==iter_max):
                 print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
-                return Hmat_hf, Sigma_H, Sigma_F, n_new
+                return Hmat_hf, Sigma_H, Sigma_F, n_new, mu
             else:
-                flattau = flattau_hf
+                flattau_old = flattau_new
                 n_old = n_new
-        
-    def Self_consistence_GW(self,iter_max : int, Hmat : np.ndarray, Nt : float,rkgrid : list = None):
+
+    def GW_approximation(self, iter_max : int, Hmat : np.ndarray, N : float, mix : float ,rkgrid : list = None):
+
+        #####Start Initialization#####
 
         norbc = Hmat.shape[0]
         ns = Hmat.shape[2]
@@ -2088,9 +2497,10 @@ class Method():
         tau = self.ft.tau
         omega = self.ft.omega
         nu = self.ft.nu
+
         if rkgrid == None:
             rkgrid = self.boson.rkgrid
-
+        
         ntau = len(tau)
         nomega = len(omega)
         nnu = len(nu)
@@ -2098,117 +2508,165 @@ class Method():
         Vk = self.boson.V_bare
         Vr = self.boson.BLatStc_K2R(rkgrid,Vk)
 
-        G_not_kt_init = DiagE.bare.flattau(Hmat,tau)
-        n_init = self.fermion.occupation_matrix(G_not_kt_init)
+        G_kt_init = DiagE.bare.flattau(Hmat,tau)
+        
 
-        for iter in range(1,iter_max):
+        N *= ns
+
+        #####Finish Initialization#####
+
+        #####SCF Loop begin #####
+        for iter in range(1,iter_max+1):
             if iter == 1:
-                n_old = n_init
-                G_kt = G_not_kt_init
+                G_kt = G_kt_init
+                G_kf_init = self.fermion.FLatDyn_T2F(tau,G_kt_init,omega)
+                G_kf = G_kf_init
+                Sigma_old = np.empty_like(G_kf,dtype=complex,order='F')
+                
             num = 0
-
-            G_rt = self.fermion.FLatDyn_K2R(rkgrid,G_kt)
-            Sigma_H = self.fermion.Hartree(Vk,G_kt)
-            tempmat = self.fermion.Exchange(Vr,G_rt)
-            Sigma_F = self.fermion.FLatStc_R2K(rkgrid,tempmat)
-            Pol_rt = self.boson.Polarizability(G_rt)
-            Pol_kt = self.boson.BLatDyn_R2K(rkgrid,Pol_rt)
+            G_rt = self.fermion.FLatDyn_R2K(rkgrid,G_kt)
+            self.fermion.Hartree(G_kt,self.boson)
+            self.fermion.Exchange(G_kt,self.boson)
+            self.boson.Polarizability(G_kt,self.ft)
+            Pol_kt = self.boson.BLatDyn_R2K(rkgrid,self.boson.Pol)
             Pol_kf = self.boson.BLatDyn_T2F(tau,Pol_kt,nu)
 
-            W_kf = self.boson.screened_coulomb(Pol_kf,Vk)
-            Wc_kf = self.boson.screened_coulomb_C(W_kf,Vk)
+            self.boson.screened_coulomb(Pol_kf,Vk)
+            self.boson.screened_coulomb_C(self.boson.W,Vk)
 
-            Wc_rf = self.boson.BLatDyn_K2R(rkgrid,Wc_kf)
+            Wc_rf = self.boson.BLatDyn_K2R(rkgrid,self.boson.Wc)
             Wc_rt = self.boson.BLatDyn_F2T(nu,Wc_rf,tau,1,1)
+            self.boson.Wc = Wc_rt
 
-            Sigma_C_rt = self.fermion.Correlated_self_energy(Wc_rt,G_rt)
-            Sigma_C_kt = self.fermion.FLatDyn_R2K(rkgrid,Sigma_C_rt)
-            Sigma_C_kf = self.fermion.FLatDyn_T2F(tau,Sigma_C_kt,omega)
+            self.fermion.Correlated_self_energy(G_kt,self.boson,self.ft)
+            
+            self.fermion.Combine_self_energy()
+            # Sigma_kf = np.zeros((norbc,norbc,ns,nk,nomega),dtype=complex,order='F')
 
-            Sigma_kf = np.zeros((norbc,norbc,ns,nk,nomega),dtype=complex,order='F')
+            # for iomega in range(nomega):
+            #     Sigma_kf[:,:,:,:,iomega] = Sigma_C_kf[:,:,:,:,iomega] + Sigma_H + Sigma_F
+
+            Sigma_new = self.fermion.FmixLatDyn(iter,mix,self.fermion.Sigma,Sigma_old)
+
+            G_full_kf = DiagE.dyson.flatdyn(G_kf_init,Sigma_new)
+            # G_full_kf = self.fermion.int_FLatFreq(G_kf_init,Sigma_C_kf)
+            
+            mu = self.fermion.root_find_for_GW(N,G_full_kf,omega,tau)
+
+            chem = np.zeros((norbc,norbc,ns,nk,nomega),dtype=complex,order='F')
 
             for iomega in range(nomega):
-                for ik in range(nk):
+                for ik in range(ns):
                     for js in range(ns):
                         for iorbc in range(norbc):
-                            for jorbc in range(norbc):
-                                Sigma_kf[iorbc,jorbc,js,ik,iomega] = Sigma_C_kf[iorbc,jorbc,js,ik,iomega] + Sigma_H[iorbc,jorbc,js,ik] + Sigma_F[iorbc,jorbc,js,ik]
+                            chem[iorbc,iorbc,js,ik,iomega] = -mu
             
-            G_kf = self.fermion.FLatDyn_T2F(tau,G_kt,omega)
-
-            G_full_kf = self.fermion.int_FLatFreq(G_kf,Sigma_kf)
-
-            mu = self.fermion.root_find_for_GW(Nt,G_full_kf,omega,tau)
-
-            G_inv_kf = self.fermion.FInvLatDyn(G_full_kf)
-
-            for iomega in range(nomega):
-                for ik in range(nk):
-                    for js in range(ns):
-                        for iorbc in range(norbc):
-                            G_inv_kf[iorbc,iorbc,js,ik,iomega] += mu
-            
-            G_full_kf = self.fermion.FInvLatDyn(G_inv_kf)
-
+            tempmat = G_full_kf
+            G_full_kf = DiagE.dyson.flatdyn(tempmat,chem)
             G_full_kt = self.fermion.FLatDyn_F2T(omega,G_full_kf,tau,1,1)
 
-            n_new = self.fermion.occupation_matrix(G_full_kt)
-
-            diff = n_new - n_old
-
-            print(f"iteration : {iter} \n n_new : \n {n_new} \n n_old : \n {n_old} \n chemical potenital : {mu}")
-
-            for js in range(ns):
-                for iorbc in range(norbc):
-                    num += diff[iorbc,iorbc,js]/(norbc*ns)
             
-            if (abs(num)<=1.0e-2):
+
+            # diff = G_full_kf - G_kf
+
+            
+
+            # for iomega in range(nomega):
+            #     for ik in range(nk):
+            #         for js in range(ns):
+            #             for iorbc in range(norbc):
+            #                 for jorbc in range(norbc):
+            #                     num += abs(diff[iorbc,jorbc,js,ik,iomega])
+            
+            # num /= (norbc*norbc*ns*nk*nomega)
+            (check_r, check_i) = self.fermion_scf(G_full_kf,G_kf)
+            print(f"iteration : {iter} \n check_r : \n {check_r} \n check_i : \n {check_i} \n chemical potenital : {mu}")
+
+            # if (abs(num)<=1.0e-2):
+            if (check_r<=1.0e-3) and (check_i<=1.0e-3):
                 print(f"Self-consistency is achived with iteration : {iter}")
-                return G_full_kf, Sigma_H, Sigma_F, Sigma_C_kf, Pol_kf, Wc_kf, mu
+                return G_full_kf, self.fermion.Sigma_H, self.fermion.Sigma_F, self.fermion.Sigma_C, Sigma_new, Pol_kf, self.boson.Wc, mu
             elif (iter==iter_max):
                 print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
-                return G_full_kf, Sigma_H, Sigma_F, Sigma_C_kf, Pol_kf, Wc_kf, mu
+                return G_full_kf, self.fermion.Sigma_H, self.fermion.Sigma_F, self.fermion.Sigma_C, Sigma_new, Pol_kf, self.boson.Wc, mu
+            # if (check_r <= 0 and check_i <= 0):
+            #     print(f"Self-consistency is achived with iteration : {iter}")
+            #     return G_full_kf, self.fermion.Sigma_H, self.fermion.Sigma_F, self.fermion.Sigma_C, Sigma_new, Pol_kf, self.boson.Wc, mu
+            # elif (iter==iter_max):
+            #     print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
+            #     return G_full_kf, self.fermion.Sigma_H, self.fermion.Sigma_F, self.fermion.Sigma_C, Sigma_new, Pol_kf, self.boson.Wc, mu
             else:
                 G_kt = G_full_kt
-                n_old = n_new
+                G_kf = G_full_kf
+                Sigma_old = Sigma_new
+
+    def fermion_scf(self,g_new : np.ndarray,g_old : np.ndarray,conv = 0.002):
+        
+        check_r = 0
+        check_i = 0
+        norb = g_new.shape[0]
+        ns = g_new.shape[2]
+        nk = g_new.shape[3]
+        nfreq = g_new.shape[4]
+        for ifreq in range(nfreq):
+            for ik in range(nk):
+                for js in range(ns):
+                    for iorb in range(norb):
+                        for jorb in range(norb):
+                            if abs(np.real(g_new[iorb,jorb,js,ik,ifreq]-g_old[iorb,jorb,js,ik,ifreq])) <= conv*10.0:
+                                # check_r += 1
+                                check_r += abs(np.real(g_new[iorb,jorb,js,ik,ifreq]-g_old[iorb,jorb,js,ik,ifreq]))/(nfreq*nk*ns*norb*norb)
+                            if abs(np.imag(g_new[iorb,jorb,js,ik,ifreq]-g_old[iorb,jorb,js,ik,ifreq])) <= conv:
+                                # check_i += 1
+                                check_i += abs(np.imag(g_new[iorb,jorb,js,ik,ifreq]-g_old[iorb,jorb,js,ik,ifreq]))/(nfreq*nk*ns*norb*norb)
+        # check_r /= (nfreq*nk*ns*norb*norb)
+        # check_i /= (nfreq*nk*ns*norb*norb)
+        return check_r, check_i
+
+
 
 class Impurity(object):
 
-    def __init__(self,boson,FT):
+    def __init__(self,fermion : FHamiltonian,boson : BHamiltonian,FT : FT_grid):
+        self.fermion = fermion
         self.boson = boson
         self.FT = FT
-    
-    def projectorLocStc(self,ind_list : list):
-    
+
+    def projectorLocStc(self,ind_list : list): # input : [[0,0],[0,1]] -> optional : [0,1]
+        
         ns = self.boson.ns
-        fprojector = np.zeros((len(self.boson.idx),len(ind_list),ns),dtype=float,order='F')
+        fprojector = np.zeros((len(self.fermion.find),len(ind_list),ns),dtype=float,order='F')
+        
+        new_list = []
+        for ind in ind_list:
+            find = self.fermion.Findex(ind)
+            new_list.append(find)
 
         for js in range(ns):
-            for ind in ind_list:
-                fprojector[ind,ind_list.index(ind),js] = 1
+            for ind in new_list:
+                fprojector[ind,new_list.index(ind),js] = 1
 
         borb_list = []
         for ind1 in ind_list:
             for ind2 in ind_list:
-                [a,m1] = self.boson.key2val(ind1)
-                [b,m2] = self.boson.key2val(ind2)
+                a = ind1[0]
+                b = ind2[0]
                 if a == b:
-                    ind = self.boson.b2f.index([ind1,ind2])
+                    ind = self.boson.Bindex([a,[ind1[1],ind2[1]]])
                     borb_list.append([ind])
 
-        bprojector = np.zeros((len(self.boson.orbidx),len(borb_list),ns,ns),dtype=float,order='F')
+        bprojector = np.zeros((len(self.boson.bind),len(borb_list),ns),dtype=float,order='F')
 
         for js in range(ns):
-            for ks in range(ns):
-                for borb in borb_list:
-                    bprojector[borb,borb_list.index(borb),js,ks] = 1
+            for borb in borb_list:
+                bprojector[borb,borb_list.index(borb),js] = 1
 
 
         return fprojector, bprojector
     
     def projectorLatStc(self,ind_list : list):
         
-        nk = len(self.boson.kpoint)
+        nk = len(self.fermion.kpoint)
 
         fprojlocstc, bprojlocstc = self.projectorLocStc(ind_list)
         norb_f = fprojlocstc.shape[0]
@@ -2267,6 +2725,3 @@ class Impurity(object):
             bprojlatdyn[:,:,:,:,:,it] = bprojlatstc
 
         return fprojlatdyn, bprojlatdyn
-
-    
-
