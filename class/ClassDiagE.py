@@ -14,6 +14,7 @@ from sympy.physics.wigner import gaunt, wigner_3j
 from scipy.fftpack import fftn, ifftn
 import scipy.linalg
 import sys
+import subprocess
 from Common import *
 path = "/home/momichael98/temp/Fortran/DiagE/modules"
 sys.path.append(path)
@@ -195,12 +196,20 @@ class FHamiltonian(object):
             for iorb in range(norb):
                 Hmat[iorb,iorb,js,:] = self.Ham_R[iorb,iorb]
 
-        for js in range(ns):
-            for iorb,jorb,R in self.rvec:
-                phase = np.exp(-2.0j*np.pi*np.dot(kvec,R))
+        for hopp in self.Hopping:
+            t = hopp[0]
+            iorb = hopp[1]
+            jorb = hopp[2]
+            R = hopp[3]
+            [a,m1] = self.Fatomorb(iorb)
+            [b,m2] = self.Fatomorb(jorb)
+            
+            rvec = self.basis_f[a,:]-self.basis_f[b,:]+ R
+            phase = np.exp(-2.0j*np.pi*np.dot(kvec,rvec))
+            for js in range(ns):
                 for ik in range(nk):
-                    Hmat[iorb,jorb,js,ik] += self.Ham_R[iorb,jorb]*phase[ik]
-                    Hmat[jorb,iorb,js,ik] += self.Ham_R[iorb,jorb]*np.conjugate(phase[ik])
+                    Hmat[iorb,jorb,js,ik] += t*phase[ik]
+                    Hmat[jorb,iorb,js,ik] += t*phase[ik].conjugate()
 
         self.Ham_tb = Hmat
         
@@ -482,6 +491,58 @@ class FHamiltonian(object):
 
         return ftau
     
+    def FimpconvertLocStc(self,mat : np.ndarray, flag : int):
+
+        norb = mat.shape[0]
+        ns = mat.shape[2]
+        nprob = mat.shape[3]
+
+        mat_ret = np.zeros((norb,norb,ns,nprob),dtype=complex,order='F')
+
+        if flag == 1:
+
+            for key, val in self.imp_dict.items():
+                nn = len(val)
+                iprob = int(key)-1
+                orb1 = val[0]
+                for js in range(ns):
+                    for ii in range(nn):
+                        orb2 = val[ii]
+                        for iorb1 in orb1:
+                            for jorb1 in orb1:
+                                for iorb2 in orb2:
+                                    for jorb2 in orb2:
+                                        mat_ret[iorb2,jorb2,js,iprob] = mat[iorb1,jorb1,js,iprob]
+            
+            return mat_ret
+        
+        elif flag==0:
+
+            for key, val in self.imp_dict.items():
+                nn = len(val)
+                iprob = int(key)-1      # average
+                for js in range(ns):
+                    orb1 = val[0]
+                    for iorb1 in orb1:
+                        for jorb1 in orb1:
+                            mat_ret[iorb1,jorb1,js,iprob] = mat[iorb1,jorb1,js,iprob]
+            
+            return mat_ret
+    
+    def FimpconvertLocDyn(self,mat : np.ndarray, flag : int):
+
+        norb = mat.shape[0]
+        ns = mat.shape[2]
+        nft = mat.shape[3]
+        nprob = mat.shape[4]
+
+        mat_ret = np.zeros((norb,norb,ns,nft,nprob),dtype=complex,order='F')
+
+        for ift in range(nft):
+            mat_ret[:,:,:,ift,:] = self.FimpconvertLocStc(mat[:,:,:,ift,:],flag)
+        
+        return mat_ret
+    
     def FmixLocStc(self,iter : int, mix : float, Fb : np.ndarray, Fm : np.ndarray)->np.ndarray:
 
         norb = Fb.shape[0]
@@ -547,14 +608,86 @@ class FHamiltonian(object):
         if iter == 1:
             mix = 1.0
         print(mix)
-        for ift in range(nft):
-            for irk in range(nrk):
-                for js in range(ns):
-                    for iorb in range(norb):
-                        for jorb in range(norb):
-                            F_new[iorb,jorb,js,irk,ift] = mix*Fb[iorb,jorb,js,irk,ift] + (1-mix)*Fm[iorb,jorb,js,irk,ift]
-
+        # for ift in range(nft):
+        #     for irk in range(nrk):
+        #         for js in range(ns):
+        #             for iorb in range(norb):
+        #                 for jorb in range(norb):
+        #                     F_new[iorb,jorb,js,irk,ift] = mix*Fb[iorb,jorb,js,irk,ift] + (1-mix)*Fm[iorb,jorb,js,irk,ift]
+        F_new = mix*Fb + (1-mix)*Fm
         return F_new
+    
+    def write_dict_LocStc(self,equiv : np.ndarray, mat_in : np.ndarray)->dict:
+        
+        ns = mat_in.shape[2]
+        Nind = np.amax(equiv)
+
+        mat_dict = {}
+
+        for ind in range(Nind):
+            mat_dict[ind+1]=[]
+            pos = find_positions(equiv,ind+1)
+            for js in range(ns):
+                e = 0
+                for ii, jj in pos:
+                    e+=mat_in[ii,jj,js]
+                e/=len(pos)
+                mat_dict[ind+1].append(e)
+
+        return mat_dict
+    
+    def write_dict_LocDyn(self,equiv : np.ndarray, mat_in : np.ndarray)->dict:
+        
+        ns = mat_in.shape[2]
+        Nind = np.amax(equiv)
+
+        mat_dict = {}
+
+        for ind in range(Nind):
+            mat_dict[ind+1]=[]
+            pos = find_positions(equiv,ind+1)
+            for js in range(ns):
+                e = 0
+                for ii, jj in pos:
+                    e+=mat_in[ii,jj,js]
+                e/=len(pos)
+                mat_dict[ind+1].append(e.tolist())
+
+        return mat_dict
+    
+    def read_dict_LocStc(self,equiv : np.ndarray, mat_dict : dict)->np.ndarray:
+
+        norb = len(equiv)
+        ns = len(mat_dict[1])
+        mat_out = np.zeros((norb,norb,ns),dtype=complex,order='F')
+
+        Nind = np.amax(equiv)
+        for js in range(ns):
+            for ind in range(Nind):
+                pos = find_positions(equiv,ind+1)
+                for ii,jj in pos:
+                    mat_out[ii,jj,js] = mat_dict[ind+1][js]
+
+        return mat_out
+    
+    def read_dict_LocDyn(self,equiv : np.ndarray, mat_dict : dict)->np.ndarray:
+        
+        norb = len(equiv)
+        ns = len(mat_dict[1])
+        nfreq = len(mat_dict[1][0])
+
+        mat_out = np.zeros((norb,norb,ns,nfreq),dtype=complex,order='F')
+
+        Nind = np.amax(equiv)
+        
+        for js in range(ns):
+            for ind in range(Nind):
+                pos = find_positions(equiv,ind+1) 
+                for ii, jj in pos:
+                    mat_out[ii,jj,js] = mat_dict[ind+1][js]
+        
+        return mat_out
+
     
     def mapping_mR_R(self,rkgrid : list = None): # -> fermion
         
@@ -693,7 +826,7 @@ class FHamiltonian(object):
         norb = flattau.shape[0]
         nk = flattau.shape[3]
         ntau = flattau.shape[4]
-        nmat = np.zeros((norb,norb,self.ns,nk),dtype=float)
+        nmat = np.zeros((norb,norb,self.ns,nk),dtype=complex)
 
         for ik in range(nk):
             for js in range(self.ns):
@@ -772,7 +905,7 @@ class FHamiltonian(object):
                         iorb1, iorb2 = bf_list[iorb]
                         for jorb in range(norb):
                             jorb1, jorb2 = bf_list[jorb]
-                            Gf_temp = np.zeros((norbc,norbc,1))
+                            Gf_temp = np.zeros((norbc,norbc,1),dtype=complex)
                             for jk in range(nk):
                                 Gf_temp[jorb2,jorb1,0] += Gnot[jorb2,jorb1,0,jk,ntau-1]
                             Energy[iorb1,iorb2,0,ik] += -V[iorb,jorb,0,0,0]*1/nk*Gf_temp[jorb2,jorb1,0]*C
@@ -783,7 +916,7 @@ class FHamiltonian(object):
                         iorb1, iorb2 = bf_list[iorb]
                         for jorb in range(norb):
                             jorb1, jorb2 = bf_list[jorb]
-                            Gf_temp = np.zeros((norbc,norbc,1))
+                            Gf_temp = np.zeros((norbc,norbc,1),dtype=complex)
                             for jk in range(nk):
                                 Gf_temp[jorb2,jorb1,0] += Gnot[jorb2,jorb1,0,jk,ntau-1]
                             Energy[iorb1,iorb2,0,ik] += -V[iorb,jorb,0,0,0]*1/nk*Gf_temp[jorb2,jorb1,0]*C
@@ -880,6 +1013,7 @@ class FHamiltonian(object):
             Sigma[:,:,:,:,ifreq] = self.Sigma_C[:,:,:,:,ifreq] + self.Sigma_H + self.Sigma_H
         
         self.Sigma = Sigma
+        return None
     
     def int_FLatFreq(self,G_not : np.ndarray = None, Energy : np.ndarray = None) -> np.ndarray:
         # call dyson
@@ -1005,41 +1139,112 @@ class FHamiltonian(object):
         norb = Hmat.shape[0]
         ns = Hmat.shape[2]
         nk = Hmat.shape[3]
+        nprob = projector.shape[3]
 
         for ik in range(nk):
             for js in range(ns):
                 for iorb in range(norb):
                     Hmat[iorb,iorb,js,ik] -= mu
         
-        E_imp = np.zeros((norb,norb,ns),dtype=complex,order='F')
-        E_imp = DiagE.projection.flatstc(Hmat,projector)
-
-        return E_imp
+        E_imp = np.zeros((norb,norb,ns,nprob),dtype=complex,order='F')
+        for iprob in range(nprob):
+            E_imp[...,iprob] = DiagE.projection.flatstc(Hmat,projector[...,iprob])
+        self.E_imp = E_imp
+        return None
     
-    def hybridization(self,omega : np.ndarray, E_imp : np.ndarray, G_lat : np.ndarray, Sigma : np.ndarray,projector : np.ndarray):
+    def hybridisation(self,omega : np.ndarray, G_loc : np.ndarray, Sigma : np.ndarray):#, equiv : list):
 
-        norb = G_lat.shape[0]
-        ns = G_lat.shape[2]
-        nfreq = G_lat.shape[4]
+        norb = G_loc.shape[0]
+        ns = G_loc.shape[2]
+        nfreq = G_loc.shape[3]
+        nprob = self.E_imp.shape[3]
 
-        hyb = np.zeros((norb,norb,ns,nfreq),dtype=complex,order='F')
-        G_loc = np.zeros((norb,norb,ns,nfreq),dtype=complex,order='F')
-        G_loc_inv = np.zeros((norb,norb,ns,nfreq),dtype=complex,order='F')
+        beta = 1/(omega[0])*np.pi
 
-        G_loc = DiagE.projection.flatdyn(G_lat,projector)
+        hyb = np.zeros((norb,norb,ns,nfreq,nprob),dtype=complex,order='F')
+        G_loc_inv = np.zeros((norb,norb,ns,nfreq,nprob),dtype=complex,order='F')
+        # Nind = np.amax(equiv)
 
-        G_loc_inv = self.FInvLocDyn(G_loc)
+        for iprob in range(nprob):
+            G_loc_inv[...,iprob] = self.FInvLocDyn(G_loc[...,iprob])
+        hyb_dic = {}
+        for iprob in range(nprob):
+            for ifreq in range(nfreq):
+                for js in range(ns):
+                    for iorb in range(norb):
+                        for jorb in range(norb):
+                            if iorb == jorb:
+                                hyb[iorb,jorb,js,ifreq,iprob] = 1j*omega[ifreq] - self.E_imp[iorb,jorb,js,iprob] - G_loc_inv[iorb,jorb,js,ifreq,iprob] - Sigma[iorb,jorb,js,ifreq,iprob]
+                            else:
+                                hyb[iorb,jorb,js,ifreq,iprob] = - self.E_imp[iorb,jorb,js,iprob] - G_loc_inv[iorb,jorb,js,ifreq,iprob] - Sigma[iorb,jorb,js,ifreq,iprob]
+        
+        # for i in range(1,Nind+1):
+        #     hyb_dic[str(i)]['beta'] = beta
+        #     hyb_real = np.real(hyb).tolist()
+        #     hyb_imag = np.imag(hyb).tolist()
+        #     hyb_dic[str(i)]['imag'] = hyb_imag
+        #     hyb_dic[str(i)]['real'] = hyb_real
 
-        for ifreq in range(nfreq):
+        # f = open('hyb.json','w')
+        # json.dump(hyb_dic,f,sort_keys='True',indent=4,separators=(', ',': '))
+        # f.close()
+        self.hyb = hyb
+        return None
+    
+    def DC_self_energy(self,G_loc : np.ndarray, boson, IP)-> np.ndarray:
+
+        norbc = G_loc.shape[0]
+        ns = G_loc.shape[2]
+        nf = G_loc.shape[3]
+        norb = IP.bprojector.shape[1]
+        nprob = len(self.imp_dict)
+        U = np.zeros((norb,norb,ns,ns,nprob),dtype=complex,order='F')
+        for iprob in range(nprob):
+            U[:,:,:,:,iprob] = DiagE.projection.blatstc(boson.V_bare,IP.bprojector[:,:,:,iprob])
+        # U = DiagE.projection.blatstc(boson.V_bare,IP.bprojector)
+        bf_list = boson.b2f
+        norb = U.shape[0]
+        
+        
+        Sigma1 = np.zeros((norbc,norbc,ns),dtype=complex,order='F')
+        Sigma2 = np.zeros((norbc,norbc,ns),dtype=complex,order='F')
+        Sigma = np.zeros((norbc,norbc,ns,nf,nprob),dtype=complex,order='F')
+
+        ndim = norb*ns
+        tempmat = np.zeros((ndim,ndim),dtype=complex,order='F')
+
+        for iprob in range(nprob):
+            tempmat = boson.Bcomposite(U[:,:,:,:,iprob],1)
+
+            nind = tempmat.shape[0]
+
+            for ind1 in range(nind):
+                nn1 = [0]*2
+                ind1, [iorb,js] = indexing(nind,2,[norb,ns],0,ind1,nn1)
+                iorbc1,iorbc2 = bf_list[iorb]
+                for ind2 in range(nind):
+                    nn2 = [0]*2
+                    ind2, [jorb,ks] = indexing(nind,2,[norb,ns],0,ind2,nn2)
+                    iorbc3,iorbc4 = bf_list[jorb]
+                    Sigma1[iorbc1,iorbc2,js] += tempmat[ind1,ind2]*G_loc[iorbc4,iorbc3,ks,-1,iprob]
+
+
             for js in range(ns):
                 for iorb in range(norb):
+                    iorbc1, iorbc4 = bf_list[iorb]
                     for jorb in range(norb):
-                        if iorb == jorb:
-                            hyb[iorb,jorb,js,ifreq] = 1j*omega[ifreq] - E_imp[iorb,jorb,js] - G_loc_inv[iorb,jorb,js,ifreq] - Sigma[iorb,jorb,js,ifreq]
-                        else:
-                            hyb[iorb,jorb,js,ifreq] = - E_imp[iorb,jorb,js] - G_loc_inv[iorb,jorb,js,ifreq] - Sigma[iorb,jorb,js,ifreq]
-        
-        return hyb
+                        iorbc3,iorbc2 = bf_list[jorb]
+                        Sigma2[iorbc1,iorbc2,js] += G_loc[iorbc4,iorbc3,js,-1,iprob]*U[iorb,jorb,js,js,iprob]
+            
+            for iff in range(nf):
+                Sigma[:,:,:,iff,iprob] = Sigma1 + Sigma2
+
+        return Sigma
+
+                        
+
+
+
 class BHamiltonian(object):
 
     def __init__(self,crystal : Crystal, fermion :FHamiltonian = None):
@@ -1056,6 +1261,7 @@ class BHamiltonian(object):
         self.SOC = fermion.SOC
         self.fermion = fermion
         self.bind = {}
+        self.orboption = {}
         self.int_term = []
         self.b2f = []
         self.c2b = []
@@ -1101,9 +1307,16 @@ class BHamiltonian(object):
         norbc = len(option["orbital"])
         ns = self.ns
         
+        self.orboption['KorS'] = option["KorS"]
+        self.orboption['params'] = {}
+
 
         if option["KorS"]=="K":
+            self.orboption['params']['U'] = option["value"][0]
+            self.orboption['params']['Up'] = option["value"][1]
+            self.orboption['params']['J'] = option["value"][2]
             tempmat = self.Kanamori(norbc,option["value"])
+
             for iorbc in option["orbital"]:
                 for jorbc in option["orbital"]:
                     for korbc in option["orbital"]:
@@ -1118,6 +1331,9 @@ class BHamiltonian(object):
                                 for s1, s2 in itertools.product(list(range(ns)),list(range(ns))):
                                     self.V_loc[iorb,jorb,s1,s2] = tempmat[m1,m2,m3,m4,s1,s2]
         elif option["KorS"]=="S":
+            self.orboption['params']['F0'] = option["value"][0]
+            self.orboption['params']['F2'] = option["value"][1]
+            self.orboption['params']['F4'] = option["value"][2]
             tempmat = self.Slater_parameter(norbc,option["value"])
             for iorbc in option["orbital"]:
                 for jorbc in option["orbital"]:
@@ -1260,7 +1476,7 @@ class BHamiltonian(object):
 
         return ang_int
 
-    def rotaion_matrix(l):
+    def rotaion_matrix(self,l):
 
         m_range = 2*l+1
 
@@ -1329,15 +1545,66 @@ class BHamiltonian(object):
 
     def tf_spherical_to_cubic(self,V=None,l=None):
 
-        R = BHamiltonian.rotaion_matrix(l)
+        R = self.rotaion_matrix(l)
 
         R_dag = np.conjugate(np.transpose(R))
 
         tempmat = np.einsum("ab,cd,bdeg,ef,gh",R_dag,R_dag,V,R,R)
+        tempmat = np.real(tempmat)
 
         V = np.array(tempmat,dtype=float,order='F')
 
         return V
+    
+    def get_Uijkl_comctqmc(self):
+        
+        
+        V_loc = self.Convert_4_2_LocStc(self.V_loc,0)
+        nimp_orb = V_loc.shape[0]
+        
+        if self.fermion.SOC is False:
+            U = np.zeros(nimp_orb**4*2**4,dtype=float)
+            index = 0
+            if self.ns == 1:
+                for sl in range(2):
+                    for l in range(nimp_orb):
+                        for sk in range(2):
+                            for k in range(nimp_orb):
+                                for sj in range(2):
+                                    for j in range(nimp_orb):
+                                        for si in range(2):
+                                            for i in range(nimp_orb):
+                                                    
+                                                    
+                                                if(sj==sk and si==sl):
+                                                    val=V_loc[i,j,k,l,0,0].real
+                                                    val=abs(val)
+                                                    if(val > 0.001):
+                                                        U[index]=val
+                                                index=index+1
+            elif self.ns == 2:
+                for sl in range(2):
+                    for l in range(nimp_orb):
+                        for sk in range(2):
+                            for k in range(nimp_orb):
+                                for sj in range(2):
+                                    for j in range(nimp_orb):
+                                        for si in range(2):
+                                            for i in range(nimp_orb):
+                                                    
+                                                    
+                                                if(sj==sk and si==sl):
+                                                    val=V_loc[i,j,k,l,si,sj].real
+                                                    val=abs(val)
+                                                    if(val > 0.001):
+                                                        U[index]=val
+                                                index=index+1
+        else:
+            print("Implement is not")
+            sys.exit()
+        self.U_ctqmc = U
+        
+        return None
     
     def boson2fermion(self,ind : int):
 
@@ -1375,6 +1642,40 @@ class BHamiltonian(object):
                 if borb is not None:
                     c2b.append([borb,ind])
         self.c2b = c2b
+
+    def Bcomposite(self, mat : np.ndarray, flag : int):
+
+        if flag ==1 :
+            norb = mat.shape[0]
+            ns = mat.shape[2]
+            mat_out = np.zeros((norb*ns,norb*ns),dtype=complex,order='F')
+            
+            for js in range(ns):
+                for iorb in range(norb):
+                    nn1 = [iorb,js]
+                    ind1, nn1 = indexing(norb*ns,2,[norb,ns],flag,0,nn1)
+                    for ks in range(ns):
+                        for jorb in range(norb):
+                            nn2 = [jorb,ks]
+                            ind2, nn2 = indexing(norb*ns,2,[norb,ns],flag,0,nn2)
+                            mat_out[ind1,ind2] = mat[iorb,jorb,js,ks]
+            return mat_out
+        elif flag == 0:
+            norb = len(self.bind)
+            ns = self.ns
+            mat_out = np.zeros((norb,norb,ns,ns),dtype=complex,order='F')
+            ndim = mat.shape[0]
+
+            for ind1 in range(ndim):
+                nn1 = [0]*2
+                ind1, [iorb,js] = indexing(ndim,2,[norb,ns],flag,ind1,nn1)
+                for ind2 in range(ndim):
+                    nn2 = [0]*2
+                    ind2, [jorb,ks] = indexing(ndim,2,[norb,ns],flag,ind2,nn2)
+                    mat_out[iorb,jorb,js,ks] = mat[ind1,ind2]
+
+            return mat_out
+
     
     def Convert_4_2(self,mat : np.ndarray = None, flag : int = None) -> np.ndarray: # 4 index <-> 2 index
 
@@ -1747,6 +2048,60 @@ class BHamiltonian(object):
 
             return mat_ret
     
+    def BimpconvertLocStc(self,mat : np.ndarray, flag : int):
+
+        norb = mat.shape[0]
+        ns = mat.shape[2]
+        nprob = mat.shape[4]
+
+        mat_ret = np.zeros((norb,norb,ns,ns,nprob),dtype=complex,order='F')
+
+        if flag == 1:
+
+            for key, val in self.imp_dict.items():
+                nn = len(val)
+                iprob = int(key)-1
+                orb1 = val[0]
+                for js in range(ns):
+                    for ks in range(ns):
+                        for ii in range(nn):
+                            orb2 = val[ii]
+                            for iorb1 in orb1:
+                                for jorb1 in orb1:
+                                    for iorb2 in orb2:
+                                        for jorb2 in orb2:
+                                            mat_ret[iorb2,jorb2,js,ks,iprob] = mat[iorb1,jorb1,js,ks,iprob]
+            
+            return mat_ret
+        
+        elif flag==0:
+
+            for key, val in self.imp_dict.items():
+                nn = len(val)
+                iprob = int(key)-1
+                for js in range(ns):
+                    for ks in range(ns):
+                        orb1 = val[0]
+                        for iorb1 in orb1:
+                            for jorb1 in orb1:
+                                mat_ret[iorb1,jorb1,js,ks,iprob] = mat[iorb1,jorb1,js,ks,iprob]
+
+            return mat_ret
+        
+    def BimpconvertLocDyn(self,mat : np.ndarray, flag : int):
+
+        norb = mat.shape[0]
+        ns = mat.shape[2]
+        nft = mat.shape[4]
+        nprob = mat.shape[5]
+
+        mat_ret = np.zeros((norb,norb,ns,ns,nft,nprob),dtype=complex,order='F')
+
+        for ift in range(nft):
+            mat_ret[:,:,:,:,ift,:] = self.BimpconvertLocStc(mat[:,:,:,:,ift,:],flag)
+
+        return mat_ret
+
     def BMulLocStc(self, mat1 : np.ndarray, mat2 : np.ndarray)-> np.ndarray:
 
         norb = mat1.shape[0]
@@ -2380,9 +2735,9 @@ class FT_grid(object):
 
         self.beta = beta
         self.size = size
-        self.omega = np.zeros((size),dtype=complex,order='F')
-        self.nu = np.zeros((size),dtype=complex,order='F')
-        self.tau = np.zeros((size),dtype=complex,order='F')
+        self.omega = np.zeros((size),dtype=float,order='F')
+        self.nu = np.zeros((size),dtype=float,order='F')
+        self.tau = np.zeros((size),dtype=float,order='F')
 
     def Omega(self) -> np.ndarray:
 
@@ -2403,13 +2758,78 @@ class FT_grid(object):
         for inu in range(nnu):
             self.nu[inu] = np.pi/self.beta*(2*inu)
 
+
+class Impurity(object):
+
+    def __init__(self,fermion : FHamiltonian,boson : BHamiltonian,FT : FT_grid):
+        self.fermion = fermion
+        self.boson = boson
+        self.FT = FT
+
+    def projector(self,ind_dict : dict): # input : {"1":[[0,0],[0,1]]} -> optional : [0,1]
+        
+        nprob = len(ind_dict)
+        ns = self.boson.ns
+        
+        new_dict = {}
+        for key, val in ind_dict.items():
+            new_dict[key] = []
+            for ind in val:
+                temp_list = []
+                for orb in ind:
+                    find = self.fermion.Findex(orb)
+                    temp_list.append(find)
+                new_dict[key].append(temp_list)
+        self.fermion.imp_dict = new_dict
+        new_dict2 = {}
+        for key in new_dict.keys():
+            new_dict2[key] = []
+            nn = len(new_dict[key])
+            for ii in range(nn):
+                orb = new_dict[key][ii]
+                temp_list= []
+                for iorb in orb:
+                    for jorb in orb:
+                        a, m1 = self.fermion.Fatomorb(iorb)
+                        b, m2 = self.fermion.Fatomorb(jorb)
+                        if a==b:
+                            bind = self.boson.b2f.index([iorb,jorb])
+                            temp_list.append(bind)
+                new_dict2[key].append(temp_list)
+        
+        self.boson.imp_dict = new_dict2
+
+
+        fprojector = np.zeros((len(self.fermion.find),sum(len(l) for l in self.fermion.imp_dict["1"]),ns,nprob),dtype=complex,order='F')
+
+        for iprob in range(nprob):
+            for js in range(ns):
+                for ind in self.fermion.imp_dict[str(iprob+1)][0]:
+                    fprojector[ind,self.fermion.imp_dict[str(iprob+1)][0].index(ind),js,iprob] = 1
+
+        
+
+        bprojector = np.zeros((len(self.boson.bind),sum(len(l) for l in self.boson.imp_dict['1']),ns,nprob),dtype=float,order='F')
+        print(bprojector.shape)
+        for iprob in range(nprob):
+            for js in range(ns):
+                for ind in self.boson.imp_dict[str(iprob+1)][0]:
+                    bprojector[ind,self.boson.imp_dict[str(iprob+1)][0].index(ind),js,iprob] = 1
+
+
+        self.fprojector = fprojector
+        self.bprojector = bprojector
+
+        return None
+    
 class Method():
 
-    def __init__(self,fermion : FHamiltonian, boson : BHamiltonian ,FT : FT_grid):
+    def __init__(self,fermion : FHamiltonian, boson : BHamiltonian ,FT : FT_grid, IP : Impurity = None):
 
         self.fermion = fermion
         self.boson = boson
         self.ft = FT
+        self.ip = IP
         
 
     def Hartree_Fock(self, iter_max : int, Hmat : np.ndarray, N : float, mix : float, rkgrid : list = None):
@@ -2425,9 +2845,10 @@ class Method():
         Vr = self.boson.BLatStc_K2R(rkgrid,Vk)
 
         tau = self.ft.tau
-
+        ntau = len(tau)
         N *= ns
-
+        flattau_init = np.zeros((norbc,norbc,ns,nk,ntau),dtype=complex,order='F')
+        flattau_new = np.zeros((norbc,norbc,ns,nk,ntau),dtype=complex,order='F')
         flattau_init = DiagE.bare.flattau(Hmat,tau)
 
         n_init = self.fermion.occupation_matrix(flattau_init)
@@ -2445,6 +2866,7 @@ class Method():
             Sigma_H = self.fermion.Sigma_H
             Sigma_F = self.fermion.Sigma_F
             Hmat_hf = np.zeros((norbc,norbc,ns,nk),dtype=complex,order='F')
+
 
             for ik in range(nk):
                 for js in range(ns):
@@ -2469,15 +2891,15 @@ class Method():
 
             diff = abs(n_new-n_old)
             
-            for ik in range(nk):
-                for js in range(ns):
-                    for iorbc in range(norbc):
-                        for jorbc in range(norbc):
-                            num += diff[iorbc,jorbc,js,ik]/(norbc*norbc*ns*nk)
-            
+            # for ik in range(nk):
+            #     for js in range(ns):
+            #         for iorbc in range(norbc):
+            #             for jorbc in range(norbc):
+            #                 num += diff[iorbc,jorbc,js,ik]/(norbc*norbc*ns*nk)
+            num = diff.max()
             print(f'iteration : {iter} \n Criteria \n {num} \n chemical potential : {mu}')
 
-            if (num <= 1.0e-3):
+            if (num <= 2.0e-4):
                 print(f"Self-consistency is achived with iteration : {iter}")
                 return Hmat_hf, Sigma_H, Sigma_F, n_new, mu
             elif (iter==iter_max):
@@ -2521,7 +2943,9 @@ class Method():
                 G_kt = G_kt_init
                 G_kf_init = self.fermion.FLatDyn_T2F(tau,G_kt_init,omega)
                 G_kf = G_kf_init
-                Sigma_old = np.empty_like(G_kf,dtype=complex,order='F')
+                Sigma_old = np.zeros((norbc,norbc,ns,nk,nomega),dtype=complex,order='F')
+                n_old = self.fermion.occupation_matrix(G_kt_init)
+                mu_old = 0
                 
             num = 0
             G_rt = self.fermion.FLatDyn_R2K(rkgrid,G_kt)
@@ -2530,6 +2954,7 @@ class Method():
             self.boson.Polarizability(G_kt,self.ft)
             Pol_kt = self.boson.BLatDyn_R2K(rkgrid,self.boson.Pol)
             Pol_kf = self.boson.BLatDyn_T2F(tau,Pol_kt,nu)
+            
 
             self.boson.screened_coulomb(Pol_kf,Vk)
             self.boson.screened_coulomb_C(self.boson.W,Vk)
@@ -2547,7 +2972,12 @@ class Method():
             #     Sigma_kf[:,:,:,:,iomega] = Sigma_C_kf[:,:,:,:,iomega] + Sigma_H + Sigma_F
 
             Sigma_new = self.fermion.FmixLatDyn(iter,mix,self.fermion.Sigma,Sigma_old)
-
+            tempmat = abs(Sigma_new-Sigma_old)
+            max_index = np.unravel_index(np.argmax(tempmat),Sigma_new.shape)
+            ii,jj,kk,ll,ff = max_index
+            print(f"Sigma_new : {Sigma_new[ii,jj,kk,ll,ff]}, Sigma_bare : {self.fermion.Sigma[ii,jj,kk,ll,ff]}, Sigma_old : {Sigma_old[ii,jj,kk,ll,ff]}")
+            print(f"{ii,jj,kk,ll,ff}, Hartre : {self.fermion.Sigma_H[ii,jj,kk,ll]}, Fock : {self.fermion.Sigma_F[ii,jj,kk,ll]}, Correlation : {self.fermion.Sigma_C[ii,jj,kk,ll,ff]}")
+            
             G_full_kf = DiagE.dyson.flatdyn(G_kf_init,Sigma_new)
             # G_full_kf = self.fermion.int_FLatFreq(G_kf_init,Sigma_C_kf)
             
@@ -2564,30 +2994,23 @@ class Method():
             tempmat = G_full_kf
             G_full_kf = DiagE.dyson.flatdyn(tempmat,chem)
             G_full_kt = self.fermion.FLatDyn_F2T(omega,G_full_kf,tau,1,1)
+            n_new = self.fermion.occupation_matrix(G_full_kt)
 
-            
-
-            # diff = G_full_kf - G_kf
-
-            
-
-            # for iomega in range(nomega):
-            #     for ik in range(nk):
-            #         for js in range(ns):
-            #             for iorbc in range(norbc):
-            #                 for jorbc in range(norbc):
-            #                     num += abs(diff[iorbc,jorbc,js,ik,iomega])
-            
-            # num /= (norbc*norbc*ns*nk*nomega)
-            (check_r, check_i) = self.fermion_scf(G_full_kf,G_kf)
-            print(f"iteration : {iter} \n check_r : \n {check_r} \n check_i : \n {check_i} \n chemical potenital : {mu}")
+            check = self.fermion_scf(n_new,n_old)
+            print(f"iteration : {iter} \n check : \n {check} \n chemical potenital : \n {mu}")
 
             # if (abs(num)<=1.0e-2):
-            if (check_r<=1.0e-3) and (check_i<=1.0e-3):
+            if (check<=0.05)and(abs(mu-mu_old)<=0.01):
                 print(f"Self-consistency is achived with iteration : {iter}")
                 return G_full_kf, self.fermion.Sigma_H, self.fermion.Sigma_F, self.fermion.Sigma_C, Sigma_new, Pol_kf, self.boson.Wc, mu
             elif (iter==iter_max):
                 print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
+                if check <=1.0e-3:
+                    print("chemical potential is not converged")
+                if abs(mu-mu_old) <= 0.01:
+                    print("Self-consistency is not achieved")
+                if (check>=1.0e-3)and(abs(mu-mu_old)>=0.01):
+                    print("chemical potential and self-consitency is not achieved")
                 return G_full_kf, self.fermion.Sigma_H, self.fermion.Sigma_F, self.fermion.Sigma_C, Sigma_new, Pol_kf, self.boson.Wc, mu
             # if (check_r <= 0 and check_i <= 0):
             #     print(f"Self-consistency is achived with iteration : {iter}")
@@ -2599,129 +3022,350 @@ class Method():
                 G_kt = G_full_kt
                 G_kf = G_full_kf
                 Sigma_old = Sigma_new
+                mu_old = mu
+                n_old = n_new
 
-    def fermion_scf(self,g_new : np.ndarray,g_old : np.ndarray,conv = 0.002):
+    def DMFT(self,iter_max : int, Hmat : np.ndarray, N : float, mix : float ,rkgrid : list = None,time1 = 0, time2 = 0, equiv : np.ndarray = None):
         
-        check_r = 0
-        check_i = 0
-        norb = g_new.shape[0]
-        ns = g_new.shape[2]
-        nk = g_new.shape[3]
-        nfreq = g_new.shape[4]
-        for ifreq in range(nfreq):
-            for ik in range(nk):
-                for js in range(ns):
-                    for iorb in range(norb):
-                        for jorb in range(norb):
-                            if abs(np.real(g_new[iorb,jorb,js,ik,ifreq]-g_old[iorb,jorb,js,ik,ifreq])) <= conv*10.0:
-                                # check_r += 1
-                                check_r += abs(np.real(g_new[iorb,jorb,js,ik,ifreq]-g_old[iorb,jorb,js,ik,ifreq]))/(nfreq*nk*ns*norb*norb)
-                            if abs(np.imag(g_new[iorb,jorb,js,ik,ifreq]-g_old[iorb,jorb,js,ik,ifreq])) <= conv:
-                                # check_i += 1
-                                check_i += abs(np.imag(g_new[iorb,jorb,js,ik,ifreq]-g_old[iorb,jorb,js,ik,ifreq]))/(nfreq*nk*ns*norb*norb)
-        # check_r /= (nfreq*nk*ns*norb*norb)
-        # check_i /= (nfreq*nk*ns*norb*norb)
-        return check_r, check_i
+        norbc = Hmat.shape[0]
+        ns = Hmat.shape[2]
+        nk = Hmat.shape[3]
+        tau = self.ft.tau
+        omega = self.ft.omega
+        nu = self.ft.nu
+        ntau = self.ft.size
+        nfreq = self.ft.size
+        fprojector = self.ip.fprojector
+        bprojector = self.ip.bprojector
+        nprob = len(self.fermion.imp_dict)
+        norbc = fprojector.shape[1]
 
-
-
-class Impurity(object):
-
-    def __init__(self,fermion : FHamiltonian,boson : BHamiltonian,FT : FT_grid):
-        self.fermion = fermion
-        self.boson = boson
-        self.FT = FT
-
-    def projectorLocStc(self,ind_list : list): # input : [[0,0],[0,1]] -> optional : [0,1]
+        if rkgrid == None:
+            rkgrid = self.boson.rkgrid
         
-        ns = self.boson.ns
-        fprojector = np.zeros((len(self.fermion.find),len(ind_list),ns),dtype=float,order='F')
+        G_latfreq_init = DiagE.bare.flatfreq(Hmat,omega)
+        G_loc_freq_init = np.zeros((norbc,norbc,ns,nfreq,nprob),dtype=complex,order='F') # nspace 
+        Sigma_init = np.zeros((norbc,norbc,ns,nfreq,nprob),dtype=complex,order='F')
+        for iprob in range(nprob):
+            G_loc_freq_init[:,:,:,:,iprob] = DiagE.projection.flatdyn(G_latfreq_init,fprojector[:,:,:,iprob]) # projector : nprob -> nspace
+        # G_loc_freq_init = DiagE.projection.flatdyn(G_latfreq_init,fprojector)
+        Sigma_init = self.fermion.DC_self_energy(G_loc_freq_init,self.boson,self.ip) # nspace
+        Sigma_init_p = convert(Sigma_init) 
         
-        new_list = []
-        for ind in ind_list:
-            find = self.fermion.Findex(ind)
-            new_list.append(find)
+        for iter in range(1,iter_max+1):
+            if iter == 1:
+                Sigma_imp = Sigma_init
+                Sigma_imp_p = Sigma_init_p
+                mu = 0
+                Sigma_emb = np.zeros((norbc,norbc,ns,nk,nfreq,nprob),dtype=complex,order='F')
+                G_latfreq = np.zeros((norbc,norbc,ns,nk,nfreq,nprob),dtype=complex,order='F')
+                for iprob in range(nprob): # nspace
+                    Sigma_emb[...,iprob] = DiagE.embedding.flatdyn(nk,Sigma_init[...,iprob],fprojector[...,iprob]) # nspace
+                    for ifreq in range(nfreq):
+                        for ik in range(nk):
+                            for js in range(ns):
+                                for iorbc in range(norbc):
+                                    Sigma_emb[iorbc,iorbc,js,ik,ifreq,iprob] -= mu
+                    G_latfreq[...,iprob] = DiagE.dyson.flatdyn(G_latfreq_init[...,iprob],Sigma_emb[...,iprob])
+                mu_old = mu
+            G_locfreq = np.zeros((norbc,norbc,ns,nfreq,nprob),dtype=complex,order='F') # nspace
+            
+            
+            for iprob in range(nprob):
+                G_locfreq[...,iprob] = DiagE.projection.flatdyn(G_latfreq[...,iprob],fprojector[...,iprob]) # nspace
+            G_locfreq_p = convert(G_locfreq) # nprob
+            self.fermion.Energy_imp(Hmat,mu,fprojector) 
+            E_imp_p = convert(self.fermion.E_imp)
+            self.E_imp_p = E_imp_p
+            ### nspace -> nprob ###
+            for iprob in range(nprob):
+            
+            
+                self.fermion.hybridisation(omega,G_locfreq_p,Sigma_imp_p) #nprob, 
+            
+            
+                self.write_ctqmc_params(time1,time2,self.fermion.E_imp[...,iprob]) #
+                
+                self.run_ctqmc(iter)
+                self.impurity_postprocessing()
+            Sigma_imp = convert(Sigma_imp_p)
+            for ispace in range(nspace):
+                Sigma_emb = DiagE.embedding.flatdyn(nk,Sigma_imp,fprojector)
+                G_latfreq_old = G_latfreq
+                G_latfreq = DiagE.dyson.flatdyn(G_latfreq_init,Sigma_emb)
+            mu = self.fermion.root_find_for_GW(N,G_latfreq,omega,tau)
 
-        for js in range(ns):
-            for ind in new_list:
-                fprojector[ind,new_list.index(ind),js] = 1
+            chem = np.zeros((norbc,norbc,ns,nk,nfreq),dtype=complex,order='F')
 
-        borb_list = []
-        for ind1 in ind_list:
-            for ind2 in ind_list:
-                a = ind1[0]
-                b = ind2[0]
-                if a == b:
-                    ind = self.boson.Bindex([a,[ind1[1],ind2[1]]])
-                    borb_list.append([ind])
+            for ifreq in range(nfreq):
+                for ik in range(ns):
+                    for js in range(ns):
+                        for iorbc in range(norbc):
+                            chem[iorbc,iorbc,js,ik,ifreq] = -mu
 
-        bprojector = np.zeros((len(self.boson.bind),len(borb_list),ns),dtype=float,order='F')
+            tempmat = G_latfreq
+            G_latfreq = DiagE.dyson.flatdyn(tempmat,chem)
 
-        for js in range(ns):
-            for borb in borb_list:
-                bprojector[borb,borb_list.index(borb),js] = 1
+            check = self.fermion_scf(G_latfreq,G_latfreq_old)
 
+            if (check<=1.0e-3)and(abs(mu-mu_old)<=1.0e-3):
+                print(f"Self-consistency is achived with iteration : {iter}")
+                return G_latfreq,Sigma_imp,E_imp,hyb,mu
+            elif (iter == iter_max):
+                print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
+                return G_latfreq,Sigma_imp,E_imp,hyb,mu
+            else:
+                mu_old = mu
 
-        return fprojector, bprojector
+    def write_ctqmc_params(self,time1,time2,E_imp : np.ndarray,V,equiv : np.ndarray):
+        
+        if self.fermion.SOC is False:
+            if self.fermion.ns ==1:
+                params = {}
+                params["hloc"] = {}
+                mu_ctqmc=-np.real(E_imp[0,0,0])
+                print(mu_ctqmc,type(mu_ctqmc))
+                E_imp = E_imp[:,:,0]-mu_ctqmc*np.eye(E_imp.shape[0],E_imp.shape[0])
+                E_imp = np.array(E_imp,dtype=float)
+                tempmat = np.kron(E_imp,np.ones((2,2)))
+                params["hloc"]['one body'] = tempmat.tolist()
+                self.boson.get_Uijkl_comctqmc()
+                params["hloc"]["two body"]=self.boson.U_ctqmc.tolist()
+                
+                params["partition"]={}
+                
+                params["partition"]["green basis"]= "matsubara"
+                params["partition"]["green bulla"]= True
+                params["partition"]["green matsubara cutoff"] = 50
+                params["partition"]["occupation susceptibility bulla"]=True
+                params["partition"]["occupation susceptibility direct"]=False
+                params["partition"]["quantum number susceptibility"] = True
+                params["partition"]["susceptibility cutoff"]=50
+                params["partition"]["susceptibility tail"]=200
+                params["partition"]["quantum numbers"]={}
+                params["partition"]["quantum numbers"]["N"]=np.ones(E_imp.shape[0]*2).tolist()
+                # [1,1,1,1,1,1,1,1,1,1]
+                params["partition"]["quantum numbers"]["Sz"]=np.ones(E_imp.shape[0]*2).tolist() # make 
+                # [0.5,0.5,0.5,0.5,0.5,-0.5,-0.5,-0.5,-0.5,-0.5]
+                params["partition"]["observables"]={}
+                params["partition"]["observables"]["S2"] = {}
+                params["partition"]["probabilities"]={}
+                params["partition"]["probabilities"]=["N","energy","S2","Sz"]
+                params["partition"]["density matrix precise"] = 2
+                params["partition"]["print eigenstates"] = True
+                params["partition"]["print density matrix"]= True
+                
+                # params["dyn"]={}
+                # params["dyn"]["quantum numbers"] = np.ones(E_imp.shape[0]*2).tolist()
+                # # [[1,1,1,1,1,1,1,1,1,1]]
+                # params["dyn"]["functions"] = "dyn.json"
+                # params["dyn"]["matrix"] = [["F0"]]
+                params["beta"]=self.ft.beta
+                params["complex"] = False
+                params["mu"]=mu_ctqmc
+                params["hybridisation"]={}
+                tempmat2 = np.kron(equiv,np.ones((2,2)))
+                params["hybridisation"]["matrix"]=tempmat2.tolist()
+                params["hybridisation"]["functions"]="hyb.json"
+                params["thermalisation time"]=3 #imp['thermalization_time']
+                params["quantum number susceptibility"]=True
+                params["occupation susceptibility bulla"]=True        
+                params["green bulla"]=True       
+                params["density matrix precise"]=True 
+                params["measurement time"]=10 #imp['measurement_time']
+                
+                with open('params.json','w') as outfile:
+                    json.dump(params,outfile, sort_keys=True, indent=4, separators=(',', ': '))
+                # print("params.json written", file=self.m_ini.control['h_log'])
+            elif self.fermion.ns == 2:
+                print("Nspin is not 1")
+                sys.exit()
+        elif self.fermion.SOC is True:
+            print("SOC must be False")
+            sys.exit()
+
+        return None
     
-    def projectorLatStc(self,ind_list : list):
+    def write_hyb_json(self,hyb : dict):
+
+        if self.fermion.SOC is False:
+            if self.fermion.ns == 1:
+                json_dict = {}
+                for key,val in hyb.items():
+                    json_dict[key] = {}
+                    json_dict[key]['beta'] = self.ft.beta
+                    json_dict[key]['real'] = np.real(val).tolist()
+                    json_dict[key]['imag'] = np.imag(val).tolist()
+
+                with open('hyb.json','w') as outfile:
+                    json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
+            
+            elif self.fermion.ns == 2:
+                print("Nspin is not 1")
+                sys.exit()
+        elif self.fermion.SOC is True:
+            print("SOC must be False")
+            sys.exit()
+        return None
         
-        nk = len(self.fermion.kpoint)
-
-        fprojlocstc, bprojlocstc = self.projectorLocStc(ind_list)
-        norb_f = fprojlocstc.shape[0]
-        norbc_f = fprojlocstc.shape[1]
-        norb_b = bprojlocstc.shape[0]
-        norbc_b = bprojlocstc.shape[1]
-        ns = fprojlocstc.shape[2]
-
-        fprojlatstc = np.zeros((norb_f,norbc_f,ns,nk),dtype=complex,order='F')
-        bprojlatstc = np.zeros((norb_b,norbc_b,ns,ns,nk),dtype=complex,order='F')
-
-        for ik in range(nk):
-            fprojlatstc[:,:,:,ik] = fprojlocstc
-            bprojlatstc[:,:,:,:,ik] = bprojlocstc
-        
-        return fprojlatstc, bprojlatstc
     
-    def projectorLocDyn(self,ind_list : list):
-
-        nt = self.FT.size
+    def run_ctqmc(self):
         
-        fprojlocstc, bprojlocstc = self.projectorLocStc(ind_list)
-        norb_f = fprojlocstc.shape[0]
-        norbc_f = fprojlocstc.shape[1]
-        norb_b = bprojlocstc.shape[0]
-        norbc_b = bprojlocstc.shape[1]
-        ns = fprojlocstc.shape[2]
+        run_cmd = 'mpirun -np 12 /home/momichael98/temp/ComCTQMC/bin/CTQMC params'
 
-        fprojlocdyn = np.zeros((norb_f,norbc_f,ns,nt),dtype=complex,order='F')
-        bprojlocdyn = np.zeros((norb_b,norbc_b,ns,ns,nt),dtype=complex,order='F')
-
-        for it in range(nt):
-            fprojlocdyn[:,:,:,it] = fprojlocstc
-            bprojlocdyn[:,:,:,:,it] = bprojlocstc
+        print(run_cmd)
         
-        return fprojlocdyn, bprojlocdyn
+        with open('./ctqmc.out', 'w') as logfile, open('./ctqmc.err', 'w') as errfile:
+            ret = subprocess.call(run_cmd, shell=True,stdout = logfile, stderr = errfile)
+            if ret != 0:
+                print("Error in CTQMC. Check ctqmc.err for error message.")
+                sys.exit()
+        
+        return None
     
-    def projectorLatDyn(self,ind_list : list):
+    def measure_ctqmc(self):
+        
+        run_cmd = 'mpirun -np 12 /home/momichael98/temp/ComCTQMC/bin/EVALSIM params'
 
-        nt = self.FT.size
+        print(run_cmd)
+        with open('./evalsim.out', 'w') as logfile, open('./evalsim.err', 'w') as errfile :
+            ret = subprocess.call(run_cmd,shell=True, stdout=logfile, stderr=errfile)
+            if ret != 0:
+                print("Error in EVALSIM. Check evalsim.err for error message.")
+                sys.exit()
+        print("measure self-energy done")
 
-        fprojlatstc, bprojlatstc = self.projectorLatStc(ind_list)
+        return None
+    
+    def impurity_postprocessing(self, key,iter,equiv): # key -> problem number
+    
+        
+        fileobs='./params.obs.json'
+        filemeas='./params.meas.json'
+        obsjson = json.load(open(fileobs))
+    
+#        print('iter_string',iter_string)
+#        exit()
+        
+    
+        histo_temp=obsjson["expansion histogram"]
+    
+        histo=np.zeros((np.shape(histo_temp)[0], 2))
+        histo[:,0]=np.arange(np.shape(histo_temp)[0])
+        histo[:,1]=histo_temp
+#        nn=json.load(open(fileobs))["scalar"]["N"][0]
+        nn=obsjson["scalar"]["N"]       
+        ctqmc_sign=obsjson["sign"]
+    
+        # histogram
+        firstmoment=sum(histo[:,0]*histo[:,1])/sum(histo[:,1])
+        secondmoment=sum((histo[:,0]-firstmoment)**2*histo[:,1])/sum(histo[:,1])
+#        thirdmoment=sum((histo[:,0]-firstmoment)**3*histo[:,1])/sum(histo[:,1])/secondmoment**(3.0/2.0)
+        # print('histogram information for impurity_'+self.m_ini.imp['name'])
+        print('first moment',  firstmoment)
+        print('second moment', secondmoment)
+#        print('third moment',  thirdmoment,                      file=self.m_ini.control['h_log'])
+    
+        # previous_iter_string='_'.join(map(str,iter_string.split('_')[:-1]))+'_'+str(int(iter_string.split('_')[-1])-1)
+        
+#        exit()
+        green = {}
+        for key,val in obsjson["green"].items():
+            green[key]=val['function']['real']+val['function']['imag']*1j
+        Green = self.fermion.read_dict_LocDyn(equiv,green)
+        sigma_bare = {}
+        sigma_hf = {}
+        for key, val in obsjson["self-energy"].items():
+            sigma_hf[key] = np.complex(val['moment'][0])
+            sigma_bare[key] = val['function']['real']+val['function']['imag']*1j
+        Sigma_hf = self.fermion.read_dict_LocStc(equiv,sigma_hf)
+        Sigma_bare = self.fermion.read_dict_LocDyn(equiv,sigma_bare)
+        Sigma_mix = self.fermion.FmixLocDyn(iter,0.1,Sigma_bare,Sigma_mix)
+     
+        
+        # occ=self.read_occ_from_jsonfile(fileobs,"occupation",key)
+        # if self.fermion.SOC is False:
+        #     if self.fermion.ns == 1:
+        #         xij = np.zeros((Green.shape[0]*2,Green.shape[0]*2,1,Green.shape[3]),dtype=complex)
+        #         for ii in range(Green.shape[0]*2):
+        #             for jj in range(Green.shape[0]*2):
+        #                 xij[ii,jj,:,:] = obsjson["occupation-susceptibility-bulla"][str(ii)+"_"+str(jj)]['function']
+        
 
-        norb_f = fprojlatstc.shape[0]
-        norbc_f = fprojlatstc.shape[1]
-        norb_b = bprojlatstc.shape[0]
-        norbc_b = bprojlatstc.shape[1]
-        ns = fprojlatstc.shape[2]
-        nk = fprojlatstc.shape[3]
+        if(gimpsmt[0] ==0) :
+          print("use green bare")
+        else :
+          green=np.zeros(np.shape(green_bare), dtype='complex')   
+    
+    
+        for jj in range(nimp_orb):
+            sigma[:,jj]=self.gaussian_broadening_linear(self.m_ini.control['omega'], sigma_bare[:,jj], 0.05, self.m_ini.imp['temperature'], self.m_ini.imp[key]['green_cutoff'])
+    
+        if (not self.m_ini.imp[key]['para']):
+            for jj in range(nimp_orb, nimp_orb*2):
+               mkey=str(-int(key))
+               sigma[:,jj]=self.gaussian_broadening_linear(self.m_ini.control['omega'], sigma_bare[:,jj], 0.05, self.m_ini.imp['temperature'], self.m_ini.imp[key]['green_cutoff'])
 
-        fprojlatdyn = np.zeros((norb_f,norbc_f,ns,nk,nt),dtype=complex,order='F')
-        bprojlatdyn = np.zeros((norb_b,norbc_b,ns,ns,nk,nt),dtype=complex,order='F')
+        if(gimpsmt[0] ==1) :
+          for jj in range(nimp_orb):
+            green[:,jj]=self.gaussian_broadening_linear(self.m_ini.control['omega'], green_bare[:,jj], 0.05, self.m_ini.imp['temperature'], self.m_ini.imp[key]['green_cutoff'])
+    
+          if (not self.m_ini.imp[key]['para']):
+            for jj in range(nimp_orb, nimp_orb*2):
+               mkey=str(-int(key))
+               green[:,jj]=self.gaussian_broadening_linear(self.m_ini.control['omega'], green_bare[:,jj], 0.05, self.m_ini.imp['temperature'], self.m_ini.imp[key]['green_cutoff'])
 
-        for it in range(nt):
-            fprojlatdyn[:,:,:,:,it] = fprojlatstc
-            bprojlatdyn[:,:,:,:,:,it] = bprojlatstc
+        if(gimpsmt[0] ==0) :
+          return green_bare, sigma, xij, sigma_hf, occ
+        else :
+          return green, sigma, xij, sigma_hf, occ
 
-        return fprojlatdyn, bprojlatdyn
+    def read_sigma_imp(self):
+        
+        obs = json.load(open("params.obs.json"))
+
+        sigma_imag = []
+        sigma_real = []
+        
+        sigma_real.append(obs['self-energy']['function']['real'])
+        sigma_imag.append(obs['self-energy']['function']['imag'])
+        
+        return sigma_real, sigma_imag
+
+    def fermion_scf(self,g_new : np.ndarray,g_old : np.ndarray):
+        
+        check=0
+        tempmat = abs(g_new-g_old)
+        check = tempmat.max()
+
+        # for ifreq in range(nfreq):
+        #     for ik in range(ns):
+        #         for js in range(ns):
+        #             for iorb in range(norb):
+        #                 for jorb in range(norb):
+        #                     check += tempmat[iorb,jorb,js,ik,ifreq]/(norb*norb*ns*nk*nfreq)
+        return check
+    
+    def gaussian_broadening_linear(self,x, y, w1, temperature, cutoff):
+        # broadening starts at the second matsubara points
+        print(np.shape(x))
+        print(np.shape(y))
+        print(x)
+        print(y)
+        w0=(1.0-3.0*w1)*np.pi*temperature*8.6173303*10**-5
+        width_array=w0+w1*x
+        cnt=0
+        ynew=np.zeros(len(y), dtype='complex')
+        for x0 in x:
+            if (x0>cutoff+(w0+w1*cutoff)*3.0):
+                ynew[cnt]=y[cnt]
+            else:
+                if ((x0>3*width_array[cnt]) and ((x[-1]-x0)>3*width_array[cnt])):
+                    dist=1.0/np.sqrt(2*np.pi)/width_array[cnt]*np.exp(-(x-x0)**2/2.0/width_array[cnt]**2)
+                    ynew[cnt]=sum(dist*y)/sum(dist)
+                else:
+                    ynew[cnt]=y[cnt]
+            cnt=cnt+1
+        return ynew
+
+    
