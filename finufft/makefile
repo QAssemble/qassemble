@@ -61,7 +61,7 @@ FINUFFT = $(dir $(realpath $(firstword $(MAKEFILE_LIST))))
 # Now come flags that should be added, whatever user overrode in make.inc.
 # -fPIC (position-indep code) needed to build dyn lib (.so)
 # Also, we force return (via :=) to the land of simply-expanded variables...
-INCL = -Iinclude -I${MKLROOT}/include/fftw -I${MKLROOT}/include
+INCL = -Iinclude
 CXXFLAGS := $(CXXFLAGS) $(INCL) -fPIC -std=c++14
 CFLAGS := $(CFLAGS) $(INCL) -fPIC
 # here /usr/include needed for fftw3.f "fortran header"... (JiriK: no longer)
@@ -79,13 +79,8 @@ ifneq ($(OMP),OFF)
   MFLAGS += $(MOMPFLAGS) -DR2008OO
   OFLAGS += $(OOMPFLAGS) -DR2008OO
   LIBS += $(OMPLIBS)
-  ifneq ($(MINGW),ON)
-    ifneq ($(MSYS),ON)
 # omp override for total list of math and FFTW libs (now both precisions)...
-#     LIBSFFT := -l$(FFTWNAME) -l$(FFTWNAME)_$(FFTWOMPSUFFIX) -l$(FFTWNAME)f -l$(FFTWNAME)f_$(FFTWOMPSUFFIX) $(LIBS)
-      LIBSFFT := -L${MKLROOT}/lib/intel64_lin -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -lm $(LIBS)
-    endif
-  endif
+  LIBSFFT := -l$(FFTWNAME) -l$(FFTWNAME)_$(FFTWOMPSUFFIX) -l$(FFTWNAME)f -l$(FFTWNAME)f_$(FFTWOMPSUFFIX) $(LIBS)
 endif
 
 # name & location of library we're building...
@@ -196,7 +191,7 @@ endif
 
 # examples (C++/C) -----------------------------------------------------------
 # build all examples (single-prec codes separate, and not all have one)...
-EXAMPLES = $(basename $(wildcard examples/*.*))
+EXAMPLES = $(basename $(wildcard examples/*.c examples/*.cpp))
 # ...except only build threadsafe ones if user switch on (thus FFTW>=3.3.6):
 ifeq (,$(findstring FFTW_PLAN_SAFE,$(CXXFLAGS)))
   EXAMPLES := $(filter-out %/threadsafe1d1 %/threadsafe2d2f, $(EXAMPLES))
@@ -255,7 +250,7 @@ ifneq ($(MINGW),ON)
 	test/basicpassfail
 	test/basicpassfailf
   # accuracy tests done in prec-switchable bash script... (small prob -> few thr)
-	(cd test; export OMP_NUM_THREADS=4; sh check_finufft.sh; sh check_finufft.sh SINGLE)
+	(cd test; export OMP_NUM_THREADS=4; ./check_finufft.sh; ./check_finufft.sh SINGLE)
 else
   # Windows-WSL does not find the dynamic libraries, so we make a temporary copy...
 	copy $(DYNLIB) test
@@ -334,22 +329,25 @@ perftest/manysmallprobs: perftest/manysmallprobs.cpp $(STATICLIB)
 FD = fortran/directft
 # CMCL NUFFT fortran test codes (only needed by the nufft*_demo* codes)
 CMCLOBJS = $(FD)/dirft1d.o $(FD)/dirft2d.o $(FD)/dirft3d.o $(FD)/dirft1df.o $(FD)/dirft2df.o $(FD)/dirft3df.o $(FD)/prini.o
+# build examples list...
 FE_DIR = fortran/examples
-FE64 = $(FE_DIR)/simple1d1 $(FE_DIR)/guru1d1 $(FE_DIR)/nufft1d_demo $(FE_DIR)/nufft2d_demo $(FE_DIR)/nufft3d_demo $(FE_DIR)/nufft2dmany_demo
-FE32 = $(FE64:%=%f)
-# all the fortran examples...
+FE64 = $(FE_DIR)/simple1d1 $(FE_DIR)/simple1d1_f90 $(FE_DIR)/guru1d1 $(FE_DIR)/nufft1d_demo $(FE_DIR)/nufft2d_demo $(FE_DIR)/nufft3d_demo $(FE_DIR)/nufft2dmany_demo
+# add the "f" single-prec suffix to all examples except the f90 one...
+FE32 := $(filter-out %/simple1d1_f90f, $(FE64:%=%f))
+# list of all fortran examples
 FE = $(FE64) $(FE32)
 
-# fortran target pattern match
+# fortran target pattern match (no longer runs executables)
 $(FE_DIR)/%: $(FE_DIR)/%.f $(CMCLOBJS) $(DYNLIB)
 	$(FC) $(FFLAGS) ${LDFLAGS} $< $(CMCLOBJS) $(ABSDYNLIB) $(FLINK) -o $@
-	./$@
 $(FE_DIR)/%f: $(FE_DIR)/%f.f $(CMCLOBJS) $(DYNLIB)
 	$(FC) $(FFLAGS) ${LDFLAGS} $< $(CMCLOBJS) $(ABSDYNLIB) $(FLINK) -o $@
-	./$@
+# fortran90 lone demo
+$(FE_DIR)/simple1d1_f90: $(FE_DIR)/simple1d1.f90 include/finufft_mod.f90 $(CMCLOBJS) $(DYNLIB)
+	$(FC) $(FFLAGS) ${LDFLAGS} include/finufft_mod.f90 $< $(CMCLOBJS) $(ABSDYNLIB) $(FLINK) -o $@
 
 fortran: $(FE)
-# task always runs them (note escaped $ to pass to bash)...
+# this task runs them (note escaped $ to pass to bash)...
 	for i in $(FE); do echo $$i...; ./$$i; done
 	@echo "Done running: $(FE)"
 
@@ -382,25 +380,25 @@ endif
 
 # python ---------------------------------------------------------------------
 python: $(STATICLIB) $(DYNLIB)
-	FINUFFT_DIR=$(FINUFFT) $(PYTHON) -m pip -v install -e ./python
+	FINUFFT_DIR=$(FINUFFT) $(PYTHON) -m pip -v install -e ./python/finufft
 # note to devs: if trouble w/ NumPy, use: pip install ./python --no-deps
-	$(PYTHON) python/test/run_accuracy_tests.py
-	$(PYTHON) python/examples/simple1d1.py
-	$(PYTHON) python/examples/simpleopts1d1.py
-	$(PYTHON) python/examples/guru1d1.py
-	$(PYTHON) python/examples/guru1d1f.py
-	$(PYTHON) python/examples/simple2d1.py
-	$(PYTHON) python/examples/many2d1.py
-	$(PYTHON) python/examples/guru2d1.py
-	$(PYTHON) python/examples/guru2d1f.py
+	$(PYTHON) python/finufft/test/run_accuracy_tests.py
+	$(PYTHON) python/finufft/examples/simple1d1.py
+	$(PYTHON) python/finufft/examples/simpleopts1d1.py
+	$(PYTHON) python/finufft/examples/guru1d1.py
+	$(PYTHON) python/finufft/examples/guru1d1f.py
+	$(PYTHON) python/finufft/examples/simple2d1.py
+	$(PYTHON) python/finufft/examples/many2d1.py
+	$(PYTHON) python/finufft/examples/guru2d1.py
+	$(PYTHON) python/finufft/examples/guru2d1f.py
 
 # general python packaging wheel for all OSs without wheel being fixed(required shared libs are not included in wheel)
 python-dist: $(STATICLIB) $(DYNLIB)
-	(export FINUFFT_DIR=$(shell pwd); cd python; $(PYTHON) -m pip wheel . -w wheelhouse)
+	(export FINUFFT_DIR=$(shell pwd); cd python/finufft; $(PYTHON) -m pip wheel . -w wheelhouse)
 
 # python packaging wheel for macosx with wheel being fixed(all required shared libs are included in wheel)
 wheel: $(STATICLIB) $(DYNLIB)
-	(export FINUFFT_DIR=$(shell pwd); cd python; $(PYTHON) -m pip wheel . -w wheelhouse; delocate-wheel -w fixed_wheel -v wheelhouse/finufft*.whl)
+	(export FINUFFT_DIR=$(shell pwd); cd python/finufft; $(PYTHON) -m pip wheel . -w wheelhouse; delocate-wheel -w fixed_wheel -v wheelhouse/finufft*.whl)
 
 docker-wheel:
 	docker run --rm -e package_name=finufft -v `pwd`:/io libinlu/manylinux2010_x86_64_fftw /io/python/ci/build-wheels.sh
