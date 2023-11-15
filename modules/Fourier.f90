@@ -645,7 +645,8 @@ contains
 
             moment(iorb,jorb,is,3) &
               =moment(iorb,jorb,is,3) &
-              +(ff(iorb,jorb,is,nomega-1)-dconjg(ff(jorb,iorb,is,nomega-1))-moment(iorb,jorb,is,1)*2.0d0/(omega(nomega-1)*ai))/2.0d0*(omega(nomega-1)*ai)**3                                        
+              +(ff(iorb,jorb,is,nomega-1)-dconjg(ff(jorb,iorb,is,nomega-1))-moment(iorb,jorb,is,1) &
+              *2.0d0/(omega(nomega-1)*ai))/2.0d0*(omega(nomega-1)*ai)**3                                        
 
           enddo
         enddo
@@ -680,10 +681,14 @@ contains
               amat=0.0d0
               bmat=0.0d0
 
-              amat(1,:)=(/dcmplx(1.0d0,0.0d0), 1.0d0/(omega(nomega-1)*ai), 1.0d0/(omega(nomega-1)*ai)**2, 1.0d0/(omega(nomega-1)*ai)**3/)
-              amat(2,:)=(/dcmplx(1.0d0,0.0d0), -1.0d0/(omega(nomega-1)*ai), 1.0d0/(omega(nomega-1)*ai)**2, -1.0d0/(omega(nomega-1)*ai)**3/)          
-              amat(3,:)=(/dcmplx(1.0d0,0.0d0), 1.0d0/(omega(nomega-2)*ai), 1.0d0/(omega(nomega-2)*ai)**2, 1.0d0/(omega(nomega-2)*ai)**3/)
-              amat(4,:)=(/dcmplx(1.0d0,0.0d0), -1.0d0/(omega(nomega-2)*ai), 1.0d0/(omega(nomega-2)*ai)**2, -1.0d0/(omega(nomega-2)*ai)**3/)
+              amat(1,:)=(/dcmplx(1.0d0,0.0d0), 1.0d0/(omega(nomega-1)*ai), 1.0d0/(omega(nomega-1)*ai)**2, & 
+                         1.0d0/(omega(nomega-1)*ai)**3/)
+              amat(2,:)=(/dcmplx(1.0d0,0.0d0), -1.0d0/(omega(nomega-1)*ai), 1.0d0/(omega(nomega-1)*ai)**2, &
+                         -1.0d0/(omega(nomega-1)*ai)**3/)          
+              amat(3,:)=(/dcmplx(1.0d0,0.0d0), 1.0d0/(omega(nomega-2)*ai), 1.0d0/(omega(nomega-2)*ai)**2, &
+                         1.0d0/(omega(nomega-2)*ai)**3/)
+              amat(4,:)=(/dcmplx(1.0d0,0.0d0), -1.0d0/(omega(nomega-2)*ai), 1.0d0/(omega(nomega-2)*ai)**2, &
+                         -1.0d0/(omega(nomega-2)*ai)**3/)
 
               bmat(1,1)=ff(iorb,jorb,is,nomega-1)
               bmat(2,1)=dconjg(ff(jorb,iorb,is,nomega-1))

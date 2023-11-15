@@ -39,14 +39,14 @@ contains
   subroutine FLatStc(norb,ns,nk,ffc,norbc,projector,ff)
     implicit none
     integer, intent(in) :: norb, nk,ns,norbc
-    complex*16, intent(in) :: projector(norb,norbc,ns,nk), ffc(norbc,norbc,ns)
+    complex*16, intent(in) :: projector(norb,norbc,ns), ffc(norbc,norbc,ns)
     complex*16,intent(out) :: ff(norb,norb,ns,nk)
 
     integer :: ik
 
     ff=0.0d0
     do ik=1, nk
-      call FLocStc(norb,ns,ffc,norbc,projector(:,:,:,ik),ff(:,:,:,ik))
+      call FLocStc(norb,ns,ffc,norbc,projector,ff(:,:,:,ik))
     enddo
 
   end subroutine FLatStc
@@ -70,7 +70,7 @@ contains
   subroutine FLatDyn(norb,ns,nk,nf,ffc,norbc,projector,ff)
     implicit none
     integer, intent(in) :: norb, nk,nf,ns,norbc
-    complex*16, intent(in) :: projector(norb,norbc,ns,nk), ffc(norbc,norbc,ns,0:(nf-1))
+    complex*16, intent(in) :: projector(norb,norbc,ns), ffc(norbc,norbc,ns,0:(nf-1))
     complex*16,intent(out) :: ff(norb,norb,ns,nk,0:(nf-1))
 
     integer :: ifreq
@@ -107,13 +107,13 @@ contains
   subroutine BLatStc(norb,ns,nk,ffc,norbc,projector,ff)
     implicit none
     integer, intent(in) :: norb,ns,nk,norbc
-    complex*16, intent(in) :: projector(norb,norbc,ns,nk), ffc(norbc,norbc,ns,ns)
+    complex*16, intent(in) :: projector(norb,norbc,ns), ffc(norbc,norbc,ns,ns)
     complex*16,intent(out) :: ff(norb,norb,ns,ns,nk)
 
     integer :: ik
 
     do ik=1, nk
-      call BLocStc(norb,ns,ffc,norbc,projector(:,:,:,ik),ff(:,:,:,:,ik))
+      call BLocStc(norb,ns,ffc,norbc,projector,ff(:,:,:,:,ik))
     enddo
 
   end subroutine BLatStc
@@ -137,7 +137,7 @@ contains
   subroutine BLatDyn(norb,ns,nk,nf,ffc,norbc,projector,ff)
     implicit none
     integer, intent(in) :: norb,ns,nk,nf,norbc
-    complex*16, intent(in) :: projector(norb,norbc,ns,nk), ffc(norbc,norbc,ns,ns,0:(nf-1))
+    complex*16, intent(in) :: projector(norb,norbc,ns), ffc(norbc,norbc,ns,ns,0:(nf-1))
     complex*16,intent(out) :: ff(norb,norb,ns,ns,nk,0:(nf-1))
 
     integer :: ifreq

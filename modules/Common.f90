@@ -2,7 +2,8 @@ Module Common
   implicit None
 
 ! private :: gcoeff
-  public :: dcmplx_matinv, indexing, fderiv_dcmplx,spline_dcmplx, fftw3_1d, fftw3_2d, fftw3_3d, factorial_int,hermitianeigen_dcmplx, BernoulliPolynomial, EulerPolynomial, ttind, Legendre2Chebyshev,gcoeff
+  public :: dcmplx_matinv, indexing, fderiv_dcmplx,spline_dcmplx, fftw3_1d, fftw3_2d, fftw3_3d, factorial_int, &
+            hermitianeigen_dcmplx, BernoulliPolynomial, EulerPolynomial, ttind, Legendre2Chebyshev,gcoeff
 
 contains
 

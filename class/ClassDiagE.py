@@ -3258,7 +3258,7 @@ class Method():
                 self.run_ctqmc()
                 self.measure_ctqmc()
                 # self.impurity_postprocessing()
-                G_imp_p[...,iprob], Sigma_imp_p[...,iprob], Sigma_hf_p[...,iprob] = self.impurity_postprocessing(iprob,iter,equiv)
+                G_imp_p[...,iprob], Sigma_imp_p[...,iprob], Sigma_hf_p[...,iprob] = self.impurity_postprocessing(iprob,iter,equiv) # LocDyn LocDyn LocStc
             Sigma_imp = self.fermion.FimpconvertLocDyn(Sigma_imp_p,1)
             for ispace in range(nspace):
                 Sigma_emb += DiagE.embedding.flatdyn(nk,Sigma_imp[...,ispace],fprojector[...,ispace])
@@ -3282,10 +3282,10 @@ class Method():
 
             if (check<=1.0e-3)and(abs(mu-mu_old)<=1.0e-3):
                 print(f"Self-consistency is achived with iteration : {iter}")
-                return G_latfreq,Sigma_imp,self.fermion.E_imp,self.fermion.hyb,mu
+                return G_latfreq,Sigma_imp,self.fermion.E_imp,self.fermion.hyb,mu,Sigma_emb
             elif (iter == iter_max):
                 print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
-                return G_latfreq,Sigma_imp,self.fermion.E_imp,self.fermion.hyb,mu
+                return G_latfreq,Sigma_imp,self.fermion.E_imp,self.fermion.hyb,mu,Sigma_emb
             else:
                 mu_old = mu
                 Sigma_emb_old = Sigma_emb
@@ -3433,9 +3433,9 @@ class Method():
     
     def impurity_postprocessing(self, key,iter,equiv): # key -> problem number
     
-        print("*******************")
+        print("*****************************")
         print("Impurity Postprocessing Strat")
-        print("*******************")
+        print("*****************************")
         print(f'key : {key}')
         fileobs='./params.obs.json'
         filemeas='./params.meas.json'
@@ -3521,14 +3521,14 @@ class Method():
         #        mkey=str(-int(key))
         #        green[:,jj]=self.gaussian_broadening_linear(self.m_ini.control['omega'], green_bare[:,jj], 0.05, self.m_ini.imp['temperature'], self.m_ini.imp[key]['green_cutoff'])
         Green = self.fermion.FgaussianLocDyn(self.ft.omega,Green,0.05,1/self.ft.beta,cutoff)
-
+        print(Sigma_bare.shape, Green.shape)
         # if(gimpsmt[0] ==0) :
         #   return green_bare, sigma, xij, sigma_hf, occ
         # else :
         #   return green, sigma, xij, sigma_hf, occ
-        print("*******************")
+        print("******************************")
         print("Impurity Postprocessing Finish")
-        print("*******************")
+        print("******************************")
         return Green, Sigma_bare, Sigma_hf
 
     def read_sigma_imp(self):

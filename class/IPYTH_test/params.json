@@ -1,0 +1,82 @@
+{
+    "beta": 38.0,
+    "complex": false,
+    "density matrix precise": false,
+    "green bulla": true,
+    "hloc": {
+        "one body": [
+            [
+                0.0,
+                0.0
+            ],
+            [
+                0.0,
+                0.0
+            ]
+        ],
+        "two body": [
+            5.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            5.0,
+            0.0,
+            0.0,
+            5.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            5.0
+        ]
+    },
+    "hybridisation": {
+        "functions": "hyb.json",
+        "matrix": [
+            [
+                "1",
+                ""
+            ],
+            [
+                "",
+                "1"
+            ]
+        ]
+    },
+    "measurement time": 10,
+    "mu": -0.0,
+    "occupation susceptibility bulla": true,
+    "partition": {
+        "density matrix precise": true,
+        "green basis": "matsubara",
+        "green bulla": true,
+        "green matsubara cutoff": 50,
+        "occupation susceptibility bulla": true,
+        "occupation susceptibility direct": false,
+        "print density matrix": true,
+        "print eigenstates": true,
+        "probabilities": [
+            "N",
+            "energy",
+            "Sz"
+        ],
+        "quantum number susceptibility": true,
+        "quantum numbers": {
+            "N": [
+                1.0,
+                1.0
+            ],
+            "Sz": [
+                0.5,
+                -0.5
+            ]
+        },
+        "susceptibility cutoff": 50,
+        "susceptibility tail": 200
+    },
+    "quantum number susceptibility": true,
+    "thermalisation time": 3
+}

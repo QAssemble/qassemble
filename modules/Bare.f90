@@ -338,7 +338,8 @@ contains
             enddo
           enddo
   
-          call zgemm('n', 'c', norb, norb, norb, (1.0d0, 0.0d0), tempmat2, norb,tempmat, norb, (0.0d0,0.0d0), wloc(1,1, is, js, itau), norb)
+          call zgemm('n', 'c', norb, norb, norb, (1.0d0, 0.0d0), tempmat2, norb,tempmat, norb, &
+               (0.0d0,0.0d0), wloc(1,1, is, js, itau), norb)
   
         enddo
       enddo

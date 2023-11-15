@@ -1,0 +1,56 @@
+{
+    "all errors": false,
+    "beta": 38,
+    "complex": false,
+    "density matrix precise": false,
+    "error": "parallel",
+    "expansion histogram": true,
+    "green bulla": true,
+    "hloc": {
+        "one body": [ 
+            [ 0, 0 ], 
+            [ 0, 0 ] ],
+        "two body": [ 5, 0, 0, 0, 0, 0, 5, 0, 0, 5, 0, 0, 0, 0, 0, 5 ]
+    },
+    "hybridisation": {
+        "functions": "hyb.json",
+        "matrix": [ 
+            [ "1", "" ], 
+            [ "", "1" ] ]
+    },
+    "measurement time": 10,
+    "mu": -0,
+    "occupation susceptibility bulla": true,
+    "partition": {
+        "density matrix precise": true,
+        "green basis": "matsubara",
+        "green bulla": true,
+        "green legendre cutoff": 100,
+        "green matsubara cutoff": 50,
+        "occupation susceptibility": false,
+        "occupation susceptibility bulla": true,
+        "occupation susceptibility direct": false,
+        "print density matrix": true,
+        "print eigenstates": true,
+        "probabilities": [ "N", "energy", "Sz" ],
+        "quantum number susceptibility": true,
+        "quantum numbers": {
+            "N": [ 1, 1 ],
+            "Sz": [ 0.5, -0.5 ]
+        },
+        "storeA": 100,
+        "storeB": 20,
+        "susceptibility cutoff": 50,
+        "susceptibility tail": 200,
+        "sweepA": 50,
+        "sweepB": 250
+    },
+    "partition fraction": 0.5,
+    "quad insert": false,
+    "quantum number susceptibility": true,
+    "restart": false,
+    "seed": 41085,
+    "seed inc": 857,
+    "sim per device": 0,
+    "thermalisation time": 3
+}

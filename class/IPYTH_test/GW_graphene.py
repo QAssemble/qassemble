@@ -1,31 +1,29 @@
-# %%
 import numpy as np
-import sys
-path = '/home/momichael98/temp/Fortran/DiagE/class'
+import sys,os,time,datetime
+diage_path = os.environ.get('DIAGE','')
+
+path = diage_path+'/class'
 sys.path.append(path)
 from ClassDiagE import Crystal as cr
 from ClassDiagE import FHamiltonian as fh
 from ClassDiagE import BHamiltonian as bh
 from ClassDiagE import FT_grid as ft
 from ClassDiagE import Method
-path = '/home/momichael98/temp/Fortran/DiagE/modules'
+from ClassDiagE import Impurity
+path = diage_path+'/modules'
 sys.path.append(path)
 import DiagE
 
-# %% [markdown]
-# ## Generate Crystal & Basic system
-
-# %%
 latt = [[1.0,0.0,0.0],[1/2,np.sqrt(3)/2,0.0],[0.0,0.0,10.0]]
 pos = [[1/3,1/3,1/2],[2/3,2/3,1/2]]
 
 Graphene = cr(latt,pos)
-grid = [15,15,1]
+grid = [10,10,1]
 Graphene.Kpoint(meshgrid=grid)
 
-# %%
+
 Gf = fh(Graphene,1)
-Gb = bh(Graphene,1)
+Gb = bh(Graphene,Gf)
 
 orb_option1 = [0,1]
 orb_option2 = [1,1]
@@ -36,32 +34,19 @@ Gf.set_basis_index(orb_option2)
 Gb.set_basis_index(orb_option1)
 Gb.set_basis_index(orb_option2)
 
-# %% [markdown]
-# ## Construct Non-interacting Hamiltonian
-
-# %%
 t = -2.7
 e = 0.0
-Gf.On_site_list(e)
-Gf.On_site_list(e)
+Gf.On_site_list([e,e])
 
-Gf.Hoppinglist(t,0,1,0,0,0)
-Gf.Hoppinglist(t,1,0,1,0,0)
-Gf.Hoppinglist(t,1,0,0,1,0)
+Gf.Hoppinglist(t,0,1,[0,0,0])
+Gf.Hoppinglist(t,1,0,[1,0,0])
+Gf.Hoppinglist(t,1,0,[0,1,0])
+Gf.Hamiltonian()
+Ham_tb = Gf.Ham_tb
 
-Ham_tb = Gf.Hamiltonian(Gf.kpoint)
+# energy = Gf.diagonalize(Ham_tb)
+# Gf.visualization(energy)
 
-# %% [markdown]
-# ### Visualization of tight_binding Hamiltonian
-
-# %%
-energy = Gf.diagonalization(Ham_tb)
-Gf.visualization(energy,'./png/Graphene_tb')
-
-# %% [markdown]
-# ## Construct the interacting Hamiltonian
-
-# %%
 U = 5
 option1 = {"KorS" : "S", "value" : [U,0,0], "site" : 0, "orbital" : [0]}
 option2 = {"KorS" : "S", "value" : [U,0,0], "site" : 0, "orbital" : [1]}
@@ -75,17 +60,9 @@ Gb.set_int_amp(V,1,0,[1,0,0])
 Gb.set_int_amp(V,1,0,[0,1,0])
 Gb.set_int_amp(V,0,1,[0,0,0])
 
-Gb.gen_nl_int_ham(grid)
+Gb.gen_nl_int_ham()
 Gb.Combine_interaction()
 
-
-# %% [markdown]
-# ## Hartree-Fock approximation
-
-# %% [markdown]
-# ### Construct FT grid & Method class
-
-# %%
 beta = 38.0
 size = 1000
 FT = ft(beta,size)
@@ -94,44 +71,43 @@ FT.Omega()
 FT.Tau()
 FT.Nu()
 
-GM = Method(Gf,Gb,FT)
 
-# %% [markdown]
-# ### SCF loop of Hartree-Fock
-
-# %%
 iter = 100
 Nt = 1
-Hmat_hf, Sigma_H, Sigma_F, n = GM.Self_consistence_Hartree_Fock(iter,Ham_tb,Nt)
+mix = 0.05
+Gi = Impurity(Gf,Gb,FT)
+ind_dict = {"1":[[[0,0]],[[1,0]]]}
+Gi.projector(ind_dict)
 
-# %%
-energy_hf = Gf.diagonalization(Hmat_hf)
-Gf.visualization(energy_hf,'./png/Graphene_HF')
+GM = Method(Gf,Gb,FT,Gi)
+# print('Hartree-Fock start')
+# Hmat_hf, Sigma_H, Sigma_F, n, mu_hf = GM.Hartree_Fock(iter,Ham_tb,Nt,mix)
+# print('Hartree-Fock finish')
 
-# %%
+# energy_hf = Gf.diagonalize(Hmat_hf)
+# Gf.visualization(energy_hf,'./png/Hartre-Fock.png')
+# print("GW start")
+# G_full_kf, Sigma_H, Sigam_F, Sigma_C_kf, Sigma, Pol_kf, Wc_kf, mu = GM.GW_approximation(iter,Gf.Ham_tb,Nt,mix)
+# print("GW finish")
 
+# Sigma_stc = Gf.Stc_self_energy(Sigma)
 
-# %% [markdown]
-# ## GW approximation
+# Z = Gf.z_factor(Sigma,beta)
 
-# %%
-G_full_kf, Sigma_H, Sigma_F, Sigma_C_kf, Pol_kf, Wc_kf, mu = GM.Self_consistence_GW(iter,Ham_tb,Nt)
+# H_qp = Gf.QP_Hamiltonian(Gf.Ham_tb,-Sigma_H,-Sigma_F,Sigma_stc,mu,Z)
 
-# %%
-Sigma_stc = Gf.Stc_Correlated_self_energy(Sigma_C_kf)
+# energy3 = Gf.diagonalize(H_qp)
+# Gf.visualization(energy3,'./png/GW-approximation.png')
 
+equiv = np.array([[1]])
+print("DMFT start")
+start = time.time()
+G_latfreq,Sigma_imp,E_imp,hyb,mu,Sigma_emb = GM.DMFT(int(iter/100),Ham_tb,Nt,mix,None,0,0,equiv)
+end = time.time()
+sec = (end-start)
+delta = datetime.timedelta(seconds=sec)
+print("DMFT finish")
+print(f"DMFT loop time : {delta}")
 
-# %%
-Z = Gf.z_factor(Sigma_C_kf,beta)
-
-# %%
-Z.shape
-
-# %%
-H_qp = Gf.QP_Hamiltonian(Ham_tb,Sigma_H,Sigma_F,Sigma_stc,mu,Z)
-
-# %%
-energy_QP = Gf.diagonalization(H_qp)
-
-# %%
-Gf.visualization(energy_QP,'./png/Graphene_GW')
+# A = -1/np.pi*np.imag(G_latfreq)
+# print(A.shape)
