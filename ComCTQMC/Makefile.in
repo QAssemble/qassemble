@@ -1,0 +1,15 @@
+BASE_CPPFLAGS = -DNDEBUG
+BASE_LDFLAGS =
+BASE_LIBS = -lm
+
+LAPACK_CPPFLAGS = -I/opt/homebrew/opt/lapack/include -I/opt/homebrew/opt/openblas/include 
+LAPACK_LDFLAGS = -L/opt/homebrew/opt/lapack/lib -L/opt/homebrew/opt/openblas/lib
+LAPACK_LIBS = -llapack -lblas 
+
+CXX = g++-13
+CXX_MPI = mpic++ -DHAVE_MPI
+CXXFLAGS = -Wall -O3 -fexceptions -std=c++11 -m64
+
+CPPFLAGS = $(BASE_CPPFLAGS) $(LAPACK_CPPFLAGS) 
+LDFLAGS = $(BASE_LDFLAGS) $(LAPACK_LDFLAGS)
+LIBS = $(BASE_LIBS) $(LAPACK_LIBS) 
