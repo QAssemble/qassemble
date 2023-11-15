@@ -3375,7 +3375,7 @@ class Method():
                 print("Nspin is not 1")
                 sys.exit()
         elif self.fermion.SOC is True:
-            print("SOC must be False")
+            print("SOC is not  False, please change SOC")
             sys.exit()
 
         return None
