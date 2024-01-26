@@ -23,7 +23,7 @@ import DiagE
 
 
 
-class Crystal():
+class Crystal(object):
     def __init__(self,latt : list,basis_position : list):
         latt = np.array(latt,dtype=float)
         basis_position = np.array(basis_position,dtype=float)
@@ -100,7 +100,7 @@ class Crystal():
 
 class FHamiltonian(object):
 
-    def __init__(self,crystal : Crystal, ns : int = None, SOC : bool = False):
+    def __init__(self,crystal : Crystal, ns : int = 1, SOC : bool = False):
 
         self.ns = ns
         self.basis_f = crystal.basis_f
@@ -812,7 +812,7 @@ class FHamiltonian(object):
         G_cal_t = np.zeros((norb,norb,ns,nk,nomega),dtype=complex,order='F')
         tempmat = np.zeros((norb,norb,ns,nk,nomega),dtype=complex,order='F')
 
-        tempmat = self.FInvLatDyn(G)
+        # tempmat = self.FInvLatDyn(G)
         
         # for iomega in range(nomega):
         #     for ik in range(nk):
@@ -851,8 +851,9 @@ class FHamiltonian(object):
         mu_min = -40
         mu_max = 40
 
-        sol = scipy.optimize.bisect(self.num_of_e_freq,mu_min,mu_max,args=(Nt,G,omega,tau))
-
+        # sol = scipy.optimize.bisect(self.num_of_e_freq,mu_min,mu_max,args=(Nt,G,omega,tau))
+        sol = scipy.optimize.brentq(self.num_of_e_freq,mu_min,mu_max,args=(Nt,G,omega,tau))
+        
         return sol
     
     def occupation_matrix(self, flattau : np.ndarray = None):
@@ -1181,14 +1182,21 @@ class FHamiltonian(object):
         nspace = projector.shape[3]
         norbc = projector.shape[1]
 
+        temp = 0
+        # tempmat = np.zeros((norb,norb,ns,nk))
+        tempmat = Hmat
         for ik in range(nk):
             for js in range(ns):
                 for iorb in range(norb):
-                    Hmat[iorb,iorb,js,ik] -= mu
+                    tempmat[iorb,iorb,js,ik] -= mu
+                    temp = temp + tempmat[iorb,iorb,js,ik]/nk
         
         E_imp = np.zeros((norbc,norbc,ns,nspace),dtype=complex,order='F')
         for ispace in range(nspace):
-            E_imp[...,ispace] = DiagE.projection.flatstc(Hmat,projector[...,ispace])
+            E_imp[...,ispace] = DiagE.projection.flatstc(tempmat,projector[...,ispace])
+        print(f"impurity H sum equal : {temp}")
+        print(f"impurity chemical potential : {mu}")
+        print(f"impurity level : {E_imp}")
         self.E_imp = E_imp
         return None
     
@@ -1199,7 +1207,7 @@ class FHamiltonian(object):
         nfreq = G_loc.shape[3]
         
 
-        beta = 1/(omega[0])*np.pi
+        # beta = 1/(omega[0])*np.pi
 
         hyb = np.zeros((norb,norb,ns,nfreq),dtype=complex,order='F')
         G_loc_inv = np.zeros((norb,norb,ns,nfreq),dtype=complex,order='F')
@@ -1207,27 +1215,23 @@ class FHamiltonian(object):
 
         
         G_loc_inv = self.FInvLocDyn(G_loc)
-        hyb_dic = {}
+        Omega = np.zeros((norb,norb,ns,nfreq),dtype=complex,order='F')
+        for ifreq in range(nfreq):
+            for js in range(ns):
+                Omega[:,:,js,ifreq] = np.eye(norb,norb)*1j*omega[ifreq]
         
         for ifreq in range(nfreq):
             for js in range(ns):
                 for iorb in range(norb):
                     for jorb in range(norb):
-                        if iorb == jorb:
-                            hyb[iorb,jorb,js,ifreq] = 1j*omega[ifreq] - E_imp[iorb,jorb,js] - G_loc_inv[iorb,jorb,js,ifreq] - Sigma[iorb,jorb,js,ifreq]
-                        else:
-                            hyb[iorb,jorb,js,ifreq] = - E_imp[iorb,jorb,js] - G_loc_inv[iorb,jorb,js,ifreq] - Sigma[iorb,jorb,js,ifreq]
+                        hyb[iorb,jorb,js,ifreq] = Omega[iorb,jorb,js,ifreq] - E_imp[iorb,jorb,js] - G_loc_inv[iorb,jorb,js,ifreq] - Sigma[iorb,jorb,js,ifreq]
+                        
+                        
+        print(f"hybridisation Sigma high frequncy limit : {Sigma[:,:,:,-1]}")
+        print(f"hybridisation high frequency limit : {hyb[:,:,:,-1]}")
+        print(-G_loc_inv[...,-1]+Omega[...,-1],-G_loc_inv[...,-1],Omega[...,-1])
+        print(E_imp)
         
-        # for i in range(1,Nind+1):
-        #     hyb_dic[str(i)]['beta'] = beta
-        #     hyb_real = np.real(hyb).tolist()
-        #     hyb_imag = np.imag(hyb).tolist()
-        #     hyb_dic[str(i)]['imag'] = hyb_imag
-        #     hyb_dic[str(i)]['real'] = hyb_real
-
-        # f = open('hyb.json','w')
-        # json.dump(hyb_dic,f,sort_keys='True',indent=4,separators=(', ',': '))
-        # f.close()
         self.hyb = hyb
         return None
     
@@ -1262,16 +1266,39 @@ class FHamiltonian(object):
             tempmat = boson.Bcomposite(U[...,ispace],1)
 
             nind = tempmat.shape[0]
-
-            for ind1 in range(nind):
-                nn1 = [0]*2
-                ind1, [iorb,js] = indexing(nind,2,[norb,ns],0,ind1,nn1)
-                iorbc1,iorbc2 = bf_list[iorb]
-                for ind2 in range(nind):
-                    nn2 = [0]*2
-                    ind2, [jorb,ks] = indexing(nind,2,[norb,ns],0,ind2,nn2)
-                    iorbc3,iorbc4 = bf_list[jorb]
-                    Sigma1[iorbc1,iorbc2,js] += tempmat[ind1,ind2]*G_loc[iorbc4,iorbc3,ks,-1,ispace]
+            if ns == 2:
+                for ind1 in range(nind):
+                    nn1 = [0]*2
+                    ind1, [iorb,js] = indexing(nind,2,[norb,ns],0,ind1,nn1)
+                    iorbc1,iorbc2 = bf_list[iorb]
+                    for ind2 in range(nind):
+                        nn2 = [0]*2
+                        ind2, [jorb,ks] = indexing(nind,2,[norb,ns],0,ind2,nn2)
+                        iorbc3,iorbc4 = bf_list[jorb]
+                        Sigma1[iorbc1,iorbc2,js] += -tempmat[ind1,ind2]*G_loc[iorbc4,iorbc3,ks,-1,ispace]
+            elif ns == 1:
+                if self.SOC == False:
+                    C = 2
+                    for ind1 in range(nind):
+                        nn1 = [0]*2
+                        ind1, [iorb,js] = indexing(nind,2,[norb,ns],0,ind1,nn1)
+                        iorbc1,iorbc2 = bf_list[iorb]
+                        for ind2 in range(nind):
+                            nn2 = [0]*2
+                            ind2, [jorb,ks] = indexing(nind,2,[norb,ns],0,ind2,nn2)
+                            iorbc3,iorbc4 = bf_list[jorb]
+                            Sigma1[iorbc1,iorbc2,js] += -tempmat[ind1,ind2]*G_loc[iorbc4,iorbc3,ks,-1,ispace]*C
+                else:
+                    C = 1
+                    for ind1 in range(nind):
+                        nn1 = [0]*2
+                        ind1, [iorb,js] = indexing(nind,2,[norb,ns],0,ind1,nn1)
+                        iorbc1,iorbc2 = bf_list[iorb]
+                        for ind2 in range(nind):
+                            nn2 = [0]*2
+                            ind2, [jorb,ks] = indexing(nind,2,[norb,ns],0,ind2,nn2)
+                            iorbc3,iorbc4 = bf_list[jorb]
+                            Sigma1[iorbc1,iorbc2,js] += -tempmat[ind1,ind2]*G_loc[iorbc4,iorbc3,ks,-1,ispace]*C
 
 
             for js in range(ns):
@@ -1433,7 +1460,7 @@ class BHamiltonian(object):
 
         l = int((norb-1)/2)
         m = list(range(-l,l+1))
-        print(l,m)
+        # print(l,m)
 
         for n, F in enumerate(radial_integral):
 
@@ -2826,9 +2853,10 @@ class BHamiltonian(object):
 
 class FT_grid(object):
 
-    def __init__(self,beta : float = None,size : int = None):
+    def __init__(self,T : float = 300,size : int = 1000):
 
-        self.beta = beta
+        
+        self.beta = beta(T)
         self.size = size
         self.omega = np.zeros((size),dtype=float,order='F')
         self.nu = np.zeros((size),dtype=float,order='F')
@@ -2945,7 +2973,7 @@ class Impurity(object):
             for key, val in self.fermion.prob_space.items():
                 for ii,ispace in enumerate(val):
                     for ind in self.fermion.imp_dict[key][ii]:
-                        print(ind,self.fermion.imp_dict[key][ii].index(ind),ii,ispace)
+                        # print(ind,self.fermion.imp_dict[key][ii].index(ind),ii,ispace)
                         fprojector[ind,self.fermion.imp_dict[key][ii].index(ind),js,ispace] = 1
 
         
@@ -3179,7 +3207,7 @@ class Method():
                 mu_old = mu
                 n_old = n_new
 
-    def DMFT(self,iter_max : int, Hmat : np.ndarray, N : float, mix : float ,rkgrid : list = None,time1 = 0, time2 = 0, equiv : np.ndarray = None):
+    def DMFT(self,iter_max : int, Hmat : np.ndarray, N : float, mix : float , equiv : list):
         
         norb = Hmat.shape[0]
         ns = Hmat.shape[2]
@@ -3196,77 +3224,98 @@ class Method():
         nspace = 0
         for val in self.fermion.prob_space.values():
             nspace += len(val)
-
-
-        if rkgrid == None:
-            rkgrid = self.boson.rkgrid
         
         G_latfreq_init = DiagE.bare.flatfreq(Hmat,omega)
         G_loc_freq_init = np.zeros((norbc,norbc,ns,nfreq,nspace),dtype=complex,order='F') # nspace 
-        Sigma_init = np.zeros((norbc,norbc,ns,nfreq,nspace),dtype=complex,order='F')
-        # for iprob in range(nprob):
-        #     G_loc_freq_init[:,:,:,:,iprob] = DiagE.projection.flatdyn(G_latfreq_init,fprojector[:,:,:,iprob]) # projector : nprob -> nspace
+        G_loc_tau_init = np.zeros((norbc,norbc,ns,ntau,nspace),dtype=complex,order='F') # nspace 
+        Sigma_loc_init = np.zeros((norbc,norbc,ns,nfreq,nspace),dtype=complex,order='F')
+        
         for ispace in range(nspace):
             G_loc_freq_init[...,ispace] = DiagE.projection.flatdyn(G_latfreq_init,fprojector[...,ispace])
-        # G_loc_freq_init = DiagE.projection.flatdyn(G_latfreq_init,fprojector)
-        Sigma_init = self.fermion.DC_self_energy(G_loc_freq_init,self.boson,self.ip) # nspace
-        # Sigma_init_p = convert(Sigma_init) 
-        Sigma_init_p = self.fermion.FimpconvertLocDyn(Sigma_init,0)
+            G_loc_tau_init[...,ispace] = self.fermion.FLocDyn_F2T(omega,G_loc_freq_init[...,ispace],tau,1,1)
+        Sigma_loc_init = self.fermion.DC_self_energy(G_loc_tau_init,self.boson,self.ip) # nspace
+        # tempmat = Sigma_loc_init
+        # for ispace in range(nspace):
+        #     Sigma_loc_init[...,ispace] = self.fermion.FLoc
+        Sigma_imp_init = self.fermion.FimpconvertLocDyn(Sigma_loc_init,0) #nprob
         for iter in range(1,iter_max+1):
             if iter == 1:
-                Sigma_imp = Sigma_init
-                Sigma_imp_p = Sigma_init_p
+                print("********************")
+                print("Initialization start")
+                print("********************")
+                Sigma_loc = Sigma_loc_init
+                Sigma_imp = Sigma_imp_init
                 mu = 0
+                print("mu :", mu)
+                print("Sigma local high frequency", Sigma_loc[:,:,:,-1])
+                print("Sigma impurity high frequencty", Sigma_imp[:,:,:,-1])
                 Sigma_emb = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
                 G_latfreq = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
                 for ispace in range(nspace): # nspace
-                    Sigma_emb += DiagE.embedding.flatdyn(nk,Sigma_init[...,ispace],fprojector[...,ispace]) # nspace
+                    Sigma_emb += DiagE.embedding.flatdyn(nk,Sigma_loc[...,ispace],fprojector[...,ispace]) # nspace
                 for ifreq in range(nfreq):
                     for ik in range(nk):
                         for js in range(ns):
                             for iorbc in range(norbc):
                                 Sigma_emb[iorbc,iorbc,js,ik,ifreq] -= mu
-                    G_latfreq = DiagE.dyson.flatdyn(G_latfreq_init,Sigma_emb)
+                G_latfreq = DiagE.dyson.flatdyn(G_latfreq_init,Sigma_emb)
                 mu_old = mu
+                Sigma_imp_old = Sigma_imp
+                Sigma_loc_old = Sigma_loc
                 Sigma_emb_old = Sigma_emb
+                print("*********************")
+                print("Initialization finish")
+                print("*********************")
             G_locfreq = np.zeros((norbc,norbc,ns,nfreq,nspace),dtype=complex,order='F') # nspace
-            G_imp_p = np.zeros((norbc,norbc,ns,nfreq,nprob),dtype=complex,order='F')
-            Sigma_hf_p = np.zeros((norbc,norbc,ns,nfreq,nprob),dtype=complex,order='F')
+            G_impfreq = np.zeros((norbc,norbc,ns,nfreq,nprob),dtype=complex,order='F')
+            Sigma_hf_imp = np.zeros((norbc,norbc,ns,nfreq,nprob),dtype=complex,order='F')
+            Sigma_emb = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
             
-            #print(self.Sigma_imp_p.shape, type(self.Sigma_imp_p))
-            # for iprob in range(nprob):
-            #     G_locfreq[...,iprob] = DiagE.projection.flatdyn(G_latfreq[...,iprob],fprojector[...,iprob]) # nspace
+            
             for ispace in range(nspace):
                 G_locfreq[...,ispace] = DiagE.projection.flatdyn(G_latfreq,fprojector[...,ispace])
-            G_locfreq_p = self.fermion.FimpconvertLocDyn(G_locfreq,0) # nprob
+            G_impfreq = self.fermion.FimpconvertLocDyn(G_locfreq,0) # nprob
             
             self.fermion.Energy_imp(Hmat,mu,fprojector) #nspace 
+            for ispace in range(nspace):
+                save_file_locstc(iter,ispace,1,"E_imp",self.fermion.E_imp[...,ispace])
             
-            E_imp_p = self.fermion.FimpconvertLocStc(self.fermion.E_imp,0) #problem
-            
+            E_imp = self.fermion.FimpconvertLocStc(self.fermion.E_imp,0) #problem
+            for iprob in range(nprob):
+                save_file_locstc(iter,iprob,0,"E_imp",E_imp[...,iprob])
+                save_file_locdyn(iter,iprob,0,"G_imp_old",G_impfreq[...,iprob])
+                save_file_locdyn(iter,iprob,0,"Sigma_imp_old",Sigma_imp[...,iprob])
             # print(E_imp_p)
             ### nspace -> nprob ###
-            for iprob in range(nprob):
+            for iprob in range(nprob): #problem number by number directory make
+                os.mkdir("ctqmc"+str(iter)+'.'+str(iprob+1))
+                os.chdir("ctqmc"+str(iter)+'.'+str(iprob+1))
+                equiv_mat = np.diag(equiv[iprob])
+                self.Sigma_temp = Sigma_imp_old[...,iprob]
+                print(f"Sigma high frequencty limit : {Sigma_imp_old[:,:,:,-1,iprob]}")
+                self.fermion.hybridisation(omega,E_imp[...,iprob],G_impfreq[...,iprob],Sigma_imp_old[...,iprob]) #nprob 
+                hyb_dict = self.fermion.write_dict_LocDyn(equiv_mat,self.fermion.hyb)
+                self.write_hyb_json(iter,str(iprob+1),hyb_dict)
             
-            
-                self.fermion.hybridisation(omega,E_imp_p[...,iprob],G_locfreq_p[...,iprob],Sigma_imp_p[...,iprob]) #nprob 
-                hyb_dict = self.fermion.write_dict_LocDyn(equiv,self.fermion.hyb)
-                self.write_hyb_json(hyb_dict)
-            
-                self.write_ctqmc_params(str(iprob+1),self.fermion.E_imp[...,iprob],equiv) #
+                self.write_ctqmc_params(iter,str(iprob+1),E_imp[...,iprob],equiv_mat) #
                     
                 self.run_ctqmc()
                 self.measure_ctqmc()
                 # self.impurity_postprocessing()
-                G_imp_p[...,iprob], Sigma_imp_p[...,iprob], Sigma_hf_p[...,iprob] = self.impurity_postprocessing(iprob,iter,equiv) # LocDyn LocDyn LocStc
-            Sigma_imp = self.fermion.FimpconvertLocDyn(Sigma_imp_p,1)
+                G_impfreq[...,iprob], Sigma_imp[...,iprob], Sigma_hf_imp[...,iprob] = self.impurity_postprocessing(iprob,iter,equiv_mat) # LocDyn LocDyn LocStc
+                os.chdir("..")
+                print(f"after post processing Sigma high frequency limit : {Sigma_imp[:,:,:,-1,iprob]}")
+                save_file_locdyn(iter,iprob,0,"G_imp_ctqmc",G_impfreq[...,iprob])
+                save_file_locdyn(iter,iprob,0,"Sigma_imp_ctqmc",Sigma_imp[...,iprob])
+            Sigma_loc = self.fermion.FimpconvertLocDyn(Sigma_imp,1)
             for ispace in range(nspace):
-                Sigma_emb += DiagE.embedding.flatdyn(nk,Sigma_imp[...,ispace],fprojector[...,ispace])
-            Sigma_emb = self.fermion.FmixLatDyn(iter,mix,Sigma_emb,Sigma_emb_old)
+                Sigma_emb += DiagE.embedding.flatdyn(nk,Sigma_loc[...,ispace],fprojector[...,ispace])
+            # Sigma_emb = self.fermion.FmixLatDyn(iter,mix,Sigma_emb,Sigma_emb_old)
             G_latfreq_old = G_latfreq
             G_latfreq = DiagE.dyson.flatdyn(G_latfreq_init,Sigma_emb)
             mu = self.fermion.root_find_for_GW(N,G_latfreq,omega,tau)
-            print(G_latfreq.shape)
+            print(f"chemical potential after root find : {mu}")
+            # print(G_latfreq.shape)
             chem = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
 
             for ifreq in range(nfreq):
@@ -3279,7 +3328,7 @@ class Method():
             G_latfreq = DiagE.dyson.flatdyn(tempmat,chem)
 
             check = self.fermion_scf(G_latfreq,G_latfreq_old)
-
+            print(f"iteration : {iter}, criteria : {check}, chemical potential criteral : {abs(mu-mu_old)}")
             if (check<=1.0e-3)and(abs(mu-mu_old)<=1.0e-3):
                 print(f"Self-consistency is achived with iteration : {iter}")
                 return G_latfreq,Sigma_imp,self.fermion.E_imp,self.fermion.hyb,mu,Sigma_emb
@@ -3288,9 +3337,12 @@ class Method():
                 return G_latfreq,Sigma_imp,self.fermion.E_imp,self.fermion.hyb,mu,Sigma_emb
             else:
                 mu_old = mu
-                Sigma_emb_old = Sigma_emb
+                G_impfreq_old = G_impfreq
+                G_locfreq_old = G_locfreq
+                Sigma_imp_old = Sigma_imp
+                Sigma_loc_old = Sigma_loc
 
-    def write_ctqmc_params(self,key,E_imp : np.ndarray,equiv : np.ndarray):
+    def write_ctqmc_params(self,iter,key,E_imp : np.ndarray,equiv : np.ndarray):
         
         if self.fermion.SOC is False:
             if self.fermion.ns ==1:
@@ -3298,9 +3350,9 @@ class Method():
                 params["hloc"] = {}
                 mu_ctqmc=-np.real(E_imp[0,0,0])
                 # print(mu_ctqmc,type(mu_ctqmc))
-                E_imp = E_imp[:,:,0]-mu_ctqmc*np.eye(E_imp.shape[0],E_imp.shape[0])
+                E_imp = E_imp[:,:,0]+mu_ctqmc*np.eye(E_imp.shape[0],E_imp.shape[0])
                 E_imp = np.array(np.real(E_imp),dtype=float)
-                tempmat = np.kron(E_imp,np.ones((2,2)))
+                tempmat = np.kron(E_imp,np.eye(2,2))
                 params["hloc"]['one body'] = tempmat.tolist()
                 self.boson.get_Uijkl_comctqmc(key)
                 params["hloc"]["two body"]=self.boson.U_ctqmc.tolist()
@@ -3361,13 +3413,15 @@ class Method():
 
                 params["hybridisation"]["matrix"]=tempmat2
                 params["hybridisation"]["functions"]="hyb.json"
-                params["thermalisation time"]=3 #imp['thermalization_time']
+                params["thermalisation time"]=1 #imp['thermalization_time']
                 params["quantum number susceptibility"]=True
                 params["occupation susceptibility bulla"]=True        
                 params["green bulla"]=True       
                 params["density matrix precise"]=False #True 
-                params["measurement time"]=10 #imp['measurement_time']
+                params["measurement time"]=3 #imp['measurement_time']
                 
+                with open(f'params.{iter}.{key}.json','w') as outfile:
+                    json.dump(params,outfile, sort_keys=True, indent=4, separators=(',', ': '))
                 with open('params.json','w') as outfile:
                     json.dump(params,outfile, sort_keys=True, indent=4, separators=(',', ': '))
                 # print("params.json written", file=self.m_ini.control['h_log'])
@@ -3380,7 +3434,7 @@ class Method():
 
         return None
     
-    def write_hyb_json(self,hyb : dict):
+    def write_hyb_json(self,iter,key,hyb : dict):
 
         if self.fermion.SOC is False:
             if self.fermion.ns == 1:
@@ -3391,6 +3445,8 @@ class Method():
                     json_dict[key]['real'] = np.real(val[0]).tolist()
                     json_dict[key]['imag'] = np.imag(val[0]).tolist()
 
+                with open(f'hyb.{iter}.{key}.json','w') as outfile:
+                    json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
                 with open('hyb.json','w') as outfile:
                     json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
             
@@ -3484,7 +3540,7 @@ class Method():
             sigma_bare[key] = templist
         Sigma_hf = self.fermion.read_dict_LocStc(equiv,sigma_hf)
         Sigma_bare = self.fermion.read_dict_LocDyn(equiv,sigma_bare)
-        # Sigma_mix = self.fermion.FmixLocDyn(iter,0.1,Sigma_bare,self.Sigma_imp_p[...,key])
+        Sigma_bare = self.fermion.FmixLocDyn(iter,0.05,Sigma_bare,self.Sigma_temp)
      
         params = json.load(open('./params.json'))
         cutoff = params["partition"]["green matsubara cutoff"]
@@ -3521,7 +3577,7 @@ class Method():
         #        mkey=str(-int(key))
         #        green[:,jj]=self.gaussian_broadening_linear(self.m_ini.control['omega'], green_bare[:,jj], 0.05, self.m_ini.imp['temperature'], self.m_ini.imp[key]['green_cutoff'])
         Green = self.fermion.FgaussianLocDyn(self.ft.omega,Green,0.05,1/self.ft.beta,cutoff)
-        print(Sigma_bare.shape, Green.shape)
+        # print(Sigma_bare.shape, Green.shape)
         # if(gimpsmt[0] ==0) :
         #   return green_bare, sigma, xij, sigma_hf, occ
         # else :
