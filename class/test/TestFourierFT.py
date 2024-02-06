@@ -1,7 +1,7 @@
 import numpy as np
-import sys
-path = "/home/momichael98/temp/Fortran/DiagE/modules"
-sys.path.append(path)
+#import sys
+#path = "/home/momichael98/temp/Fortran/DiagE/modules"
+#sys.path.append(path)
 import DiagE
 
 norb = 3
@@ -58,6 +58,7 @@ flatdyn_t = DiagE.fourier.flatdyn_f2t(omega,glatt0,flatdyn_moment,tau)
 
 flatdyn_f = DiagE.fourier.flatdyn_t2f(tau,flatdyn_t,omega)
 
+print(flatdyn_t)
 print("Fourier FLatDynFT")
 
 for iomega in range(nomega):
