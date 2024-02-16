@@ -1,9 +1,9 @@
 import numpy as np
-#import sys
-#path = "/home/momichael98/temp/Fortran/DiagE/modules"
-#sys.path.append(path)
+import sys, os
+diage_path = os.environ.get('DIAGE','')
+path = diage_path+"/modules"
+sys.path.append(path)
 import DiagE
-
 norb = 3
 ns = 2
 nk = 5
@@ -24,8 +24,8 @@ flatdyn_f = np.zeros([norb,norb,ns,nk,nomega],dtype=complex,order='F')
 flatdyn_moment = np.zeros([norb,norb,ns,nk,3],dtype=complex,order='F')
 flatdyn_high = np.zeros([norb,norb,ns,nk],dtype=complex,order='F')
 
-omega = np.zeros([nomega],dtype=complex,order='F')
-tau = np.zeros([ntau],dtype=complex,order='F')
+omega = np.zeros([nomega],dtype=float,order='F')
+tau = np.zeros([ntau],dtype=float,order='F')
 
 beta = 1.0/(8.617333262145e-5*300.0)
 pi = np.pi
@@ -58,7 +58,6 @@ flatdyn_t = DiagE.fourier.flatdyn_f2t(omega,glatt0,flatdyn_moment,tau)
 
 flatdyn_f = DiagE.fourier.flatdyn_t2f(tau,flatdyn_t,omega)
 
-print(flatdyn_t)
 print("Fourier FLatDynFT")
 
 for iomega in range(nomega):

@@ -476,6 +476,7 @@ class Crystal(object): # chemical potential object, num of electron
                 n2[i] = n2_array[i]
 
         return n1, n2
+    
     def FindPositions(self,array, value):
         positions = []
         for row_index, row in enumerate(array):
@@ -483,6 +484,7 @@ class Crystal(object): # chemical potential object, num of electron
                 if col_value == value:
                     positions.append([row_index, col_index])
         return positions
+    
 
 class FT_grid(object):
 
@@ -583,16 +585,20 @@ class FLatDyn(object):
 
         return moment, high
     
+    
     def K2R(self,matk : np.ndarray) -> np.ndarray:
 
         rkvec = self.crystal.kpoint
         rkgrid = self.crystal.rkgrid
-
+        
+        
         norb = matk.shape[0]
         ns = matk.shape[2]
         nrk = matk.shape[3]
         nft = matk.shape[4]
-
+        matr = np.zeros((norb,norb,ns,nrk,nft),dtype=complex,order='F')
+        tempmat = np.zeros((norb,norb,ns,nrk,nft),dtype=complex,order='F')
+        tempmat = np.array(matk,dtype=complex)
         for ift in range(nft):
             for irk in range(nrk):
                 for js in range(ns):
@@ -605,10 +611,10 @@ class FLatDyn(object):
                             delta = self.crystal.basisf[a,:] - self.crystal.basisf[b,:]
                             phase = np.exp(2.0j*np.pi*np.dot(rkvec[irk],delta))
 
-                            matk[iorb,jorb,js,irk,ift] *= phase
+                            tempmat[iorb,jorb,js,irk,ift] *= phase
 
-        matr = DiagE.fourier.flatdyn_k2r(rkgrid,matk)
-
+        matr = DiagE.fourier.flatdyn_k2r(rkgrid,tempmat)
+        del tempmat, matk
         return matr
     
     def R2K(self, matr : np.ndarray) -> np.ndarray:
@@ -765,7 +771,8 @@ class FLatDyn(object):
         for ift in range(nft):
             for irk in range(nrk):
                 for js in range(ns):
-                    chem[:,:,js,irk,ift] = np.eye(norb,norb,dtype=complex)*mu
+                    for iorb in range(norb):
+                        chem[iorb,iorb,js,irk,ift] = mu
 
         return chem
     
@@ -789,40 +796,94 @@ class FLatDyn(object):
     
 class GreenBare(FLatDyn):
 
-    def __init__(self, crystal: Crystal, ft: FT_grid, niham) -> object:
-        super().__init__(crystal, ft)
-        self.niham = niham
+    def __init__(self, crystal: Crystal, ft: FT_grid, hamtb = None) -> object:
+        super(GreenBare,self).__init__(crystal, ft)
+        # print(self.niham.hamtb[...,0,0])
+        self.hamtb = hamtb
         self.g0kt = None
         self.g0kf = None
         self.g0rt = None
         self.g0rf = None
 
-        # self.GBareLatFreq() # Frequency Tau both generate
-        # self.GBareLatTau()
         self.Cal()
         
-    # def __init__(self,niham : object, ft : FT_grid):
-        
-    #     self.niham = niham
-    #     self.ft = ft
-    #     self.gnotkt = None
-    #     self.gnotkf = None
-    #     self.gnotrt = None
-    #     self.gnotrf = None
-    #     # super().__init__(crystal,ft)
 
     def Cal(self): # freq, tau combine
         
-        gnotkf = DiagE.bare.flatfreq(self.niham.hamtb,self.ft.omega)
+        # self.g0kf = DiagE.bare.flatfreq(self.hamtb,self.ft.omega)
+        # self.g0rf = self.K2R(DiagE.bare.flatfreq(self.hamtb,self.ft.omega))
 
-        gnotrf = self.K2R(gnotkf)
+        # self.g0kt = DiagE.bare.flattau(self.hamtb,self.ft.tau)
+        # self.g0rt = self.K2R(DiagE.bare.flattau(self.hamtb,self.ft.tau))
+
+        gnotkf = DiagE.bare.flatfreq(self.hamtb,self.ft.omega)
+        gnotkf0 = DiagE.bare.flatfreq(self.hamtb,self.ft.omega)
+        gnotrf = super(GreenBare,self).K2R(gnotkf)#######
+        
+
+        # print(abs(gnotkf0-gnotkf).max())
+
 
         self.g0kf = gnotkf
         self.g0rf = gnotrf
 
-        gnotkt = DiagE.bare.flattau(self.niham.hamtb,self.ft.tau)
+        gnotkt = DiagE.bare.flattau(self.hamtb,self.ft.tau)
+        gnotkt0 = gnotkt
+        # plt.subplot(2,2,1)
+        # plt.plot(-gnotkt[0,0,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt[0,0,0,:,-1].imag,'r-')
+        # plt.subplot(2,2,2)
+        # plt.plot(-gnotkt[0,1,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt[0,1,0,:,-1].imag,'r-')
+        # plt.subplot(2,2,3)
+        # plt.plot(-gnotkt[1,0,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt[1,0,0,:,-1].imag,'r-')
+        # plt.subplot(2,2,4)
+        # plt.plot(-gnotkt[1,1,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt[1,1,0,:,-1].imag,'r-')
+        # plt.show()
+        # plt.subplot(2,2,1)
+        # plt.plot(-gnotkt0[0,0,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt0[0,0,0,:,-1].imag,'r-')
+        # plt.subplot(2,2,2)
+        # plt.plot(-gnotkt0[0,1,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt0[0,1,0,:,-1].imag,'r-')
+        # plt.subplot(2,2,3)
+        # plt.plot(-gnotkt0[1,0,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt0[1,0,0,:,-1].imag,'r-')
+        # plt.subplot(2,2,4)
+        # plt.plot(-gnotkt0[1,1,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt0[1,1,0,:,-1].imag,'r-')
+        # plt.show()
+        gnotrt = super(GreenBare,self).K2R(gnotkt)
+        # plt.subplot(2,2,1)
+        # plt.plot(-gnotkt[0,0,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt[0,0,0,:,-1].imag,'r-')
+        # plt.subplot(2,2,2)
+        # plt.plot(-gnotkt[0,1,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt[0,1,0,:,-1].imag,'r-')
+        # plt.subplot(2,2,3)
+        # plt.plot(-gnotkt[1,0,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt[1,0,0,:,-1].imag,'r-')
+        # plt.subplot(2,2,4)
+        # plt.plot(-gnotkt[1,1,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt[1,1,0,:,-1].imag,'r-')
+        # plt.show()
+        # plt.subplot(2,2,1)
+        # plt.plot(-gnotkt0[0,0,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt0[0,0,0,:,-1].imag,'r-')
+        # plt.subplot(2,2,2)
+        # plt.plot(-gnotkt0[0,1,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt0[0,1,0,:,-1].imag,'r-')
+        # plt.subplot(2,2,3)
+        # plt.plot(-gnotkt0[1,0,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt0[1,0,0,:,-1].imag,'r-')
+        # plt.subplot(2,2,4)
+        # plt.plot(-gnotkt0[1,1,0,:,-1].real,'k-')
+        # plt.plot(-gnotkt0[1,1,0,:,-1].imag,'r-')
+        # plt.show()
 
-        gnotrt = self.K2R(gnotkt)
+        print(abs(gnotkt0-gnotkt).max())
 
         self.g0kt = gnotkt
         self.g0rt = gnotrt
@@ -833,13 +894,16 @@ class GreenInt(FLatDyn):
 
     def __init__(self, crystal: Crystal, ft: FT_grid, greenbare : GreenBare, sigmah : object = None, sigmaf : object = None, sigmagwc : object = None) -> object:
         
-        super().__init__(crystal, ft)
+        super(GreenInt,self).__init__(crystal, ft)
         self.flatstc = FLatStc(crystal=crystal)
         self.gkf = None
         self.gkt = None
         self.grf = None
         self.grt = None
         self.gkfmu0 = None
+        self.gktmu0 = None
+        self.grfmu0 = None
+        self.grtmu0 = None
         self.gbare = greenbare
         self.sigmah = sigmah
         self.sigmaf = sigmaf
@@ -858,12 +922,8 @@ class GreenInt(FLatDyn):
         ns = self.gbare.g0kf.shape[2]
         nrk = self.gbare.g0kf.shape[3]
         nft = self.gbare.g0kf.shape[4]
-        print(self.gbare.g0kf[...,0,:])
+        sigma = np.zeros((norb,norb,ns,nrk,nft),dtype=complex,order='F')
         if (self.sigmah==None)and(self.sigmaf==None)and(self.sigmac==None):
-            # self.gkf = self.gbare.g0kf
-            # self.gkt = self.gbare.g0kt
-            # self.grf = self.gbare.g0rf
-            # self.grt = self.gbare.g0rt
             self.gkfmu0 = self.gbare.g0kf
             
         if (self.sigmah!=None)and(self.sigmaf!=None)and(self.sigmac==None):
@@ -873,25 +933,34 @@ class GreenInt(FLatDyn):
             tempmat2 = self.StcEmbedding(self.sigmaf.fk)
             sigma = tempmat+tempmat2
             self.gkfmu0 = self.Dyson(self.gbare.g0kf,sigma)
-
-            # self.gkf = tempmat
-            # self.gkt = self.F2T(self.gkf,1,1)
-            # self.grf = self.K2R(tempmat)
-            # self.grt = self.F2T(self.grf,1,1)
             
         if (self.sigmah!=None)and(self.sigmaf!=None)and(self.sigmac!=None):
             tempmat = np.zeros((norb,norb,ns,nrk,nft),dtype=complex,order='F')
             tempmat2 = np.zeros((norb,norb,ns,nrk,nft),dtype=complex,order='F')
             tempmat = self.StcEmbedding(self.sigmah.hk)
             tempmat2 = self.StcEmbedding(self.sigmaf.fk)
-            sigma = tempmat+tempmat2
+            sigma = tempmat+tempmat2+self.sigmac.kf
             self.gkfmu0 = self.Dyson(self.gbare.g0kf,sigma)
-
-            # self.gkf = tempmat
-            # self.gkt = self.F2T(self.gkf,1,1)
-            # self.grf = self.K2R(tempmat)
-            # self.grt = self.F2T(self.grf,1,1)
+        # if (self.sigmah==None)and(self.sigmaf==None)and(self.sigmac==None):
+        #     self.gkfmu0 = self.gbare.g0kf
+        #     self.gktmu0 = self.gbare.g0kt
+        # else:
+        #     if self.sigmah != None:
+        #         hk = self.StcEmbedding(self.sigmah.hk)
+        #         sig += hk
             
+        #     if self.sigmaf != None:
+        #         fk = self.StcEmbedding(self.sigmaf.fk)
+        #         sig += fk
+            
+        #     if self.sigmac != None:
+        #         sig += self.sigmac.kf
+
+        # self.gkfmu0 = self.Dyson(self.gbare.g0kf,sig)
+
+        self.gktmu0 = super(GreenInt,self).F2T(self.gkfmu0,1,1)
+        self.grfmu0 = super(GreenInt,self).K2R(self.gkfmu0)
+        self.grtmu0 = super(GreenInt,self).K2R(self.gktmu0)
        
         return None
     
@@ -905,7 +974,7 @@ class GreenInt(FLatDyn):
         occk = np.zeros((norb,norb,ns,nrk),dtype=complex,order='F')
         occ = np.zeros((norb,norb,ns),dtype=complex,order='F')
         tempmat = np.zeros((norb,norb,ns,nrk,nft),dtype=complex,order='F')
-
+        tempmat = self.gkt
         # for irk in range(nrk):
         #     for js in range(ns):
         #         for iorb in range(norb):
@@ -914,8 +983,7 @@ class GreenInt(FLatDyn):
         occk = -self.gkt[...,-1]
         for irk in range(nrk):
             occ += occk[...,irk]
-        for ift in range(nft):
-            tempmat[...,ift] = occk
+        
         occ /= nrk
         self.occ = occ
         self.occk = occk
@@ -940,7 +1008,9 @@ class GreenInt(FLatDyn):
         
         self.gkf = gkfnew
         self.gkt = self.F2T(gkfnew,1,1)
-        self.grf = self.K2R(gkfnew)
+        # self.grf = self.K2R(self.Dyson(self.gkfmu0,-chem))
+        # self.grt = self.K2R(self.F2T(self.Dyson(self.gkfmu0,-chem),1,1))
+        self.grf = self.K2R(self.gkf)
         self.grt = self.K2R(self.gkt)
         
         self.Occ()
@@ -953,13 +1023,13 @@ class GreenInt(FLatDyn):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
         nft = self.ft.size
-
+        tempmat = self.gkfmu0
         chem = self.ChemEmbedding(mu)
         gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=complex,order='F')
         gcalt = np.zeros((norb,norb,ns,nrk,nft),dtype=complex,order='F')
 
         # gcalf = self.Dyson(self.gkf,-chem)
-        gcalf = self.Dyson(self.gkfmu0,-chem)
+        gcalf = self.Dyson(tempmat,-chem)
         gcalt = self.F2T(gcalf,1,1)
         
         
@@ -973,6 +1043,7 @@ class GreenInt(FLatDyn):
         Ne /= nrk
         
         N = self.crystal.nume
+        # print(N,Ne,N-Ne)
         
         return N - Ne
 
@@ -984,6 +1055,7 @@ class GreenInt(FLatDyn):
         nmax = self.NumOfE(mumax)
         if (nmin < 0) or (nmax>0):
             print("Chemical potential is out of the bisection range")
+            print(f"nmin : {nmin}, nmax : {nmax}")
             sys.exit()
         sol = scipy.optimize.brentq(self.NumOfE,mumin,mumax)
         self.mu = sol
@@ -996,10 +1068,14 @@ class SigmaGWC(FLatDyn):
 
     def __init__(self, crystal: Crystal, ft: FT_grid,green : GreenInt = None, wlat : object = None) -> object:
         super().__init__(crystal, ft)
+        self.flatstc = FLatStc(crystal=crystal)
         self.rt = None
         self.rf = None
         self.kt = None
         self.kf = None
+        self.stck = None
+        self.z = None
+
         if green == None:
             print("Error, green doesn't exist")
             sys.exit()
@@ -1028,15 +1104,30 @@ class SigmaGWC(FLatDyn):
         norb = Wc.shape[0]
 
         crtau = np.zeros((norbc,norbc,ns,nr,ntau),dtype=complex,order='F')
-
+        tempmat = np.zeros((norbc,norbc,norbc,norbc,ns,ns,nr,ntau),dtype=complex,order='F')
+        tempmat = self.wlat.Double2Quad(Wc)
         for itau in range(ntau):
             for ir in range(nr):
                 for js in range(ns):
-                    for iorb in range(norb):
-                        iorbc1, iorbc2 = self.crystal.b2f[iorb]
-                        for jorb in range(norb):
-                            jorbc1, jorbc2 = self.crystal.b2f[jorb]
-                            crtau[iorbc1,jorbc1,js,ir,itau] += G[iorbc2,jorbc2,js,ir,itau]*Wc[iorb,jorb,js,js,ir,itau]
+                    # for iorb in range(norb):
+                    #     iorbc1, iorbc2 = self.crystal.b2f[iorb]
+                    #     for jorb in range(norb):
+                    #         jorbc1, jorbc2 = self.crystal.b2f[jorb]
+                    #         crtau[iorbc1,jorbc1,js,ir,itau] += G[iorbc2,jorbc2,js,ir,itau]*Wc[iorb,jorb,js,js,ir,itau]
+                    for ind1 in range(norb*ns):
+                        nn1= [0]*2
+                        ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
+                        [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
+                        iorbc1 = self.crystal.FIndex([a,m1])
+                        iorbc4 = self.crystal.FIndex([a,m4])
+                        for ind2 in range(norb*ns):
+                            nn2 = [0]*2
+                            ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
+                            [b,[m3,m2]] = self.crystal.BAtomOrb(jorb)
+                            iorbc3 = self.crystal.FIndex([b,m3])
+                            iorbc2 = self.crystal.FIndex([b,m2])
+                            if js == ks:
+                                crtau[iorbc1,iorbc2,js,ir,itau] += G[iorbc4,iorbc3,js,ir,itau]*tempmat[iorbc1,iorbc3,iorbc2,iorbc4,js,ks,ir,itau]
 
         cktau = self.R2K(crtau)
         crfreq = self.T2F(crtau)
@@ -1048,6 +1139,64 @@ class SigmaGWC(FLatDyn):
         self.kf = ckfreq
 
         return None
+    
+    def SigmaStc(self):
+
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nk = len(self.crystal.kpoint)
+        nfreq = self.ft.size
+
+        sigmastc = np.zeros((norb,norb,ns,nk),dtype=complex,order="F")
+        tempmat = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order="F")
+
+        for ifreq in range(nfreq):
+            for ik in range(nk):
+                for js in range(ns):
+                    tempmat[:,:,js,ik,ifreq] = np.transpose(np.conjugate(self.kf[:,:,js,ik,ifreq]))
+
+        for ik in range(nk):
+            for js in range(ns):
+                for iorb in range(norb):
+                    for jorb in range(norb):
+                        sigmastc[iorb,jorb,js,ik] = (self.kf[iorb,jorb,js,ik,0]+tempmat[iorb,jorb,js,ik,0])/2
+
+        self.stck = sigmastc
+
+        return None
+    
+    def Zfactor(self):
+
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nk = len(self.crystal.kpoint)
+        nfreq = self.ft.size
+        beta = self.ft.beta
+
+        z = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
+        identity = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
+        tempmat = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
+        tempmat2 = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
+
+        for ifreq in range(nfreq):
+            for ik in range(nk):
+                for js in range(ns):
+                    identity[:,:,js,ik,ifreq] = np.eye(norb,norb,dtype=complex,order='F')
+                    tempmat[:,:,js,ik,ifreq] = np.transpose(np.conjugate(self.kf[:,:,js,ik,ifreq]))
+
+        for ifreq in range(nfreq):
+            for ik in range(nk):
+                for js in range(ns):
+                    for iorb in range(norb):
+                        for jorb in range(norb):
+                            tempmat2[iorb,jorb,js,ik] = (identity[iorb,jorb,js,ik,ifreq]-beta*(self.kf[iorb,jorb,js,ik,ifreq]-tempmat[iorb,jorb,js,ik,ifreq])/(2*np.pi))
+        
+        z = self.flatstc.Inverse(tempmat2)
+
+        self.z = z
+
+        return None
+    
 
 class FLatStc(object):
 
@@ -1079,7 +1228,7 @@ class FLatStc(object):
         nrk = matk.shape[3]
 
         tempmat = np.zeros((norb,norb,ns,nrk),dtype=complex,order='F')
-        print(matk[:,:,0,int(nrk/2)])
+        
         for irk in range(nrk):
             for js in range(ns):
                 for iorb in range(norb):
@@ -1095,7 +1244,7 @@ class FLatStc(object):
                         tempmat[iorb,jorb,js,irk] = matk[iorb,jorb,js,irk] * phase
                         
         matk = tempmat
-        print(matk[:,:,0,int(nrk/2)])
+        
         matr = DiagE.fourier.flatstc_k2r(rkgrid,matk)
 
         return matr
@@ -1317,19 +1466,17 @@ class Hamiltonian(FLatStc):
         tempmat = np.zeros((norb,norb,ns,nrk),dtype=complex,order='F')
         
         tempmat = self.ham
-        print(tempmat[:,:,0,0])
+        
 
         if (self.sigmah != None):
             tempmat += self.sigmah.hk
-            print(self.sigmah.hk[:,:,0,0])
-            print(tempmat[:,:,0,0])
+        
         if (self.sigmaf != None):
             tempmat += self.sigmaf.fk
-            print(self.sigmaf.fk[:,:,0,0])
-            print(tempmat[:,:,0,0])
+        
         if (self.sigmac != None):
-            z = self.sigma.zfactor.z
-            sigma = self.sigma.sigmastc.sigmastc
+            z = self.sigmac.z
+            sigma = self.sigmac.stck
             # chem = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
             tempmat2 = np.zeros((norb,norb,ns,nrk),dtype=complex,order='F')
             tempmat3 = np.zeros((norb,norb,ns,nrk),dtype=complex,order='F')
@@ -1458,6 +1605,7 @@ class NIHamiltonian(FLatStc):
         self.hoppinglist = hoppinglist
         self.onsitelist = onsitelist
         self.hamtb = None
+        self.hamtbr = None
         # self.Hopping()
         # self.Onsite()
 
@@ -1503,12 +1651,13 @@ class NIHamiltonian(FLatStc):
                 R = hopp[3]
                 
                 tempmat[iorb,jorb,js,R[0],R[1],R[2]] += tij
-                tempmat[jorb,iorb,js,(self.crystal.rkgrid[0]-R[0]-1)%self.crystal.rkgrid[0],(self.crystal.rkgrid[1]-R[1]-1)%self.crystal.rkgrid[1],(self.crystal.rkgrid[2]-R[2]-1)%self.crystal.rkgrid[2]] += tij
+                tempmat[jorb,iorb,js,-R[0],-R[1],-R[2]] += tij
 
         
         for iorb in range(norb):
             tempmat[iorb,iorb,0,0,0,0] = self.onsitelist[iorb]
         tempmat = tempmat.reshape(norb,norb,ns,nk)
+        self.hamtbr = tempmat
         hamtb = self.R2K(tempmat)
 
         self.hamtb = hamtb
@@ -1814,84 +1963,87 @@ class SigmaFock(FLatStc):
 
         return None
 
-class SigmaStc(FLatStc):
+# class SigmaStc(FLatStc):
 
-    def __init__(self, crystal: Crystal, sigma : object):
-        super().__init__(crystal)
-        self.sigma = sigma
+#     def __init__(self, crystal: Crystal, sigma : SigmaGWC = None):
+#         super().__init__(crystal)
+#         if sigma==None:
+#             print("Error, sigma dosen't exist")
+#             sys.exit()
+#         self.sigma = sigma
         
-        self.sigmastc = None
-        self.Cal()
+#         self.sigmastc = None
+#         self.Cal()
 
-    def Cal(self):
+#     def Cal(self):
         
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nk = len(self.crystal.kpoint)
-        nfreq = self.sigma.cmkfreq.shape[4]
+#         norb = len(self.crystal.find)
+#         ns = self.crystal.ns
+#         nk = len(self.crystal.kpoint)
+#         nfreq = self.sigma.ft.size
 
-        sigmagwc = self.sigma.cmkfreq
-        sigmastc = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
-        tempmat = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
+#         sigmagwc = self.sigma.kf
+#         sigmastc = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
+#         tempmat = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
 
-        for ifreq in range(nfreq):
-            for ik in range(nk):
-                for js in range(ns):
-                    tempmat[:,:,js,ik,ifreq] = np.transpose(np.conjugate(sigmagwc[:,:,js,ik,ifreq]))
+#         for ifreq in range(nfreq):
+#             for ik in range(nk):
+#                 for js in range(ns):
+#                     tempmat[:,:,js,ik,ifreq] = np.transpose(np.conjugate(sigmagwc[:,:,js,ik,ifreq]))
         
-        for ik in range(nk):
-            for js in range(ns):
-                for iorb in range(norb):
-                    for jorb in range(norb):
-                        sigmastc[iorb,jorb,js,ik] = (sigmagwc[iorb,jorb,js,ik,0]+tempmat[iorb,jorb,js,ik,0])/2
+#         for ik in range(nk):
+#             for js in range(ns):
+#                 for iorb in range(norb):
+#                     for jorb in range(norb):
+#                         sigmastc[iorb,jorb,js,ik] = (sigmagwc[iorb,jorb,js,ik,0]+tempmat[iorb,jorb,js,ik,0])/2
         
-        self.sigmastc = sigmastc
+#         self.sigmastc = sigmastc
 
-        return None
+#         return None
 
-class ZFactor(FLatStc):
+# class ZFactor(FLatStc):
 
-    def __init__(self, crystal: Crystal, sigma : object):
-        super().__init__(crystal)
-        self.sigma = sigma
-        self.z = None
-        self.Cal()
+#     def __init__(self, crystal: Crystal, sigma : object):
+#         super().__init__(crystal)
+#         self.sigma = sigma
+#         self.z = None
+#         self.Cal()
 
-    def Cal(self):
+#     def Cal(self):
         
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nk = len(self.crystal.kpoint)
-        nfreq = self.sigma.cmkfreq.shape[4]
-        beta = self.sigma.sigmagwc.ft.beta
+#         norb = len(self.crystal.find)
+#         ns = self.crystal.ns
+#         nk = len(self.crystal.kpoint)
+#         nfreq = self.sigma.cmkfreq.shape[4]
+#         beta = self.sigma.sigmagwc.ft.beta
 
-        sigma = self.sigma.cmkfreq
-        # sigma = self.sigma.sigmagwc.gwckf
-        z = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
-        identity = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
-        tempmat = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
-        tempmat2 = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
+#         sigma = self.sigma.cmkfreq
+#         # sigma = self.sigma.sigmagwc.gwckf
+#         z = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
+#         identity = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
+#         tempmat = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
+#         tempmat2 = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
 
-        for ifreq in range(nfreq):
-            for ik in range(nk):
-                for js in range(ns):
-                    identity[:,:,js,ik,ifreq] = np.eye(norb,norb,dtype=complex,order='F')
-                    tempmat[:,:,js,ik,ifreq] = np.transpose(np.conjugate(sigma[:,:,js,ik,ifreq]))
+#         for ifreq in range(nfreq):
+#             for ik in range(nk):
+#                 for js in range(ns):
+#                     identity[:,:,js,ik,ifreq] = np.eye(norb,norb,dtype=complex,order='F')
+#                     tempmat[:,:,js,ik,ifreq] = np.transpose(np.conjugate(sigma[:,:,js,ik,ifreq]))
 
-        for ifreq in range(nfreq):
-            for ik in range(nk):
-                for js in range(ns):
-                    for iorb in range(norb):
-                        for jorb in range(norb):
-                            tempmat2[iorb,jorb,js,ik] = (identity[iorb,jorb,js,ik,ifreq] - beta * (sigma[iorb,jorb,js,ik,ifreq]-tempmat[iorb,jorb,js,ik,ifreq])/(2*np.pi))
-        print(tempmat2.shape)
-        for ik in range(nk):
-            for js in range(ns):
-                z[:,:,js,ik] = np.linalg.inv(tempmat2[:,:,js,ik])
+#         for ifreq in range(nfreq):
+#             for ik in range(nk):
+#                 for js in range(ns):
+#                     for iorb in range(norb):
+#                         for jorb in range(norb):
+#                             tempmat2[iorb,jorb,js,ik] = (identity[iorb,jorb,js,ik,ifreq] - beta * (sigma[iorb,jorb,js,ik,ifreq]-tempmat[iorb,jorb,js,ik,ifreq])/(2*np.pi))
+#         print(tempmat2.shape)
+#         for ik in range(nk):
+#             for js in range(ns):
+#                 z[:,:,js,ik] = np.linalg.inv(tempmat2[:,:,js,ik])
         
-        self.z = z
+#         self.z = z
 
-        return None
+#         return None
 
 class Occ(FLatStc):
 
@@ -2846,7 +2998,7 @@ class BLatDyn(object):
 
 class PolLat(BLatDyn):
 
-    def __init__(self, crystal: Crystal, ft: FT_grid,green = None):
+    def __init__(self, crystal: Crystal, ft: FT_grid,green : GreenInt = None):
         super().__init__(crystal, ft)
         self.polrt = None # rt to kf
         self.polrf = None
@@ -2863,7 +3015,7 @@ class PolLat(BLatDyn):
         self.polkf = self.T2F(self.polkt)
 
     def Cal(self):
-        grt = self.green.glatrt
+        grt = self.green.grt
         norbc = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
@@ -2874,7 +3026,7 @@ class PolLat(BLatDyn):
         tempmat = np.zeros((norbc,norbc,norbc,norbc,ns,ns,nrk,ntau),dtype=complex,order='F')
         polrt = np.zeros((norb,norb,ns,ns,nrk,ntau),dtype=complex,order='F')
 
-        gmrt = self.green.greenbare.RT2mRmT(grt)
+        gmrt = self.green.RT2mRmT(grt)
         
         if ns == 2:
             for itau in range(ntau):
@@ -2909,7 +3061,7 @@ class PolLat(BLatDyn):
 
 class WLat(BLatDyn):
 
-    def __init__(self, crystal: Crystal, ft: FT_grid,pol : object = None, vbare = None):
+    def __init__(self, crystal: Crystal, ft: FT_grid,pol : PolLat = None, vbare : object = None):
         super().__init__(crystal, ft)
         self.wrt = None #rt to kf
         self.wrf = None
@@ -2952,7 +3104,7 @@ class WLat(BLatDyn):
         vdyn = np.zeros((norb,norb,ns,ns,nk,nfreq),dtype=complex,order='F')
 
         for ifreq in range(nfreq):
-            vdyn[...,ifreq] = self.vbare.vbarek
+            vdyn[...,ifreq] = self.vbare.k
         polcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=complex,order='F')
         vcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=complex,order='F')
         ####### Initialization #######
@@ -3204,9 +3356,6 @@ class VBare(BLatStc):
 
     def __init__(self, crystal: Crystal,vloc = None, orboption : dict = None, intamp : list = None):
         super().__init__(crystal)
-        # self.vbarek = None
-        # self.vbarer = None
-        # self.vnonloc = None
         self.k = None
         self.r = None
         self.intamp = intamp
@@ -3264,7 +3413,7 @@ class VBare(BLatStc):
                     R = ind[3]
                     
                     tempmat[iorb,jorb,js,ks,R[0],R[1],R[2]] += vij
-                    tempmat[jorb,iorb,js,ks,R[0],R[1],R[2]] += vij
+                    # tempmat[jorb,iorb,js,ks,R[0],R[1],R[2]] += vij
                     
         
         vnlk = tempmat.reshape(norb,norb,ns,ns,nk)
@@ -3286,14 +3435,14 @@ class VBare(BLatStc):
 
         norb = len(self.crystal.bind) 
         ns = self.crystal.ns 
-        nk = len(self.crystal.kpoint) 
+        nrk = len(self.crystal.kpoint) 
 
-        vbare = np.zeros((norb,norb,ns,ns,nk),dtype=complex,order='F')
+        vbare = np.zeros((norb,norb,ns,ns,nrk),dtype=complex,order='F')
         if (self.intamp == None):
-            for ik in range(nk):
+            for ik in range(nrk):
                 vbare[...,ik] = vloc
         else:
-            for ik in range(nk):
+            for ik in range(nrk):
                 vbare[...,ik] = vloc + vnlk[...,ik]
         
         self.k = vbare
@@ -3770,6 +3919,7 @@ class VLoc(BLocStc):
 
     def SlaterParameter(self, norb : int, val : list, sc : str = 'c') -> np.ndarray:
         
+        # error message
         ns = self.crystal.ns
         v = np.zeros((norb,norb,norb,norb,ns,ns),dtype=float,order='F')
 
@@ -4267,7 +4417,7 @@ class CorrelationFunction(object):
         cry = self.cry
         niham = NIHamiltonian(crystal=cry,hoppinglist=hoppinglist,onsitelist=onsitelist)
         ft = FT_grid(T=T,size=size)
-        gbare = GreenBare(crystal=cry,ft=ft,niham=niham)
+        gbare = GreenBare(crystal=cry,ft=ft,hamtb=niham.hamtb)
         vbare = VBare(crystal=cry,orboption=option,intamp=intamp)
         self.hamtb = niham.hamtb
         self.vbare=vbare
@@ -4290,7 +4440,9 @@ class CorrelationFunction(object):
             print(sigmaf.fk[:,:,0,0])
             print(fk[:,:,0,0])
             sigmah.hk = hk
+            sigmah.hr = sigmah.K2R(hk)
             sigmaf.fk = fk
+            sigmaf.fr = sigmaf.K2R(fk)
             print(sigmah.hk[:,:,0,0])
             print(sigmaf.fk[:,:,0,0])
             gnew = GreenInt(crystal=cry,ft=ft,greenbare=gbare,sigmah=sigmah,sigmaf=sigmaf)
@@ -4306,7 +4458,9 @@ class CorrelationFunction(object):
                 self.sigmah = sigmah
                 self.sigmaf = sigmaf
                 chem = niham.ChemEmbedding(gnew.mu)
-                self.hamhf = niham.hamtb+sigmah.hk+sigmaf.fk - chem
+                ham = Hamiltonian(crystal=cry,ham=self.TighBinding(hoppinglist,onsitelist),beta=ft.beta,sigmah=sigmah,sigmaf=sigmaf)
+                ham.SearchMu()
+                self.hamhf = ham.hk
                 break
             elif (iter==itermax):
                 print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
@@ -4314,7 +4468,9 @@ class CorrelationFunction(object):
                 self.sigmah = sigmah
                 self.sigmaf = sigmaf
                 chem = niham.ChemEmbedding(gnew.mu)
-                self.hamhf = niham.hamtb+sigmah.hk+sigmaf.fk #- chem
+                ham = Hamiltonian(crystal=cry,ham=self.TighBinding(hoppinglist,onsitelist),beta=ft.beta,sigmah=sigmah,sigmaf=sigmaf)
+                ham.SearchMu()
+                self.hamhf = ham.hk
             else:
                 gold = gnew
                 sigmahold = sigmah
@@ -4334,59 +4490,55 @@ class CorrelationFunction(object):
         
         for iter in range(1,itermax+1):
             if iter == 1:
-                greenold = Green(greenbare=gbare)
-                muold = 0
-                sigmaold = None
-                occold = Occ(cry,greenold)
-            sigmah = SigmaHartree(cry,greenold,vbare)
-            sigmaf = SigmaFock(cry,greenold,vbare)
-            pol = PolLat(cry,ft,greenold)
-            w = WLat(cry,ft,pol,vbare)
-            sigmagwc = SigmaGWC(cry,ft,greenold,w)
-            sigma = SigmaC(sigmahartree=sigmah,sigmafock=sigmaf,sigmagwc=sigmagwc,sigmac=sigmaold)
-            sigma.Mixing(iter,mix)
-            gint = GreenInt(cry,ft,gbare,sigma)
-            green = Green(greenbare=gbare,greenint = gint)
-            mu = green.SearchMu()
-            green.UpdateMu(mu)
-            occ = Occ(cry,green)
+                # greenold = Green(greenbare=gbare)
+                gold = GreenInt(crystal=cry,ft=ft,greenbare=gbare)
+                gold.SearchMu()
+                gwckfold = None
+
+            sigmah = SigmaHartree(crystal=cry,occ=gold.occ,vbare=vbare)
+            sigmaf = SigmaFock(crystal=cry,occr=gold.occr,vbare=vbare)
+            pol = PolLat(crystal=cry,ft=ft,green=gold)
+            w = WLat(crystal=cry,ft=ft,pol=pol,vbare=vbare)
+            sigmagwc = SigmaGWC(crystal=cry,ft=ft,green=gold,wlat=w)
+            gwckf = sigmagwc.Mixing(iter,mix,sigmagwc.kf,gwckfold)
+            sigmagwc.kf = gwckf
+            gnew = GreenInt(crystal=cry,ft=ft,greenbare=gbare,sigmah=sigmah,sigmaf=sigmaf,sigmagwc=sigmagwc)
+            gnew.SearchMu()
 
             # check = self.FermionSCF(green.glatkf,greenold.glatkf)
-            check = self.FermionSCF(occ.occk,occold.occk)
+            check = self.FermionSCF(gnew.occk,gold.occk)
 
-            print(f"iteration : {iter} \n criteria : {check} \n chemicalpotential : {mu}")
+            print(f"iteration : {iter} \n criteria : {check} \n chemicalpotential : {gnew.mu}")
 
-            if (check <=1.0e-3)and(abs(mu-muold)<=0.01):
+            if (check <=0.005)and(abs(gnew.mu-gold.mu)<=0.01):
                 print(f"Self-consistency is achived with {iter}-th")
-                self.green = green
-                sigmaold = sigma
-                self.occ = occ
-                sigmastc = SigmaStc(cry,sigma)
-                zfactor = ZFactor(cry,sigma)
-                sigma = SigmaC(sigmahartree=sigmah,sigmafock=sigmaf,sigmagwc=sigmagwc,sigmac=sigmaold,sigmastc=sigmastc,zfactor=zfactor)
-                self.fock = sigma.sigmafock
-                self.hartree = sigma.sigmahartree
-                self.sigmac = sigma
-                hamqp = QPHamiltonian(cry,niham,sigma,mu)
-                self.hamqp = hamqp
+                self.green = gnew
+                self.pol = pol
+                self.w = w
+                self.sigmac = sigmagwc
+                self.fock = sigmaf
+                self.hartree = sigmah
+                self.sigmac.SigmaStc()
+                self.sigmac.Zfactor()
+                ham = Hamiltonian(crystal=cry,ham=self.TighBinding(hoppinglist=hoppinglist,onsitelist=onsitelist),sigmah=sigmah,sigmaf=sigmaf,sigmac=self.sigmac)
+                self.ham = ham
+                break
             elif (iter == itermax):
                 print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
-                self.green = green
-                sigmaold = sigma
-                self.occ = occ
-                sigmastc = SigmaStc(cry,sigma)
-                zfactor = ZFactor(cry,sigma)
-                sigma = SigmaC(sigmahartree=sigmah,sigmafock=sigmaf,sigmagwc=sigmagwc,sigmac=sigmaold,sigmastc=sigmastc,zfactor=zfactor)
-                self.fock = sigma.sigmafock
-                self.hartree = sigma.sigmahartree
-                self.sigmac = sigma
-                hamqp = QPHamiltonian(cry,niham,sigma,mu)
-                self.hamqp = hamqp
+                self.green = gnew
+                self.pol = pol
+                self.w = w
+                self.sigmac = sigmagwc
+                self.fock = sigmaf
+                self.hartree = sigmah
+                self.sigmac.SigmaStc()
+                self.sigmac.Zfactor()
+                ham = Hamiltonian(crystal=cry,ham=self.TighBinding(hoppinglist=hoppinglist,onsitelist=onsitelist),sigmah=sigmah,sigmaf=sigmaf,sigmac=self.sigmac)
+                self.ham = ham
             else:
-                greenold = green
-                sigmaold = sigma
-                occold = occ
-                muold = mu
+                gold = gnew
+                gwckfold = sigmagwc.kf
+
 
     def DMFT(self,itermax : int, hmat : np.ndarray, N : float, mix : float, equiv : list):
 
