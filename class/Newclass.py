@@ -4633,92 +4633,408 @@ class CorrelationFunction(object):
                 hkold = sigmah.hk
                 fkold = sigmaf.fk
                 del sigmah, sigmaf, gnew
-                
 
-    def GWApproximation(self,itermax : int,mix : float, T : float, size : int, hoppinglist : list, onsitelist : list, option : dict, intamp : list):
-
+    def GWApproximation(
+        self,
+        itermax: int,
+        mix: float,
+        T: float,
+        size: int,
+        hoppinglist: list,
+        onsitelist: list,
+        option: dict,
+        intamp: list,
+    ):
         cry = self.cry
-        ft = FT_grid(T,size)
-        niham = NIHamiltonian(cry,hoppinglist,onsitelist)
-        gbare = GreenBare(crystal=cry,ft = ft, niham=niham)
-        vbare = VBare(crystal=cry,orboption=option,intamp=intamp)
-        
-        for iter in range(1,itermax+1):
-            if iter == 1:
-                # greenold = Green(greenbare=gbare)
-                gold = GreenInt(crystal=cry,ft=ft,greenbare=gbare)
-                gold.SearchMu()
-                gwckfold = None
+        ft = FT_grid(T, size)
+        niham = NIHamiltonian(cry, hoppinglist, onsitelist)
+        gbare = GreenBare(crystal=cry, ft=ft, niham=niham)
+        vbare = VBare(crystal=cry, orboption=option, intamp=intamp)
 
-            sigmah = SigmaHartree(crystal=cry,occ=gold.occ,vbare=vbare)
-            sigmaf = SigmaFock(crystal=cry,occr=gold.occr,vbare=vbare)
-            pol = PolLat(crystal=cry,ft=ft,green=gold)
-            w = WLat(crystal=cry,ft=ft,pol=pol,vbare=vbare)
-            sigmagwc = SigmaGWC(crystal=cry,ft=ft,green=gold,wlat=w)
-            gwckf = sigmagwc.Mixing(iter,mix,sigmagwc.kf,gwckfold)
-            sigmagwc.kf = gwckf
-            gnew = GreenInt(crystal=cry,ft=ft,greenbare=gbare,sigmah=sigmah,sigmaf=sigmaf,sigmagwc=sigmagwc)
-            gnew.SearchMu()
+        for iter in range(1, itermax + 1):
+            if iter == 1:
+                greenold = Green(greenbare=gbare)
+                muold = 0
+                sigmaold = None
+                occold = Occ(cry, greenold)
+            sigmah = SigmaHartree(cry, greenold, vbare)
+            sigmaf = SigmaFock(cry, greenold, vbare)
+            pol = PolLat(cry, ft, greenold)
+            w = WLat(cry, ft, pol, vbare)
+            sigmagwc = SigmaGWC(cry, ft, greenold, w)
+            sigma = SigmaC(
+                sigmahartree=sigmah,
+                sigmafock=sigmaf,
+                sigmagwc=sigmagwc,
+                sigmac=sigmaold,
+            )
+            sigma.Mixing(iter, mix)
+            gint = GreenInt(cry, ft, gbare, sigma)
+            green = Green(greenbare=gbare, greenint=gint)
+            mu = green.SearchMu()
+            green.UpdateMu(mu)
+            occ = Occ(cry, green)
 
             # check = self.FermionSCF(green.glatkf,greenold.glatkf)
-            check = self.FermionSCF(gnew.occk,gold.occk)
+            check = self.FermionSCF(occ.occk, occold.occk)
 
-            print(f"iteration : {iter} \n criteria : {check} \n chemicalpotential : {gnew.mu}")
+            print(
+                f"iteration : {iter} \n criteria : {check} \n chemicalpotential : {mu}"
+            )
 
-            if (check <=0.005)and(abs(gnew.mu-gold.mu)<=0.01):
+            if (check <= 1.0e-3) and (abs(mu - muold) <= 0.01):
                 print(f"Self-consistency is achived with {iter}-th")
-                self.green = gnew
-                self.pol = pol
-                self.w = w
-                self.sigmac = sigmagwc
-                self.fock = sigmaf
-                self.hartree = sigmah
-                self.sigmac.SigmaStc()
-                self.sigmac.Zfactor()
-                ham = Hamiltonian(crystal=cry,ham=self.TighBinding(hoppinglist=hoppinglist,onsitelist=onsitelist),sigmah=sigmah,sigmaf=sigmaf,sigmac=self.sigmac)
-                self.ham = ham
-                break
-            elif (iter == itermax):
-                print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
-                self.green = gnew
-                self.pol = pol
-                self.w = w
-                self.sigmac = sigmagwc
-                self.fock = sigmaf
-                self.hartree = sigmah
-                self.sigmac.SigmaStc()
-                self.sigmac.Zfactor()
-                ham = Hamiltonian(crystal=cry,ham=self.TighBinding(hoppinglist=hoppinglist,onsitelist=onsitelist),sigmah=sigmah,sigmaf=sigmaf,sigmac=self.sigmac)
-                self.ham = ham
+                self.green = green
+                sigmaold = sigma
+                self.occ = occ
+                sigmastc = SigmaStc(cry, sigma)
+                zfactor = ZFactor(cry, sigma)
+                sigma = SigmaC(
+                    sigmahartree=sigmah,
+                    sigmafock=sigmaf,
+                    sigmagwc=sigmagwc,
+                    sigmac=sigmaold,
+                    sigmastc=sigmastc,
+                    zfactor=zfactor,
+                )
+                self.fock = sigma.sigmafock
+                self.hartree = sigma.sigmahartree
+                self.sigmac = sigma
+                hamqp = QPHamiltonian(cry, niham, sigma, mu)
+                self.hamqp = hamqp
+            elif iter == itermax:
+                print(
+                    f"Notice: Broadening schemes will be turned off from the {iter}-th iteration."
+                )
+                self.green = green
+                sigmaold = sigma
+                self.occ = occ
+                sigmastc = SigmaStc(cry, sigma)
+                zfactor = ZFactor(cry, sigma)
+                sigma = SigmaC(
+                    sigmahartree=sigmah,
+                    sigmafock=sigmaf,
+                    sigmagwc=sigmagwc,
+                    sigmac=sigmaold,
+                    sigmastc=sigmastc,
+                    zfactor=zfactor,
+                )
+                self.fock = sigma.sigmafock
+                self.hartree = sigma.sigmahartree
+                self.sigmac = sigma
+                hamqp = QPHamiltonian(cry, niham, sigma, mu)
+                self.hamqp = hamqp
             else:
-                gold = gnew
-                gwckfold = sigmagwc.kf
+                greenold = green
+                sigmaold = sigma
+                occold = occ
+                muold = mu
 
+    def DMFT(
+        self,
+        itermax: int,
+        hmat: np.ndarray,
+        U4_index: np.ndarray,
+        N: float,
+        mix: float,
+        T: float,
+        size: int,
+        equiv: list,
+    ):
+        """
+        :param int itermax:          Max number of DMFT solver calls
+        :param np.ndarray hmat:      Noninteracting, local, Hamiltonian
+        :param  np.ndarray U4_index: Coulomb U matrix, 4-index
+        :param float N:              Number of electrons?
+        :param float mix:            Linear mixing parameter for self-energy mixing
+        :param float T:              Electronic temperature
+        :param int size:             Number of grid points for Matsubara mesh and imaginary time mesh
+        :param list equiv:           List equivalent orbitals in impurity problem
+        """
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        ft = FT_grid(T=T, size=size)
+        nimp = len(self.cry.probspace)
 
-    def DMFT(self,itermax : int, hmat : np.ndarray, N : float, mix : float, equiv : list):
+        G_bare = GreenBare(self.cry, ft, hmat)
+        G_int = GreenInt(self.cry, ft, G_bare)
+        G_loc = GreenLoc(self.cry, ft, G_int)
+        G_int.Occ()
+        E_imp = ImpurityLevel(self.cry, hmat, G_int.mu)
+        # Actually, only pick inequivalent sites, not all sites in G_loc...
+        G_imp_mat = G_loc.Loc2Imp(G_loc.gf)
+        E_imp_mat = E_imp.Loc2Imp(E_imp.loc)
+        Sig_imp_mat = np.zeros_like(G_imp_mat)
+        Sig_loc = SigmaLoc(self.cry, ft, np.zeros_like(G_int.gbare.g0kf))
+        G_imp = np.empty_like(norb, norb, ns, nf, nimp, dtype=complex)
+        Sig_imp = np.empty_like(norb, norb, ns, nf, nimp, dtype=complex)
+        for it in range(itermax):
+            hybridisation = Hybridisation(
+                self.cry, self.ft, E_imp_mat, G_loc.Loc2Imp(G_loc.gf), Sig_imp_mat
+            )
+            mu_old = G_int.mu
+            occ_old = G_int.occ
+            
+            for imp in self.cry.probspace:
+                impdir = f"impurity/{imp}"
+                if not os.path_exists(impdir):
+                    os.mkdir(impdir)
+                os.chdir(impdir)
+                G_imp[..., imp], Sig_imp[..., imp] = self.RunImpurityAction(
+                    self.ft.beta, E_imp, hybridisation, U4_index, equiv
+                )
+                cwd = os.getcwd()
 
-        pass
+            G_loc.gf = G_loc.Imp2Loc(G_imp.imp)
+            Sig_loc.f = Sig_loc.Mixing(
+                iter=it, mix=mix, Fb=Sig_loc.Imp2Loc(Sig_imp.imp), Fold=Sig_loc.f
+            )
+            Sig_loc.t = Sig_loc.Mixing(
+                iter=it, mix=mix, Fb=Sig_loc.Imp2Loc(Sig_imp.imp), Fold=Sig_loc.t
+            )
+            G_int = GreenInt(G_bare, np.zeros(norb, norb, ns, nspace, dtype=complex), np.zeros(norb, norb, ns, nspace, dtype=complex), Sig_loc.Embedding(Sig_loc.f))
+            G_int.SearchMu()
+            G_int.Occ()
+            occ = G_int.occ
+            if abs(G_int.mu - mu_old) < 1e-2 or self.FermionSCF(occ_old, occ) < 1e-3:
+                break
+            G_loc = GreenLoc(self.cry, ft, G_int)
 
-    def FermionSCF(self,mat1 : np.ndarray, mat2 : np.ndarray):
+        return None
 
+    def FermionSCF(self, mat1: np.ndarray, mat2: np.ndarray):
         check = 0
-        tempmat = abs(mat1-mat2)
+        tempmat = abs(mat1 - mat2)
         check = tempmat.max()
 
         return check
 
+    def RunImpurityAction(
+        self,
+        beta: float,
+        E_imp: ImpurityLevel,
+        hybridisation: Hybridisation,
+        U4: np.ndarray,
+        equiv: list,
+    ):
+        self.WriteParamsJson(beta, equiv, E_imp.ndarray, U4, hybridisation.ndarray)
+        self.RunCTQMC()
+        return self.MeasureCTQMC()
+
     def RunCTQMC(self):
-        
-        pass
+        # run_cmd = 'mpirun -np 1 '+diage_path+'/ComCTQMC/bin/CTQMC params'
+        run_cmd = "mpirun -np 4 " + diage_path + "/ComCTQMC/bin/CTQMC params"
+        print(run_cmd)
+
+        with open("./ctqmc.out", "w") as logfile, open("./ctqmc.err", "w") as errfile:
+            ret = subprocess.call(run_cmd, shell=True, stdout=logfile, stderr=errfile)
+            if ret != 0:
+                print("Error in CTQMC. Check ctqmc.err for error message.")
+                sys.exit()
+
+        return None
 
     def MeasureCTQMC(self):
+        run_cmd = "mpirun -np 4 " + diage_path + "/ComCTQMC/bin/EVALSIM params"
 
-        pass
+        print(run_cmd)
+        with open("./evalsim.out", "w") as logfile, open(
+            "./evalsim.err", "w"
+        ) as errfile:
+            ret = subprocess.call(run_cmd, shell=True, stdout=logfile, stderr=errfile)
+            if ret != 0:
+                print("Error in EVALSIM. Check evalsim.err for error message.")
+                sys.exit()
+        print("measure self-energy done")
 
-    def WriteParamsJson(self):
+        obs_json = "params.obs.json"
+        observables = json.load(open(obs_json))
+        observables = observables["partition"]
+        green_dict = {}
+        for key, val in observables["green"].items():
+            green_dict[key] = []
+            for real, imag in zip(val["function"]["real"], val["function"]["imag"]):
+                green_dict[key].append(real + 1j * imag)
+        sig_bare_dict = {}
+        sig_hf_dict = {}
+        for key, val in observables["self-energy"].items():
+            sig_hf_dict[key] = complex(val["moments"][0])
+            sig_bare_dict["key"] = []
+            for real, imag in zip(val["function"]["real"], val["function"]["imag"]):
+                sig_bare_dict[key].append(real + 1j * imag)
 
-        pass
+        return GreenImp(self.cry, self.ft, green_dict), SigmaImp(
+            self.cry, self.ft, sig_bare_dict
+        )
 
-    def WriteHyb(self):
+    def WriteParamsJson(self, beta, equiv, E_imp, U4, hyb, SOC=False):
+        """
+        Write parameters for running ComDMFT to a json archive
+        :paramn float beta: Inverse temperature
+        :param list equiv:  List of equivalent impurity orbitals
+        :E_imp np.ndarray: Impurity levels
+        :param np.ndarray U4: 4-index Coulomb matrix
+        :param np.ndarray hyb: Hybridisation function, ndarray with dimensions (norb, norb, ns, nfreq, nimp)
+        :param bool SOC: Include Spin orbit coupling? (default: False)
+        """
+        norb, _, ns, _ = hyb.shape
+            self.WriteHyb(hyb[..., imp], beta, SOC)
+            if not SOC:
+                if ns == 1:
+                    params = {}
+                    params["hloc"] = {}
+                    mu_ctqmc = -np.real(E_imp[0, 0, 0])
+                    # print(mu_ctqmc,type(mu_ctqmc))
+                    E_imp = E_imp[:, :, 0] + mu_ctqmc * np.eye(
+                        E_imp.shape[0], E_imp.shape[0]
+                    )
+                    E_imp = np.array(np.real(E_imp), dtype=float)
+                    tempmat = np.kron(E_imp, np.eye(2, 2))
+                    params["hloc"]["one body"] = tempmat.tolist()
+                    # self.boson.get_Uijkl_comctqmc(key)
+                    params["hloc"]["two body"] = U4  # self.boson.U_ctqmc.tolist()
+                    # params["hloc"]["two body"] = {}
+                    # params["hloc"]["two body"]["parametrisataion"] = "slater-condon"
+                    # params["hloc"]["two body"]["F0"]=5.0
+                    # params["hloc"]["two body"]["F2"]=0.0
+                    # params["hloc"]["two body"]["F4"]=0.0
+                    # params["hloc"]["two body"]["approximation"] = "none"
 
-        pass
+                    params["partition"] = {}
+
+                    params["partition"]["green basis"] = "matsubara"
+                    params["partition"]["green bulla"] = True
+                    params["partition"]["green matsubara cutoff"] = 50
+                    params["partition"]["occupation susceptibility bulla"] = True
+                    params["partition"]["occupation susceptibility direct"] = False
+                    params["partition"]["quantum number susceptibility"] = True
+                    params["partition"]["susceptibility cutoff"] = 50
+                    params["partition"]["susceptibility tail"] = 200
+                    params["partition"]["quantum numbers"] = {}
+                    tempmat = np.ones(E_imp.shape[0] * 2)
+                    params["partition"]["quantum numbers"]["N"] = tempmat.tolist()
+                    tempmat[:norb] *= 0.5
+                    tempmat[norb:] *= -0.5
+                    # [1,1,1,1,1,1,1,1,1,1]
+                    # for ii in range(len(tempmat)):
+                    #     if ii < E_imp.shape[0]:
+                    #         tempmat[ii] *= 0.5
+                    #     elif ii >= E_imp.shape[0]:
+                    #         tempmat[ii] *= -0.5
+                    params["partition"]["quantum numbers"][
+                        "Sz"
+                    ] = tempmat.tolist()  # make
+                    # [0.5,0.5,0.5,0.5,0.5,-0.5,-0.5,-0.5,-0.5,-0.5]
+                    # params["partition"]["observables"]={}
+                    # params["partition"]["observables"]["S2"] = {}
+                    params["partition"]["probabilities"] = {}
+                    params["partition"]["probabilities"] = [
+                        "N",
+                        "energy",
+                        "Sz",
+                    ]  # ["N","energy","S2","Sz"]
+                    params["partition"]["density matrix precise"] = True
+                    params["partition"]["print eigenstates"] = True
+                    params["partition"]["print density matrix"] = True
+
+                    # params["dyn"]={}
+                    # params["dyn"]["quantum numbers"] = np.ones(E_imp.shape[0]*2).tolist()
+                    # # [[1,1,1,1,1,1,1,1,1,1]]
+                    # params["dyn"]["functions"] = "dyn.json"
+                    # params["dyn"]["matrix"] = [["F0"]]
+                    params["beta"] = beta
+                    params["complex"] = False
+                    params["mu"] = mu_ctqmc
+                    params["hybridisation"] = {}
+                    # tempmat2 = np.kron(equiv,np.ones((2,2)))
+                    tempmat2 = np.kron(equiv, np.eye(2, 2))
+                    tempmat2 = tempmat2.tolist()
+                    for ii in range(len(tempmat2)):
+                        for jj in range(len(tempmat2)):
+                            if tempmat2[ii][jj] == 0.0:
+                                tempmat2[ii][jj] = ""
+                            else:
+                                tempmat2[ii][jj] = str(int(tempmat2[ii][jj]))
+
+                    params["hybridisation"]["matrix"] = tempmat2
+                    params["hybridisation"]["functions"] = "hyb.json"
+                    params["thermalisation time"] = 1  # imp['thermalization_time']
+                    params["quantum number susceptibility"] = True
+                    params["occupation susceptibility bulla"] = True
+                    params["green bulla"] = True
+                    params["density matrix precise"] = False  # True
+                    params["measurement time"] = 3  # imp['measurement_time']
+
+                    # with open(f"params.{it}.{imp}.json", "w") as outfile:
+                    #     json.dump(
+                    #         params,
+                    #         outfile,
+                    #         sort_keys=True,
+                    #         indent=4,
+                    #         separators=(",", ": "),
+                    #     )
+                    with open("params.json", "w") as outfile:
+                        json.dump(
+                            params,
+                            outfile,
+                            sort_keys=True,
+                            indent=4,
+                            separators=(",", ": "),
+                        )
+                    # print("params.json written", file=self.m_ini.control['h_log'])
+                elif ns == 2:
+                    raise NotImplementedError
+                    print("Nspin is not 1")
+                    sys.exit()
+            elif SOC:
+                raise NotImplementedError
+                print("SOC is not  False, please change SOC")
+                sys.exit()
+
+        return None
+
+    def WriteHyb(self, hyb, beta, SOC=False):
+        """
+        Write hybridisation function to json file, so that CTQMC can read it.
+        :param np.ndarray hyb: Hybridisation function, ndarray with dimensions (norb, norb, ns, nfreq, nimp)
+        :paramn beta float: Inverse temperature
+        :param bool SOC: Include Spin orbit coupling? (default: False)
+        """
+        assert len(hyb.shape) == 5
+        _, _, ns, _ = hyb.shape
+        if not SOC:
+            if ns == 1:
+                json_dict = {}
+                for key, val in hyb.items():
+                    json_dict[key] = {}
+                    for imp in range(nimp):
+                        json_dict[str(imp)]["beta"] = beta
+                        json_dict[str(imp)]["real"] = np.real(hyb[..., imp]).tolist()
+                        json_dict[str(imp)]["imag"] = np.imag(hyb[..., imp]).tolist()
+
+                # with open(f"hyb.{it}.{key}.json", "w") as outfile:
+                #     json.dump(
+                #         json_dict[imp],
+                #         outfile,
+                #         sort_keys=True,
+                #         indent=4,
+                #         separators=(",", ": "),
+                #     )
+                with open("hyb.json", "w") as outfile:
+                    json.dump(
+                        json_dict,
+                        outfile,
+                        sort_keys=True,
+                        indent=4,
+                        separators=(",", ": "),
+                    )
+
+            elif ns == 2:
+                raise NotImplementedError
+                print("Nspin is not 1")
+                sys.exit()
+        elif SOC is True:
+            raise NotImplementedError
+            print("SOC must be False")
+            sys.exit()
+        return None
