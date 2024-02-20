@@ -20,7 +20,7 @@ func = CorrelationFunction(lat,pos,ns,soc,rkgrid,orboption,N)
 print("Initialization finish")
 t1 = -2.568
 t2 = -2.232
-hopplist = [[t1,0,1,[0,0,0]],[t2,1,0,[1,0,0]]]
+hopplist = [[t1,0,1,[0,0,0]],[t1,1,0,[0,0,0]],[t2,1,0,[1,0,0]],[t2,0,1,[-1,0,0]]]
 # t = -2.7
 # t = -2.
 # hopplist = [[t,0,1,[0,0,0]],[t,1,0,[1,0,0]],[t,1,0,[0,1,0]]]
