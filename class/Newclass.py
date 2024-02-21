@@ -919,7 +919,11 @@ class GreenInt(FLatDyn):
             # self.grt = self.gbare.g0rt
             self.gkfmu0 = self.gbare.g0kf
 
-        if (self.sigmah is not None) and (self.sigmaf is not None) and (self.sigmac is None):
+        if (
+            (self.sigmah is not None)
+            and (self.sigmaf is not None)
+            and (self.sigmac is None)
+        ):
             tempmat = np.zeros((norb, norb, ns, nrk, nft), dtype=complex, order="F")
             tempmat2 = np.zeros((norb, norb, ns, nrk, nft), dtype=complex, order="F")
             tempmat = self.StcEmbedding(self.sigmah.hk)
@@ -932,7 +936,11 @@ class GreenInt(FLatDyn):
             # self.grf = self.K2R(tempmat)
             # self.grt = self.F2T(self.grf,1,1)
 
-        if (self.sigmah is not None) and (self.sigmaf is not None) and (self.sigmac is not None):
+        if (
+            (self.sigmah is not None)
+            and (self.sigmaf is not None)
+            and (self.sigmac is not None)
+        ):
             tempmat = np.zeros((norb, norb, ns, nrk, nft), dtype=complex, order="F")
             tempmat2 = np.zeros((norb, norb, ns, nrk, nft), dtype=complex, order="F")
             tempmat = self.StcEmbedding(self.sigmah.hk)
@@ -4734,7 +4742,7 @@ class CorrelationFunction(object):
         self,
         itermax: int,
         hmat: np.ndarray,
-        U4_index: np.ndarray,
+        slater_param: list,
         N: float,
         mix: float,
         T: float,
@@ -4744,15 +4752,15 @@ class CorrelationFunction(object):
         """
         :param int itermax:          Max number of DMFT solver calls
         :param np.ndarray hmat:      Noninteracting, local, Hamiltonian
-        :param  np.ndarray U4_index: Coulomb U matrix, 4-index
-        :param float N:              Number of electrons?
+        :param  list slater_param:   Slater parameters [F0, F2, F4]
+        :param float N:              Number of electrons
         :param float mix:            Linear mixing parameter for self-energy mixing
         :param float T:              Electronic temperature
         :param int size:             Number of grid points for Matsubara mesh and imaginary time mesh
         :param list equiv:           List equivalent orbitals in impurity problem
         """
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
+        norb = len(self.cry.find)
+        ns = self.cry.ns
         ft = FT_grid(T=T, size=size)
         nimp = len(self.cry.probspace)
 
@@ -4768,31 +4776,37 @@ class CorrelationFunction(object):
         Sig_loc = SigmaLoc(self.cry, ft, np.zeros_like(G_int.gbare.g0kf))
         G_imp = np.empty_like(norb, norb, ns, nf, nimp, dtype=complex)
         Sig_imp = np.empty_like(norb, norb, ns, nf, nimp, dtype=complex)
+        cwd = os.getcwd()
         for it in range(itermax):
             hybridisation = Hybridisation(
                 self.cry, self.ft, E_imp_mat, G_loc.Loc2Imp(G_loc.gf), Sig_imp_mat
             )
             mu_old = G_int.mu
             occ_old = G_int.occ
-            
+
             for imp in self.cry.probspace:
                 impdir = f"impurity/{imp}"
                 if not os.path_exists(impdir):
                     os.mkdir(impdir)
                 os.chdir(impdir)
                 G_imp[..., imp], Sig_imp[..., imp] = self.RunImpurityAction(
-                    self.ft.beta, E_imp, hybridisation, U4_index, equiv
+                    self.ft.beta, E_imp, hybridisation, slater_param, equiv
                 )
-                cwd = os.getcwd()
+                os.chdir(cwd)
 
-            G_loc.gf = G_loc.Imp2Loc(G_imp.imp)
+            G_loc.gf = G_loc.Imp2Loc(G_imp)
             Sig_loc.f = Sig_loc.Mixing(
-                iter=it, mix=mix, Fb=Sig_loc.Imp2Loc(Sig_imp.imp), Fold=Sig_loc.f
+                iter=it, mix=mix, Fb=Sig_loc.Imp2Loc(Sig_imp), Fold=Sig_loc.f
             )
-            Sig_loc.t = Sig_loc.Mixing(
-                iter=it, mix=mix, Fb=Sig_loc.Imp2Loc(Sig_imp.imp), Fold=Sig_loc.t
+            Sig_loc.t = Sig_loc.F2T(Sig_loc.f, 1, 1)
+            G_int = GreenInt(
+                self.cry,
+                ft,
+                G_bare,
+                sigmah=np.zeros((norb, norb, ns, nspace), dtype=complex),
+                sigmaf=np.zeros((norb, norb, ns, nspace), dtype=complex),
+                sigmagwc=Sig_loc.Embedding(Sig_loc.f),
             )
-            G_int = GreenInt(G_bare, np.zeros(norb, norb, ns, nspace, dtype=complex), np.zeros(norb, norb, ns, nspace, dtype=complex), Sig_loc.Embedding(Sig_loc.f))
             G_int.SearchMu()
             G_int.Occ()
             occ = G_int.occ
@@ -4847,6 +4861,8 @@ class CorrelationFunction(object):
                 sys.exit()
         print("measure self-energy done")
 
+        # MOVE to separate function
+        #####
         obs_json = "params.obs.json"
         observables = json.load(open(obs_json))
         observables = observables["partition"]
@@ -4862,7 +4878,8 @@ class CorrelationFunction(object):
             sig_bare_dict["key"] = []
             for real, imag in zip(val["function"]["real"], val["function"]["imag"]):
                 sig_bare_dict[key].append(real + 1j * imag)
-
+        ####
+        ###
         return GreenImp(self.cry, self.ft, green_dict), SigmaImp(
             self.cry, self.ft, sig_bare_dict
         )
@@ -4878,118 +4895,116 @@ class CorrelationFunction(object):
         :param bool SOC: Include Spin orbit coupling? (default: False)
         """
         norb, _, ns, _ = hyb.shape
-            self.WriteHyb(hyb[..., imp], beta, SOC)
-            if not SOC:
-                if ns == 1:
-                    params = {}
-                    params["hloc"] = {}
-                    mu_ctqmc = -np.real(E_imp[0, 0, 0])
-                    # print(mu_ctqmc,type(mu_ctqmc))
-                    E_imp = E_imp[:, :, 0] + mu_ctqmc * np.eye(
-                        E_imp.shape[0], E_imp.shape[0]
+        self.WriteHyb(hyb[..., imp], beta, SOC)
+        if not SOC:
+            if ns == 1:
+                params = {}
+                params["hloc"] = {}
+                mu_ctqmc = -np.real(E_imp[0, 0, 0])
+                # print(mu_ctqmc,type(mu_ctqmc))
+                E_imp = E_imp[:, :, 0] + mu_ctqmc * np.eye(
+                    E_imp.shape[0], E_imp.shape[0]
+                )
+                E_imp = np.array(np.real(E_imp), dtype=float)
+                tempmat = np.kron(E_imp, np.eye(2, 2))
+                params["hloc"]["one body"] = tempmat.tolist()
+                # self.boson.get_Uijkl_comctqmc(key)
+                params["hloc"]["two body"] = U4  # self.boson.U_ctqmc.tolist()
+                # params["hloc"]["two body"] = {}
+                # params["hloc"]["two body"]["parametrisataion"] = "slater-condon"
+                # params["hloc"]["two body"]["F0"]=5.0
+                # params["hloc"]["two body"]["F2"]=0.0
+                # params["hloc"]["two body"]["F4"]=0.0
+                # params["hloc"]["two body"]["approximation"] = "none"
+
+                params["partition"] = {}
+
+                params["partition"]["green basis"] = "matsubara"
+                params["partition"]["green bulla"] = True
+                params["partition"]["green matsubara cutoff"] = 50
+                params["partition"]["occupation susceptibility bulla"] = True
+                params["partition"]["occupation susceptibility direct"] = False
+                params["partition"]["quantum number susceptibility"] = True
+                params["partition"]["susceptibility cutoff"] = 50
+                params["partition"]["susceptibility tail"] = 200
+                params["partition"]["quantum numbers"] = {}
+                tempmat = np.ones(E_imp.shape[0] * 2)
+                params["partition"]["quantum numbers"]["N"] = tempmat.tolist()
+                tempmat[:norb] *= 0.5
+                tempmat[norb:] *= -0.5
+                # [1,1,1,1,1,1,1,1,1,1]
+                # for ii in range(len(tempmat)):
+                #     if ii < E_imp.shape[0]:
+                #         tempmat[ii] *= 0.5
+                #     elif ii >= E_imp.shape[0]:
+                #         tempmat[ii] *= -0.5
+                params["partition"]["quantum numbers"]["Sz"] = tempmat.tolist()  # make
+                # [0.5,0.5,0.5,0.5,0.5,-0.5,-0.5,-0.5,-0.5,-0.5]
+                # params["partition"]["observables"]={}
+                # params["partition"]["observables"]["S2"] = {}
+                params["partition"]["probabilities"] = {}
+                params["partition"]["probabilities"] = [
+                    "N",
+                    "energy",
+                    "Sz",
+                ]  # ["N","energy","S2","Sz"]
+                params["partition"]["density matrix precise"] = True
+                params["partition"]["print eigenstates"] = True
+                params["partition"]["print density matrix"] = True
+
+                # params["dyn"]={}
+                # params["dyn"]["quantum numbers"] = np.ones(E_imp.shape[0]*2).tolist()
+                # # [[1,1,1,1,1,1,1,1,1,1]]
+                # params["dyn"]["functions"] = "dyn.json"
+                # params["dyn"]["matrix"] = [["F0"]]
+                params["beta"] = beta
+                params["complex"] = False
+                params["mu"] = mu_ctqmc
+                params["hybridisation"] = {}
+                # tempmat2 = np.kron(equiv,np.ones((2,2)))
+                tempmat2 = np.kron(equiv, np.eye(2, 2))
+                tempmat2 = tempmat2.tolist()
+                for ii in range(len(tempmat2)):
+                    for jj in range(len(tempmat2)):
+                        if tempmat2[ii][jj] == 0.0:
+                            tempmat2[ii][jj] = ""
+                        else:
+                            tempmat2[ii][jj] = str(int(tempmat2[ii][jj]))
+
+                params["hybridisation"]["matrix"] = tempmat2
+                params["hybridisation"]["functions"] = "hyb.json"
+                params["thermalisation time"] = 1  # imp['thermalization_time']
+                params["quantum number susceptibility"] = True
+                params["occupation susceptibility bulla"] = True
+                params["green bulla"] = True
+                params["density matrix precise"] = False  # True
+                params["measurement time"] = 3  # imp['measurement_time']
+
+                # with open(f"params.{it}.{imp}.json", "w") as outfile:
+                #     json.dump(
+                #         params,
+                #         outfile,
+                #         sort_keys=True,
+                #         indent=4,
+                #         separators=(",", ": "),
+                #     )
+                with open("params.json", "w") as outfile:
+                    json.dump(
+                        params,
+                        outfile,
+                        sort_keys=True,
+                        indent=4,
+                        separators=(",", ": "),
                     )
-                    E_imp = np.array(np.real(E_imp), dtype=float)
-                    tempmat = np.kron(E_imp, np.eye(2, 2))
-                    params["hloc"]["one body"] = tempmat.tolist()
-                    # self.boson.get_Uijkl_comctqmc(key)
-                    params["hloc"]["two body"] = U4  # self.boson.U_ctqmc.tolist()
-                    # params["hloc"]["two body"] = {}
-                    # params["hloc"]["two body"]["parametrisataion"] = "slater-condon"
-                    # params["hloc"]["two body"]["F0"]=5.0
-                    # params["hloc"]["two body"]["F2"]=0.0
-                    # params["hloc"]["two body"]["F4"]=0.0
-                    # params["hloc"]["two body"]["approximation"] = "none"
-
-                    params["partition"] = {}
-
-                    params["partition"]["green basis"] = "matsubara"
-                    params["partition"]["green bulla"] = True
-                    params["partition"]["green matsubara cutoff"] = 50
-                    params["partition"]["occupation susceptibility bulla"] = True
-                    params["partition"]["occupation susceptibility direct"] = False
-                    params["partition"]["quantum number susceptibility"] = True
-                    params["partition"]["susceptibility cutoff"] = 50
-                    params["partition"]["susceptibility tail"] = 200
-                    params["partition"]["quantum numbers"] = {}
-                    tempmat = np.ones(E_imp.shape[0] * 2)
-                    params["partition"]["quantum numbers"]["N"] = tempmat.tolist()
-                    tempmat[:norb] *= 0.5
-                    tempmat[norb:] *= -0.5
-                    # [1,1,1,1,1,1,1,1,1,1]
-                    # for ii in range(len(tempmat)):
-                    #     if ii < E_imp.shape[0]:
-                    #         tempmat[ii] *= 0.5
-                    #     elif ii >= E_imp.shape[0]:
-                    #         tempmat[ii] *= -0.5
-                    params["partition"]["quantum numbers"][
-                        "Sz"
-                    ] = tempmat.tolist()  # make
-                    # [0.5,0.5,0.5,0.5,0.5,-0.5,-0.5,-0.5,-0.5,-0.5]
-                    # params["partition"]["observables"]={}
-                    # params["partition"]["observables"]["S2"] = {}
-                    params["partition"]["probabilities"] = {}
-                    params["partition"]["probabilities"] = [
-                        "N",
-                        "energy",
-                        "Sz",
-                    ]  # ["N","energy","S2","Sz"]
-                    params["partition"]["density matrix precise"] = True
-                    params["partition"]["print eigenstates"] = True
-                    params["partition"]["print density matrix"] = True
-
-                    # params["dyn"]={}
-                    # params["dyn"]["quantum numbers"] = np.ones(E_imp.shape[0]*2).tolist()
-                    # # [[1,1,1,1,1,1,1,1,1,1]]
-                    # params["dyn"]["functions"] = "dyn.json"
-                    # params["dyn"]["matrix"] = [["F0"]]
-                    params["beta"] = beta
-                    params["complex"] = False
-                    params["mu"] = mu_ctqmc
-                    params["hybridisation"] = {}
-                    # tempmat2 = np.kron(equiv,np.ones((2,2)))
-                    tempmat2 = np.kron(equiv, np.eye(2, 2))
-                    tempmat2 = tempmat2.tolist()
-                    for ii in range(len(tempmat2)):
-                        for jj in range(len(tempmat2)):
-                            if tempmat2[ii][jj] == 0.0:
-                                tempmat2[ii][jj] = ""
-                            else:
-                                tempmat2[ii][jj] = str(int(tempmat2[ii][jj]))
-
-                    params["hybridisation"]["matrix"] = tempmat2
-                    params["hybridisation"]["functions"] = "hyb.json"
-                    params["thermalisation time"] = 1  # imp['thermalization_time']
-                    params["quantum number susceptibility"] = True
-                    params["occupation susceptibility bulla"] = True
-                    params["green bulla"] = True
-                    params["density matrix precise"] = False  # True
-                    params["measurement time"] = 3  # imp['measurement_time']
-
-                    # with open(f"params.{it}.{imp}.json", "w") as outfile:
-                    #     json.dump(
-                    #         params,
-                    #         outfile,
-                    #         sort_keys=True,
-                    #         indent=4,
-                    #         separators=(",", ": "),
-                    #     )
-                    with open("params.json", "w") as outfile:
-                        json.dump(
-                            params,
-                            outfile,
-                            sort_keys=True,
-                            indent=4,
-                            separators=(",", ": "),
-                        )
-                    # print("params.json written", file=self.m_ini.control['h_log'])
-                elif ns == 2:
-                    raise NotImplementedError
-                    print("Nspin is not 1")
-                    sys.exit()
-            elif SOC:
+                # print("params.json written", file=self.m_ini.control['h_log'])
+            elif ns == 2:
                 raise NotImplementedError
-                print("SOC is not  False, please change SOC")
+                print("Nspin is not 1")
                 sys.exit()
+        elif SOC:
+            raise NotImplementedError
+            print("SOC is not  False, please change SOC")
+            sys.exit()
 
         return None
 
