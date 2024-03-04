@@ -15,10 +15,10 @@
 # Windows compatibility, jonas-kr, Sep '20.
 
 # Compiler (CXX), and linking from C, fortran. We use GCC by default...
-CXX = g++
-CC = gcc
-FC = gfortran
-CLINK = -lstdc++
+CXX = icpc -L/opt/ohpc/pub/libs/fftw/lib
+CC = icc -L/opt/ohpc/pub/libs/fftw/lib
+FC = ifort -L/opt/ohpc/pub/libs/fftw/lib
+CLINK = -lstdc++ -L/opt/ohpc/pub/libs/fftw/lib
 FLINK = $(CLINK)
 # Python version: we use python3 by default, but you may need to change...
 PYTHON = python3
@@ -35,7 +35,7 @@ CXXFLAGS := $(CFLAGS) $(CXXFLAGS)
 FFTWNAME = fftw3
 # linux default is fftw3_omp, since 10% faster than fftw3_threads...
 FFTWOMPSUFFIX = omp
-LIBS := -lm
+LIBS := -lm -lmkl_core -lmkl_intel_lp64
 # multithreading for GCC: C++/C/Fortran, MATLAB, and octave (ICC differs)...
 OMPFLAGS = -fopenmp
 OMPLIBS = -lgomp
@@ -69,7 +69,7 @@ FFLAGS := $(FFLAGS) $(INCL) -I/usr/include -fPIC
 
 # single-thread total list of math and FFTW libs (now both precisions)...
 # (Note: finufft tests use LIBSFFT; spread & util tests only need LIBS)
-LIBSFFT := -l$(FFTWNAME) -l$(FFTWNAME)f $(LIBS)
+# LIBSFFT := -l$(FFTWNAME) -l$(FFTWNAME)f $(LIBS)
 
 # multi-threaded libs & flags, and req'd flags (OO for new interface)...
 ifneq ($(OMP),OFF)
@@ -80,7 +80,7 @@ ifneq ($(OMP),OFF)
   OFLAGS += $(OOMPFLAGS) -DR2008OO
   LIBS += $(OMPLIBS)
 # omp override for total list of math and FFTW libs (now both precisions)...
-  LIBSFFT := -l$(FFTWNAME) -l$(FFTWNAME)_$(FFTWOMPSUFFIX) -l$(FFTWNAME)f -l$(FFTWNAME)f_$(FFTWOMPSUFFIX) $(LIBS)
+  # LIBSFFT := -l$(FFTWNAME) -l$(FFTWNAME)_$(FFTWOMPSUFFIX) -l$(FFTWNAME)f -l$(FFTWNAME)f_$(FFTWOMPSUFFIX) $(LIBS)
 endif
 
 # name & location of library we're building...
@@ -489,7 +489,7 @@ endif
 CXX = g++
 CC = gcc
 FC = gfortran
-CLINK = -lstdc++
+CLINK = -lstdc++ -L/opt/ohpc/pub/libs/fftw/lib
 FLINK = $(CLINK)
 # Python version: we use python3 by default, but you may need to change...
 PYTHON = python3
@@ -540,7 +540,7 @@ FFLAGS := $(FFLAGS) $(INCL) -I/usr/include -fPIC
 
 # single-thread total list of math and FFTW libs (now both precisions)...
 # (Note: finufft tests use LIBSFFT; spread & util tests only need LIBS)
-LIBSFFT := -l$(FFTWNAME) -l$(FFTWNAME)f $(LIBS)
+LIBSFFT := # -l$(FFTWNAME) -l$(FFTWNAME)f $(LIBS)
 
 # multi-threaded libs & flags, and req'd flags (OO for new interface)...
 ifneq ($(OMP),OFF)
@@ -551,7 +551,7 @@ ifneq ($(OMP),OFF)
   OFLAGS += $(OOMPFLAGS) -DR2008OO
   LIBS += $(OMPLIBS)
 # omp override for total list of math and FFTW libs (now both precisions)...
-  LIBSFFT := -l$(FFTWNAME) -l$(FFTWNAME)_$(FFTWOMPSUFFIX) -l$(FFTWNAME)f -l$(FFTWNAME)f_$(FFTWOMPSUFFIX) $(LIBS)
+  # LIBSFFT := -l$(FFTWNAME) -l$(FFTWNAME)_$(FFTWOMPSUFFIX) -l$(FFTWNAME)f -l$(FFTWNAME)f_$(FFTWOMPSUFFIX) $(LIBS)
 endif
 
 # name & location of library we're building...

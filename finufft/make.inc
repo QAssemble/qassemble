@@ -1,49 +1,23 @@
-# Makefile variable overrides for Mac OSX compilation with GCC v.12
-#
-# Use this if you'll need to link against gfortran.
-#
-# Barnett 10/27/18. Input from Yu-Hsuan Shih, Amit Moskovich.
-# Lu minor modification for gcc-10 12/06/2020
-# Leslie and Dan F found XCode linking problem, workaround 10/5/23.
+# makefile overrides to use Intel ICC compiler & libiomp5. double prec only.
+# (fixed the fatal mistake of leaving -lgomp in the compile line! 6/4/20)
 
-# By default we use clang/LLVM (which is aliased to /usr/lib/gcc, etc).
-# This make.inc is if you want to override this.
-# Get gcc from brew then use, eg:
 CXX=g++-13
 CC=gcc-13
 FC=gfortran
 
-# as in makefile, but with the brew /usr/local/ stuff...
-CFLAGS   += -I/opt/homebrew/opt/libomp/include -I/opt/homebrew/opt/fftw/include 
-FFLAGS   = $(CFLAGS)
+# we want to start fresh, ignore the GCC flags...
+CFLAGS = -I/opt/homebrew/opt/libomp/include -I/opt/homebrew/opt/fftw/include 
+# CFLAGS += -lsvml    % fails (gives nans & no faster)
+
 CXXFLAGS = $(CFLAGS)
-LIBS += -L/opt/homebrew/opt/fftw/lib
-# Workaround to force old linker to be used due to XCode15 (Issue #360):
-LDFLAGS+=-ld64
+FFLAGS   = $(CFLAGS)
+LIBS += -L/opt/homebrew/opt/fftw/lib -lfftw3 -lfftw3f -lfftw3_omp -lfftw3f_omp 
+LDFLAGS += $(LIBS)
+LIBSFFT = -lfftw3 -lfftw3f -lfftw3_omp -lfftw3f_omp
 
-# If you're getting warning messages of the form:
-#    ld: warning: object file (lib-static/libfinufft.a(finufft1d.o)) was built for
-#    newer OSX version (10.13) than being linked (10.9)
-# Then you can uncomment the following two lines with the older version number
-# (in this example -mmacosx-version-min=10.9)
-#
-#CFLAGS += "-mmacosx-version-min=<OLDER OSX VERSION NUMBER>"
-
-# OpenMP with GCC on OSX needs following...
+# It is crucial to *replace* -fopenmp & -lgomp with Intel's equiv
+# (crucial in the sense that linking libiomp5 *and* libgomp gives weird
+# segfaults, corruption in parallel blocks, or works fine, frustratingly):
 OMPFLAGS = -fopenmp
-OMPLIBS = -L/opt/homebrew/opt/libomp/lib -lgomp
-# since fftw3_omp doesn't work in OSX, we need...
-FFTWOMPSUFFIX=threads
+OMPLIBS =
 
-# MATLAB interface:
-# some of these will depend on your FFTW library location...
-MFLAGS += -L/opt/homebrew/opt/fftw/lib -lm
-# edit for your MATLAB version location...
-MEX = $(shell ls -d /Applications/MATLAB_R20**.app)/bin/mex
-# Also see docs/install.rst for possible edits to MATLAB's MEX XML file.
-
-# If you have segfault of MATLAB then please try the following:
-#MOMPFLAGS = -D_OPENMP
-#OMPFLAGS = -Xpreprocessor -fopenmp
-#OMPLIBS = $(shell ls -d /Applications/MATLAB_R20**.app)/sys/os/maci64/libiomp5.dylib
-# This links to MATLAB's omp not gomp.
