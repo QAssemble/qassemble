@@ -154,7 +154,7 @@ class Crystal(object):  # chemical potential object, num of electron
         self.bprojector = None
 
         self.SetBasisIndex(orboption)
-        if impdict != None:
+        if impdict is not None:
             self.Projector(impdict)
 
     def Kpath(self, kpath: list, nk: int) -> np.ndarray:
@@ -911,7 +911,7 @@ class GreenInt(FLatDyn):
         ns = self.gbare.g0kf.shape[2]
         nrk = self.gbare.g0kf.shape[3]
         nft = self.gbare.g0kf.shape[4]
-        print(self.gbare.g0kf[..., 0, :])
+        # print(self.gbare.g0kf[..., 0, :])
         if (self.sigmah == None) and (self.sigmaf == None) and (self.sigmac == None):
             # self.gkf = self.gbare.g0kf
             # self.gkt = self.gbare.g0kt
@@ -2104,8 +2104,12 @@ class FLocDyn(object):
 
         moment = np.zeros((norb, norb, ns, 3), dtype=complex, order="F")
         high = np.zeros((norb, norb, ns), dtype=complex, order="F")
+        print(f"{self.ft.omega.shape=}")
+        print(f"{ff.shape=}")
 
-        moment, high = DiagE.fourier.flocdyn_m(self.ft.omega, ff, isgreen, highzero)
+        moment[:], high[:] = DiagE.fourier.flocdyn_m(
+            self.ft.omega, ff[..., 0], isgreen, highzero
+        )
 
         return moment, high
 
@@ -2118,7 +2122,7 @@ class FLocDyn(object):
 
         moment, high = self.Moment(ff, isgreen, highzero)
 
-        ftau = DiagE.fourier.flocdyn_f2t(self.ft.omega, ff, moment, self.ft.tau)
+        ftau = DiagE.fourier.flocdyn_f2t(self.ft.omega, ff[..., 0], moment, self.ft.tau)
 
         return ftau
 
@@ -2209,7 +2213,7 @@ class FLocDyn(object):
 
         for key, val in self.crystal.probspace.items():
             iprob = int(key) - 1
-            tempmat = np.zeros((norb, norb, ns), dtype=complex)
+            tempmat = np.zeros((norb, norb, ns, nft), dtype=complex)
             for ispace in val:
                 tempmat += matloc[..., ispace]
             tempmat /= len(val)
@@ -2270,6 +2274,7 @@ class FLocDyn(object):
 
         matout = np.zeros((norb, norb, ns, nrk, nft), dtype=complex, order="F")
 
+        print(f"{matin.shape=} {self.crystal.fprojector.shape=}")
         for ispace in range(nspace):
             matout += DiagE.embedding.flocdyn(
                 nrk, matin[..., ispace], self.crystal.fprojector[..., ispace]
@@ -2288,6 +2293,7 @@ class GreenLoc(FLocDyn):
         self.Cal()
 
     def Cal(self):  # projection
+        print(f"{self.crystal.fprojector.shape=}")
         norbc = self.crystal.fprojector.shape[1]
         ns = self.crystal.ns
         nft = self.ft.size
@@ -2307,14 +2313,14 @@ class GreenLoc(FLocDyn):
 
 
 class GreenImp(FLocDyn):  # read CTQMC output
-    def __init__(self, crystal: Crystal, ft: FT_grid, ctqmc_dict):
+    def __init__(self, crystal: Crystal, ft: FT_grid, ctqmc_dict, equiv):
         super().__init__(crystal, ft)
-        self.Cal(ctqmc_dict)
+        self.Cal(ctqmc_dict, equiv)
 
-    def Cal(self, ctqmc_dict):
+    def Cal(self, ctqmc_dict, equiv):
         # read obs.json, see ClassDiagE.py for info on how.
         # Get a dict, then transform
-        self.imp = super().Dict2Arr(ctqmc_dict)
+        self.imp = super().Dict2Arr(equiv, ctqmc_dict)
         return None
 
 
@@ -2346,14 +2352,14 @@ class SigmaLoc(FLocDyn):
 
 
 class SigmaImp(FLocDyn):  # read CTQMC output
-    def __init__(self, crystal: Crystal, ft: FT_grid, ctqmc_dict):
+    def __init__(self, crystal: Crystal, ft: FT_grid, ctqmc_dict, equiv):
         # read obs.json, see ClassDiagE.py for info on how.
         # Get a dict, then transform
         super().__init__(crystal, ft)
-        self.Cal(ctqmc_dict)
+        self.Cal(ctqmc_dict, equiv)
 
-    def Cal(self, ctqmc_dict):
-        sigma_imp = super().Dict2Arr(ctqmc_dict)
+    def Cal(self, ctqmc_dict, equiv):
+        sigma_imp = super().Dict2Arr(equiv, ctqmc_dict)
         self.imp = sigma_imp
         return None
 
@@ -2377,33 +2383,41 @@ class Hybridisation(FLocDyn):
         self.Cal(implev, gimp, sigmaimp)
 
     def Cal(self, E_imp: np.ndarray, G_imp: np.ndarray, Sigma: np.ndarray):
+        print(f"{G_imp.shape=}")
+        print(f"{Sigma.shape=}")
+        print(f"{E_imp.shape=}")
         norb = self.crystal.fprojector.shape[1]
         ns = self.crystal.ns
-        nspace = self.crystal.fprojector.shape[3]
+        nimp = len(self.crystal.probspace)
         nfreq = len(self.ft.omega)
         omega = self.ft.omega
 
-        hyb = np.zeros((norb, norb, ns, nfreq, nspace), dtype=complex, order="F")
-        G_imp_inv = self.Inverse(G_imp)
-        Omega = np.zeros((norb, norb, ns, nfreq, nspace), dtype=complex, order="F")
+        hyb = np.zeros((norb, norb, ns, nfreq, nimp), dtype=complex, order="F")
+        G_imp_inv = np.empty_like(G_imp)
+        for i in range(nimp):
+            G_imp_inv[..., i] = self.Inverse(G_imp[..., i])
+        Omega = np.zeros((norb, norb, ns, nfreq, nimp), dtype=complex, order="F")
         for ifreq in range(nfreq):
             for js in range(ns):
-                for jspace in range(nspace):
+                for jspace in range(nimp):
                     Omega[:, :, js, ifreq, jspace] = (
                         np.eye(norb, norb) * 1j * omega[ifreq]
                     )
 
-        for jspace in range(nspace):
-            for ifreq in range(nfreq):
-                for js in range(ns):
-                    for iorb in range(norb):
-                        for jorb in range(norb):
-                            hyb[iorb, jorb, js, ifreq, jspace] = (
-                                Omega[iorb, jorb, js, ifreq, jspace]
-                                - E_imp[iorb, jorb, js, jspace]
-                                - G_imp_inv[iorb, jorb, js, ifreq, jspace]
-                                - Sigma[iorb, jorb, js, ifreq, jspace]
-                            )
+        for jspace, ifreq, js, iorb, jorb in itertools.product(
+            range(nimp), range(nfreq), range(ns), range(norb), range(norb)
+        ):
+            # for jspace in range(nimp):
+            #     for ifreq in range(nfreq):
+            #         for js in range(ns):
+            #             for iorb in range(norb):
+            #                 for jorb in range(norb):
+            hyb[iorb, jorb, js, ifreq, jspace] = (
+                Omega[iorb, jorb, js, ifreq, jspace]
+                - E_imp[iorb, jorb, js, jspace]
+                - G_imp_inv[iorb, jorb, js, ifreq, jspace]
+                - Sigma[iorb, jorb, js, ifreq, jspace]
+            )
 
         print(f"hybridisation Sigma high frequncy limit : {Sigma[:,:,:,-1,:]}")
         print(f"hybridisation high frequency limit : {hyb[:,:,:,-1,:]}")
@@ -2412,9 +2426,10 @@ class Hybridisation(FLocDyn):
             -G_imp_inv[..., -1, :],
             Omega[..., -1, :],
         )
-        print(E_imp)
 
-        self.hyb = hyb
+        print(f"{hyb.shape=}")
+        self.imp = hyb
+        self.loc = self.Imp2Loc(hyb)
         return None
 
 
@@ -2466,22 +2481,22 @@ class FLocStc(object):
 
         return matloc
 
-    def Loc2Imp(self, matimp: np.ndarray) -> np.ndarray:
-        norb = matimp.shape[0]
-        ns = matimp.shape[2]
+    def Loc2Imp(self, matloc: np.ndarray) -> np.ndarray:
+        nprob = len(self.crystal.probspace)
+        norb = matloc.shape[0]
+        ns = matloc.shape[2]
 
-        nspace = 0
-        for val in self.crystal.probspace.values():
-            nspace += len(val)
-
-        matloc = np.zeros((norb, norb, ns, nspace), dtype=complex, order="F")
+        matimp = np.zeros((norb, norb, ns, nprob), dtype=complex, order="F")
 
         for key, val in self.crystal.probspace.items():
             iprob = int(key) - 1
+            tempmat = np.zeros((norb, norb, ns), dtype=complex)
             for ispace in val:
-                matloc[..., ispace] = matimp[..., iprob]
+                tempmat += matloc[..., ispace]
+            tempmat /= len(val)
+            matimp[..., iprob] = tempmat
 
-        return matloc
+        return matimp
 
     def Arr2Dict(self, equiv: np.ndarray, matin: np.ndarray) -> dict:
         ns = matin.shape[2]
@@ -2555,7 +2570,10 @@ class ImpurityLevel(FLocStc):
         ns = self.crystal.ns
         nspace = self.crystal.fprojector.shape[3]
 
-        ham = self.niham.UpdateMu(self.niham.hamtb, self.mu)
+        ham = (
+            self.niham.hamtb
+            - self.mu * np.identity(norbc)[:, :, np.newaxis, np.newaxis]
+        ) / self.niham.hamtb.shape[3]
 
         eimp = np.zeros((norbc, norbc, ns, nspace), dtype=complex, order="F")
 
@@ -4486,6 +4504,7 @@ class CorrelationFunction(object):
             rkgrid=rkgrid,
             orboption=orboption,
             N=N,
+            impdict=impdict,
         )
         self.cry = cry
 
@@ -4738,11 +4757,396 @@ class CorrelationFunction(object):
                 occold = occ
                 muold = mu
 
+    def rotaion_matrix(self, l):
+
+        m_range = 2 * l + 1
+
+        R = np.zeros((m_range, m_range), dtype=complex)
+
+        if l == 0:
+            R = np.eye(m_range, m_range, dtype=complex)
+
+        elif l == 1:
+            """/n
+            py, pz, px
+            """
+            R[0, 0] = 1j / np.sqrt(2)
+            R[2, 0] = 1j / np.sqrt(2)
+
+            R[1, 1] = 1
+
+            R[0, 2] = 1 / np.sqrt(2)
+            R[2, 2] = -1 / np.sqrt(2)
+
+        elif l == 2:
+            """/n
+            xy, yz, z^2, xz, x^2-y^2
+            """
+
+            R[0, 0] = 1j / np.sqrt(2)
+            R[4, 0] = -1j / np.sqrt(2)
+
+            R[1, 1] = 1j / np.sqrt(2)
+            R[3, 1] = 1j / np.sqrt(2)
+
+            R[2, 2] = 1
+
+            R[1, 3] = 1 / np.sqrt(2)
+            R[3, 3] = -1 / np.sqrt(2)
+
+            R[0, 4] = 1 / np.sqrt(2)
+            R[4, 4] = 1 / np.sqrt(2)
+
+        elif l == 3:
+            """/n
+            3x^2-y^2 xyz yz^2 xz^2 z(x^2-y^2) x(x^2-3y^2)
+            """
+
+            R[0, 0] = 1j / np.sqrt(2)
+            R[6, 0] = 1j / np.sqrt(2)
+
+            R[1, 1] = 1j / np.sqrt(2)
+            R[5, 1] = -1j / np.sqrt(2)
+
+            R[2, 2] = 1j / np.sqrt(2)
+            R[4, 2] = 1j / np.sqrt(2)
+
+            R[3, 3] = 1
+
+            R[2, 4] = 1 / np.sqrt(2)
+            R[4, 4] = -1 / np.sqrt(2)
+
+            R[1, 5] = 1 / np.sqrt(2)
+            R[5, 5] = 1 / np.sqrt(2)
+
+            R[0, 6] = 1 / np.sqrt(2)
+            R[6, 6] = -1 / np.sqrt(2)
+
+        return R
+
+    def tf_spherical_to_cubic(self, V=None, l=None):
+
+        R = self.rotaion_matrix(l)
+
+        R_dag = np.conjugate(np.transpose(R))
+
+        tempmat = np.einsum("ab,cd,bdeg,ef,gh", R_dag, R_dag, V, R, R)
+        tempmat = np.real(tempmat)
+
+        V = np.array(tempmat, dtype=float, order="F")
+
+        return V
+
+    def Kanamori(self, norb: int = None, value: list = None) -> np.ndarray:
+        print("Warning : In kanamori interaction, self interaction term has been added")
+
+        V = np.zeros(
+            (norb, norb, norb, norb, self.cry.ns, self.cry.ns), dtype=float, order="F"
+        )
+        U = value[0]
+        U_prime = value[1]
+        J = value[2]
+
+        for m1 in range(norb):
+            for m2 in range(norb):
+                for m3 in range(norb):
+                    for m4 in range(norb):
+                        for s1 in range(self.cry.ns):
+                            for s2 in range(self.cry.ns):
+                                # if (m1==m2==m3==m4)and(s1==s2): # self interaction term
+                                #     V[m1,m2,m3,m4,s1,s2] = U
+                                if (m1 == m2 == m3 == m4) and (s1 != s2):
+                                    V[m1, m2, m3, m4, s1, s2] = U
+                                elif (
+                                    (m1 == m4)
+                                    and (m2 == m3)
+                                    and (m1 != m2)
+                                    and (s1 != s2)
+                                ):
+                                    V[m1, m2, m3, m4, s1, s2] = U_prime  # half or no
+                                elif (
+                                    (m1 == m4)
+                                    and (m2 == m3)
+                                    and (m1 != m2)
+                                    and (s1 == s2)
+                                ):
+                                    V[m1, m2, m3, m4, s1, s2] = U_prime - J
+                                elif (
+                                    (m1 == m3)
+                                    and (m2 == m4)
+                                    and (m1 != m2)
+                                    and (s1 != s2)
+                                ):
+                                    V[m1, m2, m3, m4, s1, s2] = J
+                                elif (
+                                    (m1 == m2)
+                                    and (m3 == m4)
+                                    and (m1 != m3)
+                                    and (s1 != s2)
+                                ):
+                                    V[m1, m2, m3, m4, s1, s2] = J
+
+        return V * 0.5
+
+    def angular_integral(self, l, k, m1, m2, m3, m4):
+        ang_int = 0
+        pi = np.pi
+
+        for q in range(-k, k + 1):
+            ang_int += (
+                gaunt(l, k, l, -m1, q, m3)
+                * np.conjugate(gaunt(l, k, l, m4, -q, -m2))
+                * ((-1.0 if (m1 + q + m2) % 2 == 1 else 1.0))
+            )
+
+        ang_int *= 4 * pi / (2 * k + 1)
+
+        return ang_int
+
+    def Slater_parameter(
+        self, norb: int = None, radial_integral: list = None, SorC: str = "C"
+    ):
+
+        V = np.zeros(
+            (norb, norb, norb, norb, self.cry.ns, self.cry.ns), dtype=float, order="F"
+        )
+
+        l = int((norb - 1) / 2)
+        m = list(range(-l, l + 1))
+        # print(l,m)
+
+        for n, F in enumerate(radial_integral):
+
+            k = 2 * n
+            for m1 in m:
+                for m2 in m:
+                    for m3 in m:
+                        for m4 in m:
+                            for s1 in range(self.cry.ns):
+                                for s2 in range(self.cry.ns):
+                                    V[
+                                        m1 + l, m2 + l, m3 + l, m4 + l, s1, s2
+                                    ] += F * self.angular_integral(l, k, m1, m2, m4, m3)
+        if SorC == "C":
+            for s1 in range(self.cry.ns):
+                for s2 in range(self.cry.ns):
+                    tempmat = V[:, :, :, :, s1, s2]
+                    tempmat = self.tf_spherical_to_cubic(tempmat, l)
+                    V[:, :, :, :, s1, s2] = tempmat
+        return V
+
+    def build_Vloc(self, param_dict: dict):
+        """ """
+        parametrization = "Unknown"
+        if param_dict["KorS"] == "S":
+            parametrization = "Slater"
+        elif param_dict["KorS"] == "K":
+            parametrization = "Kanamori"
+
+        if parametrization == "Unknown":
+            raise RuntimeError(
+                f"Unknown parametrization ('KorS') option {param_dict['KorS']}.\nShould be one of 'S' (for Slater parametrisation) or 'K' (for Kanamori)."
+            )
+        norbc = len(param_dict["orbitals"])
+        ns = self.cry.ns
+        V_loc = np.zeros((norbc, norbc, ns, ns), dtype=complex)
+        if parametrization == "Kanamori":
+            # self.orboption["params"]["U"] = param_dict["value"][0]
+            # self.orboption["params"]["Up"] = param_dict["value"][1]
+            # self.orboption["params"]["J"] = param_dict["value"][2]
+            tempmat = self.Kanamori(norbc, param_dict["value"])
+
+            for iorbc, jorbc, korbc, lorbc in itertools.product(
+                param_dict["orbital"],
+                param_dict["orbital"],
+                param_dict["orbital"],
+                param_dict["orbital"],
+            ):
+                # for iorbc in param_dict["orbital"]:
+                #     for jorbc in param_dict["orbital"]:
+                #         for korbc in param_dict["orbital"]:
+                #             for lorbc in param_dict["orbital"]:
+                [a, m1] = self.cry.FAtomOrb(iorbc)
+                [b, m2] = self.cry.FAtomOrb(jorbc)
+                [b_prime, m3] = self.cry.FAtomOrb(korbc)
+                [a_prime, m4] = self.cry.FAtomOrb(lorbc)
+                if (a == a_prime) and (b == b_prime):
+                    iorb = self.cry.BIndex([a, [m1, m4]])
+                    jorb = self.cry.BIndex([b, [m2, m3]])
+                    for s1, s2 in itertools.product(list(range(ns)), list(range(ns))):
+                        V_loc[iorb, jorb, s1, s2] = tempmat[m1, m2, m3, m4, s1, s2]
+        elif parametrization == "Slater":
+            # self.orboption["params"]["F0"] = param_dict["value"][0]
+            # self.orboption["params"]["F2"] = param_dict["value"][1]
+            # self.orboption["params"]["F4"] = param_dict["value"][2]
+            tempmat = self.Slater_parameter(norbc, param_dict["value"])
+            for iorbc, jorbc, korbc, lorbc in itertools.product(
+                param_dict["orbitals"],
+                param_dict["orbitals"],
+                param_dict["orbitals"],
+                param_dict["orbitals"],
+            ):
+                [a, m1] = self.cry.FAtomOrb(iorbc)
+                [b, m2] = self.cry.FAtomOrb(jorbc)
+                [b_prime, m3] = self.cry.FAtomOrb(korbc)
+                [a_prime, m4] = self.cry.FAtomOrb(lorbc)
+                if (a == a_prime) and (b == b_prime):
+                    iorb = self.cry.BIndex([a, [m1, m4]])
+                    jorb = self.cry.BIndex([b, [m2, m3]])
+                    for s1, s2 in itertools.product(list(range(ns)), list(range(ns))):
+                        V_loc[iorb, jorb, s1, s2] = tempmat[m1, m2, m3, m4, s1, s2]
+        return V_loc
+
+    def Convert_4_2(
+        self, mat: np.ndarray = None, flag: int = None
+    ) -> np.ndarray:  # 4 index <-> 2 index
+
+        norb = len(self.cry.bind)
+        norbc = len(self.cry.find)
+        if flag == 1:
+
+            mat_ret = np.zeros((norb, norb), dtype=complex)
+
+            for iorb, [iorbc, lorbc] in enumerate(self.cry.b2f):
+                for jorb, [jorbc, korbc] in enumerate(self.cry.b2f):
+                    mat_ret[iorb, jorb] = mat[iorbc, jorbc, korbc, lorbc]
+
+            return mat_ret
+
+        elif flag == 0:
+
+            mat_ret = np.zeros((norbc, norbc, norbc, norbc), dtype=complex, order="F")
+
+            for iorb, [iorbc, lorbc] in enumerate(self.cry.b2f):
+                for jorb, [jorbc, korbc] in enumerate(self.cry.b2f):
+                    mat_ret[iorbc, jorbc, korbc, lorbc] = mat[iorb, jorb]
+
+            return mat_ret
+
+    def Convert_4_2_LocStc(
+        self, mat: np.ndarray = None, flag: int = None
+    ) -> np.ndarray:
+
+        norb = len(self.cry.bind)
+        norbc = len(self.cry.find)
+
+        if flag == 1:
+
+            mat_ret = np.zeros((norb, norb, self.ns, self.ns), dtype=complex, order="F")
+
+            for js in range(self.ns):
+                for ks in range(self.ns):
+                    mat_ret[:, :, js, ks] = self.Convert_4_2(
+                        mat[:, :, :, :, js, ks], flag
+                    )
+
+            return mat_ret
+        elif flag == 0:
+
+            mat_ret = np.zeros(
+                (norbc, norbc, norbc, norbc, self.cry.ns, self.cry.ns),
+                dtype=complex,
+                order="F",
+            )
+
+            for js in range(self.cry.ns):
+                for ks in range(self.cry.ns):
+                    mat_ret[:, :, :, :, js, ks] = self.Convert_4_2(
+                        mat[:, :, js, ks], flag
+                    )
+
+            return mat_ret
+
+    def get_Uijkl_comctqmc(self, imp_dict, SOC=False):
+        V_loc4 = self.build_Vloc(imp_dict)
+
+        V_loc_temp = self.Convert_4_2_LocStc(V_loc4, 0)
+        orb = imp_dict["orbitals"]
+        norb = len(orb)
+        ns = self.cry.ns
+        V_loc = np.zeros((norb, norb, norb, norb, ns, ns), dtype=complex)
+        for js, ks, (ii, iorb), (jj, jorb), (kk, korb), (ll, lorb) in itertools.product(
+            range(ns),
+            range(ns),
+            enumerate(orb),
+            enumerate(orb),
+            enumerate(orb),
+            enumerate(orb),
+        ):
+            # for js in range(ns):
+            #     for ks in range(ns):
+            #         for ii, iorb in enumerate(orb):
+            #             for jj, jorb in enumerate(orb):
+            #                 for kk, korb in enumerate(orb):
+            #                     for ll, lorb in enumerate(orb):
+            V_loc[ii, jj, kk, ll, js, ks] = V_loc_temp[iorb, jorb, korb, lorb, js, ks]
+        nimp_orb = V_loc.shape[0]
+
+        if not SOC:
+            U = np.zeros(nimp_orb**4 * 2**4, dtype=float)
+            index = 0
+            if self.cry.ns == 1:
+                for sl, l, sk, k, sj, j, si, i in itertools.product(
+                    range(2),
+                    range(nimp_orb),
+                    range(2),
+                    range(nimp_orb),
+                    range(2),
+                    range(nimp_orb),
+                    range(2),
+                    range(nimp_orb),
+                ):
+                    # for sl in range(2):
+                    #     for l in range(nimp_orb):
+                    #         for sk in range(2):
+                    #             for k in range(nimp_orb):
+                    #                 for sj in range(2):
+                    #                     for j in range(nimp_orb):
+                    #                         for si in range(2):
+                    #                             for i in range(nimp_orb):
+
+                    if sj == sk and si == sl:
+                        val = V_loc[i, j, k, l, 0, 0].real
+                        val = abs(val)
+                        if val > 0.001:
+                            U[index] = val
+                    index = index + 1
+            elif self.cry.ns == 2:
+                for sl, l, sk, k, sj, j, si, i in itertools.product(
+                    range(2),
+                    range(nimp_orb),
+                    range(2),
+                    range(nimp_orb),
+                    range(2),
+                    range(nimp_orb),
+                    range(2),
+                    range(nimp_orb),
+                ):
+                    # for sl in range(2):
+                    #     for l in range(nimp_orb):
+                    #         for sk in range(2):
+                    #             for k in range(nimp_orb):
+                    #                 for sj in range(2):
+                    #                     for j in range(nimp_orb):
+                    #                         for si in range(2):
+                    #                             for i in range(nimp_orb):
+
+                    if sj == sk and si == sl:
+                        val = V_loc[i, j, k, l, si, sj].real
+                        val = abs(val)
+                        if val > 0.001:
+                            U[index] = val
+                    index = index + 1
+        else:
+            print("SOC is not False")
+            sys.exit()
+        return U
+
     def DMFT(
         self,
         itermax: int,
         hmat: np.ndarray,
-        slater_param: list,
+        impurity_dict: dict,
         N: float,
         mix: float,
         T: float,
@@ -4763,34 +5167,49 @@ class CorrelationFunction(object):
         ns = self.cry.ns
         ft = FT_grid(T=T, size=size)
         nimp = len(self.cry.probspace)
+        nspace = self.cry.fprojector.shape[3]
+        nf = len(ft.omega)
+
+        Uctqmc_imp = [None for _ in impurity_dict]
+        for imp in impurity_dict:
+            Uctqmc_imp[int(imp) - 1] = self.get_Uijkl_comctqmc(impurity_dict[imp])
 
         G_bare = GreenBare(self.cry, ft, hmat)
         G_int = GreenInt(self.cry, ft, G_bare)
+        G_int.UpdateMu()
         G_loc = GreenLoc(self.cry, ft, G_int)
-        G_int.Occ()
         E_imp = ImpurityLevel(self.cry, hmat, G_int.mu)
         # Actually, only pick inequivalent sites, not all sites in G_loc...
         G_imp_mat = G_loc.Loc2Imp(G_loc.gf)
         E_imp_mat = E_imp.Loc2Imp(E_imp.loc)
         Sig_imp_mat = np.zeros_like(G_imp_mat)
         Sig_loc = SigmaLoc(self.cry, ft, np.zeros_like(G_int.gbare.g0kf))
-        G_imp = np.empty_like(norb, norb, ns, nf, nimp, dtype=complex)
-        Sig_imp = np.empty_like(norb, norb, ns, nf, nimp, dtype=complex)
+        G_imp = np.empty((norb, norb, ns, nf, nimp), dtype=complex)
+        Sig_imp = np.empty((norb, norb, ns, nf, nimp), dtype=complex)
         cwd = os.getcwd()
         for it in range(itermax):
             hybridisation = Hybridisation(
-                self.cry, self.ft, E_imp_mat, G_loc.Loc2Imp(G_loc.gf), Sig_imp_mat
+                self.cry, ft, E_imp_mat, G_loc.Loc2Imp(G_loc.gf), Sig_imp_mat
             )
             mu_old = G_int.mu
             occ_old = G_int.occ
 
             for imp in self.cry.probspace:
+                print(f"{imp=}")
+                print(f"{type(imp)=}")
+                imp = int(imp)
+
                 impdir = f"impurity/{imp}"
-                if not os.path_exists(impdir):
-                    os.mkdir(impdir)
+                if not os.path.exists(impdir):
+                    os.mkdir("impurity")
+                    os.mkdir(f"impurity/{imp}")
                 os.chdir(impdir)
-                G_imp[..., imp], Sig_imp[..., imp] = self.RunImpurityAction(
-                    self.ft.beta, E_imp, hybridisation, slater_param, equiv
+                G_imp[..., imp - 1], Sig_imp[..., imp - 1] = self.RunImpurityAction(
+                    ft,
+                    E_imp.imp[..., imp - 1],
+                    hybridisation.imp[..., imp - 1],
+                    Uctqmc_imp[imp - 1],
+                    equiv,
                 )
                 os.chdir(cwd)
 
@@ -4808,7 +5227,7 @@ class CorrelationFunction(object):
                 sigmagwc=Sig_loc.Embedding(Sig_loc.f),
             )
             G_int.SearchMu()
-            G_int.Occ()
+            # G_int.Occ()
             occ = G_int.occ
             if abs(G_int.mu - mu_old) < 1e-2 or self.FermionSCF(occ_old, occ) < 1e-3:
                 break
@@ -4825,15 +5244,16 @@ class CorrelationFunction(object):
 
     def RunImpurityAction(
         self,
-        beta: float,
-        E_imp: ImpurityLevel,
-        hybridisation: Hybridisation,
-        U4: np.ndarray,
+        ft,
+        E_imp: np.ndarray,
+        hybridisation: np.ndarray,
+        U_imp: np.ndarray,
         equiv: list,
     ):
-        self.WriteParamsJson(beta, equiv, E_imp.ndarray, U4, hybridisation.ndarray)
+        self.WriteParamsJson(ft.beta, equiv, E_imp, U_imp, hybridisation)
         self.RunCTQMC()
-        return self.MeasureCTQMC()
+        self.MeasureCTQMC()
+        return self.PostprocessCTQMC(ft, equiv)
 
     def RunCTQMC(self):
         # run_cmd = 'mpirun -np 1 '+diage_path+'/ComCTQMC/bin/CTQMC params'
@@ -4861,8 +5281,7 @@ class CorrelationFunction(object):
                 sys.exit()
         print("measure self-energy done")
 
-        # MOVE to separate function
-        #####
+    def PostprocessCTQMC(self, ft, equiv):
         obs_json = "params.obs.json"
         observables = json.load(open(obs_json))
         observables = observables["partition"]
@@ -4875,41 +5294,39 @@ class CorrelationFunction(object):
         sig_hf_dict = {}
         for key, val in observables["self-energy"].items():
             sig_hf_dict[key] = complex(val["moments"][0])
-            sig_bare_dict["key"] = []
+            sig_bare_dict[key] = []
             for real, imag in zip(val["function"]["real"], val["function"]["imag"]):
                 sig_bare_dict[key].append(real + 1j * imag)
-        ####
-        ###
-        return GreenImp(self.cry, self.ft, green_dict), SigmaImp(
-            self.cry, self.ft, sig_bare_dict
-        )
+        GI = GreenImp(self.cry, ft, green_dict, equiv)
+        SI = SigmaImp(self.cry, ft, sig_bare_dict, equiv)
+        return GI.imp, SI.imp
 
-    def WriteParamsJson(self, beta, equiv, E_imp, U4, hyb, SOC=False):
+    def WriteParamsJson(self, beta, equiv, E_imp, U_comctqmc, hyb, SOC=False):
         """
         Write parameters for running ComDMFT to a json archive
         :paramn float beta: Inverse temperature
         :param list equiv:  List of equivalent impurity orbitals
         :E_imp np.ndarray: Impurity levels
-        :param np.ndarray U4: 4-index Coulomb matrix
+        :param np.ndarray U4: Coulomb matrix
         :param np.ndarray hyb: Hybridisation function, ndarray with dimensions (norb, norb, ns, nfreq, nimp)
         :param bool SOC: Include Spin orbit coupling? (default: False)
         """
         norb, _, ns, _ = hyb.shape
-        self.WriteHyb(hyb[..., imp], beta, SOC)
+        self.WriteHyb(self.get_dict_LocDyn(equiv, hyb), beta, SOC)
         if not SOC:
             if ns == 1:
                 params = {}
                 params["hloc"] = {}
                 mu_ctqmc = -np.real(E_imp[0, 0, 0])
                 # print(mu_ctqmc,type(mu_ctqmc))
-                E_imp = E_imp[:, :, 0] + mu_ctqmc * np.eye(
-                    E_imp.shape[0], E_imp.shape[0]
-                )
+                E_imp = E_imp[:, :] + mu_ctqmc * np.eye(E_imp.shape[0], E_imp.shape[0])
                 E_imp = np.array(np.real(E_imp), dtype=float)
-                tempmat = np.kron(E_imp, np.eye(2, 2))
+                tempmat = np.kron(E_imp[:, :, 0], np.eye(2, 2))
                 params["hloc"]["one body"] = tempmat.tolist()
                 # self.boson.get_Uijkl_comctqmc(key)
-                params["hloc"]["two body"] = U4  # self.boson.U_ctqmc.tolist()
+                params["hloc"][
+                    "two body"
+                ] = U_comctqmc.tolist()  # self.boson.U_ctqmc.tolist()
                 # params["hloc"]["two body"] = {}
                 # params["hloc"]["two body"]["parametrisataion"] = "slater-condon"
                 # params["hloc"]["two body"]["F0"]=5.0
@@ -5008,24 +5425,42 @@ class CorrelationFunction(object):
 
         return None
 
+    def get_dict_LocDyn(self, equiv: np.ndarray, mat_in: np.ndarray) -> dict:
+
+        print(f"{mat_in.shape=}")
+        _, _, ns, nf = mat_in.shape
+        Nind = len(set(orb for row in equiv for orb in row))
+        mat_dict = {}
+
+        for ind in range(Nind):
+            mat_dict[ind + 1] = []
+            pos = self.cry.FindPositions(equiv, ind + 1)
+            for js in range(ns):
+                e = np.zeros((nf,), dtype=mat_in.dtype)
+                for ii, jj in pos:
+                    e += mat_in[ii, jj, js]
+                e /= len(pos)
+                mat_dict[ind + 1] = e.tolist()
+
+        return mat_dict
+
     def WriteHyb(self, hyb, beta, SOC=False):
         """
         Write hybridisation function to json file, so that CTQMC can read it.
-        :param np.ndarray hyb: Hybridisation function, ndarray with dimensions (norb, norb, ns, nfreq, nimp)
+        :param dict hyb: Hybridisation function
         :paramn beta float: Inverse temperature
         :param bool SOC: Include Spin orbit coupling? (default: False)
         """
-        assert len(hyb.shape) == 5
-        _, _, ns, _ = hyb.shape
+        ns = self.cry.ns
         if not SOC:
             if ns == 1:
                 json_dict = {}
                 for key, val in hyb.items():
-                    json_dict[key] = {}
-                    for imp in range(nimp):
-                        json_dict[str(imp)]["beta"] = beta
-                        json_dict[str(imp)]["real"] = np.real(hyb[..., imp]).tolist()
-                        json_dict[str(imp)]["imag"] = np.imag(hyb[..., imp]).tolist()
+                    json_dict[key] = {
+                        "beta": beta,
+                        "real": np.real(val).tolist(),
+                        "imag": np.imag(val).tolist(),
+                    }
 
                 # with open(f"hyb.{it}.{key}.json", "w") as outfile:
                 #     json.dump(
