@@ -28,9 +28,9 @@ from pymatgen.core import Lattice, Structure
 
 # from pymatgen.transformations.standard_transformations import SupercellTransformation
 
-diage_path = os.environ.get("DIAGE", "")
-path = diage_path + "/modules"
-sys.path.append(path)
+#diage_path = os.environ.get("DIAGE", "")
+#path = diage_path + "/modules"
+#sys.path.append(path)
 
 
 class Crystal(object):  # chemical potential object, num of electron
@@ -2276,7 +2276,7 @@ class FLocDyn(object):
 
         print(f"{matin.shape=} {self.crystal.fprojector.shape=}")
         for ispace in range(nspace):
-            matout += DiagE.embedding.flocdyn(
+            matout += DiagE.embedding.flatdyn(
                 nrk, matin[..., ispace], self.crystal.fprojector[..., ispace]
             )
 
@@ -3784,7 +3784,7 @@ class BLocDyn(object):
         matout = np.zeros((norb, norb, ns, ns, nrk, nft), dtype=complex, order="F")
 
         for ispace in range(nspace):
-            matout += DiagE.embedding.blocdyn(
+            matout += DiagE.embedding.blatdyn(
                 nrk, matin[..., ispace], self.crystal.bprojector[..., ispace]
             )
 
