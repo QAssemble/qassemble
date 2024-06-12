@@ -19,7 +19,8 @@ Module Bare
     FLatTau, &
     BLocTau, &
     BLatTau, &
-    BFreq
+    BFreq, &
+    FTauTest
 
 ! end interface Dyson
 
@@ -89,14 +90,16 @@ contains
     double precision, intent(in) :: tau(0:(ntau-1)), energy
     complex*16, intent(out) :: gtau(0:(ntau-1))    
     
-    integer :: unitnum
-    double precision :: machep,taumod,taunew, beta, pi
+    integer :: unitnum!,temp
+    double precision :: machep,taumod,taunew, beta, pi!,temp2
     integer :: itau
     
     pi = datan2(1.0d0, 1.0d0)*4.0d0
     
-    beta= tau(0)/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)*2.0d0   
+!   beta= tau(0)/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)*2.0d0  
+    beta = tau(ntau-1)
     machep = epsilon ( machep )
+!    print *, machep
 
     do itau=0, ntau-1
       taumod=modulo(tau(itau), beta)
@@ -105,8 +108,9 @@ contains
         unitnum=unitnum-1
       endif
       taunew=tau(itau)-beta*unitnum          
- 
-      
+!     temp = (unitnum+1)
+!     temp2 = (-1)**(unitnum+1)
+!     print *,  itau, temp, temp2, tau(itau),taunew
       if (energy .gt. 0) then
         gtau(itau)=(-1)**(unitnum+1)*dexp(-energy*taunew)*(1-1.0d0/(dexp(energy*beta)+1))
       else
@@ -365,5 +369,42 @@ contains
 
   end subroutine BLatTau
 
+  subroutine FTauTest(ntau, tau, energy, gtau,beta)
+    ! from wikipedia: https://en.wikipedia.org/wiki/Matsubara_frequency
+        implicit none
+        
+        integer, intent(in) :: ntau
+        double precision, intent(in) :: tau(0:(ntau-1)), energy, beta
+        complex*16, intent(out) :: gtau(0:(ntau-1))  
+          
+        
+        integer :: unitnum!,temp
+        double precision :: machep,taumod,taunew, pi!,temp2
+        integer :: itau
+        
+        pi = datan2(1.0d0, 1.0d0)*4.0d0
+        
+    !   beta= tau(0)/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)*2.0d0  
+        ! beta = tau(ntau-1)
+        machep = epsilon ( machep )
+    !    print *, machep
+    
+        do itau=0, ntau-1
+          taumod=modulo(tau(itau), beta)
+          unitnum=nint(tau(itau)-taumod)/beta
+          if (taumod .lt. machep) then
+            unitnum=unitnum-1
+          endif
+          taunew=tau(itau)-beta*unitnum          
+    !     temp = (unitnum+1)
+    !     temp2 = (-1)**(unitnum+1)
+    !     print *,  itau, temp, temp2, tau(itau),taunew
+          if (energy .gt. 0) then
+            gtau(itau)=(-1)**(unitnum+1)*dexp(-energy*taunew)*(1-1.0d0/(dexp(energy*beta)+1))
+          else
+            gtau(itau)=(-1)**(unitnum+1)*dexp(-energy*(taunew-beta))*(1.0d0/(dexp(energy*beta)+1))
+          endif
+        enddo
+      end subroutine FTauTest
  
 end Module Bare

@@ -24,7 +24,7 @@ Module Fourier
     BLocDyn_T2F, & !
                                 ! BLatDyn_T2F_v0, & !
                                 ! BLocDyn_T2F_v0, & !
-    
+
 ! end interface T2F
     
 ! interface F2T 
@@ -37,7 +37,10 @@ Module Fourier
                                 ! BLatDyn_F2T_v0,& !    
     BLocDyn_F2T,& !
                                 ! BLocDyn_F2T_v0,& !          
-    
+    BLocDyn_T2F_Test,&
+    FLocDyn_T2F_Test,& 
+    FLocDyn_T2F_Test2,&  
+    Weight,& 
 ! end interface F2T
     
 ! interface M 
@@ -468,7 +471,7 @@ contains
     complex*16, intent(out) :: fout(norb,norb,ns,nrk)
     double precision :: norm
     norm=1.0d0/dble(nrk)
-    call FLat_KR(norb,ns,nrk,rkgrid,fin,fout,-1,norm)
+    call FLat_KR(norb,ns,nrk,rkgrid,fin,fout,1,norm)
   end subroutine FLatStc_K2R
 
 
@@ -479,7 +482,7 @@ contains
     complex*16, intent(out) :: fout(norb,norb,ns,nrk)
     double precision :: norm
     norm=1.0d0
-    call FLat_KR(norb,ns,nrk,rkgrid,fin,fout,1,norm)
+    call FLat_KR(norb,ns,nrk,rkgrid,fin,fout,-1,norm)
   end subroutine FLatStc_R2K
 
 
@@ -1113,6 +1116,188 @@ contains
 ! end subroutine BLatDyn_T2F_v0  
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!
+
+  subroutine FLocDyn_T2F_Test(norb,ns,ntau,tau,ftau,nf,freq,ff,w)
+    implicit none
+    integer, intent(in) :: norb,ns,ntau,nf
+    double precision, intent(in) :: tau(0:(ntau-1)), freq(0:(nf-1)), w(0:(ntau-1))
+    complex*16, intent(in) :: ftau(norb,norb,ns,0:(ntau-1))
+    complex*16, intent(out) :: ff(norb,norb,ns,0:(nf-1))
+
+
+    integer :: iorb,jorb,itau,ifreq,is,itheta,ierr
+
+    double precision :: pi, beta, taurad_finu((-ntau):(ntau-1))
+    complex*16 :: ff_finu((-2*nf+1):(2*nf-1)), ftau_finu((-ntau):(ntau-1))
+    integer*8 :: ntau_finu, nf_finu
+    integer*8, allocatable :: null
+
+
+    pi=datan2(1.0d0,1.0d0)*4.0d0
+    beta=pi/freq(0)
+
+    ntau_finu=2*ntau
+    nf_finu=4*nf-1
+    do itau=0, ntau-1
+      itheta=ttind(itau, ntau)
+      taurad_finu(itau)=tau(itau)/beta*pi
+      taurad_finu(-itau-1)=-taurad_finu(itau)
+    enddo
+
+    ff=0.0d0
+
+    do iorb=1, norb
+      do jorb=1, norb
+        do is=1, ns
+          ftau_finu=0.0d0
+          ff_finu=0.0d0
+          do itau=0, ntau-1
+            ftau_finu(itau)=ftau(iorb,jorb,is,itau)*w(itau)!*dsqrt(tau(itau)*(beta-tau(itau)))*pi/ntau
+            ftau_finu(itau-ntau)=-ftau_finu(itau)
+          enddo
+          call finufft1d1(ntau_finu,taurad_finu,ftau_finu,1, 1.0d-12, nf_finu,ff_finu,null,ierr)
+          do ifreq=0, 2*nf-1
+            if (modulo(ifreq, 2) .eq. 1) then
+              ff(iorb,jorb,is,(ifreq-1)/2)=ff_finu(ifreq)/2.0d0
+            endif
+          enddo
+        enddo
+      enddo
+    enddo
+
+  end subroutine FLocDyn_T2F_Test
+
+  subroutine FLocDyn_T2F_Test2(norb,ns,ntau,tau,ftau,nf,freq,ff)
+    implicit none
+    integer, intent(in) :: norb,ns,ntau,nf
+    double precision, intent(in) :: tau(0:(ntau-1)), freq(0:(nf-1))
+    complex*16, intent(in) :: ftau(norb,norb,ns,0:(ntau-1))
+    complex*16, intent(out) :: ff(norb,norb,ns,0:(nf-1))
+
+
+    integer :: iorb,jorb,itau,ifreq,is,itheta,ierr
+
+    double precision :: pi, beta, taurad_finu((-ntau):(ntau-1))
+    complex*16 :: ff_finu((-2*nf+1):(2*nf-1)), ftau_finu((-ntau):(ntau-1))
+    integer*8 :: ntau_finu, nf_finu
+    integer*8, allocatable :: null
+
+
+    pi=datan2(1.0d0,1.0d0)*4.0d0
+    beta=pi/freq(0)
+
+    ntau_finu=2*ntau
+    nf_finu=4*nf-1
+    do itau=0, ntau-1
+      itheta=ttind(itau, ntau)
+      taurad_finu(itau)=tau(itau)/beta*pi
+      taurad_finu(-itau-1)=-taurad_finu(itau)
+    enddo
+
+    ff=0.0d0
+
+    do iorb=1, norb
+      do jorb=1, norb
+        do is=1, ns
+          ftau_finu=0.0d0
+          ff_finu=0.0d0
+          do itau=0, ntau-1
+            if (itau .lt. ntau/2) then
+              ftau_finu(itau)=ftau(iorb,jorb,is,itau)*(5.0d0*(16.0d0*beta)**(1/5) /real(ntau))*(tau(itau))**(4/5)
+            else
+              ftau_finu(itau)=ftau(iorb,jorb,is,itau)*(5.0d0*(16.0d0*beta)**(1/5)/real(ntau))*(beta-tau(itau))**(4/5)
+            endif
+            ftau_finu(itau-ntau)=-ftau_finu(itau)
+          enddo
+          call finufft1d1(ntau_finu,taurad_finu,ftau_finu,1, 1.0d-12, nf_finu,ff_finu,null,ierr)
+          do ifreq=0, 2*nf-1
+            if (modulo(ifreq, 2) .eq. 1) then
+              ff(iorb,jorb,is,(ifreq-1)/2)=ff_finu(ifreq)/2.0d0
+            endif
+          enddo
+        enddo
+      enddo
+    enddo
+
+  end subroutine FLocDyn_T2F_Test2
+
+  subroutine BLocDyn_T2F_Test(norb,ns,ntau,tau,ftau,nf,freq,ff,w)
+    implicit none
+    integer, intent(in) :: norb,ns,ntau,nf
+    double precision, intent(in) :: tau(0:(ntau-1)), freq(0:(nf-1)),w(0:(ntau-1))
+    complex*16, intent(in) :: ftau(norb,norb,ns,ns,0:(ntau-1))
+    complex*16, intent(out) :: ff(norb,norb,ns,ns,0:(nf-1))
+
+    integer :: iorb,jorb,itau,ifreq,is,js,itheta,ierr
+
+    double precision :: pi, beta, taurad_finu(0:(ntau-1))
+    complex*16 :: ff_finu((-nf+1):(nf-1)), ftau_finu(0:(ntau-1))
+    integer*8 :: ntau_finu, nf_finu
+    integer*8, allocatable :: null
+
+
+    pi=datan2(1.0d0,1.0d0)*4.0d0
+    beta=2.0d0*pi/freq(1)
+
+    ntau_finu=ntau
+    nf_finu=2*nf-1
+    do itau=0, ntau-1
+      itheta=ttind(itau, ntau)
+      taurad_finu(itau)=tau(itau)/beta*2.0d0*pi
+    enddo
+
+    ff=0.0d0
+
+    do iorb=1, norb
+      do jorb=1, norb
+        do is=1, ns
+          do js=1, ns
+            ftau_finu=0.0d0
+            ff_finu=0.0d0
+            do itau=0, ntau-1
+              ftau_finu(itau)=ftau(iorb,jorb,is,js,itau)*w(itau)!dsqrt(tau(itau)*(beta-tau(itau)))*pi/ntau
+            enddo
+            call finufft1d1(ntau_finu,taurad_finu,ftau_finu,1, 1.0d-12, nf_finu,ff_finu,null,ierr)
+            do ifreq=0, nf-1
+              ff(iorb,jorb,is,js,ifreq)=ff_finu(ifreq)
+            enddo
+          enddo
+        enddo
+      enddo
+    enddo
+
+  end subroutine BLocDyn_T2F_Test
+
+  subroutine Weight(ntau, tau, w)
+      implicit none
+      integer, intent(in) :: ntau
+      double precision, intent(in) :: tau(0:(ntau-1))
+      double precision, intent(out) :: w(0:(ntau-1))
+
+      integer :: itau
+
+      double precision :: beta, prefac, meshscale
+
+      meshscale = (real(ntau)/2.0d0)**(5.0d0)
+      
+      beta = tau(0) * (2.0d0*meshscale)
+!      print *, beta
+      
+      prefac = 5.0d0*(16.0d0 * beta)**(1/5) / real(ntau)
+
+      do itau=0, ntau-1
+         if (itau .lt. ntau/2) then
+             w(itau) = prefac*tau(itau)**(4/5)
+         else
+             w(itau) = prefac*(beta-tau(itau))**(4/5)
+         endif
+      enddo
+
+  end subroutine Weight
+
+
+
+
 
 
 
