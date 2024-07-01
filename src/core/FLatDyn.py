@@ -664,8 +664,8 @@ class GreenInt(FLatDyn):
     def SearchMu(self):
         
         print("Finding chemical potential start")
-        mumin = -self.ft.omega[-1]*0.4
-        mumax = self.ft.omega[-1]*0.4
+        mumin = -self.ft.omega[-1]*0.6
+        mumax = self.ft.omega[-1]*0.6
         print(f"minimum : {mumin}, maximum : {mumax}")
         nmin = self.NumOfE(mumin)
         nmax = self.NumOfE(mumax)
@@ -741,23 +741,40 @@ class SigmaGWC(FLatDyn):
         crtau = np.zeros((norbc,norbc,ns,nr,ntau),dtype=np.complex64,order='F')
     
         tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex64,order='F')
+        # for itau in range(ntau):
+        #     for ir in range(nr):
+        #         tempmat = self.crystal.OrbSpin2Composite(Wc[:,:,:,:,ir,itau])
+        #         for ind1 in range(norb*ns):
+        #             nn1= [0]*2
+        #             ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
+        #             [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
+        #             iorbc1 = self.crystal.FIndex([a,m1])
+        #             iorbc4 = self.crystal.FIndex([a,m4])
+        #             for ind2 in range(norb*ns):
+        #                 nn2 = [0]*2
+        #                 ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
+        #                 [b,[m3,m2]] = self.crystal.BAtomOrb(jorb)
+        #                 iorbc3 = self.crystal.FIndex([b,m3])
+        #                 iorbc2 = self.crystal.FIndex([b,m2])
+        #                 if js == ks:
+        #                     crtau[iorbc1,iorbc2,js,ir,itau] += -G[iorbc4,iorbc3,js,ir,itau]*tempmat[ind1,ind2]
+        
         for itau in range(ntau):
             for ir in range(nr):
-                tempmat = self.crystal.OrbSpin2Composite(Wc[:,:,:,:,ir,itau])
-                for ind1 in range(norb*ns):
-                    nn1= [0]*2
-                    ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
-                    [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
-                    iorbc1 = self.crystal.FIndex([a,m1])
-                    iorbc4 = self.crystal.FIndex([a,m4])
-                    for ind2 in range(norb*ns):
-                        nn2 = [0]*2
-                        ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
-                        [b,[m3,m2]] = self.crystal.BAtomOrb(jorb)
-                        iorbc3 = self.crystal.FIndex([b,m3])
-                        iorbc2 = self.crystal.FIndex([b,m2])
-                        if js == ks:
-                            crtau[iorbc1,iorbc2,js,ir,itau] += -G[iorbc4,iorbc3,js,ir,itau]*tempmat[ind1,ind2]
+                for ind2 in range(norb*ns):
+                    nn2 = [0]*2
+                    ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
+                    [b,[m3,m2]] = self.crystal.BAtomOrb(jorb)
+                    iorbc3 = self.crystal.FIndex([b,m3])
+                    iorbc2 = self.crystal.FIndex([b,m2])
+                    for ind1 in range(norb*ns):
+                        nn1 = [0]*2
+                        ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
+                        [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
+                        iorbc1 = self.crystal.FIndex([a,m1])
+                        iorbc4 = self.crystal.FIndex([a,m4])
+                        if js==ks:
+                            crtau[iorbc1,iorbc2,js,ir,itau] += -G[iorbc4,iorbc3,js,ir,itau]*Wc[iorb,jorb,js,ks,ir,itau]
                 
                                         
 

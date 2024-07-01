@@ -329,8 +329,11 @@ class VBare(BLatStc):
         self.r = None
         self.intamp = intamp
         self.locoption = orboption
-        self.nonlock = None
-        self.nonlocr = None
+        norb = len(self.crystal.bind)
+        ns = self.crystal.ns
+        nrk = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
+        self.nonlock = np.zeros((norb,norb,ns,ns,nrk),dtype=complex,order='F')
+        self.nonlocr = np.zeros((norb,norb,ns,ns,nrk),dtype=complex,order='F')
         self.sigmaonsiter = None
         if (ohno==False)and(intamp==None):
             print("Only calculate the local coulomb interaction")
@@ -350,7 +353,7 @@ class VBare(BLatStc):
         if ohno:
             if intamp==None:
                 self.OhnoParameter()
-                self.Cal()
+                # self.Cal()
         else:
             if intamp != None:
                 # self.InteractingAmplitue(intamp)
@@ -437,13 +440,14 @@ class VBare(BLatStc):
         nrk = len(self.crystal.kpoint) 
 
         vbare = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex64,order='F')
-        if (self.intamp == None):
-            for ik in range(nrk):
-                vbare[...,ik] = vloc
-        else:
-            for ik in range(nrk):
-                vbare[...,ik] = vloc + vnlk[...,ik]
-        
+        # if (self.nonlock == None):
+        #     for ik in range(nrk):
+        #         vbare[...,ik] = vloc
+        # else:
+        #     for ik in range(nrk):
+        #         vbare[...,ik] = vloc + vnlk[...,ik]
+        for ik in range(nrk):
+            vbare[...,ik] = vloc + vnlk[...,ik]
         self.k = vbare
         self.r = self.K2R(vbare)
 
@@ -469,34 +473,77 @@ class VBare(BLatStc):
     def OhnoParameter(self):
 
         norbc = len(self.crystal.find)
-        U = self.locoption["option"][1]["value"][0]
-        V = []
+        ns = self.crystal.ns
+        norb = len(self.crystal.bind)
+        # U = self.locoption["option"][1]["value"][0]
+        # V = []        
         R = copy.deepcopy(self.crystal.rkgrid)
+        nr = R[0]*R[1]*R[2]
+        vr = np.zeros((norb,norb,ns,ns,nr),dtype=complex,order='F')
+        tempmat = np.zeros((norb,norb,ns,ns,R[0],R[1],R[2]),dtype=complex,order='F')
+        # vr = np.zeros((norbc,norbc,norbc,norbc,ns,ns,nr),dtype=complex,order='F')
         a0 = 0.592
         au = 27.2114
 
-        for iz in range(R[2]):
-            for iy in range(R[1]):
-                for ix in range(R[0]):
-                    for jorbc in range(norbc):
-                        for iorbc in range(norbc):
-                            if (iorbc == jorbc)and([ix,iy,iz]==[0,0,0]):
-                                continue
-                            if (iorbc<=jorbc):
-                                rvec = np.array([ix,iy,iz])
-                                a, m1 = self.crystal.FAtomOrb(iorbc)
-                                b, m2 = self.crystal.FAtomOrb(jorbc)
-                                delta = self.crystal.basisc[a,:]-(self.crystal.basisc[b,:]+rvec@self.crystal.avec)
-                                rij = self.RMin(delta)
-                                Rij = rij*a0 # convert angstrom to a.u.
-                                u = U/au # convert eV to a.u.
-                                vij = 1/(Rij**2+1/u**2)**(1/2)
-                                Vij = vij*au
-                                V.append([Vij,(a,m1),(b,m2),rvec])
-#        print(V)
-        self.intamp = V
+        # for iz in range(R[2]):
+        #     for iy in range(R[1]):
+        #         for ix in range(R[0]):
+        #             for jorbc in range(norbc):
+        #                 for iorbc in range(norbc):
+        #                     if (iorbc == jorbc)and([ix,iy,iz]==[0,0,0]):
+        #                         continue
+        #                     if (iorbc<=jorbc):
+        #                         rvec = np.array([ix,iy,iz])
+        #                         a, m1 = self.crystal.FAtomOrb(iorbc)
+        #                         b, m2 = self.crystal.FAtomOrb(jorbc)
+        #                         delta = self.crystal.basisc[a,:]-(self.crystal.basisc[b,:]+rvec@self.crystal.avec)
+        #                         rij = self.RMin(delta)
+        #                         Rij = rij*a0 # convert angstrom to a.u.
+        #                         u = U/au # convert eV to a.u.
+        #                         vij = 1/(Rij**2+1/u**2)**(1/2)
+        #                         Vij = vij*au
+        #                         V.append([Vij,(a,m1),(b,m2),rvec])
+        
+        for ks in range(ns):
+            for js in range(ns):
+                for jorbc in range(norbc):
+                    for iorbc in range(norbc):
+                        (a,m1) = self.crystal.FAtomOrb(iorbc)
+                        (b,m2) = self.crystal.FAtomOrb(jorbc)
+                        iorb = self.crystal.BIndex([a,[m1,m1]])
+                        jorb = self.crystal.BIndex([b,[m2,m2]])
+                        Ui = self.locoption["option"][a+1]["value"][0]
+                        Uj = self.locoption["option"][b+1]["value"][0]
+                        u = ((Ui+Uj)/2.0)/au
+                        # if iorbc!=jorbc:
+                        #     print(f"Ui : {Ui}, Uj : {Uj}, average : {((Ui+Uj)/2.0)}, a.u. unit : {u}")
+                        for iz in range(R[2]):
+                            for iy in range(R[1]):
+                                for ix in range(R[0]):
+                                    if (iorbc==jorbc)and([ix,iy,iz]==[0,0,0]):
+                                        continue
+                                    # elif(iorbc<=jorbc):
+                                    else:
+                                        rvec = np.array([ix,iy,iz],dtype=float)
+                                        delta = self.crystal.basisc[a,:] - (self.crystal.basisc[b,:]+rvec@self.crystal.avec)
+                                        rij = self.RMin(delta)
+                                        Rij = rij*a0
+                                        vij = 1/(Rij**2+1/u**2)**(0.5)*au
+                                        tempmat[iorb,jorb,js,ks,ix,iy,iz] = vij
+                                        # tempmat[jorb,iorb,js,ks,-ix,-iy,-iz] = vij
+                                    # if (iorbc!=jorbc)and([ix,iy,iz]==[0,0,0]):
+                                    #     print(f"Ui : {Ui}, Uj : {Uj}, average : {((Ui+Uj)/2.0)}, a.u. unit : {u}, vij : {vij}")
 
-        return None
+
+        vr = tempmat.reshape((norb,norb,ns,ns,nr),order='F')
+        # self.intamp = V
+
+        self.nonlocr = copy.deepcopy(vr)
+        self.nonlock = self.R2K(vr)
+
+        del vr, tempmat,Rij,rij,vij,u,delta,rvec,R,iorb,jorb,ix,iy,iz,js,ks,au,a0
+        gc.collect()
+
     
     def RMin(self,d : np.ndarray):
 
@@ -512,6 +559,8 @@ class VBare(BLatStc):
         for kk in range(-1,2):
             for jj in range(-1,2):
                 for ii in range(-1,2):
+                    if (ii==0)and(jj==0)and(kk==0):
+                        continue
                     rvec = np.array([a*ii,b*jj,c*kk])
                     R1 = np.linalg.norm(d)
                     R2 = np.linalg.norm(d+rvec)

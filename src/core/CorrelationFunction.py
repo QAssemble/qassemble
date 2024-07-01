@@ -250,7 +250,7 @@ class CorrelationFunction(object):
 
             print(f"iteration : {iter} \nfcriteria : {fcheck} \nbcriteria : {bcheck} \nchemicalpotential : {gnew.mu+gnew.c}")
 
-            if (fcheck <=0.005)and(bcheck<=0.05)and(mucheck<=0.01):
+            if (fcheck <=0.005)and(bcheck<=1)and(mucheck<=0.01):
                 print(f"Self-consistency is achived with {iter}-th")
                 self.green = gnew
                 self.pol = pol

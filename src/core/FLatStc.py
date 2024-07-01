@@ -199,7 +199,7 @@ class FLatStc(object):
 
         return np.exp(-0.5*((x-mu)/sigma)**2)/(sigma*np.sqrt(2*np.pi))
         
-    def DOS(self,hamr : np.ndarray = None, sigma : float = 0.1, kgrid : list = [20,20,20], plotoption : bool = False):
+    def DOS(self,hamr : np.ndarray = None, sigma : float = 0.1, kgrid : list = [20,20,20], plotoption : bool = False, emax : float = 10, emin : float = -10):
 
 
         print("***** DOS Calculation Start *****")
@@ -219,8 +219,8 @@ class FLatStc(object):
         print("***** Hamiltonian Diagonalization Start *****")
         (energy,eigvec) = self.Diagonalize(matk=hamk,eigvec=True)
         print("***** Hamiltonian Diagonalization Finish *****")
-        emin = -10#energy[0,0,0].min()
-        emax = 10#energy[-1,-1,0].max()
+        emin = emin#energy[0,0,0].min()
+        emax = emax#energy[-1,-1,0].max()
         energyrange=np.linspace(emin,emax,nk)
         # dos = np.zeros_like(energyrange)
         dos = np.zeros((norb,ns,nk),dtype=float)
