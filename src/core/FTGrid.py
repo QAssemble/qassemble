@@ -24,7 +24,7 @@ import DiagE
 
 class FTGrid(object):
 
-    def __init__(self,T : float = 300,beta : float = None,size : int = 1000) -> object:
+    def __init__(self,T : float = 300,beta : float = None,cutoff : int = 50) -> object:
         
         if beta == None:
             self.T = T
@@ -32,10 +32,10 @@ class FTGrid(object):
         else:
             self.beta = beta
             self.T = 1/(beta*8.6173303*10**-5)
-        self.size = size
-        self.omega = np.zeros((size),dtype=float,order='F')
-        self.nu = np.zeros((size),dtype=float,order='F')
-        self.tau = np.zeros((int(size*2)),dtype=float,order='F')
+        self.cutoff = cutoff
+        self.omega = None
+        self.nu = None
+        self.tau = None
 
         self.Omega()
         self.Tau()
@@ -43,9 +43,16 @@ class FTGrid(object):
 
     def Omega(self) -> np.ndarray:
 
-        nomega = int(self.size)#self.size
-        for iomega in range(nomega):
-            self.omega[iomega] = np.pi/self.beta*(2*iomega+1)
+        # nomega = int(self.size)#self.size
+        # for iomega in range(nomega):
+        #     self.omega[iomega] = np.pi/self.beta*(2*iomega+1)
+        omega = []
+        for i in range(1000000):
+            w = (2.0*float(i)+1)*np.pi/self.beta
+            if (w > self.cutoff):
+                break
+            omega.append(w)
+        self.omega = np.array(omega,dtype=float,order='F')
 
         return None
 
@@ -59,7 +66,7 @@ class FTGrid(object):
 
     def Tau(self):
 
-        ntau = len(self.tau)
+        ntau = int(len(self.omega)*2)
         # meshscale = (ntau/2)**5
         # prefac = (self.beta/2)/meshscale
         
@@ -70,9 +77,12 @@ class FTGrid(object):
         #     else:
         #         self.tau[itau] = prefac*tauindex
         #     self.tau[ntau-1-itau] = self.beta - self.tau[itau]
+        tau = np.zeros((ntau),dtype=float,order='F')
         for itau in range(ntau):
             itheta = DiagE.common.ttind(itau,ntau)
-            self.tau[itau] = self.beta/2.0*(np.cos(np.pi*(itheta+0.5)/ntau)+1.0)
+            tau[itau] = self.beta/2.0*(np.cos(np.pi*(itheta+0.5)/ntau)+1.0)
+
+        self.tau = tau
         
         return None
 
@@ -80,8 +90,16 @@ class FTGrid(object):
 
     def Nu(self) -> np.ndarray:
 
-        nnu = self.size
-        for inu in range(nnu):
-            self.nu[inu] = np.pi/self.beta*(2*inu)
+        # nnu = self.size
+        # for inu in range(nnu):
+        #     self.nu[inu] = np.pi/self.beta*(2*inu)
+        nu = []
+        for i in range(1000000):
+            w = (2.0*float(i))*np.pi/self.beta
+            if (w > self.cutoff):
+                break
+            nu.append(w)
+
+        self.nu = np.array(nu, dtype=float,order='F')
 
         return None

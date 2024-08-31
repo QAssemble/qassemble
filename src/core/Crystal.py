@@ -16,20 +16,22 @@ import scipy.linalg
 from pymatgen.core import Lattice, Structure
 from pymatgen.transformations.standard_transformations import SupercellTransformation
 import subprocess
-import copy
+import copy, gc
 diage_path = os.environ.get('DIAGE','')
 path = diage_path+"/modules"
 sys.path.append(path)
 import DiagE
 
+# Ask to professor for change variables
 class Crystal(object): # chemical potential object, num of electron 
-    def __init__(self,latt : list, basisposition : dict, ns : int, soc : bool, rkgrid : list, orboption : dict, N : float, supercell : list = [1,1,1], impdict : dict = None):
+    def __init__(self, Rvec : list = None, CorF : str = "F", Basis : list = None, Nspin : int = None, SOC : bool = False, Nelec : float = None, KGrid : list = None) -> object:
+        
         '''
         Construct Crystal class for preparing calculation. from the input parameter generate the fermionic orbital index, bosonic orbital index, discrete k-point, a-vector, b-vector
 
         latt, basisposition, soc, rkgrid, orboption, N -> Crystal()
         '''
-        latt = np.array(latt,dtype=float)
+        latt = np.array(Rvec,dtype=float)
         # basisposition = np.array(basisposition,dtype=float)
         # tempmat = np.zeros((basisposition.shape[0],basisposition.shape[1]),dtype=float)
         # for jj in range(basisposition.shape[1]):
@@ -47,8 +49,33 @@ class Crystal(object): # chemical potential object, num of electron
         alpha = np.degrees(np.arccos(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))))
         beta = np.degrees(np.arccos(np.dot(a, c) / (np.linalg.norm(a) * np.linalg.norm(c))))
         gamma = np.degrees(np.arccos(np.dot(b, c) / (np.linalg.norm(b) * np.linalg.norm(c))))
-        if basisposition["CorF"] == "C":
-            pos = np.array(basisposition["pos"])
+        pos = []
+        orboption = {}
+        for i, ii in enumerate(Basis):
+            pos.append(ii[0])
+            orboption[i+1] = ii[1]
+        # if basisposition["CorF"] == "C":
+        #     pos = np.array(basisposition["pos"])
+        #     lat = Lattice.from_parameters(np.linalg.norm(a),np.linalg.norm(b),np.linalg.norm(c),alpha,beta,gamma)
+        #     structure = Structure(lat,["X"]*len(pos),pos,coords_are_cartesian=True)
+        #     structurebasisc = []
+        #     structurebasisf = []
+        #     for site in structure.sites:
+        #         structurebasisc.append(site.coords.tolist())
+        #         structurebasisf.append(site.frac_coords.tolist())
+        #     print(structure)
+        # if basisposition["CorF"] == "F":
+        #     pos = np.array(basisposition['pos'])
+        #     lat = Lattice.from_parameters(np.linalg.norm(a),np.linalg.norm(b),np.linalg.norm(c),alpha,beta,gamma)
+        #     structure = Structure(lat,["X"]*len(pos),pos)
+        #     structurebasisc = []
+        #     structurebasisf = []
+        #     for site in structure.sites:
+        #         structurebasisc.append(site.coords.tolist())
+        #         structurebasisf.append(site.frac_coords.tolist())
+        #     print(structure)
+        if CorF == "C":
+            pos = np.array(pos)
             lat = Lattice.from_parameters(np.linalg.norm(a),np.linalg.norm(b),np.linalg.norm(c),alpha,beta,gamma)
             structure = Structure(lat,["X"]*len(pos),pos,coords_are_cartesian=True)
             structurebasisc = []
@@ -57,8 +84,8 @@ class Crystal(object): # chemical potential object, num of electron
                 structurebasisc.append(site.coords.tolist())
                 structurebasisf.append(site.frac_coords.tolist())
             print(structure)
-        if basisposition["CorF"] == "F":
-            pos = np.array(basisposition['pos'])
+        elif CorF == "F":
+            pos = np.array(pos)
             lat = Lattice.from_parameters(np.linalg.norm(a),np.linalg.norm(b),np.linalg.norm(c),alpha,beta,gamma)
             structure = Structure(lat,["X"]*len(pos),pos)
             structurebasisc = []
@@ -78,9 +105,9 @@ class Crystal(object): # chemical potential object, num of electron
         
         self.basisf = structurebasisf
         self.basisc = np.dot(self.basisf,self.avec)
-        self.ns = ns
-        self.soc = soc
-        self.nume = N*(ns/2)
+        self.ns = Nspin
+        self.soc = SOC
+        self.nume = Nelec*(Nspin/2)
         # self.basisf = tempmat
         # self.basisc = np.dot(self.basisf,self.avec)
         self.bvec = np.zeros((3,3))
@@ -90,9 +117,9 @@ class Crystal(object): # chemical potential object, num of electron
         self.bvec[:,2]=2*np.pi*np.cross(latt[:,0], latt[:,1])/self.vol
         
         self.kpath = None
-        self.rkgrid = rkgrid
-        nk = rkgrid[0]*rkgrid[1]*rkgrid[2]
-        kpoint_temp=np.array(list(itertools.product(np.linspace(0,1,num=rkgrid[2],endpoint=False),np.linspace(0,1,num=rkgrid[1],endpoint=False),np.linspace(0,1,num=rkgrid[0],endpoint=False))))
+        self.rkgrid = KGrid
+        nk = KGrid[0]*KGrid[1]*KGrid[2]
+        kpoint_temp=np.array(list(itertools.product(np.linspace(0,1,num=KGrid[2],endpoint=False),np.linspace(0,1,num=KGrid[1],endpoint=False),np.linspace(0,1,num=KGrid[0],endpoint=False))))
         kpoint=np.fliplr(kpoint_temp)
         self.kpoint = kpoint
         self.nk = nk
@@ -104,9 +131,11 @@ class Crystal(object): # chemical potential object, num of electron
 
         self.find = {}
         self.bind = {}
-        self.b2f = []
-        self.c2f = []
-        self.c2b = []
+        self.full = {}
+        self.pbasis = None
+        self.bbasis = None
+        # self.b2f = None
+        self.c2b = None
         self.probspace = {}
         self.fimpdict = {}
         self.bimpdict = {}
@@ -121,8 +150,11 @@ class Crystal(object): # chemical potential object, num of electron
 
 
         self.SetBasisIndex(templist)
-        if impdict != None:
-            self.Projector(impdict)
+        self.Boson2Fermion()
+        self.SetFullBasis()
+        self.Boson2Full()
+        # if impdict != None:
+        #     self.Projector(impdict)
 
     def Kpath(self,kpath : list,nk : int) -> np.ndarray:
 
@@ -191,9 +223,10 @@ class Crystal(object): # chemical potential object, num of electron
             for iorb in range(borb,borb+option[1]**2):
                 self.bind[iorb] = bind[ii]
                 ii +=1
-                self.Boson2Fermion(iorb)
-            self.Composite2Boson()
-            self.Composite2Fermion()
+                # self.Boson2Fermion(iorb)
+            # self.Composite2Boson()
+            # self.Composite2Fermion()
+            
     
     def FAtomOrb(self, key : int) -> list:
         '''
@@ -240,15 +273,72 @@ class Crystal(object): # chemical potential object, num of electron
             if val==value:
                 return key
             
-    def Boson2Fermion(self,ind : int):
+    def Boson2Fermion(self):
         '''
         Mapping with boson index to fermion index
         '''
-        [a, [m1,m2]] = self.BAtomOrb(ind)
-        iorbc1 = self.FIndex([a,m1])
-        iorbc2 = self.FIndex([a,m2])
-        self.b2f.append([iorbc1,iorbc2])
+        norbc = len(self.find)
+        bbasis = np.zeros((norbc,norbc),dtype=int)
+        # [a, [m1,m2]] = self.BAtomOrb(ind)
+        # iorbc1 = self.FIndex([a,m1])
+        # iorbc2 = self.FIndex([a,m2])
+        # self.b2f.append([iorbc1,iorbc2])
+        for jorbc in range(norbc):
+            for iorbc in range(norbc):
+                [a,m] = self.FAtomOrb(iorbc)
+                [ap,mp] = self.FAtomOrb(jorbc)
+                if (a==ap):
+                    iorb = self.BIndex([a,[m,mp]])
+                    bbasis[iorbc,jorbc] = iorb
+
+        self.bbasis = bbasis
+
+        return None
+
+    def Boson2Full(self):
+        
+        norb = len(self.bind)
+        c2b = np.zeros((norb),dtype=int)
+
+        for iorb in range(norb):
+            [a,[m,mp]] = self.BAtomOrb(iorb)
+            iorbc = self.FIndex([a,m])
+            jorbc = self.FIndex([a,mp])
+            ind = self.pbasis[iorbc,jorbc]
+            c2b[iorb] = ind
+        
+        self.c2b = c2b
     
+    def SetFullBasis(self):
+
+        norbc = len(self.find)
+        full = {}
+        pbasis = np.zeros((norbc,norbc),dtype=int)
+
+        for jorbc in range(norbc):
+            for iorbc in range(norbc):
+                (a,m1) = self.FAtomOrb(iorbc)
+                (b,m2) = self.FAtomOrb(jorbc)
+                nn = [iorbc,jorbc]
+                ind, nn = self.indexing(norbc*norbc,2,[norbc,norbc],1,0,nn)
+                full[ind] = [[a,m1],[b,m2]]
+                pbasis[iorbc,jorbc] = ind
+
+        self.pbasis = copy.deepcopy(pbasis)
+        self.full = copy.deepcopy(full)
+        
+        return None
+    
+    def FullIndex(self,val : list):
+
+        for k, v in self.full.items():
+            if v == val:
+                return k
+        
+    def FullAtomOrb(self, ind : int):
+
+        return self.full[ind]
+
     def Composite2Fermion(self):
         '''
         Mapping with fermion index to composite index
@@ -318,23 +408,39 @@ class Crystal(object): # chemical potential object, num of electron
     def Quad2Double(self,mat : np.ndarray) -> np.ndarray: # 4 index <-> 2 index
 
         norb = len(self.bind)
-
+        norbc = len(self.find)
         matret = np.zeros((norb,norb),dtype=np.complex64)
 
-        for iorb, [iorbc,lorbc] in enumerate(self.b2f):
-            for jorb, [jorbc,korbc] in enumerate(self.b2f):
-                matret[iorb,jorb] = mat[iorbc,jorbc,korbc,lorbc]
+        for lorbc in range(norbc):
+            for korbc in range(norbc):
+                for jorbc in range(norbc):
+                    for iorbc in range(norbc):
+                        (a,m1) = self.FAtomOrb(iorbc)
+                        (ap,m4) = self.FAtomOrb(lorbc)
+                        (b,m2) = self.FAtomOrb(jorbc)
+                        (bp,m3) = self.FAtomOrb(korbc)
+                        if (a==ap)and(b==bp):
+                            iorb = self.BIndex([a,[m1,m2]])
+                            jorb = self.BIndex([b,[m2,m3]])
+                            matret[iorb,jorb] = mat[iorbc,jorbc,korbc,lorbc]
 
         return matret
     
     def Double2Quad(self, mat : np.ndarray) -> np.ndarray:
 
         norbc = len(self.find)
+        norb = len(self.bind)
 
         matret = np.zeros((norbc,norbc,norbc,norbc),dtype=np.complex64,order='F')
 
-        for iorb, [iorbc,lorbc] in enumerate(self.b2f):
-            for jorb, [jorbc,korbc] in enumerate(self.b2f):
+        for jorb in range(norb):
+            for iorb in range(norb):
+                [a,[m1,m4]] = self.BAtomOrb(iorb)
+                [b,[m2,m3]] = self.BAtomOrb(jorb)
+                iorbc = self.FIndex([a,m1])
+                lorbc = self.FIndex([a,m4])
+                jorbc = self.FIndex([b,m2])
+                korbc = self.FIndex([b,m3])
                 matret[iorbc,jorbc,korbc,lorbc] = mat[iorb,jorb]
 
         return matret
@@ -345,21 +451,30 @@ class Crystal(object): # chemical potential object, num of electron
 
         matret = np.zeros((norbc,norbc,norbc,norbc),dtype=np.complex64,order='F')
         
-        for iorb, [iorbc,lorbc] in enumerate(self.c2f):
-            for jorb, [jorbc,korbc] in enumerate(self.c2f):
-                matret[iorbc,jorbc,korbc,lorbc] = mat[iorb,jorb]
+        for lorbc in range(norbc):
+            for korbc in range(norbc):
+                for jorbc in range(norbc):
+                    for iorbc in range(norbc):
+                        iorb = self.pbasis[iorbc,lorbc]
+                        jorb = self.pbasis[jorbc,korbc]
+                        matret[iorbc,jorbc,korbc,lorbc] = mat[iorb,jorb]
+
         
         return matret
     
     def Quad2Full(self, mat : np.ndarray) -> np.ndarray:
 
-        norb = len(self.find)**2
+        norbc = len(self.find)
 
-        matret = np.zeros((norb,norb))
+        matret = np.zeros((norbc**2,norbc**2))
 
-        for iorb, [iorbc,lorbc] in enumerate(self.c2f):
-            for jorb, [jorbc,korbc] in enumerate(self.c2f):
-                matret[iorb,jorb] = mat[iorbc,jorbc,korbc,lorbc]
+        for lorbc in range(norbc):
+            for korbc in range(norbc):
+                for jorbc in range(norbc):
+                    for iorbc in range(norbc):
+                        iorb = self.pbasis[iorbc,lorbc]
+                        jorb = self.pbasis[jorbc,korbc]
+                        matret[iorb,jorb] = mat[iorbc,jorbc,korbc,lorbc]
         
         return matret
     
@@ -369,8 +484,10 @@ class Crystal(object): # chemical potential object, num of electron
 
         matret = np.zeros((norb,norb),dtype=np.complex64,order='F')
 
-        for iorb, ind1 in self.c2b:
-            for jorb, ind2 in self.c2b:
+        for jorb in range(norb):
+            for iorb in range(norb):
+                ind1 = self.c2b[iorb]
+                ind2 = self.c2b[jorb]
                 matret[iorb,jorb] = mat[ind1,ind2]
         
         return matret
@@ -378,11 +495,13 @@ class Crystal(object): # chemical potential object, num of electron
     def Double2Full(self, mat : np.ndarray) -> np.ndarray:
 
         nind = len(self.find)**2
-
+        norb = len(self.bind)
         matret = np.zeros((nind,nind),dtype=np.complex64,order='F')
 
-        for iorb, ind1 in self.c2b:
-            for jorb, ind2 in self.c2b:
+        for jorb in range(norb):
+            for iorb in range(norb):
+                ind1 = self.c2b[iorb]
+                ind2 = self.c2b[jorb]
                 matret[ind1,ind2] = mat[iorb,jorb]
         
         return matret ## construct
@@ -552,20 +671,39 @@ class Crystal(object): # chemical potential object, num of electron
     def Rvec(self):
         
         r = np.zeros((self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2],3),dtype=float)
-        for iz in range(self.rkgrid[2]//2 +1):
-            for iy in range(self.rkgrid[1]//2 + 1):
-                for ix in range(self.rkgrid[0]//2+1):
+        # for iz in range(self.rkgrid[2]//2 +1):
+        #     for iy in range(self.rkgrid[1]//2 + 1):
+        #         for ix in range(self.rkgrid[0]//2+1):
+        #             nn1 = [ix,iy,iz]
+        #             ind1,nn1 = self.indexing(self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2],3,self.rkgrid,1,0,nn1)
+        #             r[ind1] = nn1
+        #             if (nn1==[0,0,0]):
+        #                 continue
+        #             ii = (self.rkgrid[0]-ix) % self.rkgrid[0]
+        #             jj = (self.rkgrid[1]-iy) % self.rkgrid[1]
+        #             kk = (self.rkgrid[2]-iz) % self.rkgrid[2]
+        #             nn2 = [ii,jj,kk]
+        #             ind2,nn2 = self.indexing(self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2],3,self.rkgrid,1,0,nn2)
+        #             r[ind2] = [-ix,-iy,-iz]
+
+        for iz in range(self.rkgrid[2]):
+            for iy in range(self.rkgrid[1]):
+                for ix in range(self.rkgrid[0]):
                     nn1 = [ix,iy,iz]
-                    ind1,nn1 = self.indexing(self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2],3,self.rkgrid,1,0,nn1)
-                    r[ind1] = nn1
-                    if (nn1==[0,0,0]):
-                        continue
-                    ii = (self.rkgrid[0]-ix) % self.rkgrid[0]
-                    jj = (self.rkgrid[1]-iy) % self.rkgrid[1]
-                    kk = (self.rkgrid[2]-iz) % self.rkgrid[2]
-                    nn2 = [ii,jj,kk]
-                    ind2,nn2 = self.indexing(self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2],3,self.rkgrid,1,0,nn2)
-                    r[ind2] = [-ix,-iy,-iz]
+                    ind1, nn1 = self.indexing(self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2],3,self.rkgrid,1,0,nn1)
+                    if (ix > self.rkgrid[0]//2):
+                        xx = ix-self.rkgrid[0]
+                    else:
+                        xx = ix
+                    if (iy > self.rkgrid[1]//2):
+                        yy = iy-self.rkgrid[1]
+                    else:
+                        yy = iy
+                    if (iz > self.rkgrid[2]//2):
+                        zz = iz-self.rkgrid[2]
+                    else:
+                        zz = iz
+                    r[ind1] = [xx,yy,zz]
 
         self.rvec = r
 

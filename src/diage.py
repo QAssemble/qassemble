@@ -1,8 +1,9 @@
 #!/usr/bin/env python3.9
 import numpy as np
-import string 
+import string, copy
 import os, sys, gc
 import json
+import h5py
 import time, datetime
 
 from core.CorrelationFunction import CorrelationFunction
@@ -18,7 +19,7 @@ class Run():
             func = CorrelationFunction(latt=control['crystal']['lattice'], basisposition=control['crystal']['basispos'], ns=control['crystal']['ns'],soc=control['crystal']['soc'],rkgrid=control['crystal']['rkgrid'],orboption=control['crystal']['orbital'],N=control['crystal']['nume'],T=control['ft']['T'],beta=control['ft']['beta'],size=control['ft']['size'],c=control['run']['cw'])
             self.func = func
         else:
-            if (self.control['run']['method']==1)or(self.control['run']['method']==2)or(self.control['run']['method']==3)or(self.control['run']['method']==4):
+            if (self.control['run']['method']=='tb') | (self.control['run']['method']== 'hf') | (self.control['run']['method']=='gw'):
                 self.RunDiagE()
         
 
@@ -42,43 +43,59 @@ class Run():
         control["ham"] = {} 
         control["run"] = {}
         inicrystal = loc["Crystal"]
-        inicrystal['name'] = 'Crystal'
-        
         ham = loc["Hamiltonian"]
+        ini = loc["Control"]  
+        ini['name'] = 'Control'
+        self.CheckKeyinString('Method',ini)
+        self.CheckKeyinString('Prefix', ini)
+        control['run']['fn'] = ini.get("Prefix",'glob')
+        control['run']['method'] = ini.get("Method")
+
+        if os.path.exists(control['run']['fn']+'.h5'):
+            file=h5py.File(control['run']['fn']+'.h5','r')
+            group = file['input']
+            d1 = self.Hdf52Dict(group)
+            print(self.CheckInput(d1=d1,d2=loc))
+            testloc = self.ChangeInput(copy.deepcopy(loc))
+            if self.CheckInput(d1=d1,d2=testloc):
+                pass
+            else:
+                print("Please change the prefix of hdf5 file")
+                sys.exit()
+        else:
+            file = h5py.File(control['run']['fn']+'.h5','w')
+            group = file.create_group('input')
+            self.Dict2Hdf5(loc,group)
+            file.close()
+        # file.close()
+
+        inicrystal['name'] = 'Crystal'
         ham['name'] = 'Hamiltonian'
         ham['OneBody']['name'] = "OneBody"
         ham["TwoBody"]['name'] = "TwoBody"
-        ham["TwoBody"]['Local']['name'] = "Local"
-        ini = loc["Control"]
+        ham["TwoBody"]['Local']['name'] = "Local"        
         ini['name'] = 'Control'
         
         ######## Construct Crystal Structure ########
         self.CheckKeyinString('RVec',inicrystal)
-        lattice = inicrystal["RVec"]
+        Rvec = inicrystal["RVec"]
         self.CheckKeyinString("Basis",inicrystal)
+        Basis = inicrystal['Basis']
         CorF = inicrystal.get("CorF","F")
-        pos = []
-        orboption = {}
-        for i, ii in enumerate(inicrystal["Basis"]):
-            pos.append(ii[0])
-            orboption[i+1] = ii[1]
-
-        print(orboption)
-
-        basispos = {"CorF" : CorF,"pos" : pos}    
-        ns = inicrystal.get('NSpin',1)
-        soc = inicrystal.get("SOC",False)
+        Nspin = inicrystal.get('NSpin',1)
+        SOC = inicrystal.get("SOC",False)
         self.CheckKeyinString("KGrid",inicrystal)
-        rkgrid = inicrystal["KGrid"]
+        KGrid = inicrystal["KGrid"]
         self.CheckKeyinString("NElec",inicrystal)
-        NumE = inicrystal["NElec"]        
-        control['crystal']['lattice'] = lattice
-        control['crystal']['basispos'] = basispos
-        control["crystal"]['ns'] = ns
-        control["crystal"]['soc'] = soc
-        control["crystal"]['rkgrid'] = rkgrid
-        control["crystal"]["nume"] = NumE
-        control["crystal"]["orbital"] = orboption
+        NElec = inicrystal["NElec"]        
+        control['crystal']['Rvec'] = Rvec
+        control['crystal']['CorF'] = CorF
+        control['crystal']['Basis'] = Basis
+        control["crystal"]['Nspin'] = Nspin
+        control["crystal"]['SOC'] = SOC
+        control["crystal"]['KGrid'] = KGrid
+        control["crystal"]["Nelec"] = NElec
+        # control["crystal"]["orbital"] = orboption
         
 
         ######## Construct One-Body Hamiltonian ########
@@ -89,33 +106,27 @@ class Run():
         self.CheckKeyinString('Local',ham['TwoBody'])
         self.CheckKeyinString('Parameter',ham['TwoBody']['Local'])
 
-        hopplist = []
-        print(ham["OneBody"]['Hopping'])
-        for orb,val in ham["OneBody"]['Hopping'].items():
-            # t = val[0]
-            # lat = val[1]
-            # print(f"orbital : {orb}, hopping : {t}, lattice : {lat}")
-            # for r in lat:
-            #     hopplist.append([t,orb[0],orb[1],r])
-            for ii in range(len(val)):
-                t = val[ii][0]
-                lat = val[ii][1]
-                print(f"orbital : {orb}, hopping : {t}, lattice : {lat}")
-                for r in lat:
-                    hopplist.append([t,orb[0],orb[1],r])
+        # hopplist = []
+        # print(ham["OneBody"]['Hopping'])
+        # for orb,val in ham["OneBody"]['Hopping'].items():
+        #     for t, lat in val.items():
+        #         print(f"orbital : {orb}, hopping : {t}, lattice : {lat}")
+        #         for r in lat:
+        #             hopplist.append([t,list(orb[0]),list(orb[1]),r])
 
         # for key,val in ham['OneBody'].items():
         #     for orb, lat in tb['site'][key].items():
         #         for r in range(len(lat)):
         #             hopplist.append([val,orb[0],orb[1],lat[r]])
-        onsitelist = []
-        for orb, val in ham['OneBody']['Onsite'].items():
-            onsitelist.append(val)
-        print(onsitelist)
-        control['ham']['hoppinglist'] = hopplist
-        control['ham']['onsitelist'] = onsitelist
+        # onsitelist = []
+        # for orb, val in ham['OneBody']['Onsite'].items():
+        #     onsitelist.append(val)
+        # print(onsitelist)
+        control['ham']['hoppinglist'] = ham["OneBody"]['Hopping']
+        control['ham']['onsitelist'] = ham['OneBody']['Onsite']
 
         ######## Construct Two-Body Hamiltonian ########
+        control['ham']['coulomb'] = {}
         vlocparameter = {}
         vlocparameter["option"] = {}
         vlocparameter["Parameter"] = ham['TwoBody']['Local'].get('Parameter',"SlaterKanamori")
@@ -184,46 +195,45 @@ class Run():
         print(vlocparameter)
         
         
+        control['ham']['coulomb']['local'] = vlocparameter
 
         vnonlocparameter = None
-        # for orb,val in ham['TwoBody']['NonLocal'].items():
-        #         v = val[0]
-        #         latt = val[1]
-        #         for r in latt:
-        #             vnonlocparameter.append([v,orb[0],orb[1],r])
         ohno = False
         if ham['TwoBody']['NonLocal'] == "None":
-            pass
+            control['ham']['coulomb']['nonlocal'] = vnonlocparameter
+            control['ham']['coulomb']['ohno'] = ohno
         elif ham['TwoBody']['NonLocal'] == "Ohno":
             # vnonlocparameter = OhnoParameterization(U, rkgrid, orboption, lattice, inicrystal["pos"])
             ohno = True
+            control['ham']['coulomb']['ohno'] = ohno
+            control['ham']['coulomb']['nonlocal'] = vnonlocparameter
         else:
-            vnonlocparameter = []
-            for orb,val in ham['TwoBody']['NonLocal'].items():
-                # v = val[0]
-                # latt = val[1]
-                # for r in latt:
-                #     vnonlocparameter.append([v,orb[0],orb[1],r])
-                for ii in range(len(val)):
-                    vij = val[ii][0]
-                    lat = val[ii][1]
-                    for r in lat:
-                        vnonlocparameter.append([vij,orb[0],orb[1],r])
+            # vnonlocparameter = []
+            # for orb,val in ham['TwoBody']['NonLocal'].items():
+            #     for v, lat in val.items():
+            #         for r in lat:
+            #             vnonlocparameter.append([v,list(orb[0]),list(orb[1]),r])
+            control['ham']['coulomb']['nonlocal'] = ham['TwoBody']['NonLocal']
+            control['ham']['coulomb']['ohno'] = ohno
+
+                # for ii in range(len(val)):
+                #     vij = val[ii][0]
+                #     lat = val[ii][1]
+                #     for r in lat:
+                #         vnonlocparameter.append([vij,orb[0],orb[1],r])
         
-        control['ham']['coulomb'] = {}
-        control['ham']['coulomb']['local'] = vlocparameter
-        control['ham']['coulomb']['nonlocal'] = vnonlocparameter
-        control['ham']['coulomb']['ohno'] = ohno
+        
+        
+        
         
         ######## Check the method ########
-        self.CheckKeyinString('Method',ini)
-        control['run']['method'] = ini.get("Method")
+        
         control['run']['mix'] = ini.get("Mix",0.1)
         control['run']['nscf'] = ini.get("NSCF",100)
         control['run']['cw'] = ini.get("ConstantW",1.0)
 
         # CheckKeyinString("MatsubaraMesh",ini)
-        size = ini.get("MatsubaraMesh",1000)
+        cutoff = ini.get("MatsubaraCutOff",50)
         kb = 8.6173303*10**-5
         if ('T' not in ini)and('beta' not in ini):
             print('missing T and beta in \''+ini['name'])
@@ -237,31 +247,147 @@ class Run():
         
         control['ft']['T'] = T
         control['ft']['beta'] = beta
-        control['ft']['size'] = size
+        control['ft']['cutoff'] = cutoff
 
         self.control = control
+
+        # if os.path.exists(control['run']['fn']+'.h5'):
+        #     pass
+        # else:
+        #     with h5py.File(control['run']['fn']+'.h5','w') as file:
+        #         group = file.create_group('input')
+        #         for key, val in control.items():
+        #             group.create_dataset(key,data=val)
+
+        
+        
         return None
+    
+    def Dict2Hdf5(self,d : dict, h5file : h5py.File):
+        for key, value in d.items():
+            if isinstance(value, dict):
+                group = h5file.create_group(str(key))
+                # pprint.pprint(key,value)
+                self.Dict2Hdf5(value, group)
+            elif isinstance(value, list):
+                h5file[str(key)] = str(value)
+            else:
+                h5file[str(key)] = value
+        
+        return None
+
+    def Hdf52Dict(self,h5file : h5py.File):
+        def LoadDict(group : h5py.File):
+            d = {}
+            for key, item in group.items():
+                if isinstance(item, h5py.Group):
+                    d[key] = LoadDict(item)
+                else:
+                    if isinstance(item[()],bytes):
+                        d[key] = str(item[()],'utf-8')
+                    else:
+                        d[key] = item[()]
+            for key, item in group.attrs.items():
+                d[key] = item
+            return d
+
+        return LoadDict(h5file)
+
+    def CheckInput(self,d1 : dict, d2 : dict):
+        '''
+        Compare the input file 
+        d1 : already saved input file
+        d2 : new input file
+        '''
+
+        for key, value in d2.items():
+            
+            if isinstance(value,dict):
+                # self.CheckInput()
+                self.CheckInput(d1[str(key)],d2[key])
+            else:
+                val1 = d1[str(key)]
+                val2 = d2[key]
+                if isinstance(val1,bytes):
+                    if (str(val1,'utf-8')==str(val2)):
+                        return True
+                    else:
+                        print(key,val1,val2)
+                        return False
+                else:
+                    if (str(val1)==str(val2)):
+                        return True
+                    else:
+                        if (key == "Method"):
+                            continue
+                        else:
+                            print(key,val1,val2)
+                            return False
+                        
+    def ChangeInput(self, d : dict):
+        
+        dtemp = {}
+        for key, val in d.items():
+            if isinstance(val,dict):
+                valtemp = self.ChangeInput(val)
+                dtemp[str(key)] = valtemp
+            else:
+                if isinstance(val,list):
+                    dtemp[str(key)] = str(val)
+                else:
+                    dtemp[str(key)]  = val
+        return dtemp
+    
+    def CompareDict(self, d1 : dict, d2 : dict):
+
+        
+        check = []
+        
+        for key in d2.keys():
+            for key2 in d2[key].keys():
+                if (key2=='Method'):
+                    continue
+                elif (d1[key][key2]==d2[key][key2]):
+                    check.append(1)
+                else:
+                    check.append(0)
+        return check
+    
+    def CheckInput(self, d1 : dict, d2 : dict):
+
+        checklist = self.CompareDict(d1,d2)
+        check = True
+        if 0 in checklist:
+            check = False
+
+        return check
 
     def RunDiagE(self):
         
         control = self.control
-        func = CorrelationFunction(latt=control['crystal']['lattice'], basisposition=control['crystal']['basispos'], ns=control['crystal']['ns'],soc=control['crystal']['soc'],rkgrid=control['crystal']['rkgrid'],orboption=control['crystal']['orbital'],N=control['crystal']['nume'],T=control['ft']['T'],beta=control['ft']['beta'],size=control['ft']['size'],c=control['run']['cw'])
+        cry = control['crystal']
+        ft = control['ft']
+        func = CorrelationFunction(Rvec=cry['Rvec'],CorF=cry['CorF'],Basis=cry['Basis'],Nspin=cry['Nspin'],SOC=cry['SOC'],Nelec=cry['Nelec'],KGrid=cry['KGrid'],T=ft['T'],beta=ft['beta'],cutoff=ft['cutoff'])
+        # func = CorrelationFunction(latt=control['crystal']['lattice'], basisposition=control['crystal']['basispos'], ns=control['crystal']['ns'],soc=control['crystal']['soc'],rkgrid=control['crystal']['rkgrid'],orboption=control['crystal']['orbital'],N=control['crystal']['nume'],T=control['ft']['T'],beta=control['ft']['beta'],size=control['ft']['size'],c=control['run']['cw'])
+
 
         itermax = control['run']['nscf']
         mix = control['run']['mix']
         method = control['run']['method']
-
-        if method == 1:
+        fn = control['run']['fn']
+        
+        if (method == 'tb'):
             print("Tight-Binding calculation start")
-            hoppinglist = control['ham']['hoppinglist']
-            onsitelist = control['ham']['onsitelist']
-            hamtb = func.TightBinding(hoppinglist=hoppinglist,onsitelist=onsitelist)
+            hopping = control['ham']['hoppinglist']
+            onsite = control['ham']['onsitelist']
+            # func.TightBinding(hoppinglist=hoppinglist,onsitelist=onsitelist)
+            func.TightBinding(hopping=hopping,onsite=onsite,fn=fn+'.h5')
             print("Tight-Binding calculation finish")
             # flatstc = FLatStc(crystal=func.cry)
             # energy = flatstc.Diagonalize(hamtb)
             # FLatStcSave(hamtb,'hamtb')
             # FLatStcSave(energy,'energy')
-        if method == 2:
+        if (method == 'hf'):
             print("Hartree-Fock calculation start")
         
             hoppinglist = control['ham']['hoppinglist']
@@ -270,7 +396,8 @@ class Run():
             vnonloc = control['ham']['coulomb']['nonlocal']
             ohno = control['ham']['coulomb']['ohno']
             start = time.time()
-            func.HartreeFockH(itermax=itermax,mix=mix,hoppinglist=hoppinglist,onsitelist=onsitelist,loccoulomb=vloc,nonloccoulomb=vnonloc,ohno=ohno)
+            # func.HartreeFock(itermax=itermax,mix=mix,hoppinglist=hoppinglist,onsitelist=onsitelist,loccoulomb=vloc,nonloccoulomb=vnonloc,ohno=ohno)
+            func.HartreeFock(itermax=itermax,mix=mix,hopping=hoppinglist,onsite=onsitelist,loccoulomb=vloc,nonloccoulomb=vnonloc,ohno=ohno,fn=fn+'.h5')
             end = time.time()
             print("Hartree-Fock calculation finish")
             delta = datetime.timedelta(seconds=(end-start))
@@ -280,27 +407,27 @@ class Run():
             # FLatStcSave(sigmah.hk,'sigmahk')
             # FLatStcSave(sigmaf.fk,'sigmafk')
             # BLatStcSave(func.vbare.k,'vk')
-        if method==3:
-            print("Hartree-Fock calculation start")
+        # if (method=="gw"):
+        #     print("Hartree-Fock calculation start")
             
-            hoppinglist = control['ham']['hoppinglist']
-            onsitelist = control['ham']['onsitelist']
-            vloc = control['ham']['coulomb']['local']
-            vnonloc = control['ham']['coulomb']['nonlocal']
-            ohno = control['ham']['coulomb']['ohno']
-            start = time.time()
-            func.HartreeFock(itermax=itermax,mix=mix,hoppinglist=hoppinglist,onsitelist=onsitelist,loccoulomb=vloc,nonloccoulomb=vnonloc,ohno=ohno)
-            end = time.time()
-            print("Hartree-Fock calculation finish")
-            delta = datetime.timedelta(seconds=(end-start))
-            print(f"Hartree-Fock loop time = {delta}")
+        #     hoppinglist = control['ham']['hoppinglist']
+        #     onsitelist = control['ham']['onsitelist']
+        #     vloc = control['ham']['coulomb']['local']
+        #     vnonloc = control['ham']['coulomb']['nonlocal']
+        #     ohno = control['ham']['coulomb']['ohno']
+        #     start = time.time()
+        #     func.HartreeFock(itermax=itermax,mix=mix,hoppinglist=hoppinglist,onsitelist=onsitelist,loccoulomb=vloc,nonloccoulomb=vnonloc,ohno=ohno)
+        #     end = time.time()
+        #     print("Hartree-Fock calculation finish")
+        #     delta = datetime.timedelta(seconds=(end-start))
+        #     print(f"Hartree-Fock loop time = {delta}")
             
             # FLatDynSave(func.green.gkf,'gkfhf')
             # FLatStcSave(func.hamhf,'hamhf')
             # FLatStcSave(func.sigmah.hk,'sigmahk')
             # FLatStcSave(func.sigmaf.fk,'sigmafk')
             # BLatStcSave(func.vbare.k,'vk')
-        if method==4:
+        if method=="gw":
             print("GW calculation start")
             
             hoppinglist = control['ham']['hoppinglist']
@@ -309,7 +436,7 @@ class Run():
             vnonloc = control['ham']['coulomb']['nonlocal']
             ohno = control['ham']['coulomb']['ohno']
             start = time.time()
-            func.GWApproximation(itermax=itermax,mix=mix,hoppinglist=hoppinglist,onsitelist=onsitelist,loccoulomb=vloc,nonloccoulomb=vnonloc,ohno=ohno)
+            func.GWApproximation(itermax=itermax,mix=mix,hoppinglist=hoppinglist,onsitelist=onsitelist,loccoulomb=vloc,nonloccoulomb=vnonloc,ohno=ohno,hdf5file=fn+'.h5')
             end = time.time()
             print("GW calculation finish")
             delta = datetime.timedelta(seconds=(end-start))

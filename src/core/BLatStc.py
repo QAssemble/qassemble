@@ -323,11 +323,17 @@ class BLatStc(object):
 
 class VBare(BLatStc):
 
-    def __init__(self, crystal: Crystal,vloc : VLoc = None, orboption : dict = None, intamp : list = None, ohno : bool = False):
+    def __init__(self, crystal: Crystal,vloc : VLoc = None, orboption : dict = None, intamp : dict = None, ohno : bool = False, hdf5file : str = 'glob.h5',group : str = None):
         super().__init__(crystal)
         self.k = None
         self.r = None
-        self.intamp = intamp
+        if (intamp != None):
+            intamplist = []
+            for orb,val in intamp.items():
+                for v, lat in val.items():
+                    for r in lat:
+                        intamplist.append([v,list(orb[0]),list(orb[1]),r])
+            self.intamp = intamplist
         self.locoption = orboption
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
@@ -335,9 +341,12 @@ class VBare(BLatStc):
         self.nonlock = np.zeros((norb,norb,ns,ns,nrk),dtype=complex,order='F')
         self.nonlocr = np.zeros((norb,norb,ns,ns,nrk),dtype=complex,order='F')
         self.sigmaonsiter = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
         if (ohno==False)and(intamp==None):
             print("Only calculate the local coulomb interaction")
-        if vloc == None:
+        elif vloc == None:
             if orboption != None:
                 self.vloc = VLoc(crystal,orboption)
             else:
@@ -359,6 +368,7 @@ class VBare(BLatStc):
                 # self.InteractingAmplitue(intamp)
                 self.Cal()
         self.LocPlusNonLoc()
+        self.Save()
         # self.GetOnsiteEnergy()
         
 
@@ -455,18 +465,17 @@ class VBare(BLatStc):
     
     def Save(self):
 
-        os.chdir('work')
-        
-        filepath = 'blatstc.h5'
-        groupname = 'vbare'
-        with h5py.File(filepath,'a') as file:
-            if self.CheckGroup(filepath,groupname):
-                group = file[groupname]
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    vbare = group[self.subgroup]
+                else:
+                    vbare = group.create_group(self.subgroup)
             else:
-                group=file.create_group(groupname)
-            
-            group.create_dataset('vk',dtype=complex,data=self.k)
-        os.chdir('..')
+                group = file.create_group(self.group)
+                vbare = group.create_group(self.subgroup)
+            vbare.create_dataset('vk',dtype=complex,data=self.k)
 
         return None
     

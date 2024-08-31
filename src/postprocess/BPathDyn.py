@@ -15,19 +15,58 @@ from scipy.fftpack import fftn, ifftn
 import scipy.linalg
 import subprocess
 import copy
+import h5py
 from core.Crystal import Crystal
 from core.FTGrid import FTGrid
+from core.BLatDyn import BLatDyn
 
 class BPathDyn(object):
 
-    def __init__(self, crystal : Crystal = None, ft : FTGrid = None, obj : object = None) -> object:
+    def __init__(self, crystal : Crystal = None, ft : FTGrid = None, obj : object = None, hdf5file : str = 'glob.h5') -> object:
 
-        if (crystal is None) or (ft is None) or (obj is None):
-            print(f"Error : Check the {self.__class__.__name__} input again")
-            sys.exit()
+        if (crystal is not None)and(ft is not None)and(obj is not None):
+            pass
+        else:
+            if os.path.exists(hdf5file):
+                glob = h5py.File(hdf5file)
+                ini = glob['input']
+                tempcry = ini['Crystal']
+                control = ini['Control']
+                cry = {}
+                kb = 8.6173303*10**-5
+                for key in tempcry.keys():
+                    if (type(tempcry[key][()])==bytes):
+                        cry[key] = str(tempcry[key][()],'utf-8')
+                    else:
+                        cry[key] = tempcry[key][()]
+                for key in cry.keys():
+                    if key=='Basis':
+                        cry[key] = eval(cry[key])
+                    elif key=='KGrid':
+                        cry[key] = eval(cry[key])
+                    elif key=='RVec':
+                        cry[key] = eval(cry[key])
+                    else:
+                        cry[key] = cry[key]
+                
+                crystal = Crystal(Rvec=cry['RVec'],CorF=cry['CorF'],Basis=cry['Basis'],Nspin=cry['NSpin'],SOC=cry['SOC'],Nelec=cry['NElec'],KGrid=cry['KGrid'])
+                if ('T' in control)and('beta' not in control):
+                    T = control['T'][()]
+                    beta = 1/(T*kb)
+                elif ('T' not in control)and('beta' in control):
+                    beta = control['beta'][()]
+                    T = 1/(beta*kb)
+                cutoff = control.get('MatsubaraCutOff',50)
+                ft = FTGrid(T=T,beta=beta,cutoff=cutoff)
+                glob.close()
+            else:
+                print(f"Error : Check the {self.__class__.__name__} input again")
+                sys.exit()
+
         
         self.crystal = crystal
         self.ft = ft
+        self.blatdyn = BLatDyn(crystal=self.crystal,ft=self.ft)
     
     def R2K(self, matr : np.ndarray = None, kpoint = None) -> np.ndarray:
 

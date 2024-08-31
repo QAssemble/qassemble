@@ -448,17 +448,29 @@ class FLatStc(object):
     
 class NIHamiltonian(FLatStc):
 
-    def __init__(self, crystal: Crystal = None,hoppinglist : list=None, onsitelist : list=None):
+    def __init__(self, crystal: Crystal = None, hopping : dict = None, onsite : dict = None, hdf5file : h5py.File = 'glob.h5',group : str = None):
+        
         super().__init__(crystal)
-        self.hoppinglist = hoppinglist
-        self.onsitelist = onsitelist
-        print(self.onsitelist)
+        hopplist = []
+        for orb, val in hopping.items():
+            for t, lat in val.items():
+                for r in lat:
+                    hopplist.append([t,list(orb[0]),list(orb[1]),r])
+
+        print(hopplist)
+        self.hopping = hopplist
+        self.onsite = onsite
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        print(self.onsite)
         self.k = None
         self.r = None
         # self.Hopping()
         # self.Onsite()
 
         self.Cal()
+        self.Save()
 
     def Cal(self): #GenHam
         
@@ -472,7 +484,7 @@ class NIHamiltonian(FLatStc):
         
         
         for js in range(ns):
-            for hopp in self.hoppinglist:
+            for hopp in self.hopping:
                 tij = hopp[0]
                 # iorb = hopp[1]
                 # jorb = hopp[2]
@@ -492,10 +504,14 @@ class NIHamiltonian(FLatStc):
 
                 # 0 == -0
 
-        if self.onsitelist != None:
+        if self.onsite != None:
             for js in range(ns):
-                for iorb in range(norb):
-                    tempmat[iorb,iorb,js,0,0,0] = +self.onsitelist[iorb]
+                for orb, val in self.onsite.items():
+                    iorb = self.crystal.FIndex(list(orb))
+                    # jorb = self.crystal.FIndex(list(orb[1]))
+                    tempmat[iorb,iorb,js,0,0,0] += val
+                # for iorb in range(norb):
+                #     tempmat[iorb,iorb,js,0,0,0] = +self.onsitelist[iorb]
         # Hermitian check
         tempmat = tempmat.reshape((norb,norb,ns,nk),order='F')
         self.r = tempmat
@@ -513,18 +529,31 @@ class NIHamiltonian(FLatStc):
         # else:
         #     os.mkdir('niham')
         # os.chdir('niham')
-        os.chdir('work')
+        # os.chdir('work')
         
-        filepath = 'flatstc.h5'
-        groupname = 'niham'
-        with h5py.File(filepath,'a') as file:
-            if self.CheckGroup(filepath,groupname):
-                group = file[groupname]
-            else:
-                group=file.create_group(groupname)
+        # filepath = 'flatstc.h5'
+        # groupname = 'niham'
+        # with h5py.File(filepath,'a') as file:
+        #     if self.CheckGroup(filepath,groupname):
+        #         group = file[groupname]
+        #     else:
+        #         group=file.create_group(groupname)
             
-            group.create_dataset('h0k',dtype=complex,data=self.k)
-        os.chdir('..')
+        #     group.create_dataset('h0k',dtype=complex,data=self.k)
+        # os.chdir('..')
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                tb = file[self.group]
+                if self.subgroup in tb:
+                    niham = tb[self.subgroup]
+                else:
+                    niham = tb.create_group(self.subgroup)
+            else:
+                tb = file.create_group(self.group)
+                niham = tb.create_group(self.subgroup)
+            niham.create_dataset('h0k',dtype=complex,data=self.k)
+        # self.hdf5file.create_dataset('h0k',dtype=float,data=self.k)
+
         return None
 
     # def Hopping(self):
@@ -535,13 +564,14 @@ class NIHamiltonian(FLatStc):
 
 class SigmaHartree(FLatStc):
 
-    def __init__(self, crystal: Crystal, occ = None , vbare :np.ndarray = None, onsite : np.ndarray = None): # green -> occ
+    def __init__(self, crystal: Crystal, occ = None , vbare :np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None): # green -> occ
         super().__init__(crystal)
         self.r = None
         self.k = None
-        self.hdyn = None
         self.vbare = vbare
-        self.onsiter = onsite
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
         self.occ = occ
         
         self.Cal()
@@ -652,43 +682,42 @@ class SigmaHartree(FLatStc):
     
     def Save(self, fn: str):
         
-        os.chdir('work')
+        # os.chdir('work')
         
-        filepath = 'flatstc.h5'
-        groupname = 'sigmah'
-        with h5py.File(filepath,'a') as file:
-            if self.CheckGroup(filepath,groupname):
-                group = file[groupname]
-            else:
-                group=file.create_group(groupname)
+        # filepath = 'flatstc.h5'
+        # groupname = 'sigmah'
+        # with h5py.File(filepath,'a') as file:
+        #     if self.CheckGroup(filepath,groupname):
+        #         group = file[groupname]
+        #     else:
+        #         group=file.create_group(groupname)
             
-            group.create_dataset(fn,dtype=complex,data=self.k)
-        os.chdir('..')
+        #     group.create_dataset(fn,dtype=complex,data=self.k)
+        # os.chdir('..')
+        with h5py.File(self.hdf5file, 'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    sigmah = group[self.subgroup]
+                else:
+                    sigmah = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                sigmah = group.create_group(self.subgroup)
+            sigmah.create_dataset(fn,dtype=complex,data=self.k)
+
         return None
     
-    # def MakeDyn(self):
-
-    #     norb = self.green.gkf.shape[0]
-    #     ns = self.green.gkf.shape[2]
-    #     nrk = self.green.gkf.shape[3]
-    #     nft = self.green.gkf.shape[4]
-
-    #     tempmat = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
-
-    #     for ift in range(nft):
-    #         tempmat[...,ift] = self.hk
-    #     self.hdyn = tempmat
-
-    #     return 
-
 
 class SigmaFock(FLatStc):
 
-    def __init__(self, crystal: Crystal,occr = None, vbare : np.ndarray = None): # green -> occ
+    def __init__(self, crystal: Crystal,occr = None, vbare : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None): # green -> occ
         super().__init__(crystal)
         self.r = None
         self.k = None
-        self.fdyn = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
         # self.green = green
         self.occr = occr
         self.vbare = vbare
@@ -744,30 +773,41 @@ class SigmaFock(FLatStc):
     
     def Save(self, fn: str):
         
-        os.chdir('work')
+        # os.chdir('work')
         
-        filepath = 'flatstc.h5'
-        groupname = 'sigmaf'
-        with h5py.File(filepath,'a') as file:
-            if self.CheckGroup(filepath,groupname):
-                group = file[groupname]
-            else:
-                group=file.create_group(groupname)
+        # filepath = 'flatstc.h5'
+        # groupname = 'sigmaf'
+        # with h5py.File(filepath,'a') as file:
+        #     if self.CheckGroup(filepath,groupname):
+        #         group = file[groupname]
+        #     else:
+        #         group=file.create_group(groupname)
             
-            group.create_dataset(fn,dtype=complex,data=self.k)
-        os.chdir('..')
+        #     group.create_dataset(fn,dtype=complex,data=self.k)
+        # os.chdir('..')
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    sigmaf = group[self.subgroup]
+                else:
+                    sigmaf = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                sigmaf = group.create_group(self.subgroup)
+            sigmaf.create_dataset(fn,dtype=complex,data=self.k)
 
         return None
     
 class Hamiltonian(FLatStc):
 
-    def __init__(self, crystal: Crystal, ham : np.ndarray, beta : float = None, sigmah :SigmaHartree = None, sigmaf : SigmaFock = None, sigmac : object = None):
+    def __init__(self, crystal: Crystal, ham : np.ndarray, beta : float = None, sigmah :SigmaHartree = None, sigmaf : SigmaFock = None, sigmac : object = None, hdf5file : str = 'glob.h5', group : str = None):
         super().__init__(crystal)
 
         self.occ = None
         self.occk = None
         self.occr = None
-        self.ham = ham
+        self.ham = copy.deepcopy(ham)
         self.sigmah = sigmah
         self.sigmaf = sigmaf
         self.sigmac = sigmac
@@ -776,6 +816,9 @@ class Hamiltonian(FLatStc):
         self.r = None
         self.kmu0 = None
         self.mu = 0
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
         # self.muold = mu
         self.CalMu0()
         self.SearchMu()
@@ -918,17 +961,31 @@ class Hamiltonian(FLatStc):
 
         return None
     
-    def Save(self, fn: str):
-        os.chdir('work')
+    def Save(self, fn: str, chem : bool = False):
+        # os.chdir('work')
         
-        filepath = 'flatstc.h5'
-        groupname = 'sigmah'
-        with h5py.File(filepath,'a') as file:
-            if self.CheckGroup(filepath,groupname):
-                group = file[groupname]
-            else:
-                group=file.create_group(groupname)
+        # filepath = 'flatstc.h5'
+        # groupname = 'sigmah'
+        # with h5py.File(filepath,'a') as file:
+        #     if self.CheckGroup(filepath,groupname):
+        #         group = file[groupname]
+        #     else:
+        #         group=file.create_group(groupname)
             
-            group.create_dataset(fn,dtype=complex,data=self.k)
-        os.chdir('..')
+        #     group.create_dataset(fn,dtype=complex,data=self.k)
+        # os.chdir('..')
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    ham = group[self.subgroup]
+                else:
+                    ham = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                ham = group.create_group(self.subgroup)
+            if chem:
+                ham.create_dataset('mu',dtype=float,data=self.mu)
+            ham.create_dataset(fn,dtype=complex,data=self.k)
+
         return None

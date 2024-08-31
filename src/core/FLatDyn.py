@@ -276,7 +276,7 @@ class FLatDyn(object):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = self.ft.size
+        nft = len(self.ft.omega)#self.ft.size
 
         chem = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
 
@@ -297,7 +297,7 @@ class FLatDyn(object):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = self.ft.size
+        nft = len(self.ft.omega)#self.ft.size
 
         matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
 
@@ -413,16 +413,20 @@ class FLatDyn(object):
     
 class GreenBare(FLatDyn):
 
-    def __init__(self, crystal: Crystal, ft: FTGrid, hamtb = None) -> object:
-        super(GreenBare,self).__init__(crystal, ft)
+    def __init__(self, crystal: Crystal, ft: FTGrid, hamtb : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
+        
+        super().__init__(crystal, ft)
         # print(self.niham.hamtb[...,0,0])
         self.hamtb = hamtb
         self.kt = None
         self.kf = None
         self.rt = None
         self.rf = None
-
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
         self.Cal()
+        self.Save()
         
 
     def Cal(self): # freq, tau combine
@@ -450,18 +454,18 @@ class GreenBare(FLatDyn):
         # else:
         #     os.mkdir('gbare')
 
-        os.chdir('work')
-        filepath = 'flatdyn.h5'
-        groupname = 'gbare'
-        with h5py.File(filepath,'a') as file:
-            if self.CheckGroup(filepath,groupname):
-                group = file[groupname]
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    gbare = group[self.subgroup]
+                else:
+                    gbare = group.create_group(self.subgroup)
             else:
-                group=file.create_group(groupname)
-            
-            group.create_dataset('g0kf',dtype=complex,data=self.kf)
+                group = file.create_group(self.group)
+                gbare = group.create_group(self.subgroup)
+            gbare.create_dataset('g0kf',dtype=complex,data=self.kf)
 
-        os.chdir('..')
         return None
     
     # def Load(self):
@@ -486,12 +490,12 @@ class GreenBare(FLatDyn):
     
 class GreenInt(FLatDyn):
 
-    def __init__(self, crystal: Crystal, ft: FTGrid, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None) -> object:
+    def __init__(self, crystal: Crystal, ft: FTGrid, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
         
         if greenbare is None:
             print("Bare Green's function doesn't exist")
             sys.exit()
-        super(GreenInt,self).__init__(crystal, ft)
+        super().__init__(crystal, ft)
         self.flatstc = FLatStc(crystal=crystal)
         self.kf = None
         self.kt = None
@@ -510,6 +514,9 @@ class GreenInt(FLatDyn):
         self.occr = None
         self.mu = 0
         self.c = 0
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
         print(f"Bare Green's function : \n{self.gbare[:,:,0,0,0]}")
         self.CalMu0()
         self.SearchMu()
@@ -519,8 +526,8 @@ class GreenInt(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = self.ft.size
-        sigma = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
+        nomega = len(self.ft.omega)
+        sigma = np.zeros((norb,norb,ns,nrk,nomega),dtype=np.complex64,order='F')
         print("Initialization start")
         if (self.sigmah is None)and(self.sigmaf is None)and(self.sigmac is None):
             self.gkfmu0 = self.gbare
@@ -543,37 +550,7 @@ class GreenInt(FLatDyn):
                 sigma += self.sigmac
                 print(sigma[:,:,0,0,0])
             self.gkfmu0 = self.Dyson(self.gbare,sigma) 
-        # if (self.sigmah!=None)and(self.sigmaf!=None)and(self.sigmac==None):
-        #     tempmat = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
-        #     tempmat2 = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
-        #     tempmat = self.StcEmbedding(self.sigmah.hk)
-        #     tempmat2 = self.StcEmbedding(self.sigmaf.fk)
-        #     sigma = tempmat+tempmat2
-        #     self.gkfmu0 = self.Dyson(self.gbare.g0kf,sigma)
-            
-        # if (self.sigmah!=None)and(self.sigmaf!=None)and(self.sigmac!=None):
-        #     tempmat = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
-        #     tempmat2 = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
-        #     tempmat = self.StcEmbedding(self.sigmah.hk)
-        #     tempmat2 = self.StcEmbedding(self.sigmaf.fk)
-        #     sigma = tempmat+tempmat2+self.sigmac.kf
-        #     self.gkfmu0 = self.Dyson(self.gbare.g0kf,sigma)
-        # if (self.sigmah==None)and(self.sigmaf==None)and(self.sigmac==None):
-        #     self.gkfmu0 = self.gbare.g0kf
-        #     self.gktmu0 = self.gbare.g0kt
-        # else:
-        #     if self.sigmah != None:
-        #         hk = self.StcEmbedding(self.sigmah.hk)
-        #         sig += hk
-            
-        #     if self.sigmaf != None:
-        #         fk = self.StcEmbedding(self.sigmaf.fk)
-        #         sig += fk
-            
-        #     if self.sigmac != None:
-        #         sig += self.sigmac.kf
-
-        # self.gkfmu0 = self.Dyson(self.gbare.g0kf,sig)
+        
 
         self.gktmu0 = self.F2T(self.gkfmu0,1,1)
         self.grfmu0 = self.K2R(self.gkfmu0)
@@ -612,7 +589,7 @@ class GreenInt(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = self.ft.size
+        nft = len(self.ft.omega)
 
         gkfnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
         chem = self.ChemEmbedding(self.mu)
@@ -636,7 +613,7 @@ class GreenInt(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = self.ft.size
+        nft = len(self.ft.omega)#self.ft.size
         tempmat = copy.deepcopy(self.gkfmu0)
         chem = self.ChemEmbedding(mu)
         gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
@@ -680,28 +657,31 @@ class GreenInt(FLatDyn):
         self.UpdateMu()
         return None
     
-    def Save(self, fn: str):
+    def Save(self, fn: str, chem : bool = False):
 
         
-        os.chdir('work')
-        filepath = 'flatdyn.h5'
-        groupname = 'green'
-        with h5py.File(filepath,'a') as file:
-            if self.CheckGroup(filepath,groupname):
-                group = file[groupname]
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    green = group[self.subgroup]
+                else:
+                    green = group.create_group(self.subgroup)
             else:
-                group=file.create_group(groupname)
+                group = file.create_group(self.group)
+                green = group.create_group(self.subgroup)
+            green.create_dataset(fn,dtype=complex,data=self.kf)
             
-            group.create_dataset(fn,dtype=complex,data=self.kf)
-        
-        os.chdir('..')
+            if chem:
+                mureal = np.real(self.mu+self.c)
+                green.create_dataset('mu',dtype=float,data=mureal)
 
         return None
 
     
 class SigmaGWC(FLatDyn):
 
-    def __init__(self, crystal: Crystal, ft: FTGrid, green : np.ndarray = None, wlat : np.ndarray = None) -> object:
+    def __init__(self, crystal: Crystal, ft: FTGrid, green : np.ndarray = None, wlat : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None) -> object:
         super().__init__(crystal, ft)
         self.flatstc = FLatStc(crystal=crystal)
         self.rt = None
@@ -710,6 +690,9 @@ class SigmaGWC(FLatDyn):
         self.kf = None
         self.stck = None
         self.z = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
 
         if green is None:
             print("Error, green doesn't exist")
@@ -794,7 +777,7 @@ class SigmaGWC(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nk = len(self.crystal.kpoint)
-        nfreq = self.ft.size
+        nfreq = len(self.ft.omega)#self.ft.size
 
         sigmastc = np.zeros((norb,norb,ns,nk),dtype=np.complex64,order="F")
         tempmat = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex64,order="F")
@@ -820,7 +803,7 @@ class SigmaGWC(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nk = len(self.crystal.kpoint)
-        nfreq = self.ft.size
+        nfreq = len(self.ft.omega)#self.ft.size
         beta = self.ft.beta
 
         z = np.zeros((norb,norb,ns,nk),dtype=np.complex64,order='F')
@@ -861,19 +844,21 @@ class SigmaGWC(FLatDyn):
     
     def Save(self, fn: str, obj : np.ndarray = None):
 
-        os.chdir('work')
-        filepath = 'flatdyn.h5'
-        groupname = 'sigmac'
-        with h5py.File(filepath,'a') as file:
-            if self.CheckGroup(filepath,groupname):
-                group = file[groupname]
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    sigmac = group[self.subgroup]
+                else:
+                    sigmac = group.create_group(self.subgroup)
             else:
-                group=file.create_group(groupname)
+                group = file.create_group(self.group)
+                sigmac = group.create_group(self.subgroup)
             
-            if obj == None:
-                group.create_dataset(fn,dtype=complex,data=self.kf)
+
+            if obj != None:
+                sigmac.create_dataset(fn,dtype=complex,data=obj)
             else:
-                group.create_dataset(fn,dtype=complex,data=obj)
-        os.chdir('..')
+                sigmac.create_dataset(fn,dtype=complex,data=self.kf)
 
         return None

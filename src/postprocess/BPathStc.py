@@ -15,17 +15,45 @@ from scipy.fftpack import fftn, ifftn
 import scipy.linalg
 import subprocess
 import copy
+import h5py
 from core.Crystal import Crystal
+from core.BLatStc import BLatStc
 
 class BPathStc(object):
 
-    def __init__(self, crystal : Crystal = None, obj : object = None) -> object:
+    def __init__(self, crystal : Crystal = None, obj : object = None, hdf5file : str = 'glob.h5') -> object:
               
-        if (crystal is None) or (obj is None):
-            print(f"Error : Check the {self.__class__.__name__} input again")
-            sys.exit()
+        if (crystal is not None) and (obj is not None):
+            pass
+        else:
+            if os.path.exists(hdf5file):
+                glob = h5py.File(hdf5file)
+                ini = glob['input']
+                tempcry = ini['Crystal']
+                cry = {}
+                for key in tempcry.keys():
+                    if (type(tempcry[key][()])==bytes):
+                        cry[key] = str(tempcry[key][()],'utf-8')
+                    else:
+                        cry[key] = tempcry[key][()]
+                for key in cry.keys():
+                    if key=='Basis':
+                        cry[key] = eval(cry[key])
+                    elif key=='KGrid':
+                        cry[key] = eval(cry[key])
+                    elif key=='RVec':
+                        cry[key] = eval(cry[key])
+                    else:
+                        cry[key] = cry[key]
+                
+                crystal = Crystal(Rvec=cry['RVec'],CorF=cry['CorF'],Basis=cry['Basis'],Nspin=cry['NSpin'],SOC=cry['SOC'],Nelec=cry['NElec'],KGrid=cry['KGrid'])
+                glob.close()
+            else:
+                print(f"Error : Check the {self.__class__.__name__} input again")
+                sys.exit()
         
         self.crystal = crystal
+        self.blatstc = BLatStc(crystal=self.crystal)
 
     def R2K(self, matr : np.ndarray = None, kpoint = None) -> np.ndarray:
 

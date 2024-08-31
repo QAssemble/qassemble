@@ -222,7 +222,7 @@ class BLatDyn(object):
 
         norbc = self.crystal.bprojector.shape[1]
         ns = self.crystal.ns
-        nft = self.ft.size
+        nft = len(self.ft.nu)#self.ft.size
         nspace = self.crystal.bprojector.shape[3]
 
         matout = np.zeros((norbc,norbc,ns,ns,nft,nspace),dtype=np.complex64,order='F')
@@ -237,7 +237,7 @@ class BLatDyn(object):
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = self.ft.size
+        nft = len(self.ft.nu)#self.ft.size
         
         matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
 
@@ -254,7 +254,7 @@ class BLatDyn(object):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = self.ft.size
+        nft = len(self.ft.nu)#self.ft.size
 
         matout = np.zeros((norb,norb,norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
 
@@ -271,7 +271,7 @@ class BLatDyn(object):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = self.ft.size
+        nft = len(self.ft.nu)#self.ft.size
 
         matout = np.zeros((norb*norb,norb*norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
         
@@ -288,7 +288,7 @@ class BLatDyn(object):
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = self.ft.size
+        nft = len(self.ft.nu)#self.ft.size
 
         matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
 
@@ -305,7 +305,7 @@ class BLatDyn(object):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = self.ft.size
+        nft = len(self.ft.nu)#self.ft.size
 
         matout = np.zeros((norb*norb,norb*norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
 
@@ -322,7 +322,7 @@ class BLatDyn(object):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = self.ft.size
+        nft = len(self.ft.nu)#self.ft.size
 
         matout = np.zeros((norb,norb,norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
 
@@ -339,7 +339,7 @@ class BLatDyn(object):
         norb = matin.shape[0]
         ns = matin.shape[2]
         nrk = matin.shape[4]
-        nft = self.ft.size
+        nft = len(self.ft.nu)#self.ft.size
 
         matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
 
@@ -415,12 +415,15 @@ class BLatDyn(object):
 
 class PolLat(BLatDyn):
 
-    def __init__(self, crystal: Crystal, ft: FTGrid,green : np.ndarray = None):
+    def __init__(self, crystal: Crystal, ft: FTGrid,green : np.ndarray = None,hdf5file : str = 'glob.h5', group :str = None):
         super().__init__(crystal, ft)
         self.rt = None # rt to kf
         self.rf = None
         self.kt = None
         self.kf = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
         if green is None:
             print("Error, There is no Green's function.")
             sys.exit()
@@ -493,26 +496,111 @@ class PolLat(BLatDyn):
 
         return None
     
-    def Save(self, fn):
+    # def Cal(self):
+    #     grt = self.green
+    #     # norbc = len(self.crystal.find)
+    #     ns = self.crystal.ns
+    #     nrk = len(self.crystal.kpoint)
+    #     ntau = len(self.ft.tau)
+    #     # norb = len(self.crystal.bind)
+    #     norbc = len(self.crystal.find)
+    #     polrt = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nrk,ntau),dtype=np.complex64,order='F')
 
-        os.chdir('work')
+    #     gmrt = self.crystal.RT2mRmT(grt)
         
-        filepath = 'blatdyn.h5'
-        groupname = 'pollat'
-        with h5py.File(filepath,'a') as file:
-            if self.CheckGroup(filepath,groupname):
-                group = file[groupname]
-            else:
-                group=file.create_group(groupname)
+    #     if ns == 2:
+    #         for itau in range(ntau):
+    #             for irk in range(nrk):
+    #                 for ind2 in range(norbc*norbc*ns):
+    #                     nn2 = [0]*2
+    #                     ind2, [jorb,ks] = self.crystal.indexing(norbc**2*ns,2,[norbc*norbc,ns],0,ind2,nn2)
+    #                     [ll,jj] = self.crystal.FullAtomOrb(jorb)
+    #                     lorbc = self.crystal.FIndex(ll)
+    #                     jorbc = self.crystal.FIndex(jj)
+    #                     for ind1 in range(norbc*norbc*ns):
+    #                         nn1 = [0]*2
+    #                         ind1,[iorb,js] = self.crystal.indexing(norbc**2*ns,2,[norbc*norbc,ns],0,ind1,nn1)
+    #                         [ii,kk] = self.crystal.FullAtomOrb(iorb)
+    #                         iorbc = self.crystal.FIndex(ii)
+    #                         korbc = self.crystal.FIndex(kk)
+    #                         if js == ks:
+    #                             polrt[iorb,jorb,js,ks,irk,itau] = gmrt[jorbc,iorbc,js,irk,itau]*grt[korbc,lorbc,ks,irk,itau]
+
+
+
+                                
+    #     else:
+    #         if self.crystal.soc == True:
+    #             C = 1
+    #             for itau in range(ntau):
+    #                 for irk in range(nrk):
+    #                     for jorbc in range(norbc):
+    #                         for lorbc in range(norbc):
+    #                             for korbc in range(norbc):
+    #                                 for iorbc in range(norbc):
+    #                                     iorb = self.crystal.pbasis[iorbc,korbc]
+    #                                     jorb = self.crystal.pbasis[lorbc,jorbc]
+    #                                     polrt[iorb,jorb,0,0,irk,itau] = gmrt[jorbc,iorbc,0,irk,itau]*grt[korbc,lorbc,0,irk,itau]*C
+    #         else:
+    #             C = 2
+    #             for itau in range(ntau):
+    #                 for irk in range(nrk):
+    #                     for jorbc in range(norbc):
+    #                         for lorbc in range(norbc):
+    #                             for korbc in range(norbc):
+    #                                 for iorbc in range(norbc):
+    #                                     iorb = self.crystal.pbasis[iorbc,korbc]
+    #                                     jorb = self.crystal.pbasis[lorbc,jorbc]
+    #                                     polrt[iorb,jorb,0,0,irk,itau] = gmrt[jorbc,iorbc,0,irk,itau]*grt[korbc,lorbc,0,irk,itau]*C
+    #                     # for iorb in range(norb):
+    #                     #     [a,[m1,m3]] = self.crystal.BAtomOrb(iorb)
+    #                     #     iorbc = self.crystal.FIndex([a,m1])
+    #                     #     korbc = self.crystal.FIndex([a,m3])
+    #                     #     for jorb in range(norb):
+    #                     #         [b,[m4,m2]] = self.crystal.BAtomOrb(jorb)
+    #                     #         lorbc = self.crystal.FIndex([b,m4])
+    #                     #         jorbc = self.crystal.FIndex([b,m2])
+    #                     #         # if (iorb==0)and(jorb==0)and(irk==0):
+    #                     #         #     print(iorbc,jorbc,korbc,lorbc,irk,itau,gmrt[jorbc,iorbc,0,irk,itau],grt[korbc,lorbc,0,irk,itau])
+    #                     #         polrt[iorb,jorb,0,0,irk,itau] = gmrt[jorbc,iorbc,0,irk,itau]*grt[korbc,lorbc,0,irk,itau]*C
+        
+
+    #     self.rt = polrt
+
+    #     return None
+    
+    def Save(self, fn : str):
+
+        # os.chdir('work')
+        
+        # filepath = 'blatdyn.h5'
+        # groupname = 'pollat'
+        # with h5py.File(filepath,'a') as file:
+        #     if self.CheckGroup(filepath,groupname):
+        #         group = file[groupname]
+        #     else:
+        #         group=file.create_group(groupname)
             
-            group.create_dataset(fn,dtype=complex,data=self.kf)
-        os.chdir('..')
+        #     group.create_dataset(fn,dtype=complex,data=self.kf)
+        # os.chdir('..')
+
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    pol = group[self.subgroup]
+                else:
+                    pol = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                pol = group.create_group(self.subgroup)
+            pol.create_dataset(fn,dtype=complex,data=self.kf)
 
         return None
 
 class WLat(BLatDyn):
 
-    def __init__(self, crystal: Crystal, ft: FTGrid,pol : np.ndarray = None, vbare : VBare = None,c : float = 1.0):
+    def __init__(self, crystal: Crystal, ft: FTGrid,pol : np.ndarray = None, vbare : VBare = None, c : float = 1.0, hdf5file : str = 'glob.h5', group : str = None):
         super().__init__(crystal, ft)
         self.rt = None #rt to kf
         self.rf = None
@@ -523,6 +611,9 @@ class WLat(BLatDyn):
         self.ckt = None
         self.ckf = None
         self.c = c
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
         if pol is None:
             print("Error, polarizability doesn't exist")
             sys.exit()
@@ -561,11 +652,11 @@ class WLat(BLatDyn):
         polcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex64,order='F')
         vcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex64,order='F')
         ####### Initialization #######
-        polcomp = self.Double2Full(self.pol)
+        polcomp = self.Double2Full(self.pol)*self.c
         vcomp = self.Double2Full(vdyn)
         
         tempmat = self.Dyson(vcomp,polcomp)
-        wkf = self.Full2Double(tempmat)/self.c
+        wkf = self.Full2Double(tempmat)
         
         self.kf = wkf
 
@@ -575,19 +666,19 @@ class WLat(BLatDyn):
 
         return None
     
-    def Save(self, fn):
+    def Save(self, fn : str):
 
-        os.chdir('work')
-        
-        filepath = 'blatdyn.h5'
-        groupname = 'wlat'
-        with h5py.File(filepath,'a') as file:
-            if self.CheckGroup(filepath,groupname):
-                group = file[groupname]
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    w = group[self.subgroup]
+                else:
+                    w = group.create_group(self.subgroup)
             else:
-                group=file.create_group(groupname)
+                group = file.create_group(self.group)
+                w = group.create_group(self.subgroup)
             
-            group.create_dataset(fn,dtype=complex,data=self.kf)
-        os.chdir('..')
+            w.create_dataset(fn,dtype=complex,data=self.kf)
 
         return None

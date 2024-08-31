@@ -15,18 +15,48 @@ from scipy.fftpack import fftn, ifftn
 import scipy.linalg
 import subprocess
 import copy
+import h5py
 from core.Crystal import Crystal
+from core.FLatStc import FLatStc
 
 class FPathStc(object):
     
-    def __init__(self, crystal : Crystal = None, obj : object = None):
+    def __init__(self, crystal : Crystal = None, obj : object = None, hdf5file : str = 'glob.h5'):
 
-        if (crystal is None) or (obj is None):
-            print(f"Error : Check the {self.__class__.__name__} input again")
-            sys.exit()
+        if (crystal is not None) and (obj is not None):
+            pass
+        else:
+            if os.path.exists(hdf5file):
+                glob = h5py.File(hdf5file)
+                ini = glob['input']
+                tempcry = ini['Crystal']
+                cry = {}
+                for key in tempcry.keys():
+                    if (type(tempcry[key][()])==bytes):
+                        cry[key] = str(tempcry[key][()],'utf-8')
+                    else:
+                        cry[key] = tempcry[key][()]
+                for key in cry.keys():
+                    if key=='Basis':
+                        cry[key] = eval(cry[key])
+                    elif key=='KGrid':
+                        cry[key] = eval(cry[key])
+                    elif key=='RVec':
+                        cry[key] = eval(cry[key])
+                    else:
+                        cry[key] = cry[key]
+                
+                crystal = Crystal(Rvec=cry['RVec'],CorF=cry['CorF'],Basis=cry['Basis'],Nspin=cry['NSpin'],SOC=cry['SOC'],Nelec=cry['NElec'],KGrid=cry['KGrid'])
+                glob.close()
+            else:
+                print(f"Error : Check the {self.__class__.__name__} input again")
+                sys.exit()
+
+        
         
         self.crystal = crystal
         self.obj = obj
+        self.flatstc = FLatStc(crystal=self.crystal)
         
     def Inverse(self,mat : np.ndarray):
 
@@ -70,6 +100,13 @@ class FPathStc(object):
                         delta = self.crystal.basisf[a,:]-self.crystal.basisf[b,:]
                         phase = np.exp(-2.0j*np.pi*(kpoint[ik]@delta))
                         matk[iorb,jorb,js,ik] = temp*phase
+                        # for ir in range(nr):
+                        #     [a,m1] = self.crystal.FAtomOrb(iorb)
+                        #     [b,m2] = self.crystal.FAtomOrb(jorb)
+                        #     delta = self.crystal.basisf[a,:]-self.crystal.basisf[b,:]
+                        #     temp += tempmat[iorb,jorb,js,ir]*np.exp(-2.0j*np.pi*(kpoint[ik]@(delta-self.crystal.rvec[ir])))
+                        # matk[iorb,jorb,js,ik] = temp
+                        
         
         return matk
     
@@ -94,7 +131,7 @@ class FPathStc(object):
         matk = self.R2K(matr=matr,kpoint=kpoint)
         print("***** Fourier transfrom R2K Finish *****")
         print("***** Hamiltonian Diagonalization Start *****")
-        (energy, eigvec) = self.obj.Diagonalize(matk=matk,eigvec=True)
+        (energy, eigvec) = self.flatstc.Diagonalize(matk=matk,eigvec=True)
         print("***** Hamiltonian Diagonalization Finish *****")
 
         if energyrange == None:
@@ -112,7 +149,7 @@ class FPathStc(object):
             for js in range(ns):
                 for iorb in range(norb):
                     e = energy[iorb,iorb,js,ik]
-                    tempmat[iorb,js,ik] += self.Gaussian(E,e,sigma)/nk
+                    tempmat[iorb,js] += self.Gaussian(E,e,sigma)/nk
         print("***** Gaussian Approach Finish *****")
 
         eiginv = self.Inverse(eigvec)
@@ -159,7 +196,7 @@ class FPathStc(object):
     def Band(self, hmat : np.ndarray, fn : str = None, plotoption : bool = False, label : list = None):
 
 
-        energy = self.obj.Diagonalize(hmat)
+        energy = self.flatstc.Diagonalize(hmat)
         norb = energy.shape[0]
         ns = energy.shape[2]
         nk = energy.shape[3]
