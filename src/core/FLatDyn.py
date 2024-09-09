@@ -40,7 +40,7 @@ class FLatDyn(object):
         nrk = mat.shape[3]
         nft = mat.shape[4]
 
-        matinv = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
+        matinv = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
         for ift in range(nft):
             for irk in range(nrk):
@@ -58,7 +58,7 @@ class FLatDyn(object):
         ns = ftau.shape[2]
         nk = ftau.shape[3]
         nfreq = len(self.ft.omega)
-        ff = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex64,order='F')
+        ff = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order='F')
 
         ff = DiagE.fourier.flatdyn_t2f(self.ft.tau,ftau,self.ft.omega)
 
@@ -71,7 +71,7 @@ class FLatDyn(object):
         nk = ff.shape[3]
         ntau = len(self.ft.tau)
 
-        ftau = np.zeros((norb,norb,ns,nk,ntau),dtype=np.complex64,order='F')
+        ftau = np.zeros((norb,norb,ns,nk,ntau),dtype=np.complex128,order='F')
         tempmat = copy.deepcopy(ff)
         moment, high = self.Moment(tempmat,isgreen,highzero)
         
@@ -86,8 +86,8 @@ class FLatDyn(object):
         ns = ff.shape[2]
         nk = ff.shape[3]
 
-        moment = np.zeros((norb,norb,ns,nk,3),dtype=np.complex64,order='F')
-        high = np.zeros((norb,norb,ns,nk),dtype=np.complex64,order='F')
+        moment = np.zeros((norb,norb,ns,nk,3),dtype=np.complex128,order='F')
+        high = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order='F')
 
         tempmat = copy.deepcopy(ff)
 
@@ -107,7 +107,7 @@ class FLatDyn(object):
         ns = matk.shape[2]
         nrk = matk.shape[3]
         nft = matk.shape[4]
-        matr = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
+        matr = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
         tempmat = copy.deepcopy(matk)
         
 
@@ -186,7 +186,7 @@ class FLatDyn(object):
         nr = G.shape[3]
         ntau = G.shape[4]
 
-        GmRmT = np.zeros((norb,norb,ns,nr,ntau),dtype=np.complex64,order='F')
+        GmRmT = np.zeros((norb,norb,ns,nr,ntau),dtype=np.complex128,order='F')
 
         for itau in range(ntau):
             for rp in self.mappingidx:
@@ -204,7 +204,7 @@ class FLatDyn(object):
         nrk = y.shape[3]
         nft = y.shape[4]
 
-        ynew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
+        ynew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
         w0 = (1.0 - 3.0*w1)*np.pi*temperature
         widtharray = w0+w1*x
@@ -233,11 +233,11 @@ class FLatDyn(object):
         nrk = Fb.shape[3]
         nft = Fb.shape[4]
 
-        Fnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
+        Fnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
         if iter == 1:
             mix = 1.0
-            Fm = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
+            Fm = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
         
         Fnew = mix*Fb + (1.0-mix)*Fm
 
@@ -250,7 +250,7 @@ class FLatDyn(object):
         nrk = mat1.shape[3]
         nft = mat1.shape[4]
         
-        matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
         matout = DiagE.dyson.flatdyn(mat1,mat2)
 
@@ -264,7 +264,7 @@ class FLatDyn(object):
         norbc = self.crystal.fprojector.shape[1]
         nspace = self.crystal.fprojector.shape[3]
 
-        matout = np.zeros((norbc,norbc,ns,nft,nspace),dtype=np.complex64,order='F')
+        matout = np.zeros((norbc,norbc,ns,nft,nspace),dtype=np.complex128,order='F')
 
         for ispace in range(nspace):
             matout[...,ispace] = DiagE.projection.flatdyn(matin,self.crystal.fprojector[...,ispace])
@@ -278,7 +278,7 @@ class FLatDyn(object):
         nrk = len(self.crystal.kpoint)
         nft = len(self.ft.omega)#self.ft.size
 
-        chem = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
+        chem = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
         for ift in range(nft):
             for irk in range(nrk):
@@ -299,7 +299,7 @@ class FLatDyn(object):
         nrk = len(self.crystal.kpoint)
         nft = len(self.ft.omega)#self.ft.size
 
-        matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
         for ift in range(nft):
             matout[...,ift] = matin
@@ -527,7 +527,7 @@ class GreenInt(FLatDyn):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
         nomega = len(self.ft.omega)
-        sigma = np.zeros((norb,norb,ns,nrk,nomega),dtype=np.complex64,order='F')
+        sigma = np.zeros((norb,norb,ns,nrk,nomega),dtype=np.complex128,order='F')
         print("Initialization start")
         if (self.sigmah is None)and(self.sigmaf is None)and(self.sigmac is None):
             self.gkfmu0 = self.gbare
@@ -565,8 +565,8 @@ class GreenInt(FLatDyn):
         nrk = len(self.crystal.kpoint)
         
         
-        occk = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
-        occ = np.zeros((norb,norb,ns),dtype=np.complex64,order='F')
+        occk = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
+        occ = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
         
         print("Density matrixy calculation start")
         
@@ -591,7 +591,7 @@ class GreenInt(FLatDyn):
         nrk = len(self.crystal.kpoint)
         nft = len(self.ft.omega)
 
-        gkfnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
+        gkfnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
         chem = self.ChemEmbedding(self.mu)
     
     
@@ -616,8 +616,8 @@ class GreenInt(FLatDyn):
         nft = len(self.ft.omega)#self.ft.size
         tempmat = copy.deepcopy(self.gkfmu0)
         chem = self.ChemEmbedding(mu)
-        gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
-        gcalt = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
+        gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+        gcalt = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
         
         gcalf = self.Dyson(tempmat,-chem)
@@ -721,9 +721,9 @@ class SigmaGWC(FLatDyn):
         ntau = G.shape[4]
         norb = Wc.shape[0]
 
-        crtau = np.zeros((norbc,norbc,ns,nr,ntau),dtype=np.complex64,order='F')
+        crtau = np.zeros((norbc,norbc,ns,nr,ntau),dtype=np.complex128,order='F')
     
-        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex64,order='F')
+        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex128,order='F')
         # for itau in range(ntau):
         #     for ir in range(nr):
         #         tempmat = self.crystal.OrbSpin2Composite(Wc[:,:,:,:,ir,itau])
@@ -762,8 +762,8 @@ class SigmaGWC(FLatDyn):
                                         
 
         cktau = self.R2K(crtau)
+        ckfreq = self.T2F(cktau)
         crfreq = self.T2F(crtau)
-        ckfreq = self.K2R(crfreq)
 
         self.rt = crtau
         self.kt = cktau
@@ -779,8 +779,8 @@ class SigmaGWC(FLatDyn):
         nk = len(self.crystal.kpoint)
         nfreq = len(self.ft.omega)#self.ft.size
 
-        sigmastc = np.zeros((norb,norb,ns,nk),dtype=np.complex64,order="F")
-        tempmat = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex64,order="F")
+        sigmastc = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order="F")
+        tempmat = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order="F")
         sigma = copy.deepcopy(self.kf)
         for ifreq in range(nfreq):
             for ik in range(nk):
@@ -806,15 +806,15 @@ class SigmaGWC(FLatDyn):
         nfreq = len(self.ft.omega)#self.ft.size
         beta = self.ft.beta
 
-        z = np.zeros((norb,norb,ns,nk),dtype=np.complex64,order='F')
-        # identity = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex64,order='F')
-        tempmat = np.zeros((norb,norb,ns,nk),dtype=np.complex64,order='F')
-        tempmat2 = np.zeros((norb,norb,ns,nk),dtype=np.complex64,order='F')
+        z = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order='F')
+        # identity = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order='F')
+        tempmat = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order='F')
+        tempmat2 = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order='F')
         sigma = copy.deepcopy(self.kf)
         # for ifreq in range(nfreq):
         #     for ik in range(nk):
         #         for js in range(ns):
-        #             identity[:,:,js,ik,ifreq] = np.eye(norb,norb,dtype=np.complex64,order='F')
+        #             identity[:,:,js,ik,ifreq] = np.eye(norb,norb,dtype=np.complex128,order='F')
         #             tempmat[:,:,js,ik,ifreq] = np.transpose(np.conjugate(self.kf[:,:,js,ik,ifreq]))
 
         # for ifreq in range(nfreq):

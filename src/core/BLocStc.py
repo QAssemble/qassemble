@@ -35,9 +35,9 @@ class BLocStc(object):
         norb = matin.shape[0]
         ns = matin.shape[2]
 
-        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex64,order='F')
-        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex64)
-        tempmat2 = np.zeros((norb*ns,norb*ns),dtype=np.complex64)
+        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
+        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex128)
+        tempmat2 = np.zeros((norb*ns,norb*ns),dtype=np.complex128)
 
         
         tempmat = self.crystal.OrbSpin2Composite(matin)
@@ -51,11 +51,11 @@ class BLocStc(object):
         norb = Bb.shape[0]
         ns = Bb.shape[2]
 
-        Bnew = np.zeros((norb,norb,ns,ns),dtype=np.complex64,order='F')
+        Bnew = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
 
         if iter == 1:
             mix = 1.0
-            Bold = np.zeros((norb,norb,ns,ns),dtype=np.complex64,order='F')
+            Bold = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
         
         Bnew = mix*Bb + (1-mix)*Bold
 
@@ -71,7 +71,7 @@ class BLocStc(object):
         for val in self.crystal.probspace.values():
             nspace += len(val)
 
-        matloc = np.zeros((norb,norb,ns,ns,nspace),dtype=np.complex64,order='F')
+        matloc = np.zeros((norb,norb,ns,ns,nspace),dtype=np.complex128,order='F')
 
         for key, val in self.crystal.probspace.items():
             iprob = int(key)-1
@@ -90,7 +90,7 @@ class BLocStc(object):
         for val in self.crystal.probspace.values():
             nspace += len(val)
 
-        matloc = np.zeros((norb,norb,ns,ns,nspace),dtype=np.complex64,order='F')
+        matloc = np.zeros((norb,norb,ns,ns,nspace),dtype=np.complex128,order='F')
 
         for key, val in self.crystal.probspace.items():
             iprob = int(key)-1
@@ -123,7 +123,7 @@ class BLocStc(object):
 
         norb = len(equiv)
         ns = self.crystal.ns
-        matout = np.zeros((norb,norb,ns),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
         nind = np.amax(equiv)
 
         for js in range(ns):
@@ -140,7 +140,7 @@ class BLocStc(object):
         norb = mat1.shape[0]
         ns = mat1.shape[2]
 
-        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
 
         matout = DiagE.dyson.blocstc(mat1,mat2)
 
@@ -153,7 +153,7 @@ class BLocStc(object):
         nrk = len(self.crystal.kpoint)
         nspace = self.crystal.bprojector.shape[3]
 
-        matout = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
 
         for ispace in range(nspace):
             matout += DiagE.embedding.blocstc(nrk,matin[...,ispace],self.crystal.bprojector.shape[...,ispace])
@@ -166,7 +166,7 @@ class BLocStc(object):
         norbc = len(self.crystal.find)
         ns = self.crystal.ns
 
-        matout = np.zeros((norbc,norbc,norbc,norbc,ns,ns),dtype=np.complex64,order='F')
+        matout = np.zeros((norbc,norbc,norbc,norbc,ns,ns),dtype=np.complex128,order='F')
         
         for js in range(ns):
             for ks in range(ns):
@@ -180,7 +180,7 @@ class BLocStc(object):
         norbc = len(self.crystal.find)
         ns = self.crystal.ns
 
-        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
 
         for js in range(ns):
             for ks in range(ns):
@@ -194,7 +194,7 @@ class BLocStc(object):
         norbc = len(self.crystal.find)
         ns = self.crystal.ns
 
-        matout = np.zeros((norbc**2,norbc**2,ns,ns),dtype=np.complex64)
+        matout = np.zeros((norbc**2,norbc**2,ns,ns),dtype=np.complex128)
 
         for js in range(ns):
             for ks in range(ns):
@@ -208,7 +208,7 @@ class BLocStc(object):
         norbc = len(self.crystal.find)
         ns = self.crystal.ns
 
-        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
 
         for js in range(ns):
             for ks in range(ns):
@@ -222,7 +222,7 @@ class BLocStc(object):
         norbc = len(self.crystal.find)
         ns = self.crystal.ns
 
-        matout = np.zeros((norbc*norbc,norbc*norbc,ns,ns),dtype=np.complex64,order='F')
+        matout = np.zeros((norbc*norbc,norbc*norbc,ns,ns),dtype=np.complex128,order='F')
 
         for js in range(ns):
             for ks in range(ns):
@@ -236,7 +236,7 @@ class BLocStc(object):
         norbc = len(self.crystal.find)
         ns = self.crystal.ns
 
-        matout = np.zeros((norbc,norbc,norbc,norbc,ns,ns),dtype=np.complex64,order='F')
+        matout = np.zeros((norbc,norbc,norbc,norbc,ns,ns),dtype=np.complex128,order='F')
 
         for js in range(ns):
             for ks in range(ns):
@@ -390,7 +390,7 @@ class VLoc(BLocStc):
         ns = self.crystal.ns
         onsitelist = []
         
-        tempmat = np.zeros((norbc,norbc,norbc,norbc,ns,ns),dtype=np.complex64,order='F')
+        tempmat = np.zeros((norbc,norbc,norbc,norbc,ns,ns),dtype=np.complex128,order='F')
 
         tempmat = self.Double2Quad(self.vloc)
 
@@ -530,10 +530,10 @@ class VLoc(BLocStc):
     def RotationMatrix(self,l : int):
 
         mrange = int(2*l+1)
-        R = np.zeros((mrange,mrange),dtype=np.complex64)
+        R = np.zeros((mrange,mrange),dtype=np.complex128)
         
         if l == 0:
-            R = np.eye(mrange,mrange,dtype=np.complex64)
+            R = np.eye(mrange,mrange,dtype=np.complex128)
         elif l == 1:
             '''/n
             py, pz, px

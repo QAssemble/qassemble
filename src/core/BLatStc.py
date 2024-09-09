@@ -37,9 +37,9 @@ class BLatStc(object):
         ns = matin.shape[2]
         nrk = matin.shape[4]
 
-        matout = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex64,order='F')
-        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex64)
-        tempmat2 = np.zeros((norb*ns,norb*ns),dtype=np.complex64)
+        matout = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
+        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex128)
+        tempmat2 = np.zeros((norb*ns,norb*ns),dtype=np.complex128)
 
         for irk in range(nrk):
             tempmat = self.crystal.OrbSpin2Composite(matin[...,irk])
@@ -58,7 +58,7 @@ class BLatStc(object):
         ns = self.crystal.ns
         nrk = len(rkvec)
 
-        matr = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex64,order='F')
+        matr = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
         tempmat = copy.deepcopy(matk)
 
         for irk in range(nrk):
@@ -87,7 +87,7 @@ class BLatStc(object):
         ns = self.crystal.ns
         nrk = len(rkvec)
 
-        matk = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex64,order='F')
+        matk = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
 
         matk = DiagE.fourier.blatstc_r2k(rkgrid,matr)
 
@@ -112,7 +112,7 @@ class BLatStc(object):
         ns = Bb.shape[2]
         nrk = Bb.shape[4]
 
-        Bnew = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex64,order='F')
+        Bnew = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
 
         if iter == 1:
             mix = 1.0
@@ -127,7 +127,7 @@ class BLatStc(object):
         ns = mat1.shape[2]
         nrk = mat1.shape[4]
 
-        matout = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
 
         matout = DiagE.dyson.blatstc(mat1,mat2)
 
@@ -140,7 +140,7 @@ class BLatStc(object):
         nspace = self.crystal.bprojector.shape[3]
         ns = self.crystal.ns
 
-        matout = np.zeros((norbc,norbc,ns,ns,nspace),dtype=np.complex64,order='F')
+        matout = np.zeros((norbc,norbc,ns,ns,nspace),dtype=np.complex128,order='F')
 
         for ispace in range(nspace):
             matout[...,ispace] = DiagE.projection.blatstc(matin,self.crystal.bprojector[...,ispace])
@@ -153,7 +153,7 @@ class BLatStc(object):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
         
-        matout = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
 
         for irk in range(nrk):
             for ks in range(ns):
@@ -168,7 +168,7 @@ class BLatStc(object):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
 
-        matout = np.zeros((norb,norb,norb,norb,ns,ns,nrk),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
 
         for irk in range(nrk):
             for ks in range(ns):
@@ -183,7 +183,7 @@ class BLatStc(object):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
 
-        matout = np.zeros((norb*norb,norb*norb,ns,ns,nrk),dtype=np.complex64,order='F')
+        matout = np.zeros((norb*norb,norb*norb,ns,ns,nrk),dtype=np.complex128,order='F')
         
         for irk in range(nrk):
             for js in range(ns):
@@ -198,7 +198,7 @@ class BLatStc(object):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
 
-        matout = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
 
     
         for irk in range(nrk):
@@ -214,7 +214,7 @@ class BLatStc(object):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
         
-        matout = np.zeros((norb*norb,norb*norb,ns,ns,nrk),dtype=np.complex64,order='F')
+        matout = np.zeros((norb*norb,norb*norb,ns,ns,nrk),dtype=np.complex128,order='F')
 
         
         for irk in range(nrk):
@@ -231,7 +231,7 @@ class BLatStc(object):
         nrk = len(self.crystal.kpoint)
         
 
-        matout = np.zeros((norb,norb,norb,norb,ns,ns,nrk),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
 
         
         for irk in range(nrk):
@@ -381,8 +381,8 @@ class VBare(BLatStc):
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
         nk = len(rkvec)
-        vnlk = np.zeros((norb,norb,ns,ns,nk),dtype=np.complex64,order='F')
-        tempmat = np.zeros((norb,norb,ns,ns,rkgrid[0],rkgrid[1],rkgrid[2]),dtype=np.complex64,order='F')
+        vnlk = np.zeros((norb,norb,ns,ns,nk),dtype=np.complex128,order='F')
+        tempmat = np.zeros((norb,norb,ns,ns,rkgrid[0],rkgrid[1],rkgrid[2]),dtype=np.complex128,order='F')
 
         # for ik in range(nk):
         #     for js in range(ns):
@@ -449,7 +449,7 @@ class VBare(BLatStc):
         ns = self.crystal.ns 
         nrk = len(self.crystal.kpoint) 
 
-        vbare = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex64,order='F')
+        vbare = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
         # if (self.nonlock == None):
         #     for ik in range(nrk):
         #         vbare[...,ik] = vloc

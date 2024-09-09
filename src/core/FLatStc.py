@@ -37,7 +37,7 @@ class FLatStc(object):
         ns = mat.shape[2]
         nrk = mat.shape[3]
 
-        matinv = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
+        matinv = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
 
         for irk in range(nrk):
             for js in range(ns):
@@ -87,7 +87,7 @@ class FLatStc(object):
         ns = matr.shape[2]
         nrk = matr.shape[3]
 
-        matk = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
+        matk = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
         matk = DiagE.fourier.flatstc_r2k(rkgrid,matr)
         
         for irk in range(nrk):
@@ -164,7 +164,7 @@ class FLatStc(object):
         ns = matk.shape[2]
         
         energy = np.zeros((norb,norb,ns,nk),dtype=float)
-        evec = np.zeros((norb,norb,ns,nk),dtype=np.complex64)
+        evec = np.zeros((norb,norb,ns,nk),dtype=np.complex128)
 
         # if eigvec == False:
         #     for ik in range(nk):
@@ -318,11 +318,11 @@ class FLatStc(object):
         nrk = len(self.crystal.kpoint)
 
 
-        Fnew = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
+        Fnew = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
         # print(Fnew.shape)
         if iter == 1:
             mix = 1.0
-            Fm = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
+            Fm = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
         for irk in range(nrk):
             for js in range(ns):
                 for iorb in range(norb):
@@ -337,7 +337,7 @@ class FLatStc(object):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
 
-        chem = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
+        chem = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
 
         for irk in range(nrk):
             for js in range(ns):
@@ -352,7 +352,7 @@ class FLatStc(object):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
 
-        matout = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
 
         matout = DiagE.dyson.flatstc(mat1,mat2)
 
@@ -365,7 +365,7 @@ class FLatStc(object):
         norbc = self.crystal.fprojector.shape[1]
         nspace = self.crystal.fprojector.shape[3]
 
-        matout = np.zeros((norbc,norbc,ns,nspace),dtype=np.complex64,order='F')
+        matout = np.zeros((norbc,norbc,ns,nspace),dtype=np.complex128,order='F')
 
         for ispace in range(nspace):
             matout[...,ispace] = DiagE.projection.flatstc(matin,self.crystal.fprojector[...,ispace])
@@ -479,8 +479,8 @@ class NIHamiltonian(FLatStc):
         nk = len(self.crystal.kpoint)
         kvec = self.crystal.kpoint
 
-        hamtb = np.zeros((norb,norb,ns,nk),dtype=np.complex64,order='F')
-        tempmat = np.zeros((norb,norb,ns,self.crystal.rkgrid[0],self.crystal.rkgrid[1],self.crystal.rkgrid[2]),dtype=np.complex64,order='F')
+        hamtb = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order='F')
+        tempmat = np.zeros((norb,norb,ns,self.crystal.rkgrid[0],self.crystal.rkgrid[1],self.crystal.rkgrid[2]),dtype=np.complex128,order='F')
         
         
         for js in range(ns):
@@ -587,7 +587,7 @@ class SigmaHartree(FLatStc):
         norb = len(self.crystal.bind) #vbare.shape[0]
 
         # onsite = self.R2K(self.onsiter)
-        h = np.zeros((norbc,norbc,ns,nk),dtype=np.complex64,order='F')
+        h = np.zeros((norbc,norbc,ns,nk),dtype=np.complex128,order='F')
 
         if self.crystal.ns != 1:
         #     for ik in range(nk):
@@ -736,7 +736,7 @@ class SigmaFock(FLatStc):
         nr = occr.shape[3]
         norb = len(self.crystal.bind)
 
-        fr = np.zeros((norbc,norbc,ns,nr),dtype=np.complex64,order='F')
+        fr = np.zeros((norbc,norbc,ns,nr),dtype=np.complex128,order='F')
 
         # for ir in range(nr):
         #     for js in range(ns):
@@ -829,7 +829,7 @@ class Hamiltonian(FLatStc):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
 
-        tempmat = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
+        tempmat = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
         
         tempmat = copy.deepcopy(self.ham)
         
@@ -844,9 +844,9 @@ class Hamiltonian(FLatStc):
             z = self.sigmac.z
             sigma = self.sigmac.stck
             # chem = np.zeros((norb,norb,ns,nk),dtype=np.complex64,order='F')
-            tempmat2 = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
-            tempmat3 = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
-            tempmat4 = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
+            tempmat2 = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
+            tempmat3 = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
+            tempmat4 = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
             tempmat4 = copy.deepcopy(tempmat)
             eigval, eigvec = self.Diagonalize(z,True)
             for ik in range(nrk):
@@ -927,8 +927,8 @@ class Hamiltonian(FLatStc):
         
         # energy = self.Diagonalize(self.hk)
 
-        occk = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
-        occ = np.zeros((norb,norb,ns),dtype=np.complex64,order='F')
+        occk = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
+        occ = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
         tempmat = np.zeros((norb,norb),dtype=float,order='F')
 
         energy, eigvec = self.Diagonalize(self.k,True)

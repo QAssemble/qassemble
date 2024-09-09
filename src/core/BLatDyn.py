@@ -42,9 +42,9 @@ class BLatDyn(object):
         nrk = matin.shape[4]
         nft = matin.shape[5]
 
-        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
-        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex64)
-        tempmat2 = np.zeros((norb*ns,norb*ns),dtype=np.complex64)
+        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex128)
+        tempmat2 = np.zeros((norb*ns,norb*ns),dtype=np.complex128)
 
         # Make composite matrix#
         for ift in range(nft):
@@ -61,8 +61,8 @@ class BLatDyn(object):
         ns = bf.shape[2]
         nrk = bf.shape[4]
 
-        moment = np.zeros((norb,norb,ns,ns,nrk,3),dtype=np.complex64,order='F')
-        high = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
+        moment = np.zeros((norb,norb,ns,ns,nrk,3),dtype=np.complex128,order='F')
+        high = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
 
         moment, high = DiagE.fourier.blatdyn_m(self.ft.nu,bf,oddzero,highzero)
 
@@ -75,7 +75,7 @@ class BLatDyn(object):
         nrk = bf.shape[4]
         ntau = len(self.ft.tau)
 
-        btau = np.zeros((norb,norb,ns,ns,nrk,ntau),dtype=np.complex64,order='F')
+        btau = np.zeros((norb,norb,ns,ns,nrk,ntau),dtype=np.complex128,order='F')
 
         moment, high = self.Moment(bf,oddzero,highzero)
 
@@ -90,7 +90,7 @@ class BLatDyn(object):
         nrk = btau.shape[4]
         nfreq = len(self.ft.nu)
 
-        bf = np.zeros((norb,norb,ns,ns,nrk,nfreq),dtype=np.complex64,order='F')
+        bf = np.zeros((norb,norb,ns,ns,nrk,nfreq),dtype=np.complex128,order='F')
 
         bf = DiagE.fourier.blatdyn_t2f(self.ft.tau,btau,self.ft.nu)
 
@@ -105,7 +105,7 @@ class BLatDyn(object):
         rkgrid = self.crystal.rkgrid
         rkvec = self.crystal.kpoint
 
-        matr = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+        matr = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
 
         tempmat = copy.deepcopy(matk)
 
@@ -136,7 +136,7 @@ class BLatDyn(object):
         rkgrid = self.crystal.rkgrid
         rkvec = self.crystal.kpoint
 
-        # matk = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+        # matk = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
 
         matk = DiagE.fourier.blatdyn_r2k(rkgrid,matr)
 
@@ -165,7 +165,7 @@ class BLatDyn(object):
         nrk = y.shape[3]
         nft = y.shape[4]
 
-        ynew = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+        ynew = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
 
         w0 = (1.0 - 3.0*w1)*np.pi*temperature
         widtharray = w0+w1*x
@@ -195,11 +195,11 @@ class BLatDyn(object):
         nrk = Bb.shape[4]
         nft = Bb.shape[5]
 
-        Bnew = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+        Bnew = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
 
         if iter == 1:
             mix = 1.0
-            Bold = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+            Bold = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
         
         Bnew = mix*Bb + (1-mix)*Bold
 
@@ -212,7 +212,7 @@ class BLatDyn(object):
         nrk = mat1.shape[3]
         nft = mat1.shape[4]
 
-        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
 
         matout = DiagE.dyson.blatdyn(mat1,mat2)
 
@@ -225,7 +225,7 @@ class BLatDyn(object):
         nft = len(self.ft.nu)#self.ft.size
         nspace = self.crystal.bprojector.shape[3]
 
-        matout = np.zeros((norbc,norbc,ns,ns,nft,nspace),dtype=np.complex64,order='F')
+        matout = np.zeros((norbc,norbc,ns,ns,nft,nspace),dtype=np.complex128,order='F')
 
         for ispace in range(nspace):
             matout[...,ispace] = DiagE.projection.blatdyn(matin,self.crystal.bprojector[...,ispace])
@@ -239,7 +239,7 @@ class BLatDyn(object):
         nrk = len(self.crystal.kpoint)
         nft = len(self.ft.nu)#self.ft.size
         
-        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
 
         for ift in range(nft):
             for irk in range(nrk):
@@ -256,7 +256,7 @@ class BLatDyn(object):
         nrk = len(self.crystal.kpoint)
         nft = len(self.ft.nu)#self.ft.size
 
-        matout = np.zeros((norb,norb,norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
 
         for ift in range(nft):
             for irk in range(nrk):
@@ -273,7 +273,7 @@ class BLatDyn(object):
         nrk = len(self.crystal.kpoint)
         nft = len(self.ft.nu)#self.ft.size
 
-        matout = np.zeros((norb*norb,norb*norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb*norb,norb*norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
         
         for ift in range(nft):
             for irk in range(nrk):
@@ -290,7 +290,7 @@ class BLatDyn(object):
         nrk = len(self.crystal.kpoint)
         nft = len(self.ft.nu)#self.ft.size
 
-        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
 
         for ift in range(nft):
             for irk in range(nrk):
@@ -307,7 +307,7 @@ class BLatDyn(object):
         nrk = len(self.crystal.kpoint)
         nft = len(self.ft.nu)#self.ft.size
 
-        matout = np.zeros((norb*norb,norb*norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb*norb,norb*norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
 
         for ift in range(nft):
             for irk in range(nrk):
@@ -324,7 +324,7 @@ class BLatDyn(object):
         nrk = len(self.crystal.kpoint)
         nft = len(self.ft.nu)#self.ft.size
 
-        matout = np.zeros((norb,norb,norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
 
         for ift in range(nft):
             for irk in range(nrk):
@@ -341,7 +341,7 @@ class BLatDyn(object):
         nrk = matin.shape[4]
         nft = len(self.ft.nu)#self.ft.size
 
-        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
 
         for ift in range(nft):
             matout[...,ift] += matin
@@ -432,7 +432,7 @@ class PolLat(BLatDyn):
         self.Cal()
         self.kt = self.R2K(self.rt)
         self.rf = self.T2F(self.rt)
-        self.kf = self.R2K(self.rf)
+        self.kf = self.T2F(self.kt)
 
     def Cal(self):
         grt = self.green
@@ -441,7 +441,7 @@ class PolLat(BLatDyn):
         nrk = len(self.crystal.kpoint)
         ntau = len(self.ft.tau)
         norb = len(self.crystal.bind)
-        polrt = np.zeros((norb,norb,ns,ns,nrk,ntau),dtype=np.complex64,order='F')
+        polrt = np.zeros((norb,norb,ns,ns,nrk,ntau),dtype=np.complex128,order='F')
 
         gmrt = self.crystal.RT2mRmT(grt)
         
@@ -504,7 +504,7 @@ class PolLat(BLatDyn):
     #     ntau = len(self.ft.tau)
     #     # norb = len(self.crystal.bind)
     #     norbc = len(self.crystal.find)
-    #     polrt = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nrk,ntau),dtype=np.complex64,order='F')
+    #     polrt = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nrk,ntau),dtype=np.complex128,order='F')
 
     #     gmrt = self.crystal.RT2mRmT(grt)
         
@@ -641,16 +641,16 @@ class WLat(BLatDyn):
         nk = len(self.crystal.kpoint)
         nfreq = len(self.ft.nu)
         ####### Initialization #######
-        tempmat = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex64,order='F')
-        wkf = np.zeros((norb,norb,ns,ns,nk,nfreq),dtype=np.complex64,order='F')
-        wckf = np.zeros((norb,norb,ns,ns,nk,nfreq),dtype=np.complex64,order='F')
-        vdyn = np.zeros((norb,norb,ns,ns,nk,nfreq),dtype=np.complex64,order='F')
+        tempmat = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        wkf = np.zeros((norb,norb,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        wckf = np.zeros((norb,norb,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        vdyn = np.zeros((norb,norb,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
 
         # for ifreq in range(nfreq):
         #     vdyn[...,ifreq] = self.vbare.k
         vdyn = self.StcEmbedding(self.vbare.k)
-        polcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex64,order='F')
-        vcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex64,order='F')
+        polcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        vcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
         ####### Initialization #######
         polcomp = self.Double2Full(self.pol)*self.c
         vcomp = self.Double2Full(vdyn)

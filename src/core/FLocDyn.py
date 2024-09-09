@@ -38,7 +38,7 @@ class FLocDyn(object):
         ns = mat.shape[2]
         nft = mat.shape[3]
 
-        matinv = np.zeros((norb,norb,ns,nft),dtype=np.complex64,order='F')
+        matinv = np.zeros((norb,norb,ns,nft),dtype=np.complex128,order='F')
 
         for ift in range(nft):
             for js in range(ns):
@@ -51,8 +51,8 @@ class FLocDyn(object):
         norb = ff.shape[0]
         ns = ff.shape[2]
 
-        moment = np.zeros((norb,norb,ns,3),dtype=np.complex64,order='F')
-        high = np.zeros((norb,norb,ns),dtype=np.complex64,order='F')
+        moment = np.zeros((norb,norb,ns,3),dtype=np.complex128,order='F')
+        high = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
 
         moment, high = DiagE.fourier.flocdyn_m(self.ft.omega,ff,isgreen,highzero)
 
@@ -64,7 +64,7 @@ class FLocDyn(object):
         ns = ff.shape[2]
         ntau = len(self.ft.tau)
 
-        ftau = np.zeros((norb,norb,ns,ntau),dtype=np.complex64,order='F')
+        ftau = np.zeros((norb,norb,ns,ntau),dtype=np.complex128,order='F')
 
         moment, high = self.Moment(ff,isgreen,highzero)
 
@@ -78,7 +78,7 @@ class FLocDyn(object):
         ns = ftau.shape[2]
         nfreq = len(self.ft.omega)
 
-        ff = np.zeros((norb,norb,ns,nfreq),dtype=np.complex64,order='F')
+        ff = np.zeros((norb,norb,ns,nfreq),dtype=np.complex128,order='F')
 
         ff = DiagE.fourier.flocdyn_t2f(self.ft.tau,ftau,self.ft.omega)
 
@@ -90,7 +90,7 @@ class FLocDyn(object):
         ns = y.shape[2]
         nft = y.shape[3]
 
-        ynew = np.zeros((norb,norb,ns,nft),dtype=np.complex64,order='F')
+        ynew = np.zeros((norb,norb,ns,nft),dtype=np.complex128,order='F')
         w0 = (1.0 - 3.0*w1)*np.pi*temperature
         widtharray = w0+w1*x
         cnt = 0
@@ -117,11 +117,11 @@ class FLocDyn(object):
         ns = Fb.shape[2]
         nft = Fb.shape[3]
 
-        Fnew = np.zeros((norb,norb,ns,nft),dtype=np.complex64,order='F')
+        Fnew = np.zeros((norb,norb,ns,nft),dtype=np.complex128,order='F')
 
         if iter == 1:
             mix = 1.0
-            Fold = np.zeros((norb,norb,ns,nft),dtype=np.complex64,order='F')
+            Fold = np.zeros((norb,norb,ns,nft),dtype=np.complex128,order='F')
 
         Fnew = mix*Fb+(1.0-mix)*Fold
 
@@ -137,7 +137,7 @@ class FLocDyn(object):
         for val in self.crystal.probspace.values():
             nspace += len(val)
 
-        matloc = np.zeros((norb,norb,ns,nft,nspace),dtype=np.complex64,order='F')
+        matloc = np.zeros((norb,norb,ns,nft,nspace),dtype=np.complex128,order='F')
 
         for key, val in self.crystal.probspace.items():
             iprob = int(key)-1
@@ -153,11 +153,11 @@ class FLocDyn(object):
         ns = matloc.shape[2]
         nft = matloc.shape[3]
 
-        matimp = np.zeros((norb,norb,ns,nft,nprob),dtype=np.complex64,order='F')
+        matimp = np.zeros((norb,norb,ns,nft,nprob),dtype=np.complex128,order='F')
 
         for key, val in self.crystal.probspace.items():
             iprob = int(key)-1
-            tempmat = np.zeros((norb,norb,ns),dtype=np.complex64)
+            tempmat = np.zeros((norb,norb,ns),dtype=np.complex128)
             for ispace in val:
                 tempmat += matloc[...,ispace]
             tempmat /=len(val)
@@ -189,7 +189,7 @@ class FLocDyn(object):
         ns = self.crystal.ns
         nfreq = len(matdict["1"])                
 
-        matout = np.zeros((norb,norb,ns,nfreq),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,nfreq),dtype=np.complex128,order='F')
         nind = np.amax(equiv)
 
         for js in range(ns):
@@ -206,7 +206,7 @@ class FLocDyn(object):
         ns = self.crystal.ns
         nft = self.ft.size
 
-        matout = np.zeros((norb,norb,ns,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,nft),dtype=np.complex128,order='F')
 
         matout = DiagE.dyson.flocdyn(mat1,mat2)
 
@@ -220,7 +220,7 @@ class FLocDyn(object):
         nft = self.ft.size
         nspace = self.crystal.fprojector.shape[3]
 
-        matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
         for ispace in range(nspace):
             matout += DiagE.embedding.flocdyn(nrk,matin[...,ispace],self.crystal.fprojector[...,ispace])
@@ -266,7 +266,7 @@ class GreenLoc(FLocDyn):
         nft = self.ft.size
         nspace = self.crystal.fprojector.shape[3]
 
-        gf = np.zeros((norbc,norbc,ns,nft,nspace),dtype=np.complex64)
+        gf = np.zeros((norbc,norbc,ns,nft,nspace),dtype=np.complex128)
 
         for ispace in range(nspace):
             gf[...,ispace] = DiagE.projection.flatdyn(self.green.gkf,self.crystal.fprojector[...,ispace])
@@ -302,7 +302,7 @@ class SigmaLoc(FLocDyn):
         nft = self.ft.size
         nspace = self.crystal.fprojector.shape[3]
 
-        sigmalocf = np.zeros((norbc,norbc,ns,nft,nspace),dtype=np.complex64,order='F')
+        sigmalocf = np.zeros((norbc,norbc,ns,nft,nspace),dtype=np.complex128,order='F')
 
         for isapce in range(nspace):
             sigmalocf[...,isapce] = DiagE.projection.flatdyn(self.sigma,self.crystal.fprojector[...,isapce])

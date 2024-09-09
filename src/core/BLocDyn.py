@@ -39,9 +39,9 @@ class BLocDyn(object):
         ns = matin.shape[2]
         nft = self.ft.size
 
-        matout = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex64,order='F')
-        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex64)
-        tempmat2 = np.zeros((norb*ns,norb*ns),dtype=np.complex64)
+        matout = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex128,order='F')
+        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex128)
+        tempmat2 = np.zeros((norb*ns,norb*ns),dtype=np.complex128)
 
         for ift in range(nft):
             tempmat = self.crystal.OrbSpin2Composite(matin[...,ift])
@@ -55,8 +55,8 @@ class BLocDyn(object):
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
 
-        moment = np.zeros((norb,norb,ns,ns,3),dtype=np.complex64,order='F')
-        high = np.zeros((norb,norb,ns,ns),dtype=np.complex64,order='F')
+        moment = np.zeros((norb,norb,ns,ns,3),dtype=np.complex128,order='F')
+        high = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
         moment, high = DiagE.fourier.blocdyn_m(self.ft.nu,bf,oddzero,highzero)
 
         return moment,high
@@ -67,7 +67,7 @@ class BLocDyn(object):
         ns = self.crystal.ns
         nft = self.ft.size
 
-        btau = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex64,order='F')
+        btau = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex128,order='F')
 
         moment, high = self.Moment(bf,oddzero,highzero)
 
@@ -81,7 +81,7 @@ class BLocDyn(object):
         ns = self.crystal.ns
         nft = self.ft.size 
 
-        bf = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex64,order='F')
+        bf = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex128,order='F')
 
         bf = DiagE.fourier.blocdyn_t2f(self.ft.tau,btau,self.ft.nu)
 
@@ -93,7 +93,7 @@ class BLocDyn(object):
         ns = y.shape[2]
         nft = y.shape[3]
 
-        ynew = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex64,order='F')
+        ynew = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex128,order='F')
         w0 = (1.0 - 3.0*w1)*np.pi*temperature
         widtharray = w0+w1*x
         cnt = 0
@@ -121,11 +121,11 @@ class BLocDyn(object):
         ns = Bb.shape[2]
         nft = Bb.shape[4]
 
-        Bnew = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex64,order='F')
+        Bnew = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex128,order='F')
 
         if iter == 1:
             mix = 1.0
-            Bold = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex64,order='F')
+            Bold = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex128,order='F')
 
         Bnew = mix*Bb + (1-mix)*Bold
 
@@ -141,7 +141,7 @@ class BLocDyn(object):
         for val in self.crystal.probspace.values():
             nspace += len(val)
 
-        matloc = np.zeros((norb,norb,ns,ns,nft,nspace),dtype=np.complex64,order='F')
+        matloc = np.zeros((norb,norb,ns,ns,nft,nspace),dtype=np.complex128,order='F')
 
         for key, val in self.crystal.probspace.items():
             iprob = int(key)-1
@@ -157,11 +157,11 @@ class BLocDyn(object):
         ns = matloc.shape[2]
         nft = matloc.shape[3]
 
-        matimp = np.zeros((norb,norb,ns,ns,nft,nprob),dtype=np.complex64,order='F')
+        matimp = np.zeros((norb,norb,ns,ns,nft,nprob),dtype=np.complex128,order='F')
 
         for key, val in self.crystal.probspace.items():
             iprob = int(key)-1
-            tempmat = np.zeros((norb,norb,ns),dtype=np.complex64)
+            tempmat = np.zeros((norb,norb,ns),dtype=np.complex128)
             for ispace in val:
                 tempmat += matloc[...,ispace]
             tempmat /=len(val)
@@ -194,7 +194,7 @@ class BLocDyn(object):
         ns = self.crystal.ns
         nfreq = len(matdict["1"])                
 
-        matout = np.zeros((norb,norb,ns,ns,nfreq),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns,nfreq),dtype=np.complex128,order='F')
         nind = np.amax(equiv)
 
         for js in range(ns):
@@ -212,7 +212,7 @@ class BLocDyn(object):
         ns = self.crystal.ns
         nft = self.ft.size
 
-        matout = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex128,order='F')
 
         matout = DiagE.dyson.blocdyn(mat1,mat2)
 
@@ -226,7 +226,7 @@ class BLocDyn(object):
         nft = self.ft.size
         nspace = self.crystal.bprojector.shape[3]
 
-        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
 
         for ispace in range(nspace):
             matout += DiagE.embedding.blocdyn(nrk,matin[...,ispace],self.crystal.bprojector[...,ispace])

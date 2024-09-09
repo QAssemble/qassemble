@@ -36,7 +36,7 @@ class FLocStc(object):
         norb = mat.shape[0]
         ns = mat.shape[2]
 
-        matinv = np.zeros((norb,norb,ns),dtype=np.complex64,order='F')
+        matinv = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
 
         for js in range(ns):
             matinv[:,:,js] = np.linalg.inv(mat[:,:,js])
@@ -48,11 +48,11 @@ class FLocStc(object):
         norb = Fb.shape[0]
         ns = Fb.shape[2]
 
-        Fnew = np.zeros((norb,norb,ns),dtype=np.complex64,order='F')
+        Fnew = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
 
         if iter == 1:
             mix = 1.0
-            Fold = np.zeros((norb,norb,ns),dtype=np.complex64,order='F')
+            Fold = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
 
         Fnew = mix*Fb + (1.0-mix)*Fold
 
@@ -68,7 +68,7 @@ class FLocStc(object):
         for val in self.crystal.probspace.values():
             nspace += len(val)
 
-        matloc = np.zeros((norb,norb,ns,nspace),dtype=np.complex64,order='F')
+        matloc = np.zeros((norb,norb,ns,nspace),dtype=np.complex128,order='F')
 
         for key, val in self.crystal.probspace.items():
             iprob = int(key)-1
@@ -87,7 +87,7 @@ class FLocStc(object):
         for val in self.crystal.probspace.values():
             nspace += len(val)
 
-        matloc = np.zeros((norb,norb,ns,nspace),dtype=np.complex64,order='F')
+        matloc = np.zeros((norb,norb,ns,nspace),dtype=np.complex128,order='F')
 
         for key, val in self.crystal.probspace.items():
             iprob = int(key)-1
@@ -119,7 +119,7 @@ class FLocStc(object):
 
         norb = len(equiv)
         ns = self.crystal.ns
-        matout = np.zeros((norb,norb,ns),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
         nind = np.amax(equiv)
 
         for js in range(ns):
@@ -136,7 +136,7 @@ class FLocStc(object):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         
-        matout = np.zeros((norb,norb,ns),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
 
         matout = DiagE.dyson.flocstc(mat1,mat2)
 
@@ -149,7 +149,7 @@ class FLocStc(object):
         nrk = len(self.crystal.kpoint)
         nspace = self.crystal.fprojector.shape[3]
         
-        matout = np.zeros((norb,norb,ns,nrk),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
         
         for ispace in range(nspace):
             matout += DiagE.embedding.flocstc(nrk,matin[...,ispace],self.crystal.fprojector[...,ispace])
@@ -195,7 +195,7 @@ class ImpurityLevel(FLocStc):
 
         ham = self.niham.UpdateMu(self.niham.k,self.mu)
 
-        eimp = np.zeros((norbc,norbc,ns,nspace),dtype=np.complex64,order='F')
+        eimp = np.zeros((norbc,norbc,ns,nspace),dtype=np.complex128,order='F')
 
         for ispace in range(nspace):
             eimp[...,ispace] = DiagE.projection.flatstc(ham,self.crystal.fprojector[...,ispace])
@@ -226,9 +226,9 @@ class SigmaHLoc(FLocStc):
         norb = self.crystal.bprojector.shape[1]
         nspace = self.crystal.bprojector.shape[3]
 
-        U = np.zeros((norb,norb,ns,ns,nspace),dtype=np.complex64,order='F')
-        hloc = np.zeros((norbc,norbc,ns,nspace),dtype=np.complex64,order='F')
-        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex64,order='F')
+        U = np.zeros((norb,norb,ns,ns,nspace),dtype=np.complex128,order='F')
+        hloc = np.zeros((norbc,norbc,ns,nspace),dtype=np.complex128,order='F')
+        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex128,order='F')
 
         for ispace in range(nspace):
             U[...,ispace] = DiagE.projection.blatstc(self.vbare.k,self.crystal.bprojector[...,ispace])
@@ -272,7 +272,7 @@ class SigmaHLoc(FLocStc):
         nft = self.gloc.gf.shape[3]
         nspace = self.crystal.fprojector.shape[3]
 
-        hdyn = np.zeros((norb,norb,ns,nft,nspace),dtype=np.complex64,order='F')
+        hdyn = np.zeros((norb,norb,ns,nft,nspace),dtype=np.complex128,order='F')
         
         for ift in range(nft):
             hdyn[...,ift,:] = self.hloc
@@ -311,8 +311,8 @@ class SigmaFLoc(FLocStc):
         norb = self.crystal.bprojector.shape[1]
         nspace = self.crystal.fprojector.shape[3]
 
-        U = np.zeros((norb,norb,ns,ns,nspace),dtype=np.complex64,order='F')
-        floc = np.zeros((norbc,norbc,ns,nspace),dtype=np.complex64,order='F')
+        U = np.zeros((norb,norb,ns,ns,nspace),dtype=np.complex128,order='F')
+        floc = np.zeros((norbc,norbc,ns,nspace),dtype=np.complex128,order='F')
         
 
         for ispace in range(nspace):
