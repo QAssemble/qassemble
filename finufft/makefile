@@ -15,9 +15,9 @@
 # Windows compatibility, jonas-kr, Sep '20.
 
 # Compiler (CXX), and linking from C, fortran. We use GCC by default...
-CXX = icpc -L/opt/ohpc/pub/libs/fftw/lib
-CC = icc -L/opt/ohpc/pub/libs/fftw/lib
-FC = ifort -L/opt/ohpc/pub/libs/fftw/lib
+CXX = icpc #-L/opt/ohpc/pub/libs/fftw/lib
+CC = icc #-L/opt/ohpc/pub/libs/fftw/lib
+FC = ifort #-L/opt/ohpc/pub/libs/fftw/lib
 CLINK = -lstdc++ -L/opt/ohpc/pub/libs/fftw/lib
 FLINK = $(CLINK)
 # Python version: we use python3 by default, but you may need to change...

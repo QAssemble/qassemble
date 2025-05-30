@@ -1,2 +1,1 @@
-# DiagE
-Diagrammatic extension of DMFT 
+# QuantumAssemble_DEMO
