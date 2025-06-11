@@ -1,3 +1,8 @@
+"""Crystal module: Defines the Crystal class for preparing lattice and orbital information for calculations.
+
+This module provides functionality to generate fermionic and bosonic orbital indices, k-point grids,
+real-space vectors, and related basis transformations.
+"""
 import string as string
 from typing import Any
 import matplotlib as mat
@@ -20,14 +25,25 @@ sys.path.append(qapath+'/src/qacore/modules')
 import QAFort
 
 # Ask to professor for change variables
-class Crystal(object): # chemical potential object, num of electron
-    def __init__(self, cry : dict = None):#, Rvec : list = None, CorF : str = "F", Basis : list = None, Nspin : int = None, SOC : bool = False, Nelec : float = None, KGrid : list = None) -> object:
+class Crystal(object):
+    """Handles lattice geometry, orbitals, and basis indexing for quantum assembly calculations.
 
-        '''
-        Construct Crystal class for preparing calculation. from the input parameter generate the fermionic orbital index, bosonic orbital index, discrete k-point, a-vector, b-vector
+    This class constructs indices and vectors for fermionic and bosonic orbitals,
+    k-point grids, real-space vectors, and provides methods to map between different basis representations.
+    """
+    def __init__(self, cry: dict = None):
+        """Initialize the Crystal object.
 
-        latt, basisposition, soc, rkgrid, orboption, N -> Crystal()
-        '''
+        Args:
+            cry (dict): Dictionary containing crystal parameters. Expected keys:
+                RVec (list of list[float]): Real-space lattice vectors.
+                Basis (list): List of [position, orbital_count] entries.
+                CorF (str): 'C' for Cartesian coords input, 'F' for fractional coords.
+                NSpin (int): Number of spin degrees of freedom.
+                SOC (bool): Spin-orbit coupling flag.
+                NElec (float): Number of electrons.
+                KGrid (list of int]): Grid dimensions for k-point sampling.
+        """
 
         Rvec = cry['RVec']
         Basis = cry['Basis']
@@ -106,10 +122,15 @@ class Crystal(object): # chemical potential object, num of electron
 
         return None
 
-    def SetBasisIndex(self,orboption : dict) -> dict:
-        '''
-        Modify orbital option for each atom basis
-        '''
+    def SetBasisIndex(self, orboption: dict) -> dict:
+        """Set up fermion and boson orbital mappings from orbital options.
+
+        Args:
+            orboption (dict): Mapping from atom index to number of orbitals.
+
+        Returns:
+            None
+        """
         for key, val in orboption.items():
             find = []
             bind = []
@@ -159,55 +180,61 @@ class Crystal(object): # chemical potential object, num of electron
             # self.Composite2Fermion()
 
 
-    def FAtomOrb(self, key : int) -> list:
-        '''
-        input : composite index for fermion
-        output : atom and orbital index in fermion case
+    def FAtomOrb(self, key: int) -> list:
+        """Get atom and orbital indices for a given fermion composite index.
 
-        e.g.
-        0 -> [0,0]
-        '''
+        Args:
+            key (int): Fermion composite index.
+
+        Returns:
+            list[int]: [atom_index, orbital_index] corresponding to the composite index.
+        """
         return self.find[key]
 
-    def FIndex(self,val : list) -> int:
-        '''
-        input : atom and orbital index with list
-        output : composite index for fermion
+    def FIndex(self, val: list) -> int:
+        """Get the fermion composite index for given atom and orbital indices.
 
-        e.g.
-        [0,0] -> 0
-        '''
+        Args:
+            val (list[int]): [atom_index, orbital_index].
+
+        Returns:
+            int: Corresponding fermion composite index.
+        """
 
         for key, value in self.find.items():
             if value == val:
                 return key
 
-    def BAtomOrb(self,key : int) -> list:
-        '''
-        input : composite index for fermion
-        output : atom and orbital index in boson case
+    def BAtomOrb(self, key: int) -> list:
+        """Get atom and orbital pair for a given boson composite index.
 
-        e.g.
-        0 -> [0,[0,0]]
-        '''
+        Args:
+            key (int): Boson composite index.
+
+        Returns:
+            list: [atom_index, [orbital1_index, orbital2_index]].
+        """
         return self.bind[key]
 
-    def BIndex(self,val:list) -> int:
-        '''
-        input : atom and orbital index with list
-        output : composite index for boson
+    def BIndex(self, val: list) -> int:
+        """Get the boson composite index for given atom and orbital pair.
 
-        e.g.
-        [0,[0,0]] -> 0
-        '''
+        Args:
+            val (list): [atom_index, [orbital1_index, orbital2_index]].
+
+        Returns:
+            int: Corresponding boson composite index.
+        """
         for key, value in self.bind.items():
             if val==value:
                 return key
 
     def Boson2Fermion(self):
-        '''
-        Mapping with boson index to fermion index
-        '''
+        """Populate bbasis mapping from fermion indices to boson composite indices.
+
+        Returns:
+            None
+        """
         norbc = len(self.find)
         bbasis = np.zeros((norbc,norbc),dtype=int)
         for jorbc in range(norbc):
@@ -256,20 +283,37 @@ class Crystal(object): # chemical potential object, num of electron
 
         return None
 
-    def FullIndex(self,val : list):
+    def FullIndex(self, val: list):
+        """Get the full composite index for given orbital pairing.
+
+        Args:
+            val (list): [[atom1, orb1], [atom2, orb2]].
+
+        Returns:
+            int: Composite full index.
+        """
 
         for k, v in self.full.items():
             if v == val:
                 return k
 
-    def FullAtomOrb(self, ind : int):
+    def FullAtomOrb(self, ind: int):
+        """Get atom and orbital indices from full composite index.
 
+        Args:
+            ind (int): Full composite index.
+
+        Returns:
+            list: [[atom1, orb1], [atom2, orb2]].
+        """
         return self.full[ind]
 
     def Composite2Fermion(self):
-        '''
-        Mapping with fermion index to composite index
-        '''
+        """Generate mapping from composite indices to fermion index pairs.
+
+        Returns:
+            None
+        """
         norbc = len(self.find)
         norb = norbc*norbc
         c2f = []
@@ -282,6 +326,11 @@ class Crystal(object): # chemical potential object, num of electron
         self.c2f = c2f
 
     def Composite2Boson(self):
+        """Generate mapping from composite indices to boson composite indices.
+
+        Returns:
+            None
+        """
 
         norbc = len(self.find)
         ndim = norbc*norbc
@@ -298,7 +347,15 @@ class Crystal(object): # chemical potential object, num of electron
                     c2b.append([borb,ind])
         self.c2b = c2b
 
-    def Composite2OrbSpin(self, mat : np.ndarray):
+    def Composite2OrbSpin(self, mat: np.ndarray):
+        """Reshape a composite matrix into orbital-spin representation.
+
+        Args:
+            mat (np.ndarray): Composite matrix of shape (norb*ns, norb*ns).
+
+        Returns:
+            np.ndarray: Array of shape (norb, norb, ns, ns).
+        """
 
         norb = len(self.bind)
         ns = self.ns
@@ -315,7 +372,15 @@ class Crystal(object): # chemical potential object, num of electron
 
         return matout
 
-    def OrbSpin2Composite(self,mat : np.ndarray):
+    def OrbSpin2Composite(self, mat: np.ndarray):
+        """Reshape an orbital-spin matrix into composite matrix form.
+
+        Args:
+            mat (np.ndarray): Array of shape (norb, norb, ns, ns).
+
+        Returns:
+            np.ndarray: Composite matrix of shape (norb*ns, norb*ns).
+        """
 
         norb = mat.shape[0]
         ns = mat.shape[2]
@@ -332,7 +397,15 @@ class Crystal(object): # chemical potential object, num of electron
                         matout[ind1,ind2] = mat[iorb,jorb,js,ks]
         return matout
 
-    def Quad2Double(self,mat : np.ndarray) -> np.ndarray: # 4 index <-> 2 index
+    def Quad2Double(self, mat: np.ndarray) -> np.ndarray:
+        """Convert a 4-index tensor to 2-index matrix in boson basis.
+
+        Args:
+            mat (np.ndarray): 4D array of shape (norbc, norbc, norbc, norbc).
+
+        Returns:
+            np.ndarray: 2D array of shape (norb, norb).
+        """
 
         norb = len(self.bind)
         norbc = len(self.find)
@@ -353,7 +426,15 @@ class Crystal(object): # chemical potential object, num of electron
 
         return matret
 
-    def Double2Quad(self, mat : np.ndarray) -> np.ndarray:
+    def Double2Quad(self, mat: np.ndarray) -> np.ndarray:
+        """Convert a 2-index matrix in boson basis to a 4-index tensor.
+
+        Args:
+            mat (np.ndarray): 2D array of shape (norb, norb).
+
+        Returns:
+            np.ndarray: 4D array of shape (norbc, norbc, norbc, norbc).
+        """
 
         norbc = len(self.find)
         norb = len(self.bind)
@@ -372,7 +453,15 @@ class Crystal(object): # chemical potential object, num of electron
 
         return matret
 
-    def Full2Quad(self,mat : np.ndarray) -> np.ndarray:
+    def Full2Quad(self, mat: np.ndarray) -> np.ndarray:
+        """Convert a full composite matrix to a 4-index tensor.
+
+        Args:
+            mat (np.ndarray): 2D array of shape (n^2, n^2).
+
+        Returns:
+            np.ndarray: 4D array of shape (n, n, n, n).
+        """
 
         norbc = len(self.find)
 
@@ -389,7 +478,15 @@ class Crystal(object): # chemical potential object, num of electron
 
         return matret
 
-    def Quad2Full(self, mat : np.ndarray) -> np.ndarray:
+    def Quad2Full(self, mat: np.ndarray) -> np.ndarray:
+        """Convert a 4-index tensor to a full composite matrix.
+
+        Args:
+            mat (np.ndarray): 4D array of shape (n, n, n, n).
+
+        Returns:
+            np.ndarray: 2D array of shape (n^2, n^2).
+        """
 
         norbc = len(self.find)
 
@@ -405,7 +502,15 @@ class Crystal(object): # chemical potential object, num of electron
 
         return matret
 
-    def Full2Double(self, mat : np.ndarray) -> np.ndarray:
+    def Full2Double(self, mat: np.ndarray) -> np.ndarray:
+        """Convert a full composite matrix to a boson basis 2-index matrix.
+
+        Args:
+            mat (np.ndarray): 2D array of shape (n^2, n^2).
+
+        Returns:
+            np.ndarray: 2D array of shape (norb, norb).
+        """
 
         norb = len(self.bind)
 
@@ -419,7 +524,15 @@ class Crystal(object): # chemical potential object, num of electron
 
         return matret
 
-    def Double2Full(self, mat : np.ndarray) -> np.ndarray:
+    def Double2Full(self, mat: np.ndarray) -> np.ndarray:
+        """Convert a boson basis 2-index matrix to a full composite matrix.
+
+        Args:
+            mat (np.ndarray): 2D array of shape (norb, norb).
+
+        Returns:
+            np.ndarray: 2D array of shape (n^2, n^2).
+        """
 
         nind = len(self.find)**2
         norb = len(self.bind)
@@ -433,10 +546,16 @@ class Crystal(object): # chemical potential object, num of electron
 
         return matret ## construct
 
-    def Kpath(self,kpath : list = None ,nk : int = None) -> np.ndarray:
-        '''
-        Generate K-Path along given high symmetry point
-        '''
+    def Kpath(self, kpath: list = None, nk: int = None) -> np.ndarray:
+        """Generate k-point path through specified high-symmetry points.
+
+        Args:
+            kpath (list of list[float]): Sequence of k-point coordinates.
+            nk (int): Total number of points along the path.
+
+        Returns:
+            None
+        """
 
         kpath = np.array(kpath,dtype=float)
         nnod = kpath.shape[0]
@@ -481,14 +600,15 @@ class Crystal(object): # chemical potential object, num of electron
         return None
 
 
-    def Projector(self,impdict : dict):
-        '''
-        Generate the projector for impurity quantity
+    def Projector(self, impdict: dict):
+        """Generate fermion and boson projectors for impurity calculations.
 
-        e.g.
-        input : {"1" : [[0,0],[1,0]]}
-        output : fprojector, bprojector
-        '''
+        Args:
+            impdict (dict): Mapping of impurity labels to lists of orbital index lists.
+
+        Returns:
+            None
+        """
 
         nspace = 0
         forbc = 0
@@ -564,8 +684,20 @@ class Crystal(object): # chemical potential object, num of electron
         return None
 
 
-    def indexing(self,ntot, ndivision, divisionarray, flag, n1, n2):
-        tmpsize = 1
+    def indexing(self, ntot, ndivision, divisionarray, flag, n1, n2):
+        """Map between flat index and multi-dimensional indices.
+
+        Args:
+            ntot (int): Total number of elements.
+            ndivision (int): Number of dimensions.
+            divisionarray (list of int): Size of each dimension.
+            flag (int): Mode flag (1 for encode, 0 for decode).
+            n1 (int): Input or output flat index.
+            n2 (list of int): Input or output multi-dimensional index list.
+
+        Returns:
+            tuple: (n1, n2) updated by the indexing operation.
+        """
         for size in divisionarray:
             tmpsize *= size
 
@@ -594,16 +726,28 @@ class Crystal(object): # chemical potential object, num of electron
 
         return n1, n2
 
-    def FindPositions(self,array, value):
-        positions = []
+    def FindPositions(self, array, value):
+        """Find all positions of a value in a 2D array.
+
+        Args:
+            array (iterable of iterable): 2D array to search.
+            value: Value to search for.
+
+        Returns:
+            list of [int, int]: List of [row_index, col_index] where value matches.
+        """
         for row_index, row in enumerate(array):
             for col_index, col_value in enumerate(row):
                 if col_value == value:
                     positions.append([row_index, col_index])
         return positions
 
-    def R2mR(self) -> list: # move to crystal
+    def R2mR(self) -> None:
+        """Compute mapping indices from k-point grid to its complement (1 - k).
 
+        Returns:
+            None
+        """
         rkvec = self.kpoint
 
         mrkvec = np.array(1.0-rkvec,dtype=float)
@@ -623,8 +767,15 @@ class Crystal(object): # chemical potential object, num of electron
         self.mappingidx = mappingidx
         return None
 
-    def RT2mRmT(self,G : np.ndarray) -> np.ndarray: # move to crystal
+    def RT2mRmT(self, G: np.ndarray) -> np.ndarray:
+        """Apply the time-reversed mapping to Green's function tensor.
 
+        Args:
+            G (np.ndarray): Green's function of shape (norb, norb, ns, nr, ntau).
+
+        Returns:
+            np.ndarray: Transformed Green's function with same shape.
+        """
         self.R2mR()
 
         norb = G.shape[0]
@@ -643,9 +794,13 @@ class Crystal(object): # chemical potential object, num of electron
 
         return GmRmT
 
-    def Rvec(self):
+    def Rvec(self) -> None:
+        """Generate real-space vector mappings for the k-point grid.
 
-        r = np.zeros((self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2],3),dtype=float)
+        Returns:
+            None
+        """
+        r = np.zeros((self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2], 3), dtype=float)
         rind = np.zeros((self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2],3),dtype=float) 
         # for iz in range(self.rkgrid[2]//2 +1):
         #     for iy in range(self.rkgrid[1]//2 + 1):
