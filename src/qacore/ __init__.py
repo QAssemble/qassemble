@@ -16,3 +16,4 @@ from .FPathStc import *
 from .BPathDyn import *
 from .BPathStc import *
 from .PostFunction import PostFunction
+from .MPIManager import MPIManager

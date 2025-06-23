@@ -416,7 +416,7 @@ class BLatDyn(object):
 
 class PolLat(BLatDyn):
 
-    def __init__(self, crystal: Crystal, ft: FTGrid,green : np.ndarray = None, hdf5file : str = 'glob.h5', group :str = None):
+    def __init__(self, crystal: Crystal, ft: FTGrid, green : np.ndarray = None, hdf5file : str = 'glob.h5', group :str = None):
         super().__init__(crystal, ft)
         self.rt = None # rt to kf
         self.rf = None

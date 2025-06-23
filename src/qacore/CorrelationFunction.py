@@ -109,7 +109,6 @@ class CorrelationFunction(object):
                 if mode == "FromScratch":
                     niham_temp = NIHamiltonian(self.crystal,hopping=hopping,onsite=onsite,spin=spin,valley=valley,site=site,aferro=aferro, hdf5file=fn,group='test_hf', avalley=avalley, asite=asite)
                     hold = Hamiltonian(crystal=self.crystal,ham=niham_temp.k,beta=self.ft.beta,hdf5file=fn,group=group)
-                    hcheck = hold
                 elif mode == "Restart":
                     niham_temp = NIHamiltonian(self.crystal,hopping=hopping,onsite=onsite,spin=spin,valley=valley,site=site,aferro=aferro, hdf5file=None,group='test_hf', avalley=avalley, asite=asite)
                     glob = h5py.File(fn,'r')
@@ -117,7 +116,6 @@ class CorrelationFunction(object):
                     hk = hf['Hamiltonian']['hk'][:]
                     glob.close()
                     hold = Hamiltonian(crystal=self.crystal,ham=hk,beta=self.ft.beta,hdf5file=fn,group=group)
-                    hcheck = hold
                     
                     
 
@@ -137,16 +135,11 @@ class CorrelationFunction(object):
             # hnew = Hamiltonian(crystal=self.crystal,ham=niham.k,beta=self.ft.beta,sigmah=None,sigmaf=sigmaf,hdf5file=fn,group=group)
             if (iter % 50 == 0):
                 hnew.Save(f'hk.{iter}')
-            print(f"iteration : {iter}")
-            if (iter % 10 == 0):
-                fcheck = self.SCFCheck(hnew.kbare,hcheck.kbare)
-                mucheck = abs(hnew.mu-hold.mu)
-                hcheck = hnew
-                print(f"criteria : {fcheck}\nchemical potential : {hnew.mu}")
-            else:
-                fcheck = 1
-                mucheck = 1
-            if (fcheck<=1.0e-9)and(mucheck<=0.01):
+
+            fcheck = self.SCFCheck(hnew.k,hold.k)
+            mucheck = abs(hnew.mu-hold.mu)
+            print(f"iteration : {iter}\ncriteria : {fcheck}\nchemical potential : {hnew.mu}")
+            if (fcheck<=1.0e-7)and(mucheck<=0.01):
                 print(f"Self-consistency is achived with {iter}-th")
                 self.ham=hnew
                 self.sigmaf = sigmaf
@@ -170,8 +163,7 @@ class CorrelationFunction(object):
                 # del hnew, sigmaf, hold
                 gc.collect()
             else:
-                # hnew.OccMixing(iter=iter, mix=mix, occkb = hnew.occk, occkm=hold.occk)
-                hnew.HMixing(iter=iter, mix=mix, hm=hold.k)
+                hnew.OccMixing(iter=iter, mix=mix, occkb = hnew.occk, occkm=hold.occk)
                 hold=hnew
                 hartreeold = sigmah.k
                 fockold = sigmaf.k

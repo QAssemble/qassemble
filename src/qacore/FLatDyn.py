@@ -7,21 +7,22 @@ import numpy as np
 from pylab import cm
 import matplotlib.font_manager as fm
 from collections import OrderedDict
-import json, os, shutil, sys
-import itertools
+# import json, os, shutil, sys
+import os, sys
+# import itertools
 import scipy.optimize
 from sympy.physics.wigner import gaunt, wigner_3j
 from scipy.fftpack import fftn, ifftn
-import scipy.linalg
-from pymatgen.core import Lattice, Structure
-from pymatgen.transformations.standard_transformations import SupercellTransformation
-import subprocess
+# import scipy.linalg
+# from pymatgen.core import Lattice, Structure
+# from pymatgen.transformations.standard_transformations import SupercellTransformation
+# import subprocess
 import copy
 import h5py
-# import Crystal, FTGrid
 from .Crystal import Crystal
 from .FTGrid import FTGrid
 from .FLatStc import FLatStc
+from .MPIManager import MPIManager
 qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/qacore/modules')
 import QAFort

@@ -1089,7 +1089,6 @@ class Hamiltonian(FLatStc):
         self.z = z
         self.beta = beta
         self.k = None
-        self.kbare = None
         self.r = None
         self.kmu0 = None
         self.mu = 0
@@ -1244,7 +1243,6 @@ class Hamiltonian(FLatStc):
         ham = self.hkmu0 - chem
         hamr = self.K2R(ham)
         self.k = ham
-        self.kbare = ham
         self.r = hamr
         self.Occ()
 
@@ -1286,32 +1284,15 @@ class Hamiltonian(FLatStc):
         nk = occkb.shape[3]
         
         occnew = np.zeros((norb, norb, ns),dtype=np.complex128, order="F")
-        occknew = np.zeros((norb, norb, ns, nk),dtype=np.complex128, order="F")
         occknew = self.Mixing(iter=iter, mix=mix, Fb=occkb, Fm=occkm)
 
         for ik in range(nk):
-            occnew += occknew[..., ik]
+            occnew[..., ik] += occknew[..., ik]
 
         occrnew = self.K2R(occknew)
 
         self.occ = occnew
         self.occk = occknew
         self.occr = occrnew
-
-        return None
-
-    def HMixing(self, iter : int = None, mix : float = None, hm : np.ndarray = None) -> np.ndarray:
-
-        norb = self.k.shape[0]
-        ns = self.k.shape[2]
-        nk = self.k.shape[3]
-
-        hknew = np.zeros((norb, norb, ns, nk),dtype=np.complex128, order="F")
-        hknew = self.Mixing(iter=iter, mix=mix, Fb=self.k, Fm=hm)
-
-
-        self.k = hknew
-        self.r = self.K2R(hknew)
-        self.Occ()
 
         return None
