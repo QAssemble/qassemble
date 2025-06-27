@@ -842,3 +842,20 @@ class Crystal(object):
         self.rind = rind
 
         return None
+    
+    def T2mT(self, G : np.ndarray) -> np.ndarray:
+
+        norb = G.shape[0]
+        ns = G.shape[2]
+        # nr = G.shape[3]
+        ntau = G.shape[4]
+
+        tempmat = np.zeros((norb,norb,ns,ntau), dtype=np.complex128, order='F')
+
+        for itau in range(ntau):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        tempmat[iorb,jorb,js,itau] = - G[iorb,jorb,js,ntau-itau-1]
+
+        return tempmat
