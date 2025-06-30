@@ -579,6 +579,8 @@ class NIHamiltonian(FLatStc):
         nk = len(self.crystal.kpoint)
         kvec = self.crystal.kpoint
 
+        print(norb,ns,nk,kvec)
+
         hamtb = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order="F")
         tempmat = np.zeros(
             (norb, norb, ns, self.crystal.rkgrid[0], self.crystal.rkgrid[1], self.crystal.rkgrid[2]),
@@ -921,6 +923,184 @@ class SigmaHartree(FLatStc):
                             h[iorbc1, iorbc2, js, ik] += (
                                 self.vbare[iorb, jorb, js, ks, 0]
                                 * occ[iorbc4, iorbc3, ks]
+                                * C
+                            )
+
+        self.k = h  # +onsite
+        self.r = self.K2R(h)
+
+        return None
+
+    def Save(self, fn: str):
+
+        # os.chdir('work')
+
+        # filepath = 'flatstc.h5'
+        # groupname = 'sigmah'
+        # with h5py.File(filepath,'a') as file:
+        #     if self.CheckGroup(filepath,groupname):
+        #         group = file[groupname]
+        #     else:
+        #         group=file.create_group(groupname)
+
+        #     group.create_dataset(fn,dtype=complex,data=self.k)
+        # os.chdir('..')
+        with h5py.File(self.hdf5file, "a") as file:
+            if self.CheckGroup(self.hdf5file, self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    sigmah = group[self.subgroup]
+                else:
+                    sigmah = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                sigmah = group.create_group(self.subgroup)
+            sigmah.create_dataset(fn, dtype=complex, data=self.k)
+
+        return None
+
+
+
+
+class SigmaHartree_k(FLatStc):
+
+    def __init__(
+        self,
+        crystal: Crystal,
+        occk=None,
+        vbare: np.ndarray = None,
+        hdf5file: str = "glob.h5",
+        group: str = None,
+    ):  # green -> occ
+        super().__init__(crystal)
+        self.r = None
+        self.k = None
+        self.vbare = vbare
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        self.occk = occk
+
+        self.Cal()
+        # self.MakeDyn()
+
+    def Cal(self):
+        # vbare = self.vbare.k
+        occk = self.occk
+        # vk = self.vbare.Double2Quad(self.vbare.k)
+        norbc = len(self.crystal.find)  # occk.shape[0]
+        ns = self.crystal.ns  # occk.shape[2]
+        nk = len(self.crystal.kpoint)  # occk.shape[3]
+        norb = len(self.crystal.bind)  # vbare.shape[0]
+
+        # onsite = self.R2K(self.onsiter)
+        h = np.zeros((norbc, norbc, ns, nk), dtype=np.complex128, order="F")
+
+        if self.crystal.ns != 1:
+            #     for ik in range(nk):
+            #         tempmat[...,ik] = self.crystal.OrbSpin2Composite(vbare[...,ik])
+
+            # for ik in range(nk):
+            #     for ind1 in range(norb*ns):
+            #         nn1 = [0]*2
+            #         ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
+            #         [iorbc1,iorbc2] = self.crystal.b2f[iorb]
+
+            #         for ind2 in range(norb*ns):
+            #             nn2 = [0]*2
+            #             ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
+            #             [iorbc3,iorbc4] = self.crystal.b2f[jorb]
+            #             h[iorbc1,iorbc2,js,ik] += tempmat[ind1,ind2,0]*occ[iorbc4,iorbc3,ks]
+            # for jk in range(nk):
+            #     h[iorbc1,iorbc2,js,ik] += tempmat[ind1,ind2,0]*occ[iorbc4,iorbc3,ks,jk]/nk
+            for ik in range(nk):
+                for ind1 in range(norb * ns):
+                    nn1 = [0] * 2
+                    ind1, [iorb, js] = self.crystal.indexing(
+                        norb * ns, 2, [norb, ns], 0, ind1, nn1
+                    )
+                    [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
+                    iorbc1 = self.crystal.FIndex([a, m1])
+                    iorbc2 = self.crystal.FIndex([a, m2])
+                    for ind2 in range(norb * ns):
+                        nn2 = [0] * 2
+                        ind2, [jorb, ks] = self.crystal.indexing(
+                            norb * ns, 2, [norb, ns], 0, ind2, nn2
+                        )
+                        [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
+                        iorbc3 = self.crystal.FIndex([b, m3])
+                        iorbc4 = self.crystal.FIndex([b, m4])
+                        # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]
+                        h[iorbc1, iorbc2, js, ik] += (
+                            self.vbare[iorb, jorb, js, ks, ik] * occk[iorbc4, iorbc3, ks, ik]
+                        )
+
+        else:
+            if self.crystal.soc == True:
+                C = 1
+                # for ik in range(nk):
+                #     for iorb in range(norb):
+                #         iorbc1,iorbc2 = self.crystal.b2f[iorb]
+                #         for jorb in range(norb):
+                #             iorbc3, iorbc4 = self.crystal.b2f[jorb]
+                #             # gtemp = np.zeros((norbc,norbc,1),dtype=np.complex64)
+                #             # for jk in range(nk):
+                #             #     gtemp[iorbc4,iorbc3,0] += g0kt[iorbc4,iorbc3,0,0,-1]
+                #             h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0]*C #1/nk*gtemp[iorbc4,iorbc3,0]*C
+                for ik in range(nk):
+                    for ind1 in range(norb * ns):
+                        nn1 = [0] * 2
+                        ind1, [iorb, js] = self.crystal.indexing(
+                            norb * ns, 2, [norb, ns], 0, ind1, nn1
+                        )
+                        [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
+                        iorbc1 = self.crystal.FIndex([a, m1])
+                        iorbc2 = self.crystal.FIndex([a, m2])
+                        for ind2 in range(norb * ns):
+                            nn2 = [0] * 2
+                            ind2, [jorb, ks] = self.crystal.indexing(
+                                norb * ns, 2, [norb, ns], 0, ind2, nn2
+                            )
+                            [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
+                            iorbc3 = self.crystal.FIndex([b, m3])
+                            iorbc4 = self.crystal.FIndex([b, m4])
+                            h[iorbc1, iorbc2, js, ik] = (
+                                self.vbare[iorb, jorb, js, ks, ik]
+                                * occk[iorbc4, iorbc3, ks, ik]
+                                * C
+                            )
+
+            else:
+                C = 2
+                # for ik in range(nk):
+                #     for iorb in range(norb):
+                #         iorbc1,iorbc2 = self.crystal.b2f[iorb]
+                #         for jorb in range(norb):
+                #             iorbc3, iorbc4 = self.crystal.b2f[jorb]
+                #             h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0]*C
+                #             # for jk in range(nk):
+                #             #     h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0,jk]/nk*C
+                for ik in range(nk):
+                    for ind1 in range(norb * ns):
+                        nn1 = [0] * 2
+                        ind1, [iorb, js] = self.crystal.indexing(
+                            norb * ns, 2, [norb, ns], 0, ind1, nn1
+                        )
+                        [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
+                        iorbc1 = self.crystal.FIndex([a, m1])
+                        iorbc2 = self.crystal.FIndex([a, m2])
+                        for ind2 in range(norb * ns):
+                            nn2 = [0] * 2
+                            ind2, [jorb, ks] = self.crystal.indexing(
+                                norb * ns, 2, [norb, ns], 0, ind2, nn2
+                            )
+                            [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
+                            iorbc3 = self.crystal.FIndex([b, m3])
+                            iorbc4 = self.crystal.FIndex([b, m4])
+                            # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]*C
+                            h[iorbc1, iorbc2, js, ik] += (
+                                self.vbare[iorb, jorb, js, ks, ik]
+                                * occk[iorbc4, iorbc3, ks, ik]
                                 * C
                             )
 

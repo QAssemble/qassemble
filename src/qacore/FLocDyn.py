@@ -20,6 +20,7 @@ import copy
 from .Crystal import Crystal
 from .FTGrid import FTGrid
 from .FLatDyn import GreenInt
+from .FLocStc import FLocStc
 qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/qacore/modules')
 import QAFort
@@ -255,6 +256,8 @@ class GreenLoc(FLocDyn):
         self.green = green
         self.gf = None
         self.gt = None
+
+        self.occ = None
         
         self.Cal()
 
@@ -262,18 +265,108 @@ class GreenLoc(FLocDyn):
         
         norbc = self.crystal.fprojector.shape[1]
         ns = self.crystal.ns
-        nft = self.ft.size
+        # nft = self.ft.size
+        nft = len(self.ft.omega) ### ??
+        ntau = len(self.ft.tau)
         nspace = self.crystal.fprojector.shape[3]
+        nprob = len(self.crystal.probspace)
 
-        gf = np.zeros((norbc,norbc,ns,nft,nspace),dtype=np.complex128)
+        # print(self.crystal.fprojector.shape[1])
+        # print(self.crystal.ns)
+        # print(len(self.ft.tau))
+        # print(self.crystal.fprojector.shape[3])
+        # print(self.crystal.fprojector.shape)
 
-        for ispace in range(nspace):
-            gf[...,ispace] = QAFort.projection.flatdyn(self.green.gkf,self.crystal.fprojector[...,ispace])
+        # print('====')
+        
 
-        self.gf = gf
-        self.gt = self.F2T(gf,1,1)
+        gf = np.zeros((norbc,norbc,ns,nft,nprob),dtype=np.complex128)
+        self.gt = np.zeros((norbc,norbc,ns,ntau,nprob),dtype=np.complex128)
+
+        # print(self.green.kf.shape)
+        # print(self.green.kf[0,0,0,10,5])
+        # print(self.green.kf[0,1,0,10,5])
+
+        # exit()
+
+        # for ispace in range(nspace):
+        #     gf[...,ispace] = QAFort.projection.flatdyn(self.green.kf,self.crystal.fprojector[...,ispace])
+        for iprob in range(nprob):
+            gf[...,iprob] = QAFort.projection.flatdyn(self.green.kf,self.crystal.fprojector[...,iprob])
+
+        ### conversion Loc -> Imp
+
+        # gff = self.Loc2Imp(gf)
+        gff = gf
+        self.gf = gff
+        for iprob in range(nprob):
+            self.gt[...,iprob] = self.F2T(gff[...,iprob],1,1) ### ? 
 
         return None
+
+    def Occ(self):
+
+        norbc = self.crystal.fprojector.shape[1]
+        ns = self.crystal.ns
+        nspace = self.crystal.fprojector.shape[3]
+        # nrk = len(self.crystal.kpoint)
+        nprob = len(self.crystal.probspace)
+        
+        
+        # occk = np.zeros((norbc,norbc,ns,nrk),dtype=np.complex128,order='F')
+        occ = np.zeros((norbc,norbc,ns,nprob),dtype=np.complex128,order='F')
+        
+        # print("Density matrixy calculation start")
+        
+        occ = -self.gt[...,-1,:]
+        
+        # occk = -self.rt[...,-1]
+    
+        # for irk in range(nrk):
+        #     occ += occk[...,irk]
+            
+        # occ /= nrk
+        self.occ = occ
+        # self.occk = occk
+        
+        # self.occr = self.flatstc.K2R(occk)
+        # print("Density matrixy calculation finish")
+        return None
+
+    def NumofE(self):
+
+        norbc = self.crystal.fprojector.shape[1]
+        ns = self.crystal.ns
+        # nrk = len(self.crystal.kpoint)
+        nft = len(self.ft.omega)#self.ft.size
+        nspace = self.crystal.fprojector.shape[3]
+        nprob = len(self.crystal.probspace)
+
+        # tempmat = copy.deepcopy(self.gkfmu0)
+        # chem = self.ChemEmbedding(mu)
+        # gcalf = np.zeros((norbc,norbc,ns,nft),dtype=np.complex128,order='F')
+        # gcalt = np.zeros((norbc,norbc,ns,nft),dtype=np.complex128,order='F')
+
+        
+        # gcalf = self.Dyson(tempmat,-chem)
+        # gcalt = self.F2T(gcalf,1,1)
+        
+        Ne = 0
+        
+        # for irk in range(nrk):
+        for iprob in range(nprob):
+            for js in range(ns):
+                for iorb in range(norbc):
+                    Ne += -np.real(self.gt[iorb,iorb,js,-1,iprob])
+
+        # Ne /= nrk
+        
+        N = self.crystal.nume
+        # print(N,Ne,N-Ne)
+        
+        return N - Ne
+
+    # def densitymatrix()
 
 class GreenImp(FLocDyn): # read CTQMC output
 
@@ -324,10 +417,87 @@ class SigmaImp(FLocDyn): # read CTQMC output
 
 class SigmaLGWC(FLocDyn):
 
-    def __init__(self, crystal: Crystal, ft: FTGrid):
+    def __init__(self, crystal: Crystal, ft: FTGrid
+    ,green : np.ndarray = None, wloc : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None):
         super().__init__(crystal, ft)
 
-        pass
+        # pass
+
+        self.flpcstc = FLocStc(crystal=crystal)
+        self.rt = None
+        self.rf = None
+        # self.kt = None
+        # self.kf = None
+        self.stck = None
+        self.z = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+
+        if green is None:
+            print("Error, green doesn't exist")
+            sys.exit()
+
+        if wloc is None:
+            print("Error, wlat doesn't exist")
+            sys.exit()
+        self.green = green
+        self.wloc = wloc
+        self.Cal()
+    
+    def Cal(self)->np.ndarray: #SigmaGWC
+        '''
+        Generate correlated self-energy
+        input : Wc(R,t), G(R,t)
+
+        return : crtau, crfreq, cktau, ckfreq
+        '''
+        
+        G = self.green
+        Wc = self.wloc
+        norbc = self.crystal.fprojector.shape[1]
+        ns = self.crystal.ns
+        # nr = G.shape[3]
+        ntau = len(self.ft.tau)
+        nspace = self.crystal.fprojector.shape[3]
+        nprob = len(self.crystal.probspace)
+        norb = self.crystal.bprojector.shape[1]
+
+        crtau = np.zeros((norbc,norbc,ns,ntau,nprob),dtype=np.complex128,order='F')
+    
+        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex128,order='F')
+        
+        for itau in range(ntau):
+            for iprob in range(nprob):
+                for ind2 in range(norb*ns):
+                    nn2 = [0]*2
+                    ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
+                    [b,[m3,m2]] = self.crystal.BAtomOrb(jorb)
+                    iorbc3 = self.crystal.FIndex([b,m3])
+                    iorbc2 = self.crystal.FIndex([b,m2])
+                    for ind1 in range(norb*ns):
+                        nn1 = [0]*2
+                        ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
+                        [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
+                        iorbc1 = self.crystal.FIndex([a,m1])
+                        iorbc4 = self.crystal.FIndex([a,m4])
+                        if js==ks:
+                            crtau[iorbc1,iorbc2,js,itau,iprob] += -G[iorbc4,iorbc3,js,itau,iprob]*Wc[iorb,jorb,js,ks,itau,iprob]
+                
+                                        
+
+        # cktau = self.R2K(crtau)
+        # ckfreq = self.T2F(cktau)
+        crfreq = np.zeros((norbc,norbc,ns,len(self.ft.omega),nprob),dtype=np.complex128,order='F')
+        for iprob in range(nprob):
+            crfreq[...,iprob] = self.T2F(crtau[...,iprob])
+
+        self.rt = crtau
+        # self.kt = cktau
+        self.rf = crfreq
+        # self.kf = ckfreq
+
+        return None
     
 
 class Hybridisation(FLocDyn):

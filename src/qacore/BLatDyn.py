@@ -662,6 +662,102 @@ class WLat(BLatDyn):
 
         self.kf = wkf
 
+        self.rf = self.K2R(wkf)
+
+        wckf = wkf - vdyn
+
+        self.ckf = wckf
+
+        return None
+
+    def Save(self, fn : str):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    w = group[self.subgroup]
+                else:
+                    w = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                w = group.create_group(self.subgroup)
+
+            w.create_dataset(fn,dtype=complex,data=self.kf)
+
+        return None
+    
+
+
+
+
+
+
+class WLat_k(BLatDyn):
+
+    def __init__(self, crystal: Crystal, ft: FTGrid,pol : np.ndarray = None, vbare : VBare = None, c : float = 1.0, hdf5file : str = 'glob.h5', group : str = None):
+        super().__init__(crystal, ft)
+        self.rt = None #rt to kf
+        self.rf = None
+        self.kt = None
+        self.kf = None
+        self.crt = None #rt to kf
+        self.crf = None
+        self.ckt = None
+        self.ckf = None
+        self.c = c
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        if pol is None:
+            print("Error, polarizability doesn't exist")
+            sys.exit()
+        if vbare is None:
+            print("Error, bare coulomb interaction doesn't exist")
+            sys.exit()
+        self.pol = pol
+        self.vbare = vbare
+
+        self.Cal()
+
+        # self.wkt = self.F2T(self.wkf,1,1)
+        # self.wrf = self.K2R(self.wkf)
+        # self.wrt = self.K2R(self.wkt)
+
+        self.ckt = self.F2T(self.ckf,1,1)
+        self.crf = self.K2R(self.ckf)
+        self.crt = self.K2R(self.ckt)
+
+    def Cal(self): # calculate W and Wc
+
+        norb = len(self.crystal.bind)
+        norbc = len(self.crystal.find)
+        ns = self.crystal.ns
+        nk = len(self.crystal.kpoint)
+        nfreq = len(self.ft.nu)
+        ####### Initialization #######
+        tempmat = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        wkf = np.zeros((norb,norb,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        wckf = np.zeros((norb,norb,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        vdyn = np.zeros((norb,norb,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+
+        # for ifreq in range(nfreq):
+        #     vdyn[...,ifreq] = self.vbare.k
+        vdyn = self.StcEmbedding(self.vbare)
+        polcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        vcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        ####### Initialization #######
+        polcomp = self.Double2Full(self.pol)*self.c
+        # del self.pol
+        vcomp = self.Double2Full(vdyn)
+
+        tempmat = self.Dyson(vcomp,polcomp)
+        wkf = self.Full2Double(tempmat)
+
+        self.kf = wkf
+
+        self.rf = self.K2R(wkf)
+
         wckf = wkf - vdyn
 
         self.ckf = wckf

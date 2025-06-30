@@ -1,8 +1,3 @@
-"""Crystal module: Defines the Crystal class for preparing lattice and orbital information for calculations.
-
-This module provides functionality to generate fermionic and bosonic orbital indices, k-point grids,
-real-space vectors, and related basis transformations.
-"""
 import string as string
 from typing import Any
 import matplotlib as mat
@@ -605,6 +600,10 @@ class Crystal(object):
 
         Args:
             impdict (dict): Mapping of impurity labels to lists of orbital index lists.
+            e.g.
+            impdict = {
+                '1'  : [[[0, 0]],[[1, 0]]]
+                }
 
         Returns:
             None
@@ -630,8 +629,13 @@ class Crystal(object):
                         sys.exit()
             probspace[key] = [nspace+i for i in range(len(val))]
             nspace += len(val)
+        
+        # print(nspace)
+        # exit()
 
         self.probspace = probspace
+
+        # print(probspace)
 
         for key, val in impdict.items():
             fimpdict[key] = []
@@ -646,6 +650,9 @@ class Crystal(object):
             for orb in val:
                 if len(orb) > forbc:
                     forbc = len(orb)
+        
+
+
         for key, val in fimpdict.items():
             bimpdict[key] = []
             for orb in val:
@@ -655,7 +662,8 @@ class Crystal(object):
                         [a,m1] = self.FAtomOrb(iorb)
                         [b,m2] = self.FAtomOrb(jorb)
                         if a==b:
-                            bind = self.b2f.index([iorb,jorb])
+                            bind = self.bbasis[iorb, jorb]
+                            # bind = self.b2f.index([iorb,jorb])
                             templist.append(bind)
                 bimpdict[key].append(templist)
         for val in bimpdict.values():
@@ -663,8 +671,14 @@ class Crystal(object):
                 if len(orb)>borbc:
                     borbc = len(orb)
         self.bimpdict = bimpdict
+
+        # print(fimpdict)
+        # print(bimpdict)
+
         fprojector = np.zeros((len(self.find),forbc,ns,nspace),dtype=float,order='F')
         bprojector = np.zeros((len(self.bind),borbc,ns,nspace),dtype=float,order='F')
+        # fprojector = np.zeros((len(self.find),forbc,ns,len(probspace)),dtype=float,order='F')
+        # bprojector = np.zeros((len(self.bind),borbc,ns,len(probspace)),dtype=float,order='F')
 
         for js in range(ns):
             for key, val in probspace.items():
@@ -680,6 +694,10 @@ class Crystal(object):
 
         self.fprojector = fprojector
         self.bprojector = bprojector
+
+        # print('====')
+        # print(self.fprojector)
+        # print(self.bprojector)
 
         return None
 
@@ -698,6 +716,7 @@ class Crystal(object):
         Returns:
             tuple: (n1, n2) updated by the indexing operation.
         """
+        tmpsize = 1
         for size in divisionarray:
             tmpsize *= size
 
@@ -841,3 +860,41 @@ class Crystal(object):
         self.rind = rind
 
         return None
+
+
+
+
+    def T2mT(self, G : np.ndarray) -> np.ndarray:
+
+        norb = G.shape[0]
+        ns = G.shape[2]
+        # nr = G.shape[3]
+        ntau = G.shape[4]
+
+        tempmat = np.zeros((norb,norb,ns,ntau), dtype=np.complex128, order='F')
+
+        for itau in range(ntau):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        tempmat[iorb,jorb,js,itau] = - G[iorb,jorb,js,ntau-itau-1]
+
+        return tempmat
+
+
+    def T2mT_loc(self, G : np.ndarray) -> np.ndarray:
+
+        norb = G.shape[0]
+        ns = G.shape[2]
+        # nr = G.shape[3]
+        ntau = G.shape[3]
+
+        tempmat = np.zeros((norb,norb,ns,ntau), dtype=np.complex128, order='F')
+
+        for itau in range(ntau):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        tempmat[iorb,jorb,js,itau] = - G[iorb,jorb,js,ntau-itau-1]
+
+        return tempmat

@@ -56,6 +56,9 @@ class CorrelationFunction(object):
         # file = h5py.File(fn+'.h5','w')
         # tb = file.create_group('tb')
 
+        print('toto')
+        print('dodo')
+
         group = 'tb'
         errmessage = "missing input for tight binding calculation"
         if (hopping == None):
@@ -193,7 +196,7 @@ class CorrelationFunction(object):
         niham = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,hdf5file=hdf5file,group=group)
         gbare = GreenBare(crystal=self.crystal,ft=self.ft,hamtb=niham.k,hdf5file=hdf5file,group=group)
         vbare = VBare(crystal=self.crystal,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,ohnoyuka=ohnoyuka,hdf5file=hdf5file,group=group)
-
+        self.vbare = vbare
 
         for iter in range(1,itermax+1):
             if iter == 1:

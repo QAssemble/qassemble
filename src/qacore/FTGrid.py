@@ -13,8 +13,8 @@ import scipy.optimize
 from sympy.physics.wigner import gaunt, wigner_3j
 from scipy.fftpack import fftn, ifftn
 import scipy.linalg
-from pymatgen.core import Lattice, Structure
-from pymatgen.transformations.standard_transformations import SupercellTransformation
+#from pymatgen.core import Lattice, Structure
+#from pymatgen.transformations.standard_transformations import SupercellTransformation
 import subprocess
 import copy
 qapath = os.environ.get('QAssemble','')
