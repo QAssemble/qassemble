@@ -161,7 +161,7 @@ class BLocDyn(object):
 
         for key, val in self.crystal.probspace.items():
             iprob = int(key)-1
-            tempmat = np.zeros((norb,norb,ns),dtype=np.complex128)
+            tempmat = np.zeros((norb,norb,ns,nft),dtype=np.complex128)
             for ispace in val:
                 tempmat += matloc[...,ispace]
             tempmat /=len(val)

@@ -28,12 +28,12 @@ import QAFort
 class FLocDyn(object):
 
     def __init__(self,crystal : Crystal, ft : FTGrid):
-        
+
         self.crystal = crystal
         self.ft = ft
 
     def Inverse(self, mat : np.ndarray):
-        
+
         norb = mat.shape[0]
         ns = mat.shape[2]
         nft = mat.shape[3]
@@ -45,7 +45,7 @@ class FLocDyn(object):
                 matinv[:,:,js,ift] = np.linalg.inv(mat[:,:,js,ift])
 
         return matinv
-    
+
     def Moment(self, ff : np.ndarray, isgreen : int, highzero : int) -> np.ndarray:
 
         norb = ff.shape[0]
@@ -57,7 +57,7 @@ class FLocDyn(object):
         moment, high = QAFort.fourier.flocdyn_m(self.ft.omega,ff,isgreen,highzero)
 
         return moment, high
-    
+
     def F2T(self, ff : np.ndarray, isgreen : int, highzero : int) -> np.ndarray:
 
         norb = ff.shape[0]
@@ -71,7 +71,7 @@ class FLocDyn(object):
         ftau = QAFort.fourier.flocdyn_f2t(self.ft.omega,ff,moment,self.ft.tau)
 
         return ftau
-        
+
     def T2F(self,ftau : np.ndarray) -> np.ndarray:
 
         norb = ftau.shape[0]
@@ -83,7 +83,7 @@ class FLocDyn(object):
         ff = QAFort.fourier.flocdyn_t2f(self.ft.tau,ftau,self.ft.omega)
 
         return ff
-    
+
     def GaussianLinearBroad(self,x, y, w1, temperature, cutoff):
 
         norb = y.shape[0]
@@ -110,7 +110,7 @@ class FLocDyn(object):
             cnt += 1
 
         return ynew
-    
+
     def Mixing(self,iter : int, mix : float, Fb : np.ndarray, Fold : np.ndarray):
 
         norb = Fb.shape[0]
@@ -126,7 +126,7 @@ class FLocDyn(object):
         Fnew = mix*Fb+(1.0-mix)*Fold
 
         return Fnew
-    
+
     def Imp2Loc(self,matimp : np.ndarray)-> np.ndarray:
 
         norb = matimp.shape[0]
@@ -145,7 +145,7 @@ class FLocDyn(object):
                 matloc[...,ispace] = matimp[...,iprob]
 
         return matloc
-    
+
     def Loc2Imp(self,matloc : np.ndarray)->np.ndarray:
 
         nprob = len(self.crystal.probspace)
@@ -157,16 +157,16 @@ class FLocDyn(object):
 
         for key, val in self.crystal.probspace.items():
             iprob = int(key)-1
-            tempmat = np.zeros((norb,norb,ns),dtype=np.complex128)
+            tempmat = np.zeros((norb,norb,ns,nft),dtype=np.complex128)
             for ispace in val:
                 tempmat += matloc[...,ispace]
             tempmat /=len(val)
             matimp[...,iprob] = tempmat
 
         return matimp
-    
+
     def Arr2Dict(self, equiv : np.ndarray, matin : np.ndarray) -> dict:
-        
+
         ns = matin.shape[2]
         nind = np.amax(equiv)
         matdict = {}
@@ -180,14 +180,14 @@ class FLocDyn(object):
                     e += matin[ii,jj,js]
                 e /=len(pos)
                 matdict[ind+1].append(e.tolist())
-        
+
         return matdict
-    
+
     def Dict2Arr(self,equiv : np.ndarray, matdict : np.ndarray) -> np.ndarray:
 
         norb = len(equiv)
         ns = self.crystal.ns
-        nfreq = len(matdict["1"])                
+        nfreq = len(matdict["1"])
 
         matout = np.zeros((norb,norb,ns,nfreq),dtype=np.complex128,order='F')
         nind = np.amax(equiv)
@@ -199,7 +199,7 @@ class FLocDyn(object):
                     matout[ii,jj,js] = matdict[str(ind+1)]
 
         return matout
-    
+
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
 
         norb = len(self.crystal.find)
@@ -247,22 +247,22 @@ class FLocDyn(object):
                             f.write(f"{iorb} {jorb} {js} {ift} {matin[iorb,jorb,js,ift].real} {matin[iorb,jorb,js,ift].imag}\n")
         os.chdir("..")
         return None
-    
+
 class GreenLoc(FLocDyn):
 
     def __init__(self, crystal: Crystal, ft: FTGrid, green : GreenInt):
-        
+
         super().__init__(crystal, ft)
         self.green = green
         self.gf = None
         self.gt = None
 
         self.occ = None
-        
+
         self.Cal()
 
     def Cal(self): # projection
-        
+
         norbc = self.crystal.fprojector.shape[1]
         ns = self.crystal.ns
         # nft = self.ft.size
@@ -278,7 +278,7 @@ class GreenLoc(FLocDyn):
         # print(self.crystal.fprojector.shape)
 
         # print('====')
-        
+
 
         gf = np.zeros((norbc,norbc,ns,nft,nprob),dtype=np.complex128)
         self.gt = np.zeros((norbc,norbc,ns,ntau,nprob),dtype=np.complex128)
@@ -288,19 +288,20 @@ class GreenLoc(FLocDyn):
         # print(self.green.kf[0,1,0,10,5])
 
         # exit()
-
+        gf = self.green.Projection(self.green.kf)
         # for ispace in range(nspace):
         #     gf[...,ispace] = QAFort.projection.flatdyn(self.green.kf,self.crystal.fprojector[...,ispace])
-        for iprob in range(nprob):
-            gf[...,iprob] = QAFort.projection.flatdyn(self.green.kf,self.crystal.fprojector[...,iprob])
+        # for iprob in range(nprob):
+            # gf[...,iprob] = QAFort.projection.flatdyn(self.green.kf,self.crystal.fprojector[...,iprob])
 
+        self.gf = self.Loc2Imp(gf)
         ### conversion Loc -> Imp
 
         # gff = self.Loc2Imp(gf)
         gff = gf
         self.gf = gff
         for iprob in range(nprob):
-            self.gt[...,iprob] = self.F2T(gff[...,iprob],1,1) ### ? 
+            self.gt[...,iprob] = self.F2T(self.gf[...,iprob],1,1) ### ?
 
         return None
 
@@ -311,24 +312,24 @@ class GreenLoc(FLocDyn):
         nspace = self.crystal.fprojector.shape[3]
         # nrk = len(self.crystal.kpoint)
         nprob = len(self.crystal.probspace)
-        
-        
+
+
         # occk = np.zeros((norbc,norbc,ns,nrk),dtype=np.complex128,order='F')
         occ = np.zeros((norbc,norbc,ns,nprob),dtype=np.complex128,order='F')
-        
+
         # print("Density matrixy calculation start")
-        
+
         occ = -self.gt[...,-1,:]
-        
+
         # occk = -self.rt[...,-1]
-    
+
         # for irk in range(nrk):
         #     occ += occk[...,irk]
-            
+
         # occ /= nrk
         self.occ = occ
         # self.occk = occk
-        
+
         # self.occr = self.flatstc.K2R(occk)
         # print("Density matrixy calculation finish")
         return None
@@ -347,12 +348,12 @@ class GreenLoc(FLocDyn):
         # gcalf = np.zeros((norbc,norbc,ns,nft),dtype=np.complex128,order='F')
         # gcalt = np.zeros((norbc,norbc,ns,nft),dtype=np.complex128,order='F')
 
-        
+
         # gcalf = self.Dyson(tempmat,-chem)
         # gcalt = self.F2T(gcalf,1,1)
-        
+
         Ne = 0
-        
+
         # for irk in range(nrk):
         for iprob in range(nprob):
             for js in range(ns):
@@ -360,10 +361,10 @@ class GreenLoc(FLocDyn):
                     Ne += -np.real(self.gt[iorb,iorb,js,-1,iprob])
 
         # Ne /= nrk
-        
+
         N = self.crystal.nume
         # print(N,Ne,N-Ne)
-        
+
         return N - Ne
 
     # def densitymatrix()
@@ -379,16 +380,16 @@ class GreenImp(FLocDyn): # read CTQMC output
         pass
 
 class SigmaLoc(FLocDyn):
-    
+
     def __init__(self, crystal: Crystal, ft: FTGrid, sigma : object):
         super().__init__(crystal, ft)
-        
+
         self.sigma = sigma
         self.f = None
         self.Cal()
 
     def Cal(self): # projection
-        
+
         norbc = self.crystal.fprojector.shape[1]
         ns = self.crystal.ns
         nft = self.ft.size
@@ -399,7 +400,9 @@ class SigmaLoc(FLocDyn):
         for isapce in range(nspace):
             sigmalocf[...,isapce] = QAFort.projection.flatdyn(self.sigma,self.crystal.fprojector[...,isapce])
 
-        self.f = sigmalocf
+        self.f = self.Loc2Imp(sigmalocf)
+
+        # self.f = sigmalocf
         self.t = self.F2T(sigmalocf,0,1)
 
         return None
@@ -444,7 +447,7 @@ class SigmaLGWC(FLocDyn):
         self.green = green
         self.wloc = wloc
         self.Cal()
-    
+
     def Cal(self)->np.ndarray: #SigmaGWC
         '''
         Generate correlated self-energy
@@ -452,7 +455,7 @@ class SigmaLGWC(FLocDyn):
 
         return : crtau, crfreq, cktau, ckfreq
         '''
-        
+
         G = self.green
         Wc = self.wloc
         norbc = self.crystal.fprojector.shape[1]
@@ -464,9 +467,9 @@ class SigmaLGWC(FLocDyn):
         norb = self.crystal.bprojector.shape[1]
 
         crtau = np.zeros((norbc,norbc,ns,ntau,nprob),dtype=np.complex128,order='F')
-    
+
         tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex128,order='F')
-        
+
         for itau in range(ntau):
             for iprob in range(nprob):
                 for ind2 in range(norb*ns):
@@ -483,8 +486,8 @@ class SigmaLGWC(FLocDyn):
                         iorbc4 = self.crystal.FIndex([a,m4])
                         if js==ks:
                             crtau[iorbc1,iorbc2,js,itau,iprob] += -G[iorbc4,iorbc3,js,itau,iprob]*Wc[iorb,jorb,js,ks,itau,iprob]
-                
-                                        
+
+
 
         # cktau = self.R2K(crtau)
         # ckfreq = self.T2F(cktau)
@@ -498,13 +501,13 @@ class SigmaLGWC(FLocDyn):
         # self.kf = ckfreq
 
         return None
-    
+
 
 class Hybridisation(FLocDyn):
 
     def __init__(self, crystal: Crystal, ft: FTGrid, implev : object, gimp : GreenImp, sigmaimp : SigmaImp):
         super().__init__(crystal, ft)
         self.Cal()
-    
+
     def Cal(self):
         pass
