@@ -75,7 +75,7 @@ fpathstc.crystal.Kpath(kpath, nkpath)
 U = 5
 Up = 0
 J = 0
-V = 0.0
+V = 1.0
 
 locoption = {
     "Parameter": "SlaterKanamori",
@@ -247,9 +247,20 @@ gint.Occ()
 
 
 print("**Vloc start")
-vloc = cf.vbare.Projection(cf.vbare.k)
+# vloc = cf.vbare.Projection(cf.vbare.k)
+# print("vloc.shape --", vloc.shape)
+# print("vbare.shape --", cf.vbare.k.shape)
+vloc = np.zeros((1, 1, 1, 1, 2), dtype=np.complex128, order="F")
+vloc2 = np.zeros_like(cf.vbare.k)
+(norb, norb, ns, ns, nk) = cf.vbare.k.shape
+for ik in range(nk):
+    vloc2[..., ik] = cf.vbare.vloc.vloc
+vloc[..., 0] = vloc2[0, 0, 0, 0, 0]
+vloc[..., 1] = vloc2[0, 0, 0, 0, 0]
 print("vloc.shape --", vloc.shape)
+print(vloc[:, :, 0, 0, 0])
 print("vbare.shape --", cf.vbare.k.shape)
+print(vloc2[:, :, 0, 0, 0])
 print("**Vloc finish\n")
 
 # exit()
@@ -291,7 +302,7 @@ for ikk in range(nk):
 
 print("**SigmaHLoc start")
 hloc = SigmaHLoc(crystal=cf.crystal, ft=cf.ft, occ=gloc.occ, vloc=vloc)
-hlat = SigmaHartree(crystal=cf.crystal, occ=-g_average2[..., 0, -1], vbare=cf.vbare.k)
+hlat = SigmaHartree(crystal=cf.crystal, occ=-g_average2[..., 0, -1], vbare=vloc2)
 # hlat = SigmaHartree(crystal=cf.crystal,occ=gint.occ,vbare=vbare_k_average)
 print("**SigmaHLoc finish\n")
 
@@ -428,6 +439,16 @@ for ik in range(nk):
     pollat.kf[0, 0, 0, 0, ik, :] = pollat.rf[0, 0, 0, 0, 0, :]
 
 
+# pollat.kf[0, 1, 0, 0, :, :] = 0.0
+# pollat.kf[1, 0, 0, 0, :, :] = 0.0
+# pollat.kf[1, 1, 0, 0, :, :] = 0.0
+
+# vloc2[0, 1, 0, 0, :] = 0.0
+# vloc2[1, 0, 0, 0, :] = 0.0
+# vloc2[1, 1, 0, 0, :] = 0.0
+
+
+
 # print(pollat.kf.shape)
 # print(cf.vbare.k.shape)
 
@@ -435,7 +456,8 @@ for ik in range(nk):
 
 print("**WLoc start")
 wloc = WLoc(crystal=cf.crystal, ft=cf.ft, pol=polloc.rf, vLoc=vloc)
-wlat = WLat(crystal=cf.crystal, ft=cf.ft, pol=pollat.kf, vbare=cf.vbare)
+# wlat = WLat(crystal=cf.crystal, ft=cf.ft, pol=pollat.kf, vbare=cf.vbare)
+wlat = WLat_k(crystal=cf.crystal, ft=cf.ft, pol=pollat.kf, vbare=vloc2)
 # wlat = WLat_k(crystal=cf.crystal,ft=cf.ft, pol=pollat.kf,vbare=vbare_k_average)
 print("**WLoc finish\n")
 
