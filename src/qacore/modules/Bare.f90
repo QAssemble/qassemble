@@ -85,18 +85,18 @@ contains
   subroutine FTau(ntau, tau, energy, gtau)
 ! from wikipedia: https://en.wikipedia.org/wiki/Matsubara_frequency
     implicit none
-    
+
     integer, intent(in) :: ntau
     double precision, intent(in) :: tau(0:(ntau-1)), energy
-    complex*16, intent(out) :: gtau(0:(ntau-1))    
-    
+    complex*16, intent(out) :: gtau(0:(ntau-1))
+
     integer :: unitnum!,temp
     double precision :: machep,taumod,taunew, beta, pi!,temp2
     integer :: itau
-    
+
     pi = datan2(1.0d0, 1.0d0)*4.0d0
-    
-!   beta= tau(0)/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)*2.0d0  
+
+!   beta= tau(0)/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)*2.0d0
     beta = tau(ntau-1)
     machep = epsilon ( machep )
 !    print *, machep
@@ -107,7 +107,7 @@ contains
       if (taumod .lt. machep) then
         unitnum=unitnum-1
       endif
-      taunew=tau(itau)-beta*unitnum          
+      taunew=tau(itau)-beta*unitnum
 !     temp = (unitnum+1)
 !     temp2 = (-1)**(unitnum+1)
 !     print *,  itau, temp, temp2, tau(itau),taunew
@@ -123,34 +123,34 @@ contains
   subroutine BTau(ntau, tau, energy, wtau)
 ! from wikipedia: https://en.wikipedia.org/wiki/Matsubara_frequency
     implicit none
-    
+
     integer, intent(in) :: ntau
     double precision, intent(in) :: tau(0:(ntau-1)), energy
-    complex*16, intent(out) :: wtau(0:(ntau-1))    
-    
+    complex*16, intent(out) :: wtau(0:(ntau-1))
+
     integer :: unitnum
     double precision :: machep,taumod,taunew, beta, pi
-    
+
     integer :: itau
-    
+
     pi = datan2(1.0d0, 1.0d0)*4.0d0
-    
-    beta= tau(0)*2.0d0/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)    
-    
+
+    beta= tau(0)*2.0d0/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)
+
     machep = epsilon ( machep )
     if (dabs(energy) .lt. 1.0d-12) then
       print *, 'zero energy in Bare.BTau. impossible'
       stop
     endif
-    
+
     do itau=0, ntau-1
       taumod=modulo(tau(itau), beta)
       unitnum=nint(tau(itau)-taumod)/beta
       if (taumod .lt. machep) then
         unitnum=unitnum-1
       endif
-      taunew=tau(itau)-beta*unitnum          
-      
+      taunew=tau(itau)-beta*unitnum
+
       if (energy .gt. 0) then
         wtau(itau)=-dexp(-energy*taunew)*(1-1.0d0/(dexp(energy*beta)-1))
       else
@@ -158,20 +158,20 @@ contains
       endif
     enddo
   end subroutine BTau
-  
+
   subroutine FFreq(nfreq, freq, energy, gfreq)
 ! from wikipedia: https://en.wikipedia.org/wiki/Matsubara_frequency
     implicit none
-    
+
     integer, intent(in) :: nfreq
     double precision, intent(in) :: freq(0:(nfreq-1)), energy
     complex*16, intent(out) :: gfreq(0:(nfreq-1))
-    
+
     integer :: ifreq
     complex*16 :: ai
-    
-    ai=dcmplx(0.0d0, 1.0d0)    
-    
+
+    ai=dcmplx(0.0d0, 1.0d0)
+
     do ifreq=0, nfreq-1
       gfreq(ifreq)=1.0d0/(ai*freq(ifreq)-energy)
     enddo
@@ -181,21 +181,21 @@ contains
   subroutine BFreq(nfreq, freq, energy, wfreq)
 ! from wikipedia: https://en.wikipedia.org/wiki/Matsubara_frequency
     implicit none
-    
+
     integer, intent(in) :: nfreq
     double precision, intent(in) :: freq(0:(nfreq-1)), energy
     complex*16, intent(out) :: wfreq(0:(nfreq-1))
-    
-    
+
+
     integer :: ifreq
     complex*16 :: ai
-    
-    ai=dcmplx(0.0d0, 1.0d0)    
-    
+
+    ai=dcmplx(0.0d0, 1.0d0)
+
     do ifreq=0, nfreq-1
       wfreq(ifreq)=1.0d0/(ai*freq(ifreq)-energy)
     enddo
-  end subroutine BFreq  
+  end subroutine BFreq
 
   subroutine BLocFreq(norb,ns,nfreq,hloc,freq,wloc)
     implicit none
@@ -235,7 +235,7 @@ contains
         enddo
     enddo
   end subroutine BLocFreq
-  
+
   subroutine BLatFreq(norb,ns,nk,nfreq,hlatt,freq,wlatt)
     implicit none
 
@@ -286,10 +286,10 @@ contains
         enddo
 
         call zgemm('n', 'c', norb, norb, norb, (1.0d0, 0.0d0), tempmat2, norb,tempmat, norb, (0.0d0, 0.0d0), gloc(1,1,is,itau),norb)
-        
+
       enddo
     enddo
-  end subroutine FLocTau 
+  end subroutine FLocTau
 
 
   subroutine FLatTau(norb,ns,nk,ntau,hlatt,tau,glatt)
@@ -308,47 +308,47 @@ contains
       call FLocTau(norb,ns,ntau,hlatt(:,:,:,ik), tau,glatt(:,:,:,ik,:))
     enddo
 
-  end subroutine FLatTau 
+  end subroutine FLatTau
 
   subroutine BLocTau(norb, ns, ntau, hloc, tau, wloc)
     implicit none
-    
+
     integer, intent(in) :: norb, ns, ntau
     double precision, intent(in) :: tau(0:(ntau-1))
     complex*16, intent(in) :: hloc(norb, norb, ns, ns)
     complex*16, intent(out) :: wloc(norb, norb, ns, ns,0:(ntau-1))
-  
+
     integer :: is, js, itau, iorb, jorb
     double precision :: w(norb)
     complex*16 :: tempmat(norb, norb), ai, wtau(0:(ntau-1), norb), tempmat2(norb,norb)
-  
+
     ai = dcmplx(0.0d0, 1.0d0)
     wloc = 0.0d0
-  
+
     do is = 1, ns
       do js = 1, ns
         tempmat = hloc(:, :, is, js)
         call hermitianeigen_dcmplx(norb, w, tempmat)
-  
+
         wtau = 0.0d0
         do iorb = 1, norb
           call BTau(ntau, tau, w(iorb), wtau(:,iorb))
         enddo
-  
+
         do itau = 0, ntau-1
           do iorb = 1,norb
             do jorb = 1, norb
               tempmat2(iorb, jorb) = tempmat(iorb, jorb)*wtau(itau, jorb)
             enddo
           enddo
-  
+
           call zgemm('n', 'c', norb, norb, norb, (1.0d0, 0.0d0), tempmat2, norb,tempmat, norb, &
                (0.0d0,0.0d0), wloc(1,1, is, js, itau), norb)
-  
+
         enddo
       enddo
     enddo
-  
+
   end subroutine BLocTau
 
   subroutine BLatTau(norb, ns, nk, ntau, hlatt, tau, wlatt)
@@ -372,30 +372,30 @@ contains
   subroutine FTauTest(ntau, tau, energy, gtau,beta)
     ! from wikipedia: https://en.wikipedia.org/wiki/Matsubara_frequency
         implicit none
-        
+
         integer, intent(in) :: ntau
         double precision, intent(in) :: tau(0:(ntau-1)), energy, beta
-        complex*16, intent(out) :: gtau(0:(ntau-1))  
-          
-        
+        complex*16, intent(out) :: gtau(0:(ntau-1))
+
+
         integer :: unitnum!,temp
         double precision :: machep,taumod,taunew, pi!,temp2
         integer :: itau
-        
+
         pi = datan2(1.0d0, 1.0d0)*4.0d0
-        
-    !   beta= tau(0)/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)*2.0d0  
+
+    !   beta= tau(0)/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)*2.0d0
         ! beta = tau(ntau-1)
         machep = epsilon ( machep )
     !    print *, machep
-    
+
         do itau=0, ntau-1
           taumod=modulo(tau(itau), beta)
           unitnum=nint(tau(itau)-taumod)/beta
           if (taumod .lt. machep) then
             unitnum=unitnum-1
           endif
-          taunew=tau(itau)-beta*unitnum          
+          taunew=tau(itau)-beta*unitnum
     !     temp = (unitnum+1)
     !     temp2 = (-1)**(unitnum+1)
     !     print *,  itau, temp, temp2, tau(itau),taunew
@@ -406,5 +406,5 @@ contains
           endif
         enddo
       end subroutine FTauTest
- 
+
 end Module Bare

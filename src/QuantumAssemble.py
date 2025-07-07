@@ -7,7 +7,7 @@ import os
 import string
 import sys
 import time
-import shutil
+
 import h5py
 import numpy as np
 
@@ -389,8 +389,6 @@ class Run:
             for key2 in d2[key].keys():
                 if key2 == "Method":
                     continue
-                if key2 == "Mode":
-                    continue
                 elif d1[key][key2] == d2[key][key2]:
                     check.append(1)
                 else:
@@ -418,12 +416,7 @@ class Run:
         mix = control["run"]["mix"]
         method = control["run"]["method"]
         fn = control["run"]["fn"]
-        mode = control["run"]["mode"]
 
-        if (mode == "Restart") and os.path.exists(fn + ".h5"):
-            print("Restart Calculation")
-            if os.path.exists(fn + ".h5"):
-                shutil.copy2(fn+".h5", fn + ".h5.bak")
         if method == "tb":
             print("Tight-Binding calculation start")
             hopping = control["ham"]["hoppinglist"]
@@ -456,7 +449,7 @@ class Run:
             ohno = control["ham"]["coulomb"]["ohno"]
             jth = control["ham"]["coulomb"]["jth"]
             oy = control["ham"]["coulomb"]["ohnoyuka"]
-            
+            mode = control["run"]["mode"]
             start = time.time()
             # func.HartreeFock(itermax=itermax,mix=mix,hoppinglist=hoppinglist,onsitelist=onsitelist,loccoulomb=vloc,nonloccoulomb=vnonloc,ohno=ohno)
             func.HartreeFock(
