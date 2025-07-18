@@ -88,6 +88,8 @@ class Crystal(object):
         self.kpath = None
         self.kdist = None
         self.knode = None
+        self.kind = {}
+        self.K2K3D()
 
         self.find = {}
         self.bind = {}
@@ -859,3 +861,45 @@ class Crystal(object):
                         tempmat[iorb,jorb,js,itau] = - G[iorb,jorb,js,ntau-itau-1]
 
         return tempmat
+    
+    def K2K3D(self):
+
+        nk = len(self.kpoint)
+        kind = {}
+        for ik in range(nk):
+            [n1, n2] = self.indexing(nk, 3, self.rkgrid, 0, ik, [0, 0, 0])
+            kind[n1] = n2
+
+        self.kind = kind
+
+        return None
+    
+    def SplitKind(self, kidx : int) -> list:
+        """Split a k-point index into its 3D components.
+
+        Args:
+            kidx (int): Index in the k-point grid.
+
+        Returns:
+            list: [kx, ky, kz] corresponding to the 3D k-point coordinates.
+        """
+        if kidx in self.kind:
+            return self.kind[kidx]
+        else:
+            raise ValueError(f"Invalid k-point index: {kidx}")
+        
+    def MergeKind(self, klist : list) -> int:
+        """Merge 3D k-point components into a single index.
+
+        Args:
+            klist (list): [kx, ky, kz] 3D k-point coordinates.
+
+        Returns:
+            int: Merged index in the k-point grid.
+        """
+        for key, value in self.kind.items():
+            if value == klist:
+                return key
+            # else:
+            #     raise ValueError(f"Invalid k-point components: {klist}")
+        
