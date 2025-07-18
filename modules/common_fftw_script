@@ -1,4 +1,0 @@
-1) trial 1
-
-ifort -c Common.f90 -I${MKLROOT}/include -I${MKLROOT}/include/fftw -L${MKLROOT}/lib/intel64_lin -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -lm
-ifort -I${MKLROOT}/include -I${MKLROOT}/include/fftw -L${MKLROOT}/lib/intel64_lin -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -lm test_common.f90 Common.o
