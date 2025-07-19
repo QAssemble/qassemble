@@ -34,7 +34,7 @@ class MPIManager(object):
         self.localshapef = None
         self.localshapeb = None
 
-    def Quary(self, nk : int, nf : int, ntau : int, nprock : int, nprocf : int, kgrid : list):
+    def Quary(self, nk : int, nf : int, ntau : int, nprock : int, nprocf : int, crystal : Crystal):
 
         if (nk, nf, ntau, nprock, nprocf) in self.mpidict:
             #return the node dict for nk, nw
@@ -59,6 +59,7 @@ class MPIManager(object):
             wchunk = np.array_split(wtemp, nprocf)
             submatrixw = [(chunk[0], chunk[-1]+1) for chunk in wchunk]
             nodedict['submatrixw'] = submatrixw
+            self.crystal = crystal
 
             tautemp = np.arange(ntau)
             tauchunk = np.array_split(tautemp, nprocf)
@@ -73,7 +74,12 @@ class MPIManager(object):
             commtau = self.comm.Split(color=widx, key=kidx)
 
             # mpifft = MPIFFT(commk,kgrid)
-            self.fft = self.FFT(commk,kgrid)
+            self.fft = self.FFT(commk,crystal.rkgrid)
+            self.klocal = self.CreateMPICompositeIndex(self.sliceb)
+            self.rlocal = self.CreateMPICompositeIndex(self.slicef)
+            
+            self.klocal2global = self.MappingGlobal2Local(commk, self.klocal)
+            self.rlocal2global = self.MappingGlobal2Local(commk, self.rlocal)
             nodedict['submatrixkf'] = self.slicef
             nodedict['localshapef'] = self.localshapef
             nodedict['submatrixkb'] = self.sliceb
@@ -150,7 +156,7 @@ class MPIManager(object):
 
         return result
 
-    def CreateMPICompositeIndex(self, global_shape, rank_slices):
+    def CreateMPICompositeIndex(self, rank_slices):
         """
         Creates a local-to-global composite index mapping for each MPI rank.
 
@@ -163,7 +169,7 @@ class MPIManager(object):
         """
         rank_composite_indices = {}
 
-        Nz, Ny, Nx = global_shape
+        # Nz, Ny, Nx = global_shape
 
         for rank, slices in rank_slices.items():
             (x0, x1), (y0, y1), (z0, z1) = slices
@@ -179,7 +185,44 @@ class MPIManager(object):
 
         return rank_composite_indices
     
+    def MappingGlobal2Local(self, commk, localdict : dict) -> dict:
+        mapping = {}
+        for irank in range(commk.Get_size()):
+            mapping[irank] = {}
+            for key, value in localdict[irank].items():
+                kidx = self.crystal.MergeKind(value)
+                mapping[irank][key] = kidx
+
+        return mapping
     
+    def KGlobal2Local(self, kidx : int) -> list:
+        """
+        Convert a global k-index to its corresponding local rank and index.
+
+        Args :
+            kidx (int): Global k-index to convert.
+        Returns:
+            (rank, local_index) list: A list containing the rank and local index corresponding to the global k-index.
+
+        """
+
+        for key, val in self.klocal2global.items():
+            for key2, val2 in val.items():
+                if (kidx == val2):
+                    return [key, key2]
+                
+    def KLocal2Global(self, klocal : list) -> int:
+        """
+        Convert a local k-index to its corresponding global index.
+
+        Args :
+            klocal (list): Local k-index in the form [rank, local_index].
+        Returns:
+            int: Global k-index corresponding to the local k-index.
+        """
+        rank, local_index = klocal
+        return self.klocal2global[rank][local_index]
+                
 
 
 
@@ -196,7 +239,7 @@ class FLatDynMPI(object):
         self.nprock = nprock
         self.nprocw = nprocw
         self.mpimanager = mpimanager
-        self.nodedict = mpimanager.Quary(nk, nw, ntau, nprock, nprocw, self.crystal.rkgrid)
+        self.nodedict = mpimanager.Quary(nk, nw, ntau, nprock, nprocw, self.crystal)
 
         self.commk = self.nodedict['commk']
         self.commw = self.nodedict['commf']
@@ -208,11 +251,11 @@ class FLatDynMPI(object):
 
         self.submatrixtau = self.nodedict['submatrixtau']
 
-        self.kb = mpimanager.CreateMPICompositeIndex(crystal.rkgrid, self.submatrixkb)
-        self.kf = mpimanager.CreateMPICompositeIndex(crystal.rkgrid, self.submatrixkf)
+        # self.kb = mpimanager.CreateMPICompositeIndex(crystal.rkgrid, self.submatrixkb)
+        # self.kf = mpimanager.CreateMPICompositeIndex(crystal.rkgrid, self.submatrixkf)
 
-        self.kb2global = self.MappingGlobal2Local(self.kb)
-        self.kf2global = self.MappingGlobal2Local(self.kf)
+        # self.kb2global = self.MappingGlobal2Local(self.kb)
+        # self.kf2global = self.MappingGlobal2Local(self.kf)
 
         # self.fft = self.mpimanager.FFT()
         

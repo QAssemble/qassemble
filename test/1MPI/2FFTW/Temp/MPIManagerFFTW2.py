@@ -70,7 +70,7 @@ def main():
     Basis = [[[1/2,1/2,1/2],1]]
     NSpin = 1
     SOC = False
-    KGrid = [10, 10, 10]
+    KGrid = [4, 5, 6]
     NElec = 1
     T = 2000
     cutoff = 100
@@ -100,7 +100,7 @@ def main():
     # print('Rank :', flatdynmpi.commk.Get_rank(), 'Expected local shape', flatdynmpi.mpimanager.localshapeb[flatdynmpi.commk.Get_rank()])
     # print('Rank :', flatdynmpi.commk.Get_rank(), 'Real local shape', flatdynmpi.mpimanager.fft.forward.input_array.shape)
 
-    submatf = flatdynmpi.submatrixw[flatdynmpi.commw.Get_rank()]
+    # submatf = flatdynmpi.submatrixw[flatdynmpi.commw.Get_rank()]
     # if flatdynmpi.commw.Get_rank() == 0:
     #     print(f"Global omega length : {len(ftgrid.omega)}")
     #     print(f"First and last omega values : {ftgrid.omega[0]}, {ftgrid.omega[-1]}")
@@ -110,29 +110,16 @@ def main():
     #     print(f"Rank : {flatdynmpi.commw.Get_rank()}") 
     #     print(f"Omega index {iomega} - Omega value : {flatdynmpi.ftgrid.omega[iomega]}")
     if comm.Get_rank() == 0:
-        # tempmat = np.zeros((KGrid[0]*KGrid[1]*KGrid[2]),dtype=np.complex128, order='F')
-        # print(crystal.kind)
+        
         # for ik in range(nk):
-        #     tempmat[ik] = np.exp(1j* np.pi * np.linalg.norm(crystal.kpoint[ik]))
+        #     [irank, klocal] = flatdynmpi.mpimanager.KGlobal2Local(ik)
 
-        # tempmat2 = flatdynmpi.K2K3D(tempmat)    
-        # backward = create_rank_composite_index(KGrid, flatdynmpi.mpimanager.sliceb)
-        # forward = create_rank_composite_index(KGrid, flatdynmpi.mpimanager.slicef)
+        #     print(f"Global k-index {ik} maps to Rank {irank}, Local index {klocal} with k-point {crystal.kind[ik]}")
         for irank in range(flatdynmpi.commk.Get_size()):
-        #     # backward[irank] = {}
-        #     # print(f"communication backward rank = {irank} :", flatdynmpi.submatrixkb[irank])
-        #     # print(f"Submat start: rank = {irank}", flatdynmpi.mpimanager.sliceb[irank])
-        #     # print(f"communication forward: rank = {irank}", flatdynmpi.submatrixkf[irank])
-        #     # print(f"Submat start: rank = {irank}", flatdynmpi.mpimanager.slicef[irank])
-        #     # print(f"Rank {irank} - Backward mapping: {backward[irank]}")
-        #     # print(f"Rank {irank} - Forward mapping: {forward[irank]}")
-            print(f"Rank {irank} - Local slice : {flatdynmpi.mpimanager.localshapeb[irank]}")
-            print(f"Rank {irank} - Local slice : {flatdynmpi.mpimanager.klocal[irank]}")
-            for key, value in flatdynmpi.mpimanager.klocal2global[irank].items():
-                # kidx = crystal.MergeKind(value)
-                # # print(kidx)
-                # print(f"Rank : {irank} - Local index {key} maps to global index {value} with {kidx}")
-                print(f"Rank : {irank} - Local index {key} maps to global index {value}")
+            for ilocal in range(len(flatdynmpi.mpimanager.klocal[irank])):
+                ik = flatdynmpi.mpimanager.KLocal2Global([irank, ilocal])
+
+                print(f"Rank {irank} - Local index {ilocal} maps to Global k-index {ik} with k-point {crystal.kind[ik]}")
 
         # Example usage:
     # global_shape = (10, 10, 10)  # (Nz, Ny, Nx) as mpi4py-fft ordering
