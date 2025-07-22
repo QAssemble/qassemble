@@ -218,10 +218,69 @@ class MPIManager(object):
         Args :
             klocal (list): Local k-index in the form [rank, local_index].
         Returns:
-            int: Global k-index corresponding to the local k-index.
+            kidx (int) : Global k-index corresponding to the local k-index.
         """
         rank, local_index = klocal
         return self.klocal2global[rank][local_index]
+    
+    def KLocalList(self, klocal : list) -> list:
+        """
+        Convert a local k-index to its corresponding global index.
+
+        Args :
+            klocal (list): Local k-index in the form [rank, local_index].
+        Returns:
+            klist (list): Local 3D k-index corresponding to the local k-index.
+        """
+
+        rank, local_index = klocal
+
+        return [rank, self.klocal[rank][local_index]]
+    
+    def KListLocal(self, klist : list) -> list:
+        """
+        Convert a local k-index to its corresponding global index.
+
+        Args :
+            klist (list): Local 3D k-index corresponding to the local k-index.
+        Returns:
+            klocal (list): Local k-index in the form [rank, local_index].
+        """
+
+        rank, k3d = klist
+
+        for key, val in self.klocal[rank].items():
+            if (k3d == val):
+                return [rank ,key]
+
+    
+    def RGlobal2Local(self, ridx : int) -> list:
+        """
+        Convert a global r-index to its corresponding local rank and index.
+
+        Args :
+            ridx (int): Global k-index to convert.
+        Returns:
+            (rank, local_index) list: A list containing the rank and local index corresponding to the global k-index.
+
+        """
+
+        for key, val in self.rlocal2global.items():
+            for key2, val2 in val.items():
+                if (ridx == val2):
+                    return [key, key2]
+                
+    def RLocal2Global(self, rlocal : list) -> int:
+        """
+        Convert a local k-index to its corresponding global index.
+
+        Args :
+            klocal (list): Local k-index in the form [rank, local_index].
+        Returns:
+            int: Global k-index corresponding to the local k-index.
+        """
+        rank, local_index = rlocal
+        return self.rlocal2global[rank][local_index]
                 
 
 
@@ -292,7 +351,7 @@ class FLatDynMPI(object):
 
     def Save(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
 
-        with h5py.File(hdf5file, 'a') as file:
+        with h5py.File(hdf5file, 'a', driver='mpio', comm = self.mpimanager.comm) as file:
             if (self.CheckGroup(hdf5file, group)):
                 g =  file[group]
                 if subgroup in g:
@@ -366,6 +425,7 @@ class FLatDynMPI(object):
         
         rkvec = self.crystal.kpoint.reshape((self.crystal.rkgrid[0], self.crystal.rkgrid[1], self.crystal.rkgrid[2], 3), order='F')
 
+        
         norb, _, ns, nkx, nky, nkz, nf = matk.shape
         tempmat = np.zeros_like(matk, dtype=np.complex128, order='F')
         tempmat2 = np.zeros((nkx, nky, nkz), order='F', dtype=np.complex128)

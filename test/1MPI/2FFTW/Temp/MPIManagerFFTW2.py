@@ -73,7 +73,7 @@ def main():
     KGrid = [4, 5, 6]
     NElec = 1
     T = 2000
-    cutoff = 100
+    cutoff = 11
     cry = {
         'RVec' : RVec,
         'Basis': Basis,
@@ -116,10 +116,18 @@ def main():
 
         #     print(f"Global k-index {ik} maps to Rank {irank}, Local index {klocal} with k-point {crystal.kind[ik]}")
         for irank in range(flatdynmpi.commk.Get_size()):
-            for ilocal in range(len(flatdynmpi.mpimanager.klocal[irank])):
-                ik = flatdynmpi.mpimanager.KLocal2Global([irank, ilocal])
-
-                print(f"Rank {irank} - Local index {ilocal} maps to Global k-index {ik} with k-point {crystal.kind[ik]}")
+            # for ilocal in range(len(flatdynmpi.mpimanager.klocal[irank])):
+            #     # ik = flatdynmpi.mpimanager.KLocal2Global([irank, ilocal])
+            #     klist = flatdynmpi.mpimanager.KLocalList([irank, ilocal])
+            #     if (irank == klist[0]):
+            #         print(f"Rank {irank} - Local index {ilocal} maps to 3D k-index {klist[1]}")
+            #     else:
+            #         print("Error : Rank is mismatched")
+            #         sys.exit()
+            print(f"Rank {irank} - Local shape : {flatdynmpi.mpimanager.localshapeb[irank]}")
+            print(f"Check {flatdynmpi.mpimanager.localshapeb[irank][0]*flatdynmpi.mpimanager.localshapeb[irank][1]*flatdynmpi.mpimanager.localshapeb[irank][2]} == {len(flatdynmpi.mpimanager.klocal[irank])}")
+                # print(f"Rank {irank} - Local index {ilocal} maps to Global k-index {ik} with k-point {crystal.kind[ik]}")
+        # print(flatdynmpi.submatrixw)
 
         # Example usage:
     # global_shape = (10, 10, 10)  # (Nz, Ny, Nx) as mpi4py-fft ordering
