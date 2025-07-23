@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys, os
 import gc
+import h5py
 from .Crystal import Crystal
 from .FTGrid import FTGrid
 from .FLatDyn import *
@@ -50,7 +51,7 @@ class CorrelationFunction(object):
         check = tempmat.max()
         return check
 
-    def TightBinding(self, hopping : dict = None, onsite : dict = None, valley : bool = False, fn : str = 'glob.h5'):
+    def TightBinding(self, hopping : dict = None, onsite : dict = None, spin : bool = False, site : bool = False, valley : bool = False, fn : str = 'glob.h5'):
 
         # file = h5py.File(fn+'.h5','w')
         # tb = file.create_group('tb')
@@ -61,13 +62,13 @@ class CorrelationFunction(object):
             print(errmessage)
             sys.exit()
         # niham = NIHamiltonian(crystal=self.cry,hoppinglist=hoppinglist,onsitelist=onsitelist,hdf5file=tb)
-        niham = NIHamiltonian(crystal=self.crystal,hopping=hopping,onsite=onsite,valley=valley,hdf5file=fn,group=group)
+        niham = NIHamiltonian(crystal=self.crystal,hopping=hopping,onsite=onsite,spin=spin,valley=valley,hdf5file=fn,group=group)
         self.niham = niham
         # file.close()
 
         return None
 
-    def HartreeFock(self, itermax : int, mix : float, hopping : dict = None, onsite : dict = None, valley : bool = False, loccoulomb : dict = None, nonloccoulomb : list = None,ohno : bool = False, jth : bool = False, fn : str = 'glob.h5', group : str = 'hf'):
+    def HartreeFock(self, itermax : int, mix : float, hopping : dict = None,mode : str = "FromScratch", onsite : dict = None, spin : bool = False, valley : bool = False, avalley : bool = False, site : bool = False, asite : bool = False, aferro : bool = False, loccoulomb : dict = None, nonloccoulomb : list = None, ohno : bool = False, jth : bool = False, ohnoyuka : bool = False, fn : str = 'glob.h5', group : str = 'hf'):
 
         errmessage = "missing input for HF calculation"
         if (hopping==None):
@@ -76,34 +77,69 @@ class CorrelationFunction(object):
         elif (loccoulomb==None):
             print(errmessage)
             sys.exit()
-        niham = NIHamiltonian(self.crystal,hopping=hopping,onsite=onsite,valley=valley,hdf5file=fn,group=group)
-        vbare = VBare(crystal=self.crystal,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,hdf5file=fn,group=group)
-        self.vbare = vbare
+        
+        if (mode == 'FromScratch'):
+            
+            niham = NIHamiltonian(self.crystal,hopping=hopping,onsite=onsite,hdf5file=fn,group=group)
+            vbare = VBare(crystal=self.crystal,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,ohnoyuka=ohnoyuka,hdf5file=fn,group=group)
+            self.vbare = vbare
+        elif (mode == 'Restart'):
+            group = group + '_restart'
+            niham = NIHamiltonian(self.crystal,hopping=hopping,onsite=onsite,hdf5file=fn,group=group)
+            vbare = VBare(crystal=self.crystal,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,ohnoyuka=ohnoyuka,hdf5file=fn,group=group)
+            self.vbare = vbare
+
+
 
 
 
         for iter in range(1, itermax+1):
             if iter==1:
-                hold = Hamiltonian(crystal=self.crystal,ham=niham.k,beta=self.ft.beta,hdf5file=fn,group=group)
+                # onsite_temp = None
+                # if self.crystal.ns == 2:
+                #     onsite_temp = {}
+                #     for js in range(self.crystal.ns):
+                #         onsite_temp[js] = {}
+                #         for iorb in range(len(self.crystal.find)):
+                #             ii, m1 = self.crystal.FAtomOrb(iorb)
+                #             if js == 0:
+                #                 onsite_temp[js][(ii,m1)] = 1.0
+                #             else:
+                #                 onsite_temp[js][(ii,m1)] = -1.0 
+                if mode == "FromScratch":
+                    niham_temp = NIHamiltonian(self.crystal,hopping=hopping,onsite=onsite,spin=spin,valley=valley,site=site,aferro=aferro, hdf5file=fn,group='test_hf', avalley=avalley, asite=asite)
+                    hold = Hamiltonian(crystal=self.crystal,ham=niham_temp.k,beta=self.ft.beta,hdf5file=fn,group=group)
+                elif mode == "Restart":
+                    niham_temp = NIHamiltonian(self.crystal,hopping=hopping,onsite=onsite,spin=spin,valley=valley,site=site,aferro=aferro, hdf5file=None,group='test_hf', avalley=avalley, asite=asite)
+                    glob = h5py.File(fn,'r')
+                    hf = glob['hf']
+                    hk = hf['Hamiltonian']['hk'][:]
+                    glob.close()
+                    hold = Hamiltonian(crystal=self.crystal,ham=hk,beta=self.ft.beta,hdf5file=fn,group=group)
+                    
+                    
 
                 hartreeold = None
                 fockold = None
 
             print(hold.occ)
             sigmah = SigmaHartree(crystal=self.crystal,occ=hold.occ,vbare=vbare.k,hdf5file=fn,group=group)
-            sigmah.k = sigmah.Mixing(iter=iter,mix=mix,Fb=sigmah.k,Fm=hartreeold)
-            sigmah.Save(f'sigh.{iter}')
+            # sigmah.k = sigmah.Mixing(iter=iter,mix=mix,Fb=sigmah.k,Fm=hartreeold)
+            if (iter % 50 == 0):
+                sigmah.Save(f'sigh.{iter}')
             sigmaf = SigmaFock(crystal=self.crystal,occr=hold.occr,vbare=vbare.r,hdf5file=fn,group=group)
-            sigmaf.k = sigmaf.Mixing(iter=iter,mix=mix,Fb=sigmaf.k,Fm=fockold)
-            sigmaf.Save(f'sigf.{iter}')
-            hnew = Hamiltonian(crystal=self.crystal,ham=niham.k,beta=self.ft.beta,sigmah=sigmah,sigmaf=sigmaf,hdf5file=fn,group=group)
+            # sigmaf.k = sigmaf.Mixing(iter=iter,mix=mix,Fb=sigmaf.k,Fm=fockold)
+            if (iter % 50 == 0):
+                sigmaf.Save(f'sigf.{iter}')
+            hnew = Hamiltonian(crystal=self.crystal,ham=niham.k,beta=self.ft.beta,sigmah=sigmah.k,sigmaf=sigmaf.k,hdf5file=fn,group=group)
             # hnew = Hamiltonian(crystal=self.crystal,ham=niham.k,beta=self.ft.beta,sigmah=None,sigmaf=sigmaf,hdf5file=fn,group=group)
-            hnew.Save(f'hk.{iter}')
+            if (iter % 50 == 0):
+                hnew.Save(f'hk.{iter}')
 
-            fcheck = self.SCFCheck(hnew.occk,hold.occk)
+            fcheck = self.SCFCheck(hnew.k,hold.k)
             mucheck = abs(hnew.mu-hold.mu)
             print(f"iteration : {iter}\ncriteria : {fcheck}\nchemical potential : {hnew.mu}")
-            if (fcheck<=1.0e-4)and(mucheck<=0.01):
+            if (fcheck<=1.0e-7)and(mucheck<=0.01):
                 print(f"Self-consistency is achived with {iter}-th")
                 self.ham=hnew
                 self.sigmaf = sigmaf
@@ -127,7 +163,8 @@ class CorrelationFunction(object):
                 # del hnew, sigmaf, hold
                 gc.collect()
             else:
-                hold = hnew
+                hnew.OccMixing(iter=iter, mix=mix, occkb = hnew.occk, occkm=hold.occk)
+                hold=hnew
                 hartreeold = sigmah.k
                 fockold = sigmaf.k
                 del sigmaf,sigmah,hnew
@@ -135,7 +172,7 @@ class CorrelationFunction(object):
                 gc.collect()
 
 
-    def GWApproximation(self, itermax : int, mix : float, hoppinglist : list = None, onsitelist : list = None, valley : bool = False, loccoulomb : dict = None, nonloccoulomb : list = None,ohno : bool = False, jth : bool = False, hdf5file : str = 'glob.h5', group : str = 'gw'):
+    def GWApproximation(self, itermax : int, mix : float, hoppinglist : list = None, onsitelist : list = None, spin : bool = False, valley : bool = False, site : bool = False, aferro : bool = False, loccoulomb : dict = None, nonloccoulomb : list = None,ohno : bool = False, jth : bool = False, ohnoyuka : bool = False, hdf5file : str = 'glob.h5', group : str = 'gw'):
 
         errmessage = "missing input for GW calculation"
         if (hoppinglist==None):
@@ -145,14 +182,17 @@ class CorrelationFunction(object):
             print(errmessage)
             sys.exit()
 
-        niham = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,valley=valley,hdf5file=hdf5file,group=group)
+        niham = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,hdf5file=hdf5file,group=group)
         gbare = GreenBare(crystal=self.crystal,ft=self.ft,hamtb=niham.k,hdf5file=hdf5file,group=group)
-        vbare = VBare(crystal=self.crystal,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,hdf5file=hdf5file,group=group)
+        vbare = VBare(crystal=self.crystal,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,ohnoyuka=ohnoyuka,hdf5file=hdf5file,group=group)
 
 
         for iter in range(1,itermax+1):
             if iter == 1:
-                gold = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,hdf5file=hdf5file,group=group)
+                # niham_temp = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin, valley=valley, hdf5file=hdf5file,group='test') 
+                niham_temp = NIHamiltonian(self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin,aferro=aferro, valley=valley,site=site,hdf5file=hdf5file,group='test_gw')
+                gbare_temp = GreenBare(crystal=self.crystal,ft=self.ft,hamtb=niham_temp.k,hdf5file=hdf5file,group='test') 
+                gold = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare_temp.kf,hdf5file=hdf5file,group=group)
                 pkfold = None
                 ckfold = None
                 wold = 0
@@ -162,30 +202,36 @@ class CorrelationFunction(object):
             print(gold.occ)
             print("Hartree calculation start")
             sigmah = SigmaHartree(crystal=self.crystal,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
-            sigmah.Save(f'sigmah.{iter}')
+            if (iter % 50 == 0):
+                sigmah.Save(f'sigmah.{iter}')
             print("Hartree calculation finish")
             print("Fock calculation start")
             sigmaf = SigmaFock(crystal=self.crystal,occr=gold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
-            sigmaf.Save(f'sigmaf.{iter}')
+            if (iter % 50 == 0):
+                sigmaf.Save(f'sigmaf.{iter}')
             print("Fock calculation finish")
             print("Polarizability calculation start")
             pol = PolLat(crystal=self.crystal,ft=self.ft,green=gold.rt,hdf5file=hdf5file,group=group)
             pol.kf = pol.Mixing(iter=iter,mix=mix,Bb=pol.kf,Bold=pkfold)
-            pol.Save(f'pkf.{iter}')
+            if (iter % 50 == 0):
+                pol.Save(f'pkf.{iter}')
             print("Polarizability calculation finish")
             print("Screened coulomb interaction calculation start")
             w = WLat(crystal=self.crystal,ft=self.ft,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
-            w.Save(f'wkf.{iter}')
+            if (iter % 50 == 0):
+                w.Save(f'wkf.{iter}')
             # w.Save(w.ckf,f'wckf.{iter}')
             print("Screened coulomb interaction calculation finish")
             print("GW self-energy calculation start")
             sigmagwc = SigmaGWC(crystal=self.crystal,ft=self.ft,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group)
             sigmagwc.kf = sigmagwc.Mixing(iter=iter,mix=mix,Fb=sigmagwc.kf,Fm=ckfold)
-            sigmagwc.Save(f'sigmagwckf.{iter}')
+            if (iter % 50 == 0):
+                sigmagwc.Save(f'sigmagwckf.{iter}')
             print("GW self-energy calculation finish")
             print("GW green's function calculation start")
             gnew = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah.k,sigmaf=sigmaf.k,sigmagwc=sigmagwc.kf,hdf5file=hdf5file,group=group)
-            gnew.Save(f'gkf.{iter}')
+            if (iter % 50 == 0):
+                gnew.Save(f'gkf.{iter}')
             print("GW green's function calculation start")
 
             fcheck = self.SCFCheck(gnew.kf,gold.kf)
@@ -194,7 +240,7 @@ class CorrelationFunction(object):
 
             print(f"iteration : {iter} \nfcriteria : {fcheck} \nchemicalpotential : {gnew.mu+gnew.c}")
 
-            if (fcheck <=0.005)and(mucheck<=0.01):
+            if (fcheck <=1.0e-6)and(mucheck<=0.01):
                 print(f"Self-consistency is achived with {iter}-th")
                 self.green = gnew
                 self.pol = pol
