@@ -448,7 +448,7 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
         vdyn = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
 
         for iprob in range(nprob):
-            vdyn[...,iprob] = self.StcEmbedding(self.vLoc[...,iprob]) ####  define StcEmbedding
+            vdyn[...,iprob] = self.StcEmbedding(self.vLoc[...,iprob]) ####  define StcEmbedding ### remove this part when it is dynamic
         
         # print(self.pol.shape)
         # print(vdyn.shape)
@@ -468,7 +468,7 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
 
         self.rf = wrf
 
-        wcrf = wrf - vdyn
+        wcrf = wrf - vdyn  #### wrf - vloc --> static bare V
 
         self.crf = wcrf
         crt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
@@ -497,3 +497,51 @@ class WcImp(BLocDyn):
         super().__init__(crystal, ft, flocdyn)
 
         pass
+
+
+
+class UImp(BLocDyn):
+
+    def __init__(self, crystal: Crystal, ft: FTGrid, wloc : WLoc, ploc : PolLoc, vloc : np.array):
+        super().__init__(crystal, ft)
+
+        self.utilde_rt = None
+        self.utilde_rf = None
+        self.ubar_rt = None
+        self.ubar_rf = None
+
+        self.wloc = wloc
+        self.ploc = ploc
+        self.vloc = vloc
+
+        self.Cal()
+    
+
+    def Cal(self):
+        norb = self.crystal.bprojector.shape[1]
+        norbc = self.crystal.fprojector.shape[1]
+        ns = self.crystal.ns
+        ntau = len(self.ft.tau)
+        nfreq = len(self.ft.nu)
+        nspace = self.crystal.fprojector.shape[3]
+        nprob = len(self.crystal.probspace)
+
+
+        uinv_rf_temp = np.zeros((norb,norb),dtype=np.complex128,order='F')
+        self.utilde_rf = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+
+        for iprob in range(nprob):
+            for ifreq in range(nfreq):
+                for iis in range(ns):
+                    for jjs in range(ns):
+                        uinv_rf_temp[...] = np.linalg.inv(self.wloc[...,iis,jjs,ifreq,iprob]) + self.ploc[...,iis,jjs,ifreq,iprob]
+                        self.utilde_rf[...,iis,jjs,ifreq,iprob] = np.linalg.inv(uinv_rf_temp[...])
+
+        self.ubar_rf = self.utilde_rf - self.vloc
+
+        self.ubar_rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
+        self.utilde_rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
+        for iprob in range(nprob):
+            self.ubar_rt[...,iprob] = self.F2T(self.ubar_rf[...,iprob], 1, 1)
+            self.utilde_rt[...,iprob] = self.F2T(self.utilde_rf[...,iprob], 1, 1)
+        

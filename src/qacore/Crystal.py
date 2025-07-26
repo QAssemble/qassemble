@@ -109,6 +109,9 @@ class Crystal(object):
         self.orboption = orboption
 
 
+        self.imp_index = None ### read imp_equivalent_mat and store key information into self.imp_index
+
+
         self.SetBasisIndex(orboption)
         self.Boson2Fermion()
         self.SetFullBasis()
@@ -898,3 +901,43 @@ class Crystal(object):
                         tempmat[iorb,jorb,js,itau] = - G[iorb,jorb,js,ntau-itau-1]
 
         return tempmat
+    
+
+
+
+
+
+
+    def read_imp_equi_mat(self,imp):
+
+        # self.Nimp = len(imp) - 1
+        nprob = len(self.probspace)
+        if len(imp) - 1!=nprob:
+            print("***** number of impurity problems are not the same *****")
+            print("***** program stopped!!! *****")
+            exit()
+
+        self.imp_index = []
+        for i in range(nprob):
+            self.index.append([])
+        
+        # self.F = {}
+
+        for ii in range(nprob):
+
+            iimp = str(ii+1)
+
+            N = len(imp[iimp]['impurity_matrix'])
+
+            imp_equi_mat = np.array(imp[iimp]['impurity_matrix'])
+            
+            for i in range(N):
+                for j in range(N):
+                    print(len(self.imp_index[ii]))
+                    if imp_equi_mat[i,j]!=0:
+                        if imp_equi_mat[i,j]>len(self.imp_index[ii]):
+                            for k in range(imp_equi_mat[i,j]-len(self.imp_index[ii])):
+                                self.imp_index[ii].append([])
+                            self.imp_index[ii][imp_equi_mat[i,j]-1].append([i,j])
+                        else:
+                            self.imp_index[ii][imp_equi_mat[i,j]-1].append([i,j])

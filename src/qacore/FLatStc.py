@@ -407,7 +407,7 @@ class FLatStc(object):
 
     def Projection(self, matin: np.ndarray):
 
-        norb = len(self.crystal.fin)
+        norb = len(self.crystal.find)
         ns = self.crystal.ns
         norbc = self.crystal.fprojector.shape[1]
         nspace = self.crystal.fprojector.shape[3]

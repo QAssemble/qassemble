@@ -13,9 +13,11 @@ from qacore.BLatDyn import PolLat, WLat, WLat_k
 # from qacore.Crystal import Crystal
 from qacore.CorrelationFunction import CorrelationFunction
 from qacore.Crystal import Crystal
+from qacore.BLatDyn import PolLat,WLat,WLat_k
 from qacore.FLatDyn import SigmaGWC
 from qacore.FLatStc import (
     FLatStc,
+    Hamiltonian,
     NIHamiltonian,
     SigmaFock,
     SigmaHartree,
@@ -108,76 +110,19 @@ cf.GWApproximation(
 )
 
 
-# from qacore.FLocDyn import FLocDyn,GreenLoc
-# from qacore.FLocStc import FLocStc,SigmaHLoc
-# from qacore.BLocDyn import BLocDyn,PolLoc,WLoc
 
 
-# gint = cf.green
-# cf.crystal.Projector(impdict={"1" : [[[0,0]]]})
 
 
-# vloc = cf.vbare.vloc
-
-# gloc = GreenLoc(crystal=cf.crystal,ft=cf.ft,green=gint)
-
-# gloc.Occ()
-# print(gloc.occ)
-
-# print(gloc.NumofE())
 
 
-# polloc = PolLoc(crystal=cf.crystal,ft=cf.ft,green=gloc)
 
 
-# from qacore.FLocDyn import FLocDyn,GreenLoc,SigmaLGWC
-# from qacore.FLocStc import FLocStc,SigmaHLoc,SigmaFLoc
-# from qacore.BLocDyn import BLocDyn,PolLoc,WLoc
-
-# gint = cf.green
-# cf.crystal.Projector(impdict={"1" : [[[0,0]]]})
-# cf.crystal.Projector(impdict = {"1" : [[[0, 1]]], "2" : [[[1, 2], [1,3]]], "3" : [[[2, 2]]]})
-# exit()
-
-# vloc = cf.vbare.vloc
-
-# gloc = GreenLoc(crystal=cf.crystal,ft=cf.ft,green=gint)
-
-# gloc.Occ()
-# print('gloc.occ --',gloc.occ)
-# print('gloc.occ.shape --',gloc.occ.shape)
-
-# # exit()
-
-# print('gloc.NumofE() --',gloc.NumofE())
-
-# # exit()
-
-# vloc = cf.vbare.Projection(cf.vbare.k)
-# print('vloc.shape --',vloc.shape)
-
-# print('**SigmaHLoc start')
-# hloc = SigmaHLoc(crystal=cf.crystal,ft=cf.ft,occ=gloc.occ, vloc=vloc)
-# print('**SigmaHLoc finish\n')
-
-# print('**SigmaFLoc start')
-# hloc = SigmaFLoc(crystal=cf.crystal,ft=cf.ft,occr=gloc.occ, vloc=vloc)
-# print('**SigmaFLoc finish\n')
-
-# # exit()
-# print('**PolLoc start')
-# polloc = PolLoc(crystal=cf.crystal,ft=cf.ft,green=gloc)
-# # print('polLoc.rt.shape --',polloc.rt.shape)
-# print('**PolLoc finish\n')
 
 
-# print('**WLoc start')
-# wloc = WLoc(crystal=cf.crystal,ft=cf.ft, pol=polloc.rf,vLoc=vloc)
-# print('**WLoc finish\n')
 
-# print('**SigmaLGWC start')
-# sigmalgwc = SigmaLGWC(crystal=cf.crystal,ft=cf.ft,green=gloc.gt,wloc=wloc.crt)
-# print('**SigmaLGWC finish\n')
+
+
 
 
 print("\n")
@@ -300,68 +245,77 @@ for ikk in range(nk):
 # exit()
 
 
-print("**SigmaHLoc start")
-hloc = SigmaHLoc(crystal=cf.crystal, ft=cf.ft, occ=gloc.occ, vloc=vloc)
-hlat = SigmaHartree(crystal=cf.crystal, occ=-g_average2[..., 0, -1], vbare=vloc2)
-# hlat = SigmaHartree(crystal=cf.crystal,occ=gint.occ,vbare=vbare_k_average)
-print("**SigmaHLoc finish\n")
+# print("**SigmaHLoc start")
+# hloc = SigmaHLoc(crystal=cf.crystal, ft=cf.ft, occ=gloc.occ, vloc=vloc)
+# hlat = SigmaHartree(crystal=cf.crystal, occ=-g_average2[..., 0, -1], vbare=vloc2)
+# # hlat = SigmaHartree(crystal=cf.crystal,occ=gint.occ,vbare=vbare_k_average)
+# print("**SigmaHLoc finish\n")
 
-print(hlat.r.shape)
+# print(hlat.r.shape)
 
-(norb, norb, ns, nk) = hlat.k.shape
-hartree_average = np.zeros((norb, norb, ns, nf), dtype=np.complex128, order="F")
-for iff in range(nf):
-    # for ik in range(nk):
-    #     hartree_average[...,iff] += 1/nk*hlat.r[...,0]
-    hartree_average[..., iff] = hlat.r[..., 0]
+# (norb, norb, ns, nk) = hlat.k.shape
+# hartree_average = np.zeros((norb, norb, ns, nf), dtype=np.complex128, order="F")
+# for iff in range(nf):
+#     # for ik in range(nk):
+#     #     hartree_average[...,iff] += 1/nk*hlat.r[...,0]
+#     hartree_average[..., iff] = hlat.r[..., 0]
 
-# print(hartree_average[0,0,0,0])
-# print(hloc.r[0,0,0,0,0])
-# print(hartree_average[0,0,0,0]-hloc.r[0,0,0,0,0])
+# # print(hartree_average[0,0,0,0])
+# # print(hloc.r[0,0,0,0,0])
+# # print(hartree_average[0,0,0,0]-hloc.r[0,0,0,0,0])
 
-plot = plt.figure(1)
-plt.scatter(cf.ft.omega[:], hartree_average[0, 0, 0, :], color="blue")
-plt.scatter(cf.ft.omega[:], hloc.r[0, 0, 0, :, 0], color="red")
-plt.title("Hartree_Loc")
-plt.xlabel("freq")
-plt.ylabel("H_Loc")
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
+# plot = plt.figure(1)
+# plt.scatter(cf.ft.omega[:], hartree_average[0, 0, 0, :], color="blue")
+# plt.scatter(cf.ft.omega[:], hloc.r[0, 0, 0, :, 0], color="red")
+# plt.title("Hartree_Loc")
+# plt.xlabel("freq")
+# plt.ylabel("H_Loc")
+# plt.legend()
+# plt.grid(which="both", linestyle="--", linewidth=0.3)
+# plt.show()
 
-# exit()
-
-
-print("**SigmaFLoc start")
-floc = SigmaFLoc(crystal=cf.crystal, ft=cf.ft, occr=gloc.occ, vloc=vloc)
-flat = SigmaFock(crystal=cf.crystal, occr=gint.occr, vbare=cf.vbare.r)
-print("**SigmaFLoc finish\n")
-
-print(flat.r.shape)
-print(floc.r.shape)
-
-(norb, norb, ns, nr) = flat.r.shape
-flat_average = np.zeros((norb, norb, ns, nf), dtype=np.complex128, order="F")
-for iff in range(nf):
-    # for ir in range(nr):
-    #     flat_average[...,iff] += 1/nr * flat.r[...,ir]
-    flat_average[..., iff] = flat.r[..., 0]
+# # exit()
 
 
-print(flat.r[0, 0, 0, 0])
-print(floc.r[0, 0, 0, 0, 0])
+# print("**SigmaFLoc start")
+# floc = SigmaFLoc(crystal=cf.crystal, ft=cf.ft, occr=gloc.occ, vloc=vloc)
+# flat = SigmaFock(crystal=cf.crystal, occr=gint.occr, vbare=cf.vbare.r)
+# print("**SigmaFLoc finish\n")
 
-plot = plt.figure(1)
-plt.scatter(cf.ft.omega[:], flat_average[0, 0, 0, :], color="blue")
-plt.scatter(cf.ft.omega[:], floc.r[0, 0, 0, :, 0], color="red")
-plt.title("Fock_Loc")
-plt.xlabel("freq")
-plt.ylabel("F_Loc")
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
+# print(flat.r.shape)
+# print(floc.r.shape)
 
-# exit()
+# (norb, norb, ns, nr) = flat.r.shape
+# flat_average = np.zeros((norb, norb, ns, nf), dtype=np.complex128, order="F")
+# for iff in range(nf):
+#     # for ir in range(nr):
+#     #     flat_average[...,iff] += 1/nr * flat.r[...,ir]
+#     flat_average[..., iff] = flat.r[..., 0]
+
+
+# print(flat.r[0, 0, 0, 0])
+# print(floc.r[0, 0, 0, 0, 0])
+
+# plot = plt.figure(1)
+# plt.scatter(cf.ft.omega[:], flat_average[0, 0, 0, :], color="blue")
+# plt.scatter(cf.ft.omega[:], floc.r[0, 0, 0, :, 0], color="red")
+# plt.title("Fock_Loc")
+# plt.xlabel("freq")
+# plt.ylabel("F_Loc")
+# plt.legend()
+# plt.grid(which="both", linestyle="--", linewidth=0.3)
+# plt.show()
+
+# # exit()
+
+
+
+
+
+
+
+
+
 
 
 print("**PolLoc start")
@@ -408,7 +362,6 @@ plt.ylabel("P")
 plt.legend()
 plt.grid(which="both", linestyle="--", linewidth=0.3)
 plt.show()
-
 
 # print(vloc.rf)
 
@@ -515,4 +468,111 @@ plt.ylabel("Sigma")
 plt.legend()
 plt.grid(which="both", linestyle="--", linewidth=0.3)
 plt.show()
+
+
+
+
+
+print("\n")
+print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+print("\nStart computing Local DMFT CTQMC input -- Eimp, Delta, Ubar\n")
+print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
+
+
+from qacore.BLocDyn import BLocDyn, PolLoc, WLoc
+from qacore.FLocDyn import FLocDyn, GreenLoc, SigmaLGWC
+from qacore.FLocStc import FLocStc, SigmaFLoc, SigmaHLoc
+
+from qacore.FLocStc import EImp
+from qacore.FLocDyn import Hybridisation
+from qacore.BLocDyn import UImp
+
+print("**Uimp start")
+uimp = UImp(crystal=cf.crystal,ft=cf.ft,wloc=wloc.crf,ploc=polloc.rf,vloc=vloc)
+print("**Uimp finish\n")
+
+# print("**GreenLoc start")
+# gloc = GreenLoc(crystal=cf.crystal, ft=cf.ft, green=gint)
+# print("**GreenLoc finish\n")
+
+# print("**Vloc start")
+# vloc = np.zeros((1, 1, 1, 1, 2), dtype=np.complex128, order="F")
+# vloc2 = np.zeros_like(cf.vbare.k)
+# (norb, norb, ns, ns, nk) = cf.vbare.k.shape
+# for ik in range(nk):
+#     vloc2[..., ik] = cf.vbare.vloc.vloc
+# vloc[..., 0] = vloc2[0, 0, 0, 0, 0]
+# vloc[..., 1] = vloc2[0, 0, 0, 0, 0]
+# # print("vloc.shape --", vloc.shape)
+# # print(vloc[:, :, 0, 0, 0])
+# # print("vbare.shape --", cf.vbare.k.shape)
+# # print(vloc2[:, :, 0, 0, 0])
+# print("**Vloc finish\n")
+
+print("**SigmaHLoc start")
+hloc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=uimp.utilde_rf)
+print("**SigmaHLoc finish\n")
+
+print("**SigmaFLoc start")
+floc = SigmaFLoc(crystal=cf.crystal, ft=cf.ft, occr=gloc.occ, vloc=vloc)
+print("**SigmaFLoc finish\n")
+
+# exit()
+
+# print("**PolLoc start")
+# polloc = PolLoc(crystal=cf.crystal, ft=cf.ft, green=gloc)
+# print("**PolLoc finish\n")
+
+# print("**WLoc start")
+# wloc = WLoc(crystal=cf.crystal, ft=cf.ft, pol=polloc.rf, vLoc=uimp.utilde_rf)
+# print("**WLoc finish\n")
+
+# print("**SigmaLGWC start")
+# sigma_loc_gwc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
+# print("**SigmaLGWC finish\n")
+
+
+# HF_ham = Hamiltonian(crystal=cf.crystal,ham=cf.niham.k,beta=cf.ft.beta,sigmah=cf.sigmah.k,sigmaf=cf.sigmaf.k)
+
+
+print(cf.green.mu)
+print(cf.ft.omega[-1])
+
+# exit()
+
+print("**Eimp start")
+eimp = EImp(crystal=cf.crystal,niham=cf.niham,mu=cf.green.mu,hamh=cf.sigmah,hamf=cf.sigmaf,hloc=hloc,floc=floc)
+# eimp = EImp(crystal=cf.crystal,ham=HF_ham,hloc=hloc,floc=floc)
+print("**Eimp finish\n")
+
+print(eimp.r)
+# print(sigma_loc_gwc.rf)
+
+print("**Hybridisation start")
+delta = Hybridisation(crystal=cf.crystal,ft=cf.ft,gloc=gloc,eimp=eimp,sigmaimp=sigma_loc_gwc.rf)
+print("**Hybridisation finish\n")
+
+
+
+
+plot = plt.figure(1)
+# plt.scatter(cf.ft.omega[:], gloc.gf[0, 0, 0, :, 0].real, color="blue")
+# plt.scatter(cf.ft.omega[:], sigma_loc_gwc.rf[0, 0, 0, :, 0].real, color="blue")
+plt.scatter(cf.ft.omega[:], delta.rf[0, 0, 0, :, 0].real, color="blue")
+# plt.scatter(cf.ft.omega[:], delta.rf[0, 0, 0, :, 0].imag, color="blue")
+plt.legend()
+plt.grid(which="both", linestyle="--", linewidth=0.3)
+plt.show()
+
+# plot = plt.figure(1)
+# # plt.scatter(cf.ft.omega[:], gloc.gf[0, 0, 0, :, 0].real, color="blue")
+# plt.scatter(cf.ft.omega[:], sigma_loc_gwc.rf[0, 0, 0, :, 0].real, color="blue")
+# # plt.scatter(cf.ft.omega[:], delta.rf[0, 0, 0, :, 0].real, color="blue")
+# # plt.scatter(cf.ft.omega[:], delta.rf[0, 0, 0, :, 0].imag, color="blue")
+# plt.legend()
+# plt.grid(which="both", linestyle="--", linewidth=0.3)
+# plt.show()
+
 

@@ -20,7 +20,7 @@ import copy
 from .Crystal import Crystal
 from .FTGrid import FTGrid
 from .FLatDyn import GreenInt
-from .FLocStc import FLocStc
+from .FLocStc import FLocStc,EImp
 qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/qacore/modules')
 import QAFort
@@ -37,12 +37,14 @@ class FLocDyn(object):
         norb = mat.shape[0]
         ns = mat.shape[2]
         nft = mat.shape[3]
+        nprob = mat.shape[4]
 
-        matinv = np.zeros((norb,norb,ns,nft),dtype=np.complex128,order='F')
+        matinv = np.zeros((norb,norb,ns,nft,nprob),dtype=np.complex128,order='F')
 
-        for ift in range(nft):
-            for js in range(ns):
-                matinv[:,:,js,ift] = np.linalg.inv(mat[:,:,js,ift])
+        for iprob in range(nprob):
+            for ift in range(nft):
+                for js in range(ns):
+                    matinv[:,:,js,ift,iprob] = np.linalg.inv(mat[:,:,js,ift,iprob])
 
         return matinv
 
@@ -226,6 +228,93 @@ class FLocDyn(object):
             matout += QAFort.embedding.flocdyn(nrk,matin[...,ispace],self.crystal.fprojector[...,ispace])
 
         return matout
+
+
+
+
+
+    def imp_B2F(self,imp,B):
+
+        self.crystal.read_imp_equi_mat(imp)  ## read imp_equivalant_mat and store information in crystal.imp_index
+
+        nprob = len(self.crystal.probspace)
+        nft = len(self.ft.omega)
+
+        F = {}
+        
+        for ii in range(nprob):
+
+            iimp = str(ii+1)
+
+            F[iimp] = {}
+            for i in range(len(self.crystal.imp_index[ii])):
+                index_of_equivalance = str(i+1)
+                
+                for k in range(nft):
+                    try:
+                        self.F[iimp][index_of_equivalance].append(0)
+                    except KeyError:
+                        self.F[iimp][index_of_equivalance] = [0]
+
+                for k in range(nft):
+                    for j in range(len(self.crystal.imp_index[ii][i])):
+                        F[iimp][index_of_equivalance][k] = F[iimp][index_of_equivalance][k] + B[self.crystal.imp_index[ii][i][j][0],self.crystal.imp_index[ii][i][j][1],k]
+
+                    F[iimp][index_of_equivalance][k] = F[iimp][index_of_equivalance][k]/len(self.crystal.imp_index[ii][i]) ### take the average
+            
+        return F
+
+
+    def imp_F2B(self,imp,F):
+
+        self.crystal.read_imp_equi_mat(imp)  ## read imp_equivalant_mat and store information in crystal.imp_index
+        
+        nprob = len(self.crystal.probspace)
+        nft = len(self.ft.omega)
+        norbc = self.crystal.fprojector.shape[1]
+
+        B = np.zeros((norbc,norbc,nft,nprob))
+
+        ii = 0 # index of impurity problems -- nprob
+        for key,val in F.items():
+            i=0 # index of equivalances
+            for valkey,valval in val.items():
+                for j in range(len(self.crystal.imp_index[ii][i])):
+                    for k in range(nft): # number of omega -- nft
+                        B[self.crystal.imp_index[ii][i][j][0],self.crystal.imp_index[ii][i][j][1],k,ii] = valval[k]
+                i += 1
+            ii += 1
+
+        return B
+    
+
+    # def imp_final_input(self,B):
+
+    #     norbc = self.crystal.fprojector.shape[1]
+    #     nft = len(self.ft.omega)
+
+    #     I = np.identity(norbc)
+    #     mu = np.zeros(nft)
+    #     A = np.zeros((norbc,norbc))
+    #     A_final = np.zeros((norbc*2,norbc*2,nft))
+
+    #     for ift in range(nft):
+    #         mu[ift] = -B[0,0,ift]  ### is the mu the same along the omega space?
+    #         A[...] = B[...,ift] + mu[ift]*I
+    #         A_final[...,ift] = np.kron(A[...],np.eye(2,2))
+        
+    #     return A_final,mu
+
+
+
+
+
+
+
+
+
+
+
 
     def Save(self,matin : np.ndarray, fn : str):
 
@@ -503,11 +592,153 @@ class SigmaLGWC(FLocDyn):
         return None
 
 
+
+
+
+
+
+
+
+
 class Hybridisation(FLocDyn):
 
-    def __init__(self, crystal: Crystal, ft: FTGrid, implev : object, gimp : GreenImp, sigmaimp : SigmaImp):
+    def __init__(self, crystal: Crystal, ft: FTGrid, gloc : GreenLoc, eimp : EImp, sigmaimp : np.array = None):
         super().__init__(crystal, ft)
+
+        self.rt = None
+        self.rf = None
+
+        self.gloc = gloc
+        self.eimp = eimp
+
+        
+        self.sigmaimp = sigmaimp
+
+        self.nft = len(self.ft.omega)
+
         self.Cal()
 
     def Cal(self):
-        pass
+
+        import cmath
+
+        imag_one = 1j
+
+        norbc = self.crystal.fprojector.shape[1]
+        ns = self.crystal.ns
+        nft = len(self.ft.omega)
+        ntau = len(self.ft.tau)
+        nspace = self.crystal.fprojector.shape[3]
+        nprob = len(self.crystal.probspace)
+
+        rf = np.zeros((norbc,norbc,ns,nft,nprob),dtype=np.complex128,order='F')
+
+        IdentityMatrix = np.identity(norbc)
+
+        if self.sigmaimp is None:
+            self.sigmaimp = np.zeros((norbc,norbc,ns,nft,nprob),dtype=np.complex128,order='F')
+
+        gfinv = self.Inverse(self.gloc.gf)
+        
+        for iprob in range(nprob):
+            for ift in range(nft):
+                for js in range(ns):
+                    # rf[...,js,ift,iprob] = imag_one*self.ft.omega[ift]*IdentityMatrix[...] - np.linalg.inv(self.gloc.gf[...,js,ift,iprob]) - self.eimp.r[...,js,iprob] - self.sigmaimp[...,js,ift,iprob]
+                    # rf[...,js,ift,iprob] = imag_one*self.ft.omega[ift]*IdentityMatrix[...] - np.linalg.inv(self.gloc.gf[...,js,ift,iprob]) #- self.sigmaimp[...,js,ift,iprob]
+                    for jorb in range(norbc):
+                        for iorb in range(norbc):
+                            if (iorb == jorb):
+                                rf[iorb, jorb, js, ift, iprob] = 1j*self.ft.omega[ift] - gfinv[iorb, jorb, js, ift, iprob] - self.sigmaimp[iorb, jorb, js, ift, iprob] - self.eimp.r[iorb, jorb, js, iprob]
+                            else:
+                                rf[iorb, jorb, js, ift, iprob] = - gfinv[iorb, jorb, js, ift, iprob] - self.sigmaimp[iorb, jorb, js, ift, iprob] - self.eimp.r[iorb, jorb, js, iprob]
+        self.rf = rf
+
+        self.rt = np.zeros((norbc,norbc,ns,ntau,nprob),dtype=np.complex128)
+        for iprob in range(nprob):
+            self.rt[...,iprob] = self.F2T(self.rf[...,iprob],1,1)
+        
+
+        return None
+    
+
+
+
+
+    # def read_imp_equi_mat(self,imp): ### put in the Crystal class F2B/B2F
+
+    #     self.Nimp = len(imp) - 1
+    #     nprob = len(self.crystal.probspace)
+    #     if self.Nimp!=nprob:
+    #         print("***** number of impurity problems are not the same *****")
+    #         print("***** program stopped!!! *****")
+    #         exit()
+
+    #     self.index = []
+    #     for i in range(self.Nimp):
+    #         self.index.append([])
+        
+    #     self.F = {}
+
+    #     for ii in range(self.Nimp):
+
+    #         iimp = str(ii+1)
+
+    #         N = len(imp[iimp]['impurity_matrix'])
+
+    #         imp_equi_mat = np.array(imp[iimp]['impurity_matrix'])
+            
+    #         for i in range(N):
+    #             for j in range(N):
+    #                 print(len(self.index[ii]))
+    #                 if imp_equi_mat[i,j]!=0:
+    #                     if imp_equi_mat[i,j]>len(self.index[ii]):
+    #                         for k in range(imp_equi_mat[i,j]-len(self.index[ii])):
+    #                             self.index[ii].append([])
+    #                         self.index[ii][imp_equi_mat[i,j]-1].append([i,j])
+    #                     else:
+    #                         self.index[ii][imp_equi_mat[i,j]-1].append([i,j])
+            
+    #         # self.F[iimp] = {}
+    #         # for i in range(len(self.index[ii])):
+    #         #     number_string = str(i+1)
+    #         #     self.F[iimp][number_string] = 0
+    #         #     for j in range(len(self.index[ii][i])):
+    #         #         self.F[iimp][number_string] = self.F[iimp][number_string] + self.rf[self.index[ii][i][j][0],self.index[ii][i][j][1]]
+    #         #     self.F[iimp][number_string] = self.F[iimp][number_string]/len(self.index[ii][i])
+            
+    #         self.F[iimp] = {}
+    #         for i in range(len(self.index[ii])):
+    #             number_string = str(i+1)
+    #             for k in range(self.nft):
+    #                 try:
+    #                     self.F[iimp][number_string].append(0)
+    #                 except KeyError:
+    #                     self.F[iimp][number_string] = [0]
+                
+    #             for k in range(self.nft):
+    #                 for j in range(len(self.index[ii][i])):
+    #                     self.F[iimp][number_string][k] = self.F[iimp][number_string][k] + self.rf[self.index[ii][i][j][0],self.index[ii][i][j][1],k]
+    #                 self.F[iimp][number_string][k] = self.F[iimp][number_string][k]/len(self.index[ii][i])
+        
+    #     return None
+
+
+    # def F2B(self):
+
+    #     norbc = self.crystal.fprojector.shape[1]
+    #     self.B = np.zeros((norbc,norbc,self.nft,self.Nimp))
+    #     ii = 0 # number of impurity problems -- nprob
+    #     for key,val in self.F.items():
+    #         i=0 # number of equivalances
+    #         for valkey,valval in val.items():
+    #             for j in range(len(self.index[ii][i])):
+    #                 for k in range(self.nft): # number of omega -- nft
+    #                     self.B[self.index[ii][i][j][0],self.index[ii][i][j][1],k,ii] = valval[k]
+    #             i += 1
+    #         ii += 1
+        
+    #     return None
+    
+
+
+
