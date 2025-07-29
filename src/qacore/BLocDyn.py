@@ -393,6 +393,96 @@ class PolImp(BLocDyn): # read Polarizability from CTQMC
 class WLoc(BLocDyn): #### contains WLoc and WcLoc
 
     def __init__(self, crystal: Crystal, ft: FTGrid
+    ,pol : PolLoc = None, vLoc : VLoc = None, vDyn : np.array = None, c : float = 1.0, hdf5file : str = 'glob.h5', group : str = None):
+        super().__init__(crystal, ft)
+
+        # pass
+        self.rt = None #rt to kf
+        self.rf = None
+        # self.kt = None
+        # self.kf = None
+        self.crt = None #rt to kf
+        self.crf = None
+        # self.ckt = None
+        # self.ckf = None
+        self.c = c #### ??
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        if pol is None:
+            print("Error, polarizability doesn't exist")
+            sys.exit()
+        if vLoc is None:
+            print("Error, bare coulomb interaction doesn't exist")
+            sys.exit()
+        self.pol = pol
+        self.vDyn = vDyn
+        self.vLoc = vLoc
+
+        self.Cal()
+
+        # self.wkt = self.F2T(self.wkf,1,1)
+        # self.wrf = self.K2R(self.wkf)
+        # self.wrt = self.K2R(self.wkt)
+        # nprob = len(self.crystal.probspace)
+        
+        # self.crt = self.F2T(self.crf,1,1)
+        # self.crf = self.K2R(self.ckf)
+        # self.crt = self.K2R(self.ckt)
+    
+    def Cal(self): # calculate W and Wc
+
+        norb = self.crystal.bprojector.shape[1]
+        norbc = self.crystal.fprojector.shape[1]
+        ns = self.crystal.ns
+        # nft = self.ft.size
+        ntau = len(self.ft.tau)
+        nfreq = len(self.ft.nu)
+        nspace = self.crystal.fprojector.shape[3]
+        nprob = len(self.crystal.probspace)
+
+        
+        ####### Initialization #######
+        tempmat = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        wrf  = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        wcrf = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        # vdyn = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+
+        # for iprob in range(nprob):
+        #     vdyn[...,iprob] = self.StcEmbedding(self.vLoc[...,iprob]) ####  define StcEmbedding ### remove this part when it is dynamic
+        
+        # print(self.pol.shape)
+        # print(vdyn.shape)
+        
+        # polcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        # vcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        ####### Initialization #######
+        # polcomp = self.Loc2Imp(self.pol)*self.c #### ??
+        # # del self.pol
+        # vcomp = self.Loc2Imp(vdyn) #### ??
+
+        for iprob in range(nprob):
+            wrf[...,iprob] = self.Dyson(self.vDyn[...,iprob],self.pol[...,iprob])
+        # wrf = self.Imp2Loc(tempmat)
+
+        ## tempmat -> wrf
+
+        self.rf = wrf
+
+        wcrf = wrf - self.vLoc  #### wrf - vloc --> static bare V
+
+        self.crf = wcrf
+        crt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
+        for iprob in range(nprob):
+            crt[...,iprob] = self.F2T(wcrf[...,iprob], 1, 1)
+        self.crt = crt
+        return None
+
+
+
+class WLoc_temp(BLocDyn): #### contains WLoc and WcLoc
+
+    def __init__(self, crystal: Crystal, ft: FTGrid
     ,pol : PolLoc = None, vLoc : VLoc = None, c : float = 1.0, hdf5file : str = 'glob.h5', group : str = None):
         super().__init__(crystal, ft)
 

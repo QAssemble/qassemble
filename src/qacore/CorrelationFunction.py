@@ -296,3 +296,5 @@ class CorrelationFunction(object):
 
                 del gnew, sigmah, sigmaf, sigmagwc, pol, w
                 gc.collect()
+            
+            # self.green = gbare_temp

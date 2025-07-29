@@ -617,11 +617,11 @@ class SigmaFLoc(FLocStc):
 
 class EImp(FLocStc):
 
-    def __init__(self, crystal: Crystal, ham : Hamiltonian = None, niham : NIHamiltonian = None, mu = None, hamh : SigmaHartree = None, hamf : SigmaFock = None, hloc : SigmaHLoc = None, floc : SigmaFLoc = None):
+    def __init__(self, crystal: Crystal, niham : NIHamiltonian = None, mu = None, hamh : SigmaHartree = None, hamf : SigmaFock = None, hloc : SigmaHLoc = None, floc : SigmaFLoc = None):
         super().__init__(crystal)
 
 
-        self.ham = ham
+        # self.ham = ham
         self.niham = niham
         self.hamh = hamh
         self.hamf = hamf
@@ -630,10 +630,13 @@ class EImp(FLocStc):
 
         self.mu = mu
 
-        if self.ham != None:
-            self.hamhf = self.ham.k
-        else:
-            self.hamhf = self.niham.k + self.hamh.k + self.hamf.k
+        # if self.ham != None:
+        #     self.hamhf = self.ham.k
+        # else:
+
+        self.hamhf = self.niham.k + self.hamh.k + self.hamf.k
+            # self.hamhf = self.niham.k + self.hamf.k
+            
 
         self.sigmahfloc = self.hloc.r + self.floc.r
 
@@ -656,17 +659,19 @@ class EImp(FLocStc):
 
         self.hamhf_projection = np.zeros_like(self.sigmahfloc)
 
-        # for iprob in range(nprob):
-        #     self.hamhf_projection[...,iprob] = QAFort.projection.flatstc(self.hamhf,self.crystal.fprojector[...,iprob])
-        tempmat = self.niham.Projection(self.hamhf)
-        self.hamhf_projection = self.Loc2Imp(tempmat)
+        for iprob in range(nprob):
+            self.hamhf_projection[...,iprob] = QAFort.projection.flatstc(self.hamhf,self.crystal.fprojector[...,iprob])
+        # tempmat = self.niham.Projection(self.hamhf)
+        # self.hamhf_projection = self.Loc2Imp(tempmat)
 
         I = np.identity(norbc)
 
         self.r = np.zeros((norbc,norbc,ns,nprob))
         for iis in range(ns):
             for iprob in range(nprob):
-                self.r[...,iis,iprob] = self.hamhf_projection[...,iis,iprob] - self.sigmahfloc[...,iis,iprob] - self.mu*I
+                # self.r[...,iis,iprob] = self.hamhf_projection[...,iis,iprob] - self.sigmahfloc[...,iis,iprob] - self.mu*I
+                self.r[...,iis,iprob] = self.hamhf_projection[...,iis,iprob] + self.mu*I
+                # self.r[...,iis,iprob] = - self.sigmahfloc[...,iis,iprob]
     
 
     def imp_final_input(self,B): ## move to EImp

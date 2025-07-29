@@ -602,7 +602,7 @@ class SigmaLGWC(FLocDyn):
 
 class Hybridisation(FLocDyn):
 
-    def __init__(self, crystal: Crystal, ft: FTGrid, gloc : GreenLoc, eimp : EImp, sigmaimp : np.array = None):
+    def __init__(self, crystal: Crystal, ft: FTGrid, gloc : GreenLoc, eimp : EImp, mu = None, sigmahimp : np.array = None, sigmafimp : np.array = None, sigmacimp : np.array = None):
         super().__init__(crystal, ft)
 
         self.rt = None
@@ -611,8 +611,13 @@ class Hybridisation(FLocDyn):
         self.gloc = gloc
         self.eimp = eimp
 
-        
-        self.sigmaimp = sigmaimp
+        self.mu = mu
+
+        self.sigmahimp = sigmahimp
+        self.sigmafimp = sigmafimp
+        self.sigmacimp = sigmacimp
+
+        print(self.sigmahimp[0,0,0,0] + self.sigmafimp[0,0,0,0])
 
         self.nft = len(self.ft.omega)
 
@@ -635,27 +640,35 @@ class Hybridisation(FLocDyn):
 
         IdentityMatrix = np.identity(norbc)
 
-        if self.sigmaimp is None:
-            self.sigmaimp = np.zeros((norbc,norbc,ns,nft,nprob),dtype=np.complex128,order='F')
+        if self.sigmacimp is None:
+            self.sigmacimp = np.zeros((norbc,norbc,ns,nft,nprob),dtype=np.complex128,order='F')
 
         gfinv = self.Inverse(self.gloc.gf)
         
         for iprob in range(nprob):
             for ift in range(nft):
                 for js in range(ns):
-                    # rf[...,js,ift,iprob] = imag_one*self.ft.omega[ift]*IdentityMatrix[...] - np.linalg.inv(self.gloc.gf[...,js,ift,iprob]) - self.eimp.r[...,js,iprob] - self.sigmaimp[...,js,ift,iprob]
+                    # rf[...,js,ift,iprob] = imag_one*self.ft.omega[ift]*IdentityMatrix[...] - np.linalg.inv(self.gloc.gf[...,js,ift,iprob]) - self.eimp.r[...,js,iprob] - (self.sigmahimp[...,js,iprob] + self.sigmafimp[...,js,iprob] + self.sigmacimp[...,js,ift,iprob])
+                    rf[...,js,ift,iprob] = imag_one*self.ft.omega[ift]*IdentityMatrix[...] - np.linalg.inv(self.gloc.gf[...,js,ift,iprob]) #- self.eimp.r[...,js,iprob] #- (self.sigmahimp[...,js,iprob] + self.sigmafimp[...,js,iprob] + self.sigmacimp[...,js,ift,iprob])
+                    # rf[...,js,ift,iprob] = - self.eimp.r[...,js,iprob] - (self.sigmahimp[...,js,iprob] + self.sigmafimp[...,js,iprob] + self.sigmacimp[...,js,ift,iprob])
+        
+
+                    
+                    
+                    # rf[...,js,ift,iprob] = imag_one*self.ft.omega[ift]*IdentityMatrix[...] - np.linalg.inv(self.gloc.gf[...,js,ift,iprob]) - self.eimp.r[...,js,iprob] - self.sigmacimp[...,js,ift,iprob]
+                    # rf[...,js,ift,iprob] = - np.linalg.inv(self.gloc.gf[...,js,ift,iprob]) - self.sigmacimp[...,js,ift,iprob]
                     # rf[...,js,ift,iprob] = imag_one*self.ft.omega[ift]*IdentityMatrix[...] - np.linalg.inv(self.gloc.gf[...,js,ift,iprob]) #- self.sigmaimp[...,js,ift,iprob]
-                    for jorb in range(norbc):
-                        for iorb in range(norbc):
-                            if (iorb == jorb):
-                                rf[iorb, jorb, js, ift, iprob] = 1j*self.ft.omega[ift] - gfinv[iorb, jorb, js, ift, iprob] - self.sigmaimp[iorb, jorb, js, ift, iprob] - self.eimp.r[iorb, jorb, js, iprob]
-                            else:
-                                rf[iorb, jorb, js, ift, iprob] = - gfinv[iorb, jorb, js, ift, iprob] - self.sigmaimp[iorb, jorb, js, ift, iprob] - self.eimp.r[iorb, jorb, js, iprob]
+                    # for jorb in range(norbc):
+                    #     for iorb in range(norbc):
+                    #         if (iorb == jorb):
+                    #             rf[iorb, jorb, js, ift, iprob] = 1j*self.ft.omega[ift] - gfinv[iorb, jorb, js, ift, iprob] - self.sigmaimp[iorb, jorb, js, ift, iprob] - self.eimp.r[iorb, jorb, js, iprob]
+                    #         else:
+                    #             rf[iorb, jorb, js, ift, iprob] = - gfinv[iorb, jorb, js, ift, iprob] - self.sigmaimp[iorb, jorb, js, ift, iprob] - self.eimp.r[iorb, jorb, js, iprob]
         self.rf = rf
 
         self.rt = np.zeros((norbc,norbc,ns,ntau,nprob),dtype=np.complex128)
         for iprob in range(nprob):
-            self.rt[...,iprob] = self.F2T(self.rf[...,iprob],1,1)
+            self.rt[...,iprob] = self.F2T(self.rf[...,iprob],0,1)
         
 
         return None
