@@ -28,7 +28,7 @@ from .Crystal import Crystal
 
 # from .FLatDyn import SigmaGWC
 qapath = os.environ.get("QAssemble", "")
-sys.path.append(qapath + "/src/qacore/modules")
+sys.path.append(qapath + "/src/QAssemble/modules")
 import QAFort
 
 

@@ -24,7 +24,7 @@ from .FTGrid import FTGrid
 from .FLatStc import FLatStc
 from .MPIManager import MPIManager
 qapath = os.environ.get('QAssemble','')
-sys.path.append(qapath+'/src/qacore/modules')
+sys.path.append(qapath+'/src/QAssemble/modules')
 import QAFort
 
 class FLatDyn(object):
@@ -60,7 +60,7 @@ class FLatDyn(object):
         nfreq = len(self.ft.omega)
         ff = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order='F')
 
-        ff = QAFort.fourier.flatdyn_t2f(self.ft.tau,ftau,self.ft.omega)
+        ff = QAFort.fourier.flatdyn_t2f(self.ft.tau,self.ft.beta, ftau,self.ft.omega)
 
         return ff
     

@@ -23,7 +23,7 @@ from scipy.ndimage import gaussian_filter1d
 # from sympy.physics.wigner import gaunt, wigner_3j
 
 qapath = os.environ.get("QAssemble", "")
-sys.path.append(qapath + "/src/qacore/modules")
+sys.path.append(qapath + "/src/QAssemble/modules")
 import QAFort
 
 from .Crystal import Crystal
@@ -94,11 +94,11 @@ class FPathDyn(object):
         self.hdf5file = hdf5file
 
         if obj is not None:
-            if obj.__class__.__name__ is "GreenInt":
+            if obj.__class__.__name__ == "GreenInt":
                 self.k = self.KArb(obj.rf, kpoint=self.kpath)
-            elif obj.__class__.__name__ is "GreenBare":
+            elif obj.__class__.__name__ == "GreenBare":
                 self.k = self.KArb(obj.g0rf, kpoint=self.kpath)
-            elif obj.__class__.__name__ is "SigmaGWC":
+            elif obj.__class__.__name__ == "SigmaGWC":
                 self.k = self.R2K(matr=obj.rf, kpoint=self.kpath)
 
     def CheckKeyinString(self, key: str, dictionary: dict):

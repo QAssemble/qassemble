@@ -924,9 +924,10 @@ contains
 ! end subroutine FLocDyn_T2F_V0
 
 
-  subroutine FLocDyn_T2F(norb,ns,ntau,tau,ftau,nf,freq,ff)
+  subroutine FLocDyn_T2F(norb,ns,ntau,tau,beta,ftau,nf,freq,ff)
     implicit none
     integer, intent(in) :: norb,ns,ntau,nf
+    double precision, intent(in) :: beta
     double precision, intent(in) :: tau(0:(ntau-1)), freq(0:(nf-1))
     complex*16, intent(in) :: ftau(norb,norb,ns,0:(ntau-1))
     complex*16, intent(out) :: ff(norb,norb,ns,0:(nf-1))
@@ -934,14 +935,15 @@ contains
 
     integer :: iorb,jorb,itau,ifreq,is,itheta,ierr
 
-    double precision :: pi, beta, taurad_finu((-ntau):(ntau-1))
+    ! double precision :: pi, beta, taurad_finu((-ntau):(ntau-1))
+    double precision :: pi, taurad_finu((-ntau):(ntau-1))
     complex*16 :: ff_finu((-2*nf+1):(2*nf-1)), ftau_finu((-ntau):(ntau-1))
     integer*8 :: ntau_finu, nf_finu
     integer*8, allocatable :: null
 
 
     pi=datan2(1.0d0,1.0d0)*4.0d0
-    beta=pi/freq(0)
+    ! beta=pi/freq(0)
 
     ntau_finu=2*ntau
     nf_finu=4*nf-1
@@ -976,9 +978,10 @@ contains
 
 
 
-  subroutine FLatDyn_T2F(norb,ns,nk,ntau,tau,ftau,nf,freq,ff)
+  subroutine FLatDyn_T2F(norb,ns,nk,ntau,tau,beta, ftau,nf,freq,ff)
     implicit none
     integer, intent(in) :: norb,ns,nk,ntau,nf
+    double precision, intent(in) :: beta
     double precision, intent(in) :: tau(0:(ntau-1)), freq(0:(nf-1))
     complex*16, intent(in) :: ftau(norb,norb,ns,nk,0:(ntau-1))
     complex*16, intent(out) :: ff(norb,norb,ns,nk,0:(nf-1))
@@ -987,7 +990,7 @@ contains
 
     ff=0.0d0
     do ik=1, nk
-      call FLocDyn_T2F(norb,ns,ntau,tau,ftau(:,:,:,ik,:),nf,freq,ff(:,:,:,ik,:))
+      call FLocDyn_T2F(norb,ns,ntau,tau,beta, ftau(:,:,:,ik,:),nf,freq,ff(:,:,:,ik,:))
     enddo
 
   end subroutine FLatDyn_T2F

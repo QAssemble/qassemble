@@ -8,8 +8,9 @@ from .FTGrid import FTGrid
 import numpy as np
 import scipy
 import h5py
+import finufft
 qapath = os.environ.get('QAssemble','')
-sys.path.append(qapath+'/src/qacore/modules')
+sys.path.append(qapath+'/src/QAssemble/modules')
 import QAFort
 
 
@@ -25,6 +26,12 @@ class MPIManager(object):
         self.size = self.comm.Get_size()
         if (self.rank == 0):
             print("Parallelization with MPI Start")
+        required = MPI.THREAD_MULTIPLE
+        provided = MPI.Query_thread()
+        if provided < required:
+            if self.rank == 0:
+                print("MPI does not support THREAD_MULTIPLE")
+            sys.exit(1)
         self.mpidict = {}
         self.fft = None
         self.arr = None
@@ -527,10 +534,98 @@ class MPIManager(object):
             matout[ir] = matin[ix, iy, iz]
 
         return matout
-                
+    
+    def FMPIAllreduce(self, commw : MPI.COMM_WORLD, matin : np.ndarray, nf : int) -> np.ndarray:
+
+        nfloc = matin.shape[0]
 
 
+        tempmat = np.zeros((nf), dtype=np.complex128, order='F')
+        matout = np.zeros((nf), dtype=np.complex128, order='F')
 
+        for iff in range(nfloc):            
+            fidx = self.FLocal2Global([commw.Get_rank(), iff])
+            tempmat[fidx] = matin[iff]
+
+        commw.Allreduce(tempmat, matout, op=MPI.SUM)
+
+        return matout
+    
+    def TMPIAllreduce(self, commtau : MPI.COMM_WORLD, matin : np.ndarray, ntau : int) -> np.ndarray:
+
+        ntauloc = matin.shape[0]
+
+        tempmat = np.zeros((ntau), dtype=np.complex128, order='F')
+        matout = np.zeros((ntau), dtype=np.complex128, order='F')
+
+        for iff in range(ntauloc):
+            fidx = self.TLocal2Global([commtau.Get_rank(), iff])
+            tempmat[fidx] = matin[iff]
+
+        commtau.Allreduce(tempmat, matout, op=MPI.SUM)
+        
+
+        return matout
+    
+    def KMPIAllreduce(self, commk : MPI.COMM_WORLD, matin : np.ndarray) -> np.ndarray:
+
+        nk = len(self.crystal.kpoint)
+        nkloc = matin.shape[0]
+
+
+        tempmat = np.zeros((nk), dtype=np.complex128, order='F')
+        matout = np.zeros((nk), dtype=np.complex128, order='F')
+
+        for ik in range(nkloc):            
+            kidx = self.KLocal2Global([commk.Get_rank(), ik])
+            tempmat[kidx] = matin[ik]
+
+        commk.Allreduce(tempmat, matout, op=MPI.SUM)
+
+        return matout
+    
+    def RMPIAllreduce(self, commk : MPI.COMM_WORLD, matin : np.ndarray) -> np.ndarray:
+
+        nr = len(self.crystal.kpoint)
+        nrloc = matin.shape[0]
+
+        tempmat = np.zeros((nr), dtype=np.complex128, order='F')
+        matout = np.zeros((nr), dtype=np.complex128, order='F')
+
+        for ir in range(nrloc):
+            ridx = self.RLocal2Global([commk.Get_rank(), ir])
+            tempmat[ridx] = matin[ir]
+
+        commk.Allreduce(tempmat, matout, op=MPI.SUM)
+        
+
+        return matout
+    
+    def FMPIBCast(self, comm : MPI.COMM_WORLD, matin : np.ndarray, idx : int) -> np.ndarray:
+
+        (rank, localidx) = self.FGlobal2Local(idx)
+        if (comm.Get_rank() == rank):
+            val = matin[...,localidx]
+        else:
+            val = None
+        matout = comm.bcast(val, root=rank)
+
+        return matout
+    
+    def TMPIBCast(self, comm : MPI.COMM_WORLD, matin : np.ndarray, idx : int) -> np.ndarray:
+
+        (rank, localidx) = self.TGlobal2Local(idx)
+        if (comm.Get_rank() == rank):
+            val = matin[...,localidx]
+        else:
+            val = None
+        matout = comm.bcast(val, root=rank)
+
+        return matout
+
+
+    
+    
     
 
 class FLatDynMPI(object):
@@ -586,13 +681,13 @@ class FLatDynMPI(object):
                 g = file.create_group(group)
                 subg = g.create_group(subgroup)
 
-            subg.create_dataset(dataname, data=data, dtype=np.complex128, driver='mpio', comm = self.mpimanager.comm)
+            subg.create_dataset(dataname, data=data, dtype=np.complex128)
 
             return None
 
     def Load(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
 
-        with h5py.File(hdf5file, 'r') as file:
+        with h5py.File(hdf5file, 'r', driver='mpio', comm=self.mpimanager.comm) as file:
             if (self.CheckGroup(hdf5file, group)):
                 g =  file[group]
                 if subgroup in g:
@@ -625,13 +720,14 @@ class FLatDynMPI(object):
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray) -> np.ndarray:
 
         # norb, _, ns, nk, nft = mat1.shape
-        nk = mat1.shape[3]
-        nft = mat1.shape[4]
+        # nk = mat1.shape[3]
+        # nft = mat1.shape[4]
         matout = np.zeros_like(mat1, dtype=np.complex128, order='F')
         
-        for ift in range(nft):
-            for ik in range(nk):
-                matout[:, :, :, ik, ift] = QAFort.dyson.flocstc(mat1[:, :, :, ik, ift], mat2[:, :, :, ik, ift])      
+        # for ift in range(nft):
+        #     for ik in range(nk):
+        #         matout[:, :, :, ik, ift] = QAFort.dyson.flocstc(mat1[:, :, :, ik, ift], mat2[:, :, :, ik, ift])      
+        matout = QAFort.dyson.flatdyn(mat1, mat2)
 
 
         return matout
@@ -649,8 +745,7 @@ class FLatDynMPI(object):
         (nkx, nky, nkz) = self.mpimanager.localshapef[self.nodedict['commkrank']]
         nkglobal = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
         if (nk != nkx * nky * nkz):
-            print(f"Error: nk ({nk}) does not match local shape ({nkx}, {nky}, {nkz})")
-            sys.exit()
+            raise ValueError(f"Error: nk ({nk}) does not match local shape ({nkx}, {nky}, {nkz})")
         (nx, ny, nz) = self.mpimanager.localshapeb[self.nodedict['commkrank']]
         tempmat = np.zeros((norb, norb, ns, nk, nf), dtype=np.complex128, order='F')
         tempmat2 = np.zeros((nx, ny, nz), order='F', dtype=np.complex128)
@@ -716,11 +811,254 @@ class FLatDynMPI(object):
 
         return matk
     
-    # def F2T(self, matf : np.ndarray) -> np.ndarray:
+    def Moment(self, ff : np.ndarray, isgreen : bool, highzero : bool) -> np.ndarray:
+
+
+
+        norb, _, ns, nkloc, nfloc = ff.shape 
+        omega = self.ftgrid.omega*1j
+        moment = np.zeros((norb, norb, ns, nkloc, 3), dtype=np.complex128, order='F')
+        high = np.zeros((norb, norb, ns, nkloc), dtype=np.complex128, order='F')
+        
+
+        fflast = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-1)
+        fflast2 = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-2)
+
+        if (isgreen):
+            for ik in range(nkloc):
+                for js in range(ns):
+                    for jorb in range(norb):
+                        for iorb in range(norb):
+                            
+                            if (iorb == jorb):
+                                moment[iorb, jorb, js, ik, 0] = 1.0
+                            else:
+                                moment[iorb, jorb, js, ik, 0] = 0.0
+
+                            moment[iorb, jorb, js, ik, 1] += (fflast[iorb, jorb, js, ik] + np.conjugate(fflast[jorb, iorb, js, ik])) \
+                                / 2.0 * (omega[-1])**2
+
+                            moment[iorb, jorb, js, ik, 2] += (fflast[iorb, jorb, js, ik] - np.conjugate(fflast[jorb, iorb, js, ik]) 
+                                                              - moment[iorb, jorb, js, ik, 0]* 2.0/(omega[-1])) \
+                                                                  /2.0 * (omega[-1])**3
+
+        else:
+            if (highzero):
+                for ik in range(nkloc):
+                    for js in range(ns):
+                        for jorb in range(norb):
+                            for iorb in range(norb):
+
+                                moment[iorb, jorb, js, ik, 0] += (fflast[iorb, jorb, js, ik] \
+                                                                  - np.conjugate(fflast[jorb, iorb, js, ik]))/2.0 * (omega[-1])
+                                moment[iorb, jorb, js, ik, 1] += (fflast[iorb, jorb, js, ik] \
+                                                                  + np.conjugate(ff[jorb, iorb, js, ik]))/2.0 * (omega[-1])**2
+            else:
+                amat = np.zeros((4, 4), dtype=np.complex128, order='F')
+                bmat = np.zeros((4, 1), dtype=np.complex128, order='F')
+                # ipiv = np.zeros((4), dtype=int, order='F')
+                for ik in range(nkloc):
+                    for js in range(ns):
+                        for jorb in range(norb):
+                            for iorb in range(norb):
+                                w1 = omega[-1]
+                                w2 = omega[-2]
+
+                                amat[0, :] = [1.0, 1.0/(w1), 1.0/(w1)**2, 1.0/(w1)**3]
+                                amat[1, :] = [1.0, -1.0/(w1), 1.0/(w1)**2, -1.0/(w1)**3]
+                                amat[2, :] = [1.0, 1.0 / (w2), 1.0 / (w2) ** 2, 1.0 / (w2) ** 3]
+                                amat[3, :] = [1.0, -1.0 / (w2), 1.0 / (w2) ** 2, -1.0 / (w2) ** 3]
+
+                                bmat[0, 0] = fflast[iorb, jorb, js, ik]
+                                bmat[1, 0] = np.conjugate(fflast[jorb, iorb, js, ik])
+                                bmat[2, 0] = fflast2[iorb ,jorb, js, ik]
+                                bmat[3, 0] = np.conjugate(fflast2[jorb, iorb, js, ik])
+
+                                x = scipy.linalg.solve(amat, bmat)
+
+                                high[iorb, jorb, js, ik] = x[0, 0]
+                                moment[iorb, jorb, js, ik ,0] = x[1, 0]
+                                moment[iorb, jorb, js, ik, 1] = x[2, 0]
+                                moment[iorb, jorb, js, ik, 2] = x[3, 0]
+
+        for ik in range(nkloc):
+            for js in range(ns):
+                high[:, :, js, ik] = (np.conjugate(high[:, :, js, ik]).T + high[:, :, js, ik])/2.0
+                for i in range(3):
+                    moment[:, :, js, ik, i] = (np.conjugate(moment[:, :, js, ik, i]).T + moment[:, :, js, ik, i]) / 2.0
+
+        return moment, high
+    
+    def F2T(self, ff : np.ndarray, isgreen : bool, highzero : bool):
+
+        rank = self.nodedict['commtaurank']
+        ntauloc = self.submatrixtau[rank][1] - self.submatrixtau[rank][0]
+        tau = np.zeros((ntauloc), dtype=np.float64, order='F')
+        for itau in range(ntauloc):
+            tauidx = self.mpimanager.TLocal2Global([rank, itau])
+            tau[itau] = self.ftgrid.tau[tauidx]
+        norb = ff.shape[0]
+        ns = ff.shape[2]
+        nk = ff.shape[3]
+        nomega = len(self.ftgrid.omega)
+        ftau = np.zeros((norb, norb, ns, nk, ntauloc), dtype=np.complex128, order='F')
+        
+        moment, high = self.Moment(ff, isgreen, highzero)
+
+        ffglob = np.zeros((norb, norb, ns, nk, nomega), dtype=np.complex128, order='F')
+
+        for ik in range(nk):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        ffglob[iorb, jorb, js, ik] = self.mpimanager.FMPIAllreduce(self.commw, ff[iorb, jorb, js, ik], nomega)
+        
+        ftau = QAFort.fourier.flatdyn_f2t(self.ftgrid.omega, ffglob, moment, tau)
+
+        return ftau
+
+
+
+    def F2T_v0(self, ff : np.ndarray, isgreen : bool, highzero : bool):
+        
+        if (self.mpimanager.rank == 0):
+            print("Compute Fourier transform F2T Start")
+        moment, high = self.Moment(ff, isgreen, highzero)
+
+        rank = self.nodedict['commtaurank']
+        ntauloc = self.submatrixtau[rank][1]-self.submatrixtau[rank][0]
+        beta = self.ftgrid.beta
+        tau = self.ftgrid.tau
+        omega = self.ftgrid.omega
+        nomega = len(omega)
+
+        norb, _, ns, nkloc, nfloc = ff.shape
+        ftau = np.zeros((norb, norb, ns, nkloc, ntauloc), dtype=np.complex128, order='F')
+        nffinu = 4 * nomega - 1
+        momega_finu = np.zeros((nffinu, 3), dtype=np.complex128, order='F')
+        fffinu = np.zeros((nffinu), dtype=np.complex128, order='F')
+        ftaufinu = np.zeros((ntauloc), dtype=np.complex128, order='F')
+        mtaufinu = np.zeros((ntauloc, 3), dtype=np.complex128, order='F')
+        tauradfinu = np.zeros((ntauloc), dtype=np.float64, order='F')
+
+        for iomega in range(-2*nomega+1, 2*nomega):
+            if((iomega % 2) == 1):
+                momega_finu[iomega, 0] = 1.0/(np.pi/beta*iomega*1j)
+                momega_finu[iomega, 1] = 1.0/(np.pi/beta*iomega*1j)**2
+                momega_finu[iomega, 2] = 1.0/(np.pi/beta*iomega*1j)**3
+
+        for itau in range(ntauloc):
+            tauidx = self.mpimanager.TLocal2Global([rank, itau])
+            tauradfinu[itau] = tau[tauidx]/beta*np.pi
+
+        for ii in range(3):
+            mtaufinu[:, ii] = finufft.nufft1d2(tauradfinu, momega_finu[:,ii], isign=-1, eps=1e-12, nthreads=1)
+
+        for ik in range(nkloc):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):   
+                        ffglob = self.mpimanager.FMPIAllreduce(self.commw, ff[iorb, jorb, js, ik], nf=nomega)
+                        ffglobT = self.mpimanager.FMPIAllreduce(self.commw, ff[jorb, iorb, js, ik], nf=nomega)
+                        for iomega in range(-2*nomega+1, 2*nomega):
+                            if ((iomega % 2) == 1):
+                                if (iomega > 0):
+                                    fffinu[iomega] = ffglob[int((iomega-1)/2)]
+                                else:
+                                    fffinu[iomega] = np.conjugate(ffglobT[int((-iomega-1)/2)])
+                        ftaufinu = finufft.nufft1d2(tauradfinu, fffinu, isign=-1, eps=1e-12, nthreads=1)                        
+                        
+                        for itau in range(ntauloc):
+                            ftau[iorb, jorb, js, ik, itau] = ftaufinu[itau]/beta
+                            tauidx = self.mpimanager.TLocal2Global([rank, itau])
+                            xx = tau[tauidx]/beta
+                            for ii in range(3):
+                                # moment_temp = 
+                                ftau[iorb, jorb, js, ik, itau] += -moment[iorb, jorb, js, ik, ii] * mtaufinu[itau, ii]/beta \
+                                                                +0.5 * beta**(ii)/self.crystal.FactorialInt(ii) * (-1)**(ii+1) \
+                                                                * self.crystal.EulerPolynomial(xx, ii) * moment[iorb, jorb, js, ik,ii]                             
+
+
+        return ftau
+    
+    def T2F(self, ftau : np.ndarray) -> np.ndarray:
+
+        rank = self.nodedict['commfrank']
+        nfloc = self.submatrixw[rank][1]-self.submatrixw[rank][0]
+        norb = ftau.shape[0]
+        ns = ftau.shape[2]
+        nk = ftau.shape[3]
+        # tau = self.ftgrid.tau
+        ntau = len(self.ftgrid.tau)
+        
+        # print(f"commfrank : {rank}, total comm rank : {self.mpimanager.rank}")
+
+        ff = np.zeros((norb, norb, ns, nk, nfloc), dtype=np.complex128, order='F')
+        omega = np.zeros((nfloc), dtype=np.float64, order='F')
+
+        ftauglob = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
+
+        for ik in range(nk):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        ftauglob[iorb, jorb, js, ik] = self.mpimanager.TMPIAllreduce(self.commtau, ftau[iorb, jorb, js, ik], ntau)
+
+        for ifloc in range(nfloc):
+            fidx = self.mpimanager.FLocal2Global([rank, ifloc])
+            omega[ifloc] = self.ftgrid.omega[fidx]
+
+        ffglob = QAFort.fourier.flatdyn_t2f(self.ftgrid.tau, self.ftgrid.beta, ftauglob, self.ftgrid.omega)
+
+        for ifreq in range(nfloc):
+            fidx = self.mpimanager.FLocal2Global([rank, ifreq])
+            ff[...,ifreq] = ffglob[...,fidx]
+
+        return ff
+
 
         
 
+    def T2F_v0(self, ftau : np.ndarray) -> np.ndarray:
 
+        rank = self.nodedict['commfrank']
+        nfloc = self.submatrixw[rank][1]-self.submatrixw[rank][0]
+        beta = self.ftgrid.beta
+        tau = self.ftgrid.tau
+        omega = self.ftgrid.omega
+        ntau = len(tau)
+
+        norb, _, ns, nk, ntauloc = ftau.shape
+        ntaufinu = 2*ntau
+        nffinu = 4*len(omega) -1
+        tauradfinu = np.zeros((ntaufinu), dtype=np.float64, order='F')
+        ftaufinu = np.zeros((ntaufinu), dtype=np.complex128, order='F')
+        ff = np.zeros((norb, norb, ns, nk, nfloc), dtype=np.complex128, order='F')
+
+        for itau in range(ntau):
+            # itehta = QAFort.common.ttind(itau, ntau)
+            tauradfinu[itau] = tau[itau]/beta*np.pi
+            tauradfinu[-itau -1] = -tauradfinu[itau]
+
+        for ik in range(nk):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        ftauglob = self.mpimanager.TMPIAllreduce(self.commtau, ftau[iorb, jorb, js, ik], ntau = ntau)
+                        for itau in range(ntau):
+                            ftaufinu[itau] = ftauglob[itau] * np.sqrt(tau[itau]*(beta-tau[itau]))*np.pi/ntau
+                            ftaufinu[itau-ntau] = -ftaufinu[itau]
+                        
+                        fffinu = finufft.nufft1d1(tauradfinu, ftaufinu, nffinu, isign=1, eps=1e-12, nthreads=1)
+                        for ifreq in range(0, 2*len(omega)):
+                            if ((ifreq % 2) == 1):
+                                irank, iomega = self.mpimanager.FGlobal2Local(int((ifreq-1)/2))
+                                if (irank == rank):
+                                    ff[iorb, jorb, js, iomega] = fffinu[ifreq]/2.0
+
+        return ff
+                        
+                            
 
 
 class BLatDynMPI(object):

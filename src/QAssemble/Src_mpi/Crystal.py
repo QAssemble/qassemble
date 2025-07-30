@@ -16,7 +16,7 @@ import scipy.linalg
 import subprocess
 import copy, gc
 qapath = os.environ.get('QAssemble','')
-sys.path.append(qapath+'/src/qacore/modules')
+sys.path.append(qapath+'/src/QAssemble/modules')
 import QAFort
 
 # Ask to professor for change variables
@@ -902,4 +902,56 @@ class Crystal(object):
                 return key
             # else:
             #     raise ValueError(f"Invalid k-point components: {klist}")
+
+    def EulerPolynomial(self, x, n):
+
         
+        val = 0.0
+        
+        xmat = np.array([x**6, x**5, x**4, x**3, x**2, x, 1.0])
+
+        if n == 0:
+         val = np.sum(xmat * np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]))
+        elif n == 1:
+            val= np.sum(xmat * np.array([0.0, 0.0, 0.0, 0.0, 0.0, 1.0, -1.0/2.0]))
+        elif n == 2:
+            val = np.sum(xmat * np.array([0.0, 0.0, 0.0, 0.0, 1.0, -1.0, 0.0]))
+        elif n == 3:
+            val = np.sum(xmat * np.array([0.0, 0.0, 0.0, 1.0, -3.0/2.0, 0.0, 1.0/4.0]))
+        elif n == 4:
+            val = np.sum(xmat * np.array([0.0, 0.0, 1.0, -2.0, 0.0, 1.0, 0.0]))
+        elif n == 5:
+            val = np.sum(xmat * np.array([0.0, 1.0, -5.0/2.0, 0.0, 5.0/2.0, 0.0, -1.0/2.0]))
+        elif n == 6:
+            val = np.sum(xmat * np.array([1.0, -3.0, 0.0, 5.0, 0.0, -3.0, 0.0]))
+        
+        return val
+    
+    def BernoulliPolynomial(self, x, n):
+
+        val = 0.0
+        xmat = np.array([x**6, x**5, x**4, x**3, x**2, x, 1.0])
+
+        if n == 0:
+            val = np.sum(xmat * np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]))
+        elif n == 1:
+            val = np.sum(xmat * np.array([0.0, 0.0, 0.0, 0.0, 0.0, 1.0, -1.0/2.0]))
+        elif n == 2:
+            val = np.sum(xmat * np.array([0.0, 0.0, 0.0, 0.0, 1.0, -1.0, 1.0/6.0]))
+        elif n == 3:
+            val = np.sum(xmat * np.array([0.0, 0.0, 0.0, 1.0, -3.0/2.0, 1.0/2.0, 0.0]))
+        elif n == 4:
+            val = np.sum(xmat * np.array([0.0, 0.0, 1.0, -2.0, 1.0, 0.0, -1.0/30.0]))
+        elif n == 5:
+            val = np.sum(xmat * np.array([0.0, 1.0, -5.0/2.0, 5.0/3.0, 0.0, -1.0/6.0, 0.0]))
+        elif n == 6:
+            val = np.sum(xmat * np.array([1.0, -3.0, 5.0/2.0, 0.0, -1.0/2.0, 0.0, 1.0/42.0]))
+        
+        return val
+    
+    def FactorialInt(self, j):
+
+        import math
+        if j < 0:
+            raise ValueError("factorial is defined only for non-negative numbers")
+        return float(math.factorial(j))

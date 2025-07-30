@@ -18,7 +18,7 @@ from pymatgen.transformations.standard_transformations import SupercellTransform
 import subprocess
 import copy
 qapath = os.environ.get('QAssemble','')
-sys.path.append(qapath+'/src/qacore/modules')
+sys.path.append(qapath+'/src/QAssemble/modules')
 import QAFort
 
 class FTGrid(object):
@@ -39,13 +39,11 @@ class FTGrid(object):
             self.beta = ft['beta']
         self.cutoff = ft['cutoff']
 
-        self.omega = None
-        self.nu = None
-        self.tau = None
-
-        self.Omega()
-        self.Tau()
-        self.Nu()
+        self.omega = self.Omega()
+        self.nu = self.Nu()
+        self.tau = self.Tau()       
+        
+        
 
     def Omega(self) -> np.ndarray:
 
@@ -58,9 +56,10 @@ class FTGrid(object):
             if (w > self.cutoff):
                 break
             omega.append(w)
-        self.omega = np.array(omega,dtype=float,order='F')
+        # self.omega = np.array(omega,dtype=float,order='F')
+        omega = np.array(omega,dtype=float,order='F')
 
-        return None
+        return omega
 
     def Tau(self):
 
@@ -80,9 +79,9 @@ class FTGrid(object):
             itheta = QAFort.common.ttind(itau,ntau)
             tau[itau] = self.beta/2.0*(np.cos(np.pi*(itheta+0.5)/ntau)+1.0)
 
-        self.tau = tau
+        # self.tau = tau
 
-        return None
+        return tau
 
     def Nu(self) -> np.ndarray:
 
@@ -96,6 +95,7 @@ class FTGrid(object):
                 break
             nu.append(w)
 
-        self.nu = np.array(nu, dtype=float,order='F')
+        # self.nu = np.array(nu, dtype=float,order='F')
+        nu = np.array(nu, dtype=float,order='F')
 
-        return None
+        return nu

@@ -21,7 +21,7 @@ from .Crystal import Crystal
 from .FTGrid import FTGrid
 from .FLatDyn import GreenInt
 qapath = os.environ.get('QAssemble','')
-sys.path.append(qapath+'/src/qacore/modules')
+sys.path.append(qapath+'/src/QAssemble/modules')
 import QAFort
 
 class FLocDyn(object):
