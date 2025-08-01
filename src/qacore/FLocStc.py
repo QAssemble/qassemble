@@ -630,22 +630,10 @@ class EImp(FLocStc):
 
         self.mu = mu
 
-        # if self.ham != None:
-        #     self.hamhf = self.ham.k
-        # else:
-
         self.hamhf = self.niham.k + self.hamh.k + self.hamf.k
-            # self.hamhf = self.niham.k + self.hamf.k
-            
-
         self.sigmahfloc = self.hloc.r + self.floc.r
 
         self.r = None
-
-        self.Nimp = None
-        self.index = None
-        self.F = None
-        self.B = None
 
         self.Cal()
 
@@ -659,6 +647,8 @@ class EImp(FLocStc):
         nprob = len(self.crystal.probspace)
 
         self.hamhf_projection = np.zeros_like(self.sigmahfloc)
+
+
         tempmat = np.zeros((norbc, norbc, ns, nspace), dtype=np.complex128, order='F')
         hamhf = np.copy(self.hamhf)
         
@@ -673,15 +663,15 @@ class EImp(FLocStc):
         # tempmat = self.niham.Projection(self.hamhf)
         self.hamhf_projection = self.Loc2Imp(tempmat)
 
+        print('hamhf_projection --'+str(self.hamhf_projection[0,0,0,0]))
+        
         # I = np.identity(norbc)
 
         self.r = np.zeros((norbc,norbc,ns,nprob))
         for iis in range(ns):
             for iprob in range(nprob):
-                # self.r[...,iis,iprob] = self.hamhf_projection[...,iis,iprob] - self.sigmahfloc[...,iis,iprob] - self.mu*I
-                self.r[...,iis,iprob] = self.hamhf_projection[...,iis,iprob] #- self.mu*I
-                # self.r[...,iis,iprob] = - self.sigmahfloc[...,iis,iprob]
-    
+                self.r[...,iis,iprob] = self.hamhf_projection[...,iis,iprob] - self.sigmahfloc[...,iis,iprob] #- self.mu*I
+
 
     def imp_final_input(self,B): ## move to EImp
 

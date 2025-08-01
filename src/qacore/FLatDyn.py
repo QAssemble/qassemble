@@ -513,6 +513,9 @@ class GreenInt(FLatDyn):
         self.occk = None
         self.occr = None
         self.mu = 0
+
+        self.mu_old = 0
+
         self.c = 0
         self.hdf5file = hdf5file
         self.group = group
@@ -592,9 +595,8 @@ class GreenInt(FLatDyn):
         nft = len(self.ft.omega)
 
         gkfnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+        
         chem = self.ChemEmbedding(self.mu)
-    
-    
         gkfnew = self.Dyson(self.gkfmu0,-chem)
         
         self.kf = gkfnew
@@ -605,6 +607,8 @@ class GreenInt(FLatDyn):
         self.rt = self.K2R(self.kt)
         print("Chemical potential shift finish")
         self.Occ()
+
+        print('toto00')
 
         return None
     
@@ -618,12 +622,9 @@ class GreenInt(FLatDyn):
         chem = self.ChemEmbedding(mu)
         gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
         gcalt = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
-
         
         gcalf = self.Dyson(tempmat,-chem)
         gcalt = self.F2T(gcalf,1,1)
-        
-        
         
         Ne = 0
         
@@ -643,6 +644,8 @@ class GreenInt(FLatDyn):
         print("Finding chemical potential start")
         mumin = -self.ft.omega[-1]*0.6
         mumax = self.ft.omega[-1]*0.6
+        # mumin = -self.ft.omega[-1]*0.2
+        # mumax =  self.ft.omega[-1]*0.2
         print(f"minimum : {mumin}, maximum : {mumax}")
         nmin = self.NumOfE(mumin)
         nmax = self.NumOfE(mumax)
@@ -651,6 +654,7 @@ class GreenInt(FLatDyn):
             print(f"nmin : {nmin}, nmax : {nmax}")
             sys.exit()
         sol = scipy.optimize.brentq(self.NumOfE,mumin,mumax,xtol=1.0e-6)
+        self.mu_old = self.mu
         self.mu = sol
         print("Finding chemical potential finish")
 

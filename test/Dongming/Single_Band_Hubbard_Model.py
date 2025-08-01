@@ -127,7 +127,7 @@ cf.GWApproximation(
 
 print("\n")
 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-print("Start computing Local Double-Counting GW")
+print("Start computing Local Double-CounGreenLocting GW")
 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
 
 from qacore.BLocDyn import BLocDyn, PolLoc, WLoc,WLoc_temp
@@ -512,33 +512,18 @@ plt.legend()
 plt.grid(which="both", linestyle="--", linewidth=0.3)
 plt.show()
 
-# exit()
 
-# print("**GreenLoc start")
-# gloc = GreenLoc(crystal=cf.crystal, ft=cf.ft, green=gint)
-# print("**GreenLoc finish\n")
 
-# print("**Vloc start")
-# vloc = np.zeros((1, 1, 1, 1, 2), dtype=np.complex128, order="F")
-# vloc2 = np.zeros_like(cf.vbare.k)
-# (norb, norb, ns, ns, nk) = cf.vbare.k.shape
-# for ik in range(nk):
-#     vloc2[..., ik] = cf.vbare.vloc.vloc
-# vloc[..., 0] = vloc2[0, 0, 0, 0, 0]
-# vloc[..., 1] = vloc2[0, 0, 0, 0, 0]
-# # print("vloc.shape --", vloc.shape)
-# # print(vloc[:, :, 0, 0, 0])
-# # print("vbare.shape --", cf.vbare.k.shape)
-# # print(vloc2[:, :, 0, 0, 0])
-# print("**Vloc finish\n")
+
+
+
+
+
 
 print("**SigmaHLoc start")
 hloc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=uimp.utilde_rf)
 # hloc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=vloc)
 print("**SigmaHLoc finish\n")
-
-
-
 
 
 # print("**SigmaHLoc start")
@@ -626,67 +611,34 @@ plt.show()
 
 
 
-
-
-
-
-
-# exit()
-
-# print("**PolLoc start")
-# polloc = PolLoc(crystal=cf.crystal, ft=cf.ft, green=gloc)
-# print("**PolLoc finish\n")
-
-# print("**WLoc start")
-# wloc = WLoc(crystal=cf.crystal, ft=cf.ft, pol=polloc.rf, vLoc=uimp.utilde_rf)
-# print("**WLoc finish\n")
-
-# print("**SigmaLGWC start")
-# sigma_loc_gwc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
-# print("**SigmaLGWC finish\n")
-
-
-# HF_ham = Hamiltonian(crystal=cf.crystal,ham=cf.niham.k,beta=cf.ft.beta,sigmah=cf.sigmah.k,sigmaf=cf.sigmaf.k)
-
-
-print(cf.green.mu)
-print(cf.ft.omega[-1])
-
-# exit()
-
 print("**Eimp start")
-eimp = EImp(crystal=cf.crystal,niham=cf.niham,mu=cf.green.mu,hamh=cf.sigmah,hamf=cf.sigmaf,hloc=hloc,floc=floc)
-# eimp = EImp(crystal=cf.crystal,ham=HF_ham,hloc=hloc,floc=floc)
+eimp = EImp(crystal=cf.crystal,niham=cf.niham,mu=cf.green.mu+cf.green.c,hamh=cf.sigmah,hamf=cf.sigmaf,hloc=hloc,floc=floc)
 print("**Eimp finish\n")
 
-print(eimp.r)
-# print(sigma_loc_gwc.rf)
-print(hloc.r[0,0,0,0]+floc.r[0,0,0,0])
-# exit()
-
 print("**Hybridisation start")
-delta = Hybridisation(crystal=cf.crystal,ft=cf.ft,gloc=gloc,eimp=eimp,mu=0.0,sigmahimp=hloc.r,sigmafimp=floc.r,sigmacimp=sigma_loc_gwc.rf)
+delta = Hybridisation(crystal=cf.crystal,ft=cf.ft,gloc=gloc,eimp=eimp,sigmahimp=hloc.r,sigmafimp=floc.r,sigmacimp=sigma_loc_gwc.rf)
 print("**Hybridisation finish\n")
 
 
-print(delta.rf[0,0,0,-1,0])
 
 plot = plt.figure(1)
-# plt.scatter(cf.ft.omega[:], gloc.gf[0, 0, 0, :, 0].real, color="blue")
-# plt.scatter(cf.ft.omega[:], ginv[:] + sigma_loc_gwc.rf[0, 0, 0, :, 0].real, color="blue")
 plt.scatter(cf.ft.omega[1:], delta.rf[0, 0, 0, 1:, 0].real, color="blue")
-# plt.scatter(cf.ft.omega[:], delta.rf[0, 0, 0, :, 0].imag, color="blue")
+plt.title("Hybridisation -- real part")
+plt.xlabel("freq")
+plt.ylabel("Delta")
+# plt.ylim(-5, 5)
 plt.legend()
 plt.grid(which="both", linestyle="--", linewidth=0.3)
 plt.show()
 
-# plot = plt.figure(1)
-# # plt.scatter(cf.ft.omega[:], gloc.gf[0, 0, 0, :, 0].real, color="blue")
-# plt.scatter(cf.ft.omega[:], sigma_loc_gwc.rf[0, 0, 0, :, 0].real, color="blue")
-# # plt.scatter(cf.ft.omega[:], delta.rf[0, 0, 0, :, 0].real, color="blue")
-# # plt.scatter(cf.ft.omega[:], delta.rf[0, 0, 0, :, 0].imag, color="blue")
-# plt.legend()
-# plt.grid(which="both", linestyle="--", linewidth=0.3)
-# plt.show()
+plot = plt.figure(1)
+plt.scatter(cf.ft.omega[:], delta.rf[0, 0, 0, :, 0].imag, color="blue")
+plt.title("Hybridisation -- imag part")
+plt.xlabel("freq")
+plt.ylabel("Delta")
+# plt.ylim(-5, 5)
+plt.legend()
+plt.grid(which="both", linestyle="--", linewidth=0.3)
+plt.show()
 
 
