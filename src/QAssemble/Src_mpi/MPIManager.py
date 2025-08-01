@@ -1,7 +1,7 @@
 from mpi4py import MPI
 from mpi4py_fft import PFFT, newDistArray
 import os, sys
-
+import numba
 import scipy.linalg
 from .Crystal import Crystal
 from .FTGrid import FTGrid
@@ -553,6 +553,9 @@ class MPIManager(object):
     
     def TMPIAllreduce(self, commtau : MPI.COMM_WORLD, matin : np.ndarray, ntau : int) -> np.ndarray:
 
+        # if (commtau.Get_rank() == 0):
+        #     print("MPI Allreduce Start")
+
         ntauloc = matin.shape[0]
 
         tempmat = np.zeros((ntau), dtype=np.complex128, order='F')
@@ -564,6 +567,8 @@ class MPIManager(object):
 
         commtau.Allreduce(tempmat, matout, op=MPI.SUM)
         
+        # if (commtau.Get_rank() == 0):
+        #     print("MPI Allreduce Finish")
 
         return matout
     
@@ -919,68 +924,132 @@ class FLatDynMPI(object):
 
 
 
-    def F2T_v0(self, ff : np.ndarray, isgreen : bool, highzero : bool):
+
+    # def F2T(self, ff : np.ndarray, isgreen : bool, highzero : bool) -> np.ndarray:
+
+    #     if (self.mpimanager.rank == 0):
+    #         print("Compute Fourier transform F2T Start")
+    #     moment, high = self.Moment(ff, isgreen, highzero)
+
+    #     rank = self.nodedict['commtaurank']
+    #     ntauloc = self.submatrixtau[rank][1]-self.submatrixtau[rank][0]
+    #     beta = self.ftgrid.beta
+    #     omega = self.ftgrid.omega*1j
+    #     nomega = len(omega)
+    #     norb, _, ns, nrk, _ = ff.shape
+
+    #     tau = np.zeros((ntauloc), dtype=np.float64, order='F')
+    #     ftau = np.zeros((norb, norb, ns, nrk, ntauloc), dtype=np.complex128, order='F')
+    #     ffglob = np.zeros((norb, norb, ns, nrk, nomega), dtype=np.complex128, order='F')
+
+    #     for itau in range(ntauloc):
+    #         tidx = self.mpimanager.TLocal2Global([rank, itau])
+    #         tau[itau] = self.ftgrid.tau[tidx]
+
+    #     for irk in range(nrk):
+    #         for js in range(ns):
+    #             for jorb in range(norb):
+    #                 for iorb in range(norb):
+    #                     ffglob[iorb, jorb, js, irk] = self.mpimanager.FMPIAllreduce(self.commw, ff[iorb, jorb, js, irk], nomega)
         
-        if (self.mpimanager.rank == 0):
-            print("Compute Fourier transform F2T Start")
-        moment, high = self.Moment(ff, isgreen, highzero)
+        
+    #             # for jorb in range(norb):
+    #             #     for iorb in range(norb):
+    #             #         for itau in range(ntauloc):
+    #             #             for iomega in range(nomega):
+    #             #                 ftau[iorb, jorb, js, irk, itau] += 1/beta * np.exp(-tau[itau]*omega[iomega]) \
+    #             #                 *(
+    #             #                     ffglob[iorb, jorb, js, irk, iomega] 
+    #             #                     - moment[iorb, jorb, js, irk, 0]/omega[iomega] 
+    #             #                     - moment[iorb, jorb, js, irk, 1]/(omega[iomega])**2 
+    #             #                     - moment[iorb, jorb, js, irk, 2]/(omega[iomega])**3
+    #             #                 ) \
+    #             #                   +1/beta * np.exp(tau[itau]*omega[iomega]) \
+    #             #                   *(
+    #             #                       np.conjugate(ffglob[jorb, iorb, js, irk, iomega])
+    #             #                       + moment[iorb, jorb, js, irk, 0]/omega[iomega]
+    #             #                       - moment[iorb, jorb, js, irk, 1]/(omega[iomega])**2
+    #             #                       + moment[iorb, jorb, js, irk, 2]/(omega[iomega])**3
+    #             #                   )
+    #             #             ftau[iorb, jorb, js, irk, itau] += \
+    #             #             - moment[iorb, jorb, js, irk, 0]/2.0 \
+    #             #             + moment[iorb, jorb, js, irk, 1]*beta/2.0 * \
+    #             #                 (tau[itau]/beta - 1/2) \
+    #             #             - moment[iorb, jorb, js, irk, 2]*beta**2/4.0 * \
+    #             #                 ((tau[itau]/beta)**2 - (tau[itau]/beta))
+        
+    #     ftau = QAFort.fourier.dyn_f2t(omega, ffglob, moment, tau)
+    #     if (self.mpimanager.rank == 0):
+    #         print("Compute Fourier transform F2T Finish")
+                            
+    #     return ftau
 
-        rank = self.nodedict['commtaurank']
-        ntauloc = self.submatrixtau[rank][1]-self.submatrixtau[rank][0]
-        beta = self.ftgrid.beta
-        tau = self.ftgrid.tau
-        omega = self.ftgrid.omega
-        nomega = len(omega)
-
-        norb, _, ns, nkloc, nfloc = ff.shape
-        ftau = np.zeros((norb, norb, ns, nkloc, ntauloc), dtype=np.complex128, order='F')
-        nffinu = 4 * nomega - 1
-        momega_finu = np.zeros((nffinu, 3), dtype=np.complex128, order='F')
-        fffinu = np.zeros((nffinu), dtype=np.complex128, order='F')
-        ftaufinu = np.zeros((ntauloc), dtype=np.complex128, order='F')
-        mtaufinu = np.zeros((ntauloc, 3), dtype=np.complex128, order='F')
-        tauradfinu = np.zeros((ntauloc), dtype=np.float64, order='F')
-
-        for iomega in range(-2*nomega+1, 2*nomega):
-            if((iomega % 2) == 1):
-                momega_finu[iomega, 0] = 1.0/(np.pi/beta*iomega*1j)
-                momega_finu[iomega, 1] = 1.0/(np.pi/beta*iomega*1j)**2
-                momega_finu[iomega, 2] = 1.0/(np.pi/beta*iomega*1j)**3
-
-        for itau in range(ntauloc):
-            tauidx = self.mpimanager.TLocal2Global([rank, itau])
-            tauradfinu[itau] = tau[tauidx]/beta*np.pi
-
-        for ii in range(3):
-            mtaufinu[:, ii] = finufft.nufft1d2(tauradfinu, momega_finu[:,ii], isign=-1, eps=1e-12, nthreads=1)
-
-        for ik in range(nkloc):
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):   
-                        ffglob = self.mpimanager.FMPIAllreduce(self.commw, ff[iorb, jorb, js, ik], nf=nomega)
-                        ffglobT = self.mpimanager.FMPIAllreduce(self.commw, ff[jorb, iorb, js, ik], nf=nomega)
-                        for iomega in range(-2*nomega+1, 2*nomega):
-                            if ((iomega % 2) == 1):
-                                if (iomega > 0):
-                                    fffinu[iomega] = ffglob[int((iomega-1)/2)]
-                                else:
-                                    fffinu[iomega] = np.conjugate(ffglobT[int((-iomega-1)/2)])
-                        ftaufinu = finufft.nufft1d2(tauradfinu, fffinu, isign=-1, eps=1e-12, nthreads=1)                        
-                        
-                        for itau in range(ntauloc):
-                            ftau[iorb, jorb, js, ik, itau] = ftaufinu[itau]/beta
-                            tauidx = self.mpimanager.TLocal2Global([rank, itau])
-                            xx = tau[tauidx]/beta
-                            for ii in range(3):
-                                # moment_temp = 
-                                ftau[iorb, jorb, js, ik, itau] += -moment[iorb, jorb, js, ik, ii] * mtaufinu[itau, ii]/beta \
-                                                                +0.5 * beta**(ii)/self.crystal.FactorialInt(ii) * (-1)**(ii+1) \
-                                                                * self.crystal.EulerPolynomial(xx, ii) * moment[iorb, jorb, js, ik,ii]                             
-
-
-        return ftau
     
+    # def T2F(self, ftau: np.ndarray) -> np.ndarray:
+    #     """
+    #     Performs the T2F transform using FINUFFT's built-in MPI support.
+    #     """
+    #     # 1. Get communicators and local shape info
+    #     comm_f = self.nodedict['commf']
+    #     comm_tau = self.nodedict['commtau']
+    #     rank_f = self.nodedict['commfrank']
+
+    #     nfloc = self.submatrixw[rank_f][1] - self.submatrixw[rank_f][0]
+    #     norb, _, ns, nk, ntauloc = ftau.shape
+
+    #     # 2. Prepare the source (tau) and target (omega) points
+    #     # Each process only needs its local slice of tau points
+    #     rank_tau = self.nodedict['commtaurank']
+    #     tau_start = self.submatrixtau[rank_tau][0]
+    #     tau_end = self.submatrixtau[rank_tau][1]
+    #     local_tau = self.ftgrid.tau[tau_start:tau_end]
+
+    #     # For fermionic transform, rescale tau to [0, 2*pi]
+    #     # This corresponds to the integer modes 'n' in omega_n = (2n+1)pi/beta
+    #     # The kernel is exp(i*n*x_j) * exp(i*pi*tau/beta)
+    #     local_x_j = 2 * np.pi * local_tau / self.ftgrid.beta
+    #     phase_factor = np.exp(1j * np.pi * local_tau / self.ftgrid.beta)
+        
+    #     # Total number of output omega modes
+    #     nomega_total = len(self.ftgrid.omega)
+
+    #     # 3. Allocate output array
+    #     ff = np.zeros((norb, norb, ns, nk, nfloc), dtype=np.complex128, order='F')
+
+    #     # 4. Loop over the data and perform the parallel NUFFT
+    #     # The loops are still needed, but the core operation is now a parallel NUFFT call.
+    #     for iorb in range(norb):
+    #         for jorb in range(norb):
+    #             for js in range(ns):
+    #                 for ik in range(nk):
+    #                     # Get the local slice of ftau for this matrix element
+    #                     # phase_factor = np.sqrt(local_tau )
+    #                     local_strengths = ftau[iorb, jorb, js, ik, :]
+
+    #                     # Apply the phase factor for fermionic frequencies
+    #                     modified_strengths = local_strengths * phase_factor
+
+    #                     # This is the key call:
+    #                     # - Each process provides its LOCAL tau points and strengths.
+    #                     # - FINUFFT handles the MPI_Alltoallv communication internally.
+    #                     # - The output is distributed across the same communicator.
+    #                     local_ff_slice = finufft.nufft1d1(
+    #                         local_x_j,
+    #                         modified_strengths,
+    #                         n_modes=nomega_total,
+    #                         isign=1,  # For exp(+i*omega*tau)
+    #                         eps=1e-12,
+    #                         nthreads=1  # Use the tau communicator
+    #                     )
+
+    #                     # Since comm_f and comm_tau have the same processes, the output
+    #                     # `local_ff_slice` is already the correct local frequency slice.
+    #                     for iomega in range(nfloc):
+    #                         fidx = self.mpimanager.FLocal2Global([comm_f.Get_rank(), iomega])
+    #                         ff[iorb, jorb, js, ik, iomega] = local_ff_slice[fidx]
+
+    #     return ff
+
     def T2F(self, ftau : np.ndarray) -> np.ndarray:
 
         rank = self.nodedict['commfrank']
@@ -988,6 +1057,7 @@ class FLatDynMPI(object):
         norb = ftau.shape[0]
         ns = ftau.shape[2]
         nk = ftau.shape[3]
+        # ntauloc = ftau.shape[4]
         # tau = self.ftgrid.tau
         ntau = len(self.ftgrid.tau)
         
@@ -1008,6 +1078,7 @@ class FLatDynMPI(object):
             fidx = self.mpimanager.FLocal2Global([rank, ifloc])
             omega[ifloc] = self.ftgrid.omega[fidx]
 
+        # ff = QAFort.fourier.flatdyn_t2f(self.ftgrid.tau, self.ftgrid.beta, ftauglob, omega)
         ffglob = QAFort.fourier.flatdyn_t2f(self.ftgrid.tau, self.ftgrid.beta, ftauglob, self.ftgrid.omega)
 
         for ifreq in range(nfloc):
@@ -1019,46 +1090,79 @@ class FLatDynMPI(object):
 
         
 
-    def T2F_v0(self, ftau : np.ndarray) -> np.ndarray:
+    # def T2F_v0(self, ftau : np.ndarray) -> np.ndarray:
 
-        rank = self.nodedict['commfrank']
-        nfloc = self.submatrixw[rank][1]-self.submatrixw[rank][0]
-        beta = self.ftgrid.beta
-        tau = self.ftgrid.tau
-        omega = self.ftgrid.omega
-        ntau = len(tau)
+    #     rank = self.nodedict['commfrank']
+    #     nfloc = self.submatrixw[rank][1]-self.submatrixw[rank][0]
+    #     beta = self.ftgrid.beta
+    #     tau = self.ftgrid.tau
+    #     omega = self.ftgrid.omega
+    #     ntau = len(tau)
 
-        norb, _, ns, nk, ntauloc = ftau.shape
-        ntaufinu = 2*ntau
-        nffinu = 4*len(omega) -1
-        tauradfinu = np.zeros((ntaufinu), dtype=np.float64, order='F')
-        ftaufinu = np.zeros((ntaufinu), dtype=np.complex128, order='F')
-        ff = np.zeros((norb, norb, ns, nk, nfloc), dtype=np.complex128, order='F')
+    #     norb, _, ns, nk, ntauloc = ftau.shape
+    #     ntaufinu = 2*ntau
+    #     nffinu = 4*len(omega) -1
+    #     tauradfinu = np.zeros((ntaufinu), dtype=np.float64, order='F')
+    #     ftaufinu = np.zeros((ntaufinu), dtype=np.complex128, order='F')
+    #     ff = np.zeros((norb, norb, ns, nk, nfloc), dtype=np.complex128, order='F')
 
-        for itau in range(ntau):
-            # itehta = QAFort.common.ttind(itau, ntau)
-            tauradfinu[itau] = tau[itau]/beta*np.pi
-            tauradfinu[-itau -1] = -tauradfinu[itau]
+    #     for itau in range(ntau):
+    #         # itehta = QAFort.common.ttind(itau, ntau)
+    #         tauradfinu[itau] = tau[itau]/beta*np.pi
+    #         tauradfinu[-itau -1] = -tauradfinu[itau]
 
-        for ik in range(nk):
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        ftauglob = self.mpimanager.TMPIAllreduce(self.commtau, ftau[iorb, jorb, js, ik], ntau = ntau)
-                        for itau in range(ntau):
-                            ftaufinu[itau] = ftauglob[itau] * np.sqrt(tau[itau]*(beta-tau[itau]))*np.pi/ntau
-                            ftaufinu[itau-ntau] = -ftaufinu[itau]
+    #     for ik in range(nk):
+    #         for js in range(ns):
+    #             for jorb in range(norb):
+    #                 for iorb in range(norb):
+    #                     ftauglob = self.mpimanager.TMPIAllreduce(self.commtau, ftau[iorb, jorb, js, ik], ntau = ntau)
+    #                     for itau in range(ntau):
+    #                         ftaufinu[itau] = ftauglob[itau] * np.sqrt(tau[itau]*(beta-tau[itau]))*np.pi/ntau
+    #                         ftaufinu[itau-ntau] = -ftaufinu[itau]
                         
-                        fffinu = finufft.nufft1d1(tauradfinu, ftaufinu, nffinu, isign=1, eps=1e-12, nthreads=1)
-                        for ifreq in range(0, 2*len(omega)):
-                            if ((ifreq % 2) == 1):
-                                irank, iomega = self.mpimanager.FGlobal2Local(int((ifreq-1)/2))
-                                if (irank == rank):
-                                    ff[iorb, jorb, js, iomega] = fffinu[ifreq]/2.0
+    #                     fffinu = finufft.nufft1d1(tauradfinu, ftaufinu, nffinu, isign=1, eps=1e-12, nthreads=1)
+    #                     for ifreq in range(0, 2*len(omega)):
+    #                         if ((ifreq % 2) == 1):
+    #                             irank, iomega = self.mpimanager.FGlobal2Local(int((ifreq-1)/2))
+    #                             if (irank == rank):
+    #                                 ff[iorb, jorb, js, iomega] = fffinu[ifreq]/2.0
 
-        return ff
+    #     return ff
                         
-                            
+    # def T2F(self, ftau : np.ndarray) -> np.ndarray:
+
+    #     if (self.mpimanager.rank == 0):
+    #         print("Compute Fourier transform T2F Start")
+        
+    #     rank = self.nodedict['commfrank']
+    #     nfloc = self.submatrixw[rank][1]-self.submatrixw[rank][0]
+    #     beta = self.ftgrid.beta
+    #     # nomega = len(self.ftgrid.omega)
+    #     ntau = len(self.ftgrid.tau)
+    #     norb = ftau.shape[0]
+    #     ns = ftau.shape[2]
+    #     nrk = ftau.shape[3]
+
+    #     # tempmat = np.zeros((ntau), dtype=np.complex128, order='F')
+    #     ftauglob = np.zeros((ntau), dtype=np.complex128, order='F')
+    #     omega = np.zeros((nfloc), dtype=np.float64, order='F')
+    #     ff = np.zeros((norb, norb, ns, nrk, nfloc), dtype=np.complex128, order='F')
+
+    #     for ifreq in range(nfloc):
+    #         fidx = self.mpimanager.FLocal2Global([rank, ifreq])
+    #         omega[ifreq] = self.ftgrid.omega[fidx]
+
+    #     for irk in range(nrk):
+    #         for js in range(ns):
+    #             for jorb in range(norb):
+    #                 for iorb in range(norb):
+    #                     ftauglob = self.mpimanager.TMPIAllreduce(self.commtau, ftau[iorb, jorb, js, irk], ntau)
+    #                     ff[iorb, jorb, js, irk] = QAFort.fourier.dyn_t2f(self.ftgrid.tau, ftauglob, omega)
+        
+    #     if (self.mpimanager.rank == 0):
+    #         print("Compute Fourier transform T2F Finish")
+        
+    #     return ff
 
 
 class BLatDynMPI(object):

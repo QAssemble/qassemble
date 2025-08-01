@@ -91,7 +91,7 @@ def main():
                 tempmat = identity * ftgrid.omega[iw] * 1j - hmat[:, :, js, ik]
                 glatt0[:, :, js, ik, iw] = np.linalg.inv(tempmat)
 
-    glattau = flatdyn.F2T(glatt0, True, True)
+    glattau = flatdyn.F2T(glatt0, 1, 1)
 
     submatrixf = flatdynmpi.submatrixw[flatdynmpi.commw.Get_rank()]
     nwloc = submatrixf[1] - submatrixf[0]

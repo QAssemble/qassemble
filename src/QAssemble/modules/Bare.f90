@@ -96,8 +96,8 @@ contains
 
     pi = datan2(1.0d0, 1.0d0)*4.0d0
 
-!   beta= tau(0)/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)*2.0d0
-    beta = tau(ntau-1)
+    beta= tau(0)/(dcos(pi*(ntau-0.5d0)/dble(ntau))+1.0d0)*2.0d0
+    ! beta = tau(ntau-1)
     machep = epsilon ( machep )
 !    print *, machep
 

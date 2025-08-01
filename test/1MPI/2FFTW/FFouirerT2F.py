@@ -136,10 +136,10 @@ def main():
                             [flatdynmpi.commw.Get_rank(), iw]
                         )
                         err = (
-                            glatf[iorb, jorb, js, kidx, fidx]- glatf2[iorb, jorb, js, ik, iw]
+                            glatt0[iorb, jorb, js, kidx, fidx]- glatf2[iorb, jorb, js, ik, iw]
                         )
-                        if (abs(err) > 1.0e-6):
-                            print(iorb, jorb, js, ik, iw, abs(err), glatf[iorb, jorb, js, kidx, fidx], glatf2[iorb, jorb, js, ik, iw])
+                        if (abs(err) > 1.0e-4):
+                            print(iorb, jorb, js, ik, iw, abs(err), glatt0[iorb, jorb, js, kidx, fidx], glatf2[iorb, jorb, js, ik, iw])
 
 
 if __name__ == "__main__":

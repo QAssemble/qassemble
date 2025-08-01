@@ -896,6 +896,63 @@ contains
     enddo
   end subroutine Dyn_T2F
 
+  subroutine Dyn_F2T(norb,ns,nrk,nomega,omega,ff,moment,ntau,tau,ftau)
+    
+    implicit none
+
+    integer, intent(in) :: norb, ns, nrk, nomega, ntau
+    double precision, intent(in) :: tau(0:(ntau-1)) 
+    complex*16, intent(in) :: ff(norb, norb, ns, nrk, 0:(nomega-1)), moment(norb, norb, ns, nrk, 3), omega(0:(nomega-1))
+    complex*16, intent(out) :: ftau(norb, norb, ns, nrk, 0:(ntau-1))
+
+    integer :: itau, iomega, ii, iorb, jorb, is, irk
+    double precision :: beta, pi
+    complex*16 :: ai
+
+    ai = dcmplx(0.0d0, 1.0d0)
+    pi = datan2(1.0d0, 1.0d0)*4.0d0
+
+    beta = pi/omega(0)
+
+    do irk = 1, nrk
+      do is = 1, ns
+        do iorb = 1, norb
+          do jorb = 1, norb
+            do itau = 0, ntau-1
+              do iomega = 0, nomega-1
+                ftau(iorb,jorb,is,irk,itau) &
+                = ftau(iorb,jorb,is,irk,itau) &
+                +1.0d0/beta * cdexp(-tau(itau)*omega(iomega)) &
+                * ( &
+                ff(iorb, jorb, is, irk, iomega) &
+                - moment(iorb, jorb, is, irk, 1)/omega(iomega) &
+                - moment(iorb, jorb, is, irk, 2)/(omega(iomega))**2 &
+                - moment(iorb, jorb, is, irk, 3)/(omega(iomega))**3 &
+                ) &
+                +1.0d0/beta * cdexp(tau(itau)*omega(iomega)) &
+                * ( &
+                dconjg(ff(jorb, iorb, is, irk, iomega)) &
+                + moment(iorb, jorb, is, irk, 1)/omega(iomega) &
+                - moment(iorb, jorb, is, irk, 2)/(omega(iomega)**2) &
+                + moment(iorb, jorb, is, irk, 3)/(omega(iomega)**3) &
+                )
+              enddo
+              ftau(iorb, jorb, is, irk, itau) &
+              = ftau(iorb, jorb, is, irk, itau) &
+              - moment(iorb, jorb, is, irk, 1)/2.0d0 &
+              + moment(iorb, jorb, is, irk, 2)*beta/2.0d0 &
+              * (tau(itau)/beta - 1.0d0/2.0d0) &
+              - moment(iorb, jorb, is, irk, 3)*beta**2/4.0d0 &
+              * ((tau(itau)/beta)**2 - (tau(itau)/beta))
+            enddo
+          enddo
+        enddo
+      enddo
+    enddo
+  
+  endsubroutine Dyn_F2T
+
+
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 ! subroutine FLocDyn_T2F_v0(norb,ns,ntau,tau,ftau,nf,freq,ff)

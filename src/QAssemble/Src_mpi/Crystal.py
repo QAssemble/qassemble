@@ -604,7 +604,7 @@ class Crystal(object):
             impdict (dict): Mapping of impurity labels to lists of orbital index lists.
             e.g.
             impdict = {
-                '1'  : [[[0, 0]],[[1, 0]]]
+                '1'  : [[[0, 0], [0, 1]],[[1, 0]]]
                 }
 
         Returns:
@@ -955,3 +955,202 @@ class Crystal(object):
         if j < 0:
             raise ValueError("factorial is defined only for non-negative numbers")
         return float(math.factorial(j))
+    
+    def fderiv_dcmplx(self,m, x, f):
+        """
+        Compute derivatives or anti-derivatives of complex functions
+        
+        Parameters:
+        m: order of derivative (negative for anti-derivative)
+        x: abscissa array
+        f: function values (complex)
+        
+        Returns:
+        g: (anti-)derivative of f
+        """
+        n = len(x)
+        g = np.zeros_like(f, dtype=complex)
+        
+        if m == -3:
+            # Low accuracy trapezoidal integration
+            g[0] = 0.0
+            for i in range(n-1):
+                g[i+1] = g[i] + 0.5 * (x[i+1] - x[i]) * (f[i+1] + f[i])
+            return g
+        
+        elif m == -2:
+            # Medium accuracy Simpson integration
+            g[0] = 0.0
+            for i in range(n-2):
+                x0, x1, x2 = x[i], x[i+1], x[i+2]
+                g[i+1] = g[i] + (x0-x1) * (
+                    f[i+2] * (x0-x1)**2 +
+                    f[i+1] * (x2-x0) * (x0+2*x1-3*x2) +
+                    f[i] * (x2-x1) * (2*x0+x1-3*x2)
+                ) / (6 * (x0-x2) * (x1-x2))
+            
+            # Last point
+            x0, x1, x2 = x[n-1], x[n-2], x[n-3]
+            g[n-1] = g[n-2] + (x1-x0) * (
+                f[n-3] * (x1-x0)**2 +
+                f[n-1] * (x1-x2) * (3*x2-x1-2*x0) +
+                f[n-2] * (x0-x2) * (3*x2-2*x1-x0)
+            ) / (6 * (x2-x1) * (x2-x0))
+            return g
+        
+        elif m == 0:
+            return f.copy()
+        
+        elif m >= 4:
+            return np.zeros_like(f)
+        
+        else:
+            # High accuracy spline interpolation
+            cf = self.spline_dcmplx(x, f)
+            
+            if m <= -1:
+                # Integration
+                g[0] = 0.0
+                for i in range(n-1):
+                    dx = x[i+1] - x[i]
+                    g[i+1] = g[i] + (((0.25*cf[2,i]*dx + 
+                                      0.3333333333333333*cf[1,i])*dx + 
+                                     0.5*cf[0,i])*dx + f[i])*dx
+            elif m == 1:
+                g = cf[0, :]
+            elif m == 2:
+                g = 2.0 * cf[1, :]
+            elif m == 3:
+                g = 6.0 * cf[2, :]
+            
+            return g
+
+    def spline_dcmplx(self, x, f):
+        """
+        Calculate cubic spline coefficients for complex data
+        
+        Parameters:
+        x  : abscissa array (real array of length n)
+        f  : input data array (complex array of length n)
+        
+        Returns:
+        cf : cubic spline coefficients (complex array of shape (3,n))
+        
+        Description:
+        Calculates the coefficients of a cubic spline fitted to input data. In other
+        words, given a set of data points f_i defined at x_i, where
+        i=1...n, the coefficients c_j^i are determined such that
+        y_i(x)=f_i+c_1^i(x-x_i)+c_2^i(x-x_i)^2+c_3^i(x-x_i)^3,
+        is the interpolating function for x∈[x_i,x_{i+1}). The coefficients are
+        determined piecewise by fitting a cubic polynomial to adjacent points.
+        """
+        
+        n = len(x)
+        cf = np.zeros((3, n), dtype=np.complex128)
+        
+        if n == 1:
+            cf[:, 0] = 0.0
+            return cf
+        
+        if n == 2:
+            cf[0, 0] = (f[1] - f[0]) / (x[1] - x[0])
+            cf[1:3, 0] = 0.0
+            cf[0, 1] = cf[0, 0]
+            cf[1:3, 1] = 0.0
+            return cf
+        
+        if n == 3:
+            x0 = x[0]
+            x1 = x[1] - x0
+            x2 = x[2] - x0
+            y0 = f[0]
+            y1 = f[1] - y0
+            y2 = f[2] - y0
+            t0 = 1.0 / (x1 * x2 * (x2 - x1))
+            t1 = x1 * y2
+            t2 = x2 * y1
+            c1 = t0 * (x2 * t2 - x1 * t1)
+            c2 = t0 * (t1 - t2)
+            cf[0, 0] = c1
+            cf[1, 0] = c2
+            cf[2, 0] = 0.0
+            t3 = 2.0 * c2
+            cf[0, 1] = c1 + t3 * x1
+            cf[1, 1] = c2
+            cf[2, 1] = 0.0
+            cf[0, 2] = c1 + t3 * x2
+            cf[1, 2] = c2
+            cf[2, 2] = 0.0
+            return cf
+        
+        y0 = f[0]
+        y1 = f[1] - y0
+        y2 = f[2] - y0
+        y3 = f[3] - y0
+        x0 = x[0]
+        x1 = x[1] - x0
+        x2 = x[2] - x0
+        x3 = x[3] - x0
+        t0 = 1.0 / (x1 * x2 * x3 * (x1 - x2) * (x1 - x3) * (x2 - x3))
+        t1 = x1 * x2 * y3
+        t2 = x2 * x3 * y1
+        t3 = x3 * x1 * y2
+        t4 = x1**2
+        t5 = x2**2
+        t6 = x3**2
+        y1 = t3 * t6 - t1 * t5
+        y3 = t2 * t5 - t3 * t4
+        y2 = t1 * t4 - t2 * t6
+        c1 = t0 * (x1 * y1 + x2 * y2 + x3 * y3)
+        c2 = -t0 * (y1 + y2 + y3)
+        c3 = t0 * (t1 * (x1 - x2) + t2 * (x2 - x3) + t3 * (x3 - x1))
+        cf[0, 0] = c1
+        cf[1, 0] = c2
+        cf[2, 0] = c3
+        cf[0, 1] = c1 + 2.0 * c2 * x1 + 3.0 * c3 * t4
+        cf[1, 1] = c2 + 3.0 * c3 * x1
+        cf[2, 1] = c3
+        
+        if n == 4:
+            cf[0, 2] = c1 + 2.0 * c2 * x2 + 3.0 * c3 * t5
+            cf[1, 2] = c2 + 3.0 * c3 * x2
+            cf[2, 2] = c3
+            cf[0, 3] = c1 + 2.0 * c2 * x3 + 3.0 * c3 * t6
+            cf[1, 3] = c2 + 3.0 * c3 * x3
+            cf[2, 3] = c3
+            return cf
+        
+        for i in range(2, n-2):
+            y0 = f[i]
+            y1 = f[i-1] - y0
+            y2 = f[i+1] - y0
+            y3 = f[i+2] - y0
+            x0 = x[i]
+            x1 = x[i-1] - x0
+            x2 = x[i+1] - x0
+            x3 = x[i+2] - x0
+            t1 = x1 * x2 * y3
+            t2 = x2 * x3 * y1
+            t3 = x3 * x1 * y2
+            t0 = 1.0 / (x1 * x2 * x3 * (x1 - x2) * (x1 - x3) * (x2 - x3))
+            c3 = t0 * (t1 * (x1 - x2) + t2 * (x2 - x3) + t3 * (x3 - x1))
+            t4 = x1**2
+            t5 = x2**2
+            t6 = x3**2
+            y1 = t3 * t6 - t1 * t5
+            y2 = t1 * t4 - t2 * t6
+            y3 = t2 * t5 - t3 * t4
+            cf[0, i] = t0 * (x1 * y1 + x2 * y2 + x3 * y3)
+            cf[1, i] = -t0 * (y1 + y2 + y3)
+            cf[2, i] = c3
+        
+        c1 = cf[0, n-3]
+        c2 = cf[1, n-3]
+        c3 = cf[2, n-3]
+        cf[0, n-2] = c1 + 2.0 * c2 * x2 + 3.0 * c3 * t5
+        cf[1, n-2] = c2 + 3.0 * c3 * x2
+        cf[2, n-2] = c3
+        cf[0, n-1] = c1 + 2.0 * c2 * x3 + 3.0 * c3 * t6
+        cf[1, n-1] = c2 + 3.0 * c3 * x3
+        cf[2, n-1] = c3
+        return cf
