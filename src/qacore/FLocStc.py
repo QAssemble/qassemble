@@ -319,7 +319,6 @@ class SigmaHLoc(FLocStc):
             #             h[iorbc1,iorbc2,js,ik] += tempmat[ind1,ind2,0]*occ[iorbc4,iorbc3,ks]
             # for jk in range(nk):
             #     h[iorbc1,iorbc2,js,ik] += tempmat[ind1,ind2,0]*occ[iorbc4,iorbc3,ks,jk]/nk
-            print()
             for iprob in range(nprob):
                 # for iff in range(nf):
                 for ind1 in range(norbc * ns):
@@ -339,6 +338,13 @@ class SigmaHLoc(FLocStc):
                         iorbc3 = self.crystal.FIndex([b, m3])
                         iorbc4 = self.crystal.FIndex([b, m4])
                         # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]
+                        if iorbc1==iorbc2:
+                            print('===============')
+                            print('iorbc1,iorbc2,js,vloc,occ')
+                            print(iorbc1,iorbc2,js,self.vloc[iorb, jorb, js, ks, 0, iprob],occ[iorbc4, iorbc3, ks])
+                            print('iorb,jorb,js,ks,iorbc4,iorbc3,ks')
+                            print(iorb,jorb,js,ks,iorbc4,iorbc3,ks)
+                        
                         h[iorbc1, iorbc2, js, iprob] += (
                             self.vloc[iorb, jorb, js, ks, 0, iprob] * occ[iorbc4, iorbc3, ks] ### vloc take only iomega = 0
                     )
@@ -373,6 +379,12 @@ class SigmaHLoc(FLocStc):
                             [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
                             iorbc3 = self.crystal.FIndex([b, m3])
                             iorbc4 = self.crystal.FIndex([b, m4])
+                            if iorbc1==iorbc2:
+                                print('===============')
+                                print('iorbc1,iorbc2,js,vloc,occ')
+                                print(iorbc1,iorbc2,js,self.vloc[iorb, jorb, js, ks, 0, iprob],occ[iorbc4, iorbc3, ks])
+                                print('iorb,jorb,js,ks,iorbc4,iorbc3,ks')
+                                print(iorb,jorb,js,ks,iorbc4,iorbc3,ks)
                             h[iorbc1, iorbc2, js, iprob] = (
                                 self.vloc[iorb, jorb, js, ks, 0, iprob]
                                 * occ[iorbc4, iorbc3, ks]
@@ -408,6 +420,12 @@ class SigmaHLoc(FLocStc):
                             iorbc3 = self.crystal.FIndex([b, m3])
                             iorbc4 = self.crystal.FIndex([b, m4])
                             # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]*C
+                            if iorbc1==iorbc2:
+                                print('===============')
+                                print('iorbc1,iorbc2,js,vloc,occ')
+                                print(iorbc1,iorbc2,js,self.vloc[iorb, jorb, js, ks, 0, iprob],occ[iorbc4, iorbc3, ks])
+                                print('iorb,jorb,js,ks,iorbc4,iorbc3,ks')
+                                print(iorb,jorb,js,ks,iorbc4,iorbc3,ks)
                             h[iorbc1, iorbc2, js, iprob] += (
                                 self.vloc[iorb, jorb, js, ks, 0, iprob]
                                 * occ[iorbc4, iorbc3, ks]
@@ -628,6 +646,11 @@ class EImp(FLocStc):
         self.hloc = hloc
         self.floc = floc
 
+        # print('hartree_loc')
+        # print(self.hloc.r[:,:,0,0])
+        # print('fock_loc')
+        # print(self.floc.r[:,:,0,0])
+
         self.mu = mu
 
         self.hamhf = self.niham.k + self.hamh.k + self.hamf.k
@@ -656,10 +679,15 @@ class EImp(FLocStc):
             for js in range(ns):
                 for iorb in range(norb):
                     hamhf[iorb, iorb, js, ik] -= self.mu
+                    # self.hamhf[iorb, iorb, js, ik] -= self.mu
         
 
         for ispace in range(nspace):
             tempmat[...,ispace] = QAFort.projection.flatstc(hamhf,self.crystal.fprojector[...,ispace])
+        
+        # print('hf_projection')
+        # print(tempmat[:,:,0,0])
+        # exit()
         # tempmat = self.niham.Projection(self.hamhf)
         self.hamhf_projection = self.Loc2Imp(tempmat)
 

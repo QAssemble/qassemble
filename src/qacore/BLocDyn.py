@@ -273,6 +273,40 @@ class BLocDyn(object):
         return matout
 
 
+    def Double2Full(self,matin : np.ndarray)->np.ndarray:
+
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        # nrk = len(self.crystal.kpoint)
+        nft = len(self.ft.nu)#self.ft.size
+
+        matout = np.zeros((norb*norb,norb*norb,ns,ns,nft),dtype=np.complex128,order='F')
+
+        for ift in range(nft):
+            for js in range(ns):
+                for ks in range(ns):
+                    matout[:,:,js,ks,ift] = self.crystal.Double2Full(matin[:,:,js,ks,ift])
+        del matin
+        # gc.collect()
+        return matout
+
+    def Full2Double(self, matin : np.ndarray) -> np.ndarray:
+
+        norb = len(self.crystal.bind)
+        ns = self.crystal.ns
+        # nrk = len(self.crystal.kpoint)
+        nft = len(self.ft.nu)#self.ft.size
+
+        matout = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex128,order='F')
+
+        for ift in range(nft):
+            for js in range(ns):
+                for ks in range(ns):
+                    matout[:,:,js,ks,ift] = self.crystal.Full2Double(matin[:,:,js,ks,ift])
+
+        return matout
+
+
 
 class PolLoc(BLocDyn):
 
@@ -309,7 +343,7 @@ class PolLoc(BLocDyn):
 
         ##########################################
         ##### taken from class GreenLoc(FlocDyn)
-        norbc = self.crystal.fprojector.shape[1]
+        norb = self.crystal.bprojector.shape[1]
         ns = self.crystal.ns
         # nft = self.ft.size
         ntau = len(self.ft.tau)
@@ -319,7 +353,7 @@ class PolLoc(BLocDyn):
         ##########################################
 
         # polrt = np.zeros((norbc,norbc,ns,ns,ntau,nspace),dtype=np.complex128,order='F')
-        polrt = np.zeros((norbc,norbc,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
+        polrt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
         
         gmrt=np.empty_like(grt)
         for iprob in range(nprob):
@@ -334,11 +368,11 @@ class PolLoc(BLocDyn):
                 for iprob in range(nprob):
                     for js in range(ns):
                         for ks in range(ns):
-                            for iorb in range(norbc):
+                            for iorb in range(norb):
                                 [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
                                 iorbc = self.crystal.FIndex([a,m1])
                                 lorbc = self.crystal.FIndex([a,m4])
-                                for jorb in range(norbc):
+                                for jorb in range(norb):
                                     [b,[m2,m3]] = self.crystal.BAtomOrb(jorb)
                                     jorbc = self.crystal.FIndex([b,m2])
                                     korbc = self.crystal.FIndex([b,m3])
@@ -349,11 +383,11 @@ class PolLoc(BLocDyn):
                 C = 1
                 for itau in range(ntau):
                     for iprob in range(nprob):
-                        for iorb in range(norbc):
+                        for iorb in range(norb):
                             [a,[m1,m3]] = self.crystal.BAtomOrb(iorb)
                             iorbc = self.crystal.FIndex([a,m1])
                             korbc = self.crystal.FIndex([a,m3])
-                            for jorb in range(norbc):
+                            for jorb in range(norb):
                                 [b,[m4,m2]] = self.crystal.BAtomOrb(jorb)
                                 lorbc = self.crystal.FIndex([b,m4])
                                 jorbc = self.crystal.FIndex([b,m2])
@@ -362,11 +396,11 @@ class PolLoc(BLocDyn):
                 C = 2
                 for itau in range(ntau):
                     for iprob in range(nprob):
-                        for iorb in range(norbc):
+                        for iorb in range(norb):
                             [a,[m1,m3]] = self.crystal.BAtomOrb(iorb)
                             iorbc = self.crystal.FIndex([a,m1])
                             korbc = self.crystal.FIndex([a,m3])
-                            for jorb in range(norbc):
+                            for jorb in range(norb):
                                 [b,[m4,m2]] = self.crystal.BAtomOrb(jorb)
                                 lorbc = self.crystal.FIndex([b,m4])
                                 jorbc = self.crystal.FIndex([b,m2])
@@ -377,7 +411,7 @@ class PolLoc(BLocDyn):
         self.rt = polrt
 
 
-        self.rf=np.zeros((norbc,norbc,ns,ns,nft,nprob),dtype=np.complex128,order='F')
+        self.rf=np.zeros((norb,norb,ns,ns,nft,nprob),dtype=np.complex128,order='F')
         for iprob in range(nprob):
             self.rf[...,iprob] = self.T2F(self.rt[...,iprob])
 		                    
@@ -461,21 +495,47 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
         # # del self.pol
         # vcomp = self.Loc2Imp(vdyn) #### ??
 
+        # for iprob in range(nprob):
+        #     wrf[...,iprob] = self.Dyson(self.vDyn[...,iprob],self.pol[...,iprob])
+        # # wrf = self.Imp2Loc(tempmat)
+
+        # ## tempmat -> wrf
+
+        # self.rf = wrf
+
+        # wcrf = wrf - self.vLoc  #### wrf - vloc --> static bare V
+
+        # self.crf = wcrf
+        # crt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
+        # for iprob in range(nprob):
+        #     crt[...,iprob] = self.F2T(wcrf[...,iprob], 1, 1)
+        # self.crt = crt
+
+
+
+
         for iprob in range(nprob):
             wrf[...,iprob] = self.Dyson(self.vDyn[...,iprob],self.pol[...,iprob])
         # wrf = self.Imp2Loc(tempmat)
 
         ## tempmat -> wrf
 
-        self.rf = wrf
+        self.rf = np.copy(wrf)
 
-        wcrf = wrf - self.vLoc  #### wrf - vloc --> static bare V
 
-        self.crf = wcrf
+        for iprob in range(nprob):
+            for ifreq in range(nfreq):
+                for iis in range(ns):
+                    for jjs in range(ns):
+                        wcrf[...,iis,jjs,ifreq,iprob] = wrf[...,iis,jjs,ifreq,iprob] - self.vLoc[...,iis,jjs,iprob]  #### wrf - vloc --> static bare V
+        
+
+        self.crf = np.copy(wcrf)
         crt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
         for iprob in range(nprob):
             crt[...,iprob] = self.F2T(wcrf[...,iprob], 1, 1)
-        self.crt = crt
+        self.crt = np.copy(crt)
+        del wrf, wcrf, crt
         return None
 
 
@@ -536,10 +596,10 @@ class WLoc_temp(BLocDyn): #### contains WLoc and WcLoc
         wrf  = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
         wcrf = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
         vdyn = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
-
+        polcomp = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
         for iprob in range(nprob):
             vdyn[...,iprob] = self.StcEmbedding(self.vLoc[...,iprob]) ####  define StcEmbedding ### remove this part when it is dynamic
-        
+            # polcomp[...,iprob] = self.Double2Full(self.pol[...,iprob])*self.c
         # print(self.pol.shape)
         # print(vdyn.shape)
         
@@ -549,6 +609,15 @@ class WLoc_temp(BLocDyn): #### contains WLoc and WcLoc
         # polcomp = self.Loc2Imp(self.pol)*self.c #### ??
         # # del self.pol
         # vcomp = self.Loc2Imp(vdyn) #### ??
+        
+        
+
+
+        # for iprob in range(nprob):
+        #     tempmat[...,iprob] = self.Dyson(vdyn[...,iprob],polcomp[...,iprob])
+
+        # for iprob in range(nprob):
+        #     wrf[...,iprob] = self.Full2Double(tempmat[...,iprob])
 
         for iprob in range(nprob):
             wrf[...,iprob] = self.Dyson(vdyn[...,iprob],self.pol[...,iprob])
@@ -556,15 +625,16 @@ class WLoc_temp(BLocDyn): #### contains WLoc and WcLoc
 
         ## tempmat -> wrf
 
-        self.rf = wrf
+        self.rf = np.copy(wrf)
 
         wcrf = wrf - vdyn  #### wrf - vloc --> static bare V
 
-        self.crf = wcrf
+        self.crf = np.copy(wcrf)
         crt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
         for iprob in range(nprob):
             crt[...,iprob] = self.F2T(wcrf[...,iprob], 1, 1)
-        self.crt = crt
+        self.crt = np.copy(crt)
+        del wrf, wcrf, vdyn, crt
         return None
 
 class WImp(BLocDyn):
@@ -616,18 +686,46 @@ class UImp(BLocDyn):
         nspace = self.crystal.fprojector.shape[3]
         nprob = len(self.crystal.probspace)
 
+        IdendityMatrix = np.identity(norb)
+
 
         uinv_rf_temp = np.zeros((norb,norb),dtype=np.complex128,order='F')
         self.utilde_rf = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        self.ubar_rf = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+
+        # temp = np.zeros((norb,norb,ns,ns,nfreq),dtype=np.complex128,order='F')
+        # for iprob in range(nprob):
+        #     temp = self.Inverse(self.wloc[...,iprob]) + self.ploc[..., iprob]
+        #     self.utilde_rf[...,iprob] = self.Inverse(temp)
+        # # for iprob in range(nprob):
+        # #     for ifreq in range(nfreq):
+        # #         for iis in range(ns):
+        # #             for jjs in range(ns):
+        # #                 uinv_rf_temp[...] = temp[...,iis,jjs,ifreq,iprob] + self.ploc[...,iis,jjs,ifreq,iprob]
+        # #                 self.utilde_rf[...,iis,jjs,ifreq,iprob] = np.linalg.inv(uinv_rf_temp[...])
+
+        # self.ubar_rf = self.utilde_rf - self.vloc
+
+        temp0 = np.zeros((norb,norb,ns,ns,nfreq),dtype=np.complex128,order='F')
+        temp  = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
 
         for iprob in range(nprob):
             for ifreq in range(nfreq):
                 for iis in range(ns):
                     for jjs in range(ns):
-                        uinv_rf_temp[...] = np.linalg.inv(self.wloc[...,iis,jjs,ifreq,iprob]) + self.ploc[...,iis,jjs,ifreq,iprob]
-                        self.utilde_rf[...,iis,jjs,ifreq,iprob] = np.linalg.inv(uinv_rf_temp[...])
+                        temp0[...,iis,jjs,ifreq] = IdendityMatrix + np.dot(self.wloc[...,iis,jjs,ifreq,iprob],self.ploc[...,iis,jjs,ifreq,iprob])
+            temp[...,iprob] = self.Inverse(temp0)
 
-        self.ubar_rf = self.utilde_rf - self.vloc
+        for iprob in range(nprob):
+            for ifreq in range(nfreq):
+                for iis in range(ns):
+                    for jjs in range(ns):
+                        # temp = IdendityMatrix + np.dot(self.wloc[...,iis,jjs,ifreq,iprob],self.ploc[...,iis,jjs,ifreq,iprob])
+                        # self.utilde_rf[...,iis,jjs,ifreq,iprob] = np.dot(np.linalg.inv(temp),self.wloc[...,iis,jjs,ifreq,iprob])
+                        self.utilde_rf[...,iis,jjs,ifreq,iprob] = np.dot(temp[...,iis,jjs,ifreq,iprob],self.wloc[...,iis,jjs,ifreq,iprob])
+                        self.ubar_rf[...,iis,jjs,ifreq,iprob] = self.utilde_rf[...,iis,jjs,ifreq,iprob] - self.vloc[...,iis,jjs,iprob]
+        
+        # self.ubar_rf = self.utilde_rf - self.vloc
 
         self.ubar_rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
         self.utilde_rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')

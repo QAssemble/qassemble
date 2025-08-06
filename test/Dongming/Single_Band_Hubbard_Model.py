@@ -612,7 +612,7 @@ plt.show()
 
 
 print("**Eimp start")
-eimp = EImp(crystal=cf.crystal,niham=cf.niham,mu=cf.green.mu+cf.green.c,hamh=cf.sigmah,hamf=cf.sigmaf,hloc=hloc,floc=floc)
+eimp = EImp(crystal=cf.crystal,niham=cf.niham,mu=cf.green.mu,hamh=cf.sigmah,hamf=cf.sigmaf,hloc=hloc,floc=floc)
 print("**Eimp finish\n")
 
 print("**Hybridisation start")

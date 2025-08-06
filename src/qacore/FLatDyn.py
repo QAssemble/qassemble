@@ -583,6 +583,7 @@ class GreenInt(FLatDyn):
         self.occk = occk
         
         self.occr = self.flatstc.K2R(occk)
+        self.mu = self.mu_old + self.c
         print("Density matrixy calculation finish")
         return None
     
@@ -596,7 +597,7 @@ class GreenInt(FLatDyn):
 
         gkfnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
         
-        chem = self.ChemEmbedding(self.mu)
+        chem = self.ChemEmbedding(self.mu_old)
         gkfnew = self.Dyson(self.gkfmu0,-chem)
         
         self.kf = gkfnew
@@ -654,8 +655,8 @@ class GreenInt(FLatDyn):
             print(f"nmin : {nmin}, nmax : {nmax}")
             sys.exit()
         sol = scipy.optimize.brentq(self.NumOfE,mumin,mumax,xtol=1.0e-6)
-        self.mu_old = self.mu
-        self.mu = sol
+        self.mu_old = sol
+        # self.mu = sol
         print("Finding chemical potential finish")
 
         self.UpdateMu()
@@ -677,7 +678,7 @@ class GreenInt(FLatDyn):
             green.create_dataset(fn,dtype=complex,data=self.kf)
             
             if chem:
-                mureal = np.real(self.mu+self.c)
+                mureal = np.real(self.mu)
                 green.create_dataset('mu',dtype=float,data=mureal)
 
         return None

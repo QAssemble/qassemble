@@ -36,10 +36,12 @@ RVec = [[10, 0, 0], [0, 10, 0], [0, 0, 10]]
 Basis = [[[1 / 2, 1 / 2, 1 / 2], 3]]
 NSpin = 1
 SOC = False
-KGrid = [10, 10, 10]
-NElec = 1
+# KGrid = [7, 7, 7]
+KGrid = [3, 3, 3]
+NElec = 3 # 1
 beta = 100
-cutoff = 100
+T = 2000
+cutoff = 30 #100 #30
 cry = {
     "RVec": RVec,
     "Basis": Basis,
@@ -50,6 +52,7 @@ cry = {
     "KGrid": KGrid,
 }
 ft = {"beta": beta, "cutoff": cutoff}
+# ft = {"T": T, "cutoff": cutoff}
 cf = CorrelationFunction(cry=cry, ft=ft)
 
 
@@ -81,13 +84,17 @@ nkpath = 101
 fpathstc.crystal.Kpath(kpath, nkpath)
 
 
-# fpathstc.Band(hmat = cf.niham.r, plotoption=True)
 
 
-U = 1
+
+U = 5 #1
 J = 0.1
 Up = U - 2* J
 V = 0.2 # 1.0
+# U = 5
+# Up = 0
+# J = 0
+# V = 0.0 # 1.0
 
 locoption = {
     "Parameter": "SlaterKanamori",
@@ -98,16 +105,16 @@ nonlocoption = {
         V: [[0, 0, 1], [1, 0, 0], [0, 1, 0]]
     },
     ((0, 0), (0, 1)): {
-        V: [[0, 0, 1], [1, 0, 0], [0, 1, 0]]
+        V: [[0,0,0],[0, 0, 1], [1, 0, 0], [0, 1, 0]]
     },
     ((0, 0), (0, 2)): {
-        V: [[0, 0, 1], [1, 0, 0], [0, 1, 0]]
+        V: [[0,0,0],[0, 0, 1], [1, 0, 0], [0, 1, 0]]
     },
     ((0, 1), (0, 1)): {
         V: [[0, 0, 1], [1, 0, 0], [0, 1, 0]]
     },
     ((0, 1), (0, 2)): {
-        V: [[0, 0, 1], [1, 0, 0], [0, 1, 0]]
+        V: [[0,0,0],[0, 0, 1], [1, 0, 0], [0, 1, 0]]
     },
     ((0, 2), (0, 2)): {
         V: [[0, 0, 1], [1, 0, 0], [0, 1, 0]]
@@ -139,7 +146,9 @@ cf.GWApproximation(
 )
 
 
+# fpathstc.Band(hmat = cf.niham.r+cf.sigmah.r+cf.sigmaf.r, plotoption=True)
 
+# exit()
 
 
 
@@ -164,9 +173,15 @@ from qacore.FLocDyn import FLocDyn, GreenLoc, SigmaLGWC
 from qacore.FLocStc import FLocStc, SigmaFLoc, SigmaHLoc
 
 gint = cf.green
-cf.crystal.Projector(impdict={"1": [[[0, 0]]]})
+cf.crystal.Projector(impdict={"1": [[[0, 0],[0, 1],[0, 2]]]})
+# cf.crystal.Projector(impdict={"1": [[[0, 0],[0, 1]]]})
 # cf.crystal.Projector(impdict = {"1" : [[[0, 1]]], "2" : [[[1, 2], [1,3]]], "3" : [[[2, 2]]]})
 # exit()
+print(cf.crystal.fprojector.shape)
+print(cf.crystal.bprojector.shape)
+
+# exit()
+
 
 # vloc = cf.vbare.vloc
 
@@ -224,13 +239,16 @@ print("**Vloc start")
 # vloc = cf.vbare.Projection(cf.vbare.k)
 # print("vloc.shape --", vloc.shape)
 # print("vbare.shape --", cf.vbare.k.shape)
-vloc = np.zeros((1, 1, 1, 1, 2), dtype=np.complex128, order="F")
+
 vloc2 = np.zeros_like(cf.vbare.k)
 (norb, norb, ns, ns, nk) = cf.vbare.k.shape
+nspace = cf.crystal.fprojector.shape[3]
+vloc = np.zeros((norb, norb, ns, ns, nspace), dtype=np.complex128, order="F")
 for ik in range(nk):
     vloc2[..., ik] = cf.vbare.vloc.vloc
-vloc[..., 0] = vloc2[0, 0, 0, 0, 0]
-vloc[..., 1] = vloc2[0, 0, 0, 0, 0]
+# vloc2[...,0] = cf.vbare.vloc.vloc
+vloc[..., 0] = vloc2[..., 0]
+# vloc[..., 1] = vloc2[0, 0, 0, 0, 0]
 print("vloc.shape --", vloc.shape)
 print(vloc[:, :, 0, 0, 0])
 print("vbare.shape --", cf.vbare.k.shape)
@@ -416,9 +434,9 @@ plt.show()
 print(pollat.kf[..., 0:5, 0])
 
 print(polloc.rf[..., 0, 0])
-
+kf = np.zeros_like(pollat.kf, dtype=np.complex128, order='F')
 for ik in range(nk):
-    pollat.kf[0, 0, 0, 0, ik, :] = pollat.rf[0, 0, 0, 0, 0, :]
+    kf[..., ik, :] = pollat.rf[..., 0, :]
 
 
 # pollat.kf[0, 1, 0, 0, :, :] = 0.0
@@ -439,7 +457,7 @@ for ik in range(nk):
 print("**WLoc start")
 wloc = WLoc_temp(crystal=cf.crystal, ft=cf.ft, pol=polloc.rf, vLoc=vloc)
 # wlat = WLat(crystal=cf.crystal, ft=cf.ft, pol=pollat.kf, vbare=cf.vbare)
-wlat = WLat_k(crystal=cf.crystal, ft=cf.ft, pol=pollat.kf, vbare=vloc2)
+wlat = WLat_k(crystal=cf.crystal, ft=cf.ft, pol=kf, vbare=vloc2)
 # wlat = WLat_k(crystal=cf.crystal,ft=cf.ft, pol=pollat.kf,vbare=vbare_k_average)
 print("**WLoc finish\n")
 
@@ -472,6 +490,16 @@ plt.legend()
 plt.grid(which="both", linestyle="--", linewidth=0.3)
 plt.show()
 
+plot = plt.figure(1)
+plt.scatter(cf.ft.nu[:], wlat.rf[0, 0, 0, 0, 0, :], color="blue")
+# plt.scatter(cf.ft.nu[:],wlat_average[0,0,0,0,:],color='blue')
+plt.scatter(cf.ft.nu[:], wloc.rf[0, 0, 0, 0, :, 0], color="red")
+plt.title("W_Loc")
+plt.xlabel("freq")
+plt.ylabel("W")
+plt.legend()
+plt.grid(which="both", linestyle="--", linewidth=0.3)
+plt.show()
 
 # print("**SigmaLGWC start")
 # sigma_loc_gwc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
@@ -518,9 +546,21 @@ from qacore.FLocStc import EImp
 from qacore.FLocDyn import Hybridisation
 from qacore.BLocDyn import UImp
 
+print(vloc.shape)
+
 print("**Uimp start")
 uimp = UImp(crystal=cf.crystal,ft=cf.ft,wloc=wloc.rf,ploc=polloc.rf,vloc=vloc)
 print("**Uimp finish\n")
+
+plot = plt.figure(1)
+plt.scatter(cf.ft.nu[1:], uimp.utilde_rf[0, 0, 0, 0, 1:, 0].real, color="blue")
+plt.title("ubar -- real part")
+plt.xlabel("freq")
+plt.ylabel("Delta")
+# plt.ylim(-5, 5)
+plt.legend()
+plt.grid(which="both", linestyle="--", linewidth=0.3)
+plt.show()
 
 print("**WLoc start")
 wloc = WLoc(crystal=cf.crystal, ft=cf.ft, pol=polloc.rf, vLoc=vloc, vDyn=uimp.utilde_rf)
@@ -641,8 +681,12 @@ plt.show()
 
 
 print("**Eimp start")
-eimp = EImp(crystal=cf.crystal,niham=cf.niham,mu=cf.green.mu+cf.green.c,hamh=cf.sigmah,hamf=cf.sigmaf,hloc=hloc,floc=floc)
+eimp = EImp(crystal=cf.crystal,niham=cf.niham,mu=cf.green.mu,hamh=cf.sigmah,hamf=cf.sigmaf,hloc=hloc,floc=floc)
 print("**Eimp finish\n")
+
+print("Eimp ")
+for i in range(len(cf.crystal.probspace)):
+    print(eimp.r[:,:,0,i])
 
 print("**Hybridisation start")
 delta = Hybridisation(crystal=cf.crystal,ft=cf.ft,gloc=gloc,eimp=eimp,sigmahimp=hloc.r,sigmafimp=floc.r,sigmacimp=sigma_loc_gwc.rf)
