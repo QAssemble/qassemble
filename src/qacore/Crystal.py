@@ -919,7 +919,7 @@ class Crystal(object):
 
         self.imp_index = []
         for i in range(nprob):
-            self.index.append([])
+            self.imp_index.append([])
         
         # self.F = {}
 
@@ -929,15 +929,17 @@ class Crystal(object):
 
             N = len(imp[iimp]['impurity_matrix'])
 
-            imp_equi_mat = np.array(imp[iimp]['impurity_matrix'])
+            equi_mat = np.array(imp[iimp]['impurity_matrix'])
             
             for i in range(N):
                 for j in range(N):
-                    print(len(self.imp_index[ii]))
-                    if imp_equi_mat[i,j]!=0:
-                        if imp_equi_mat[i,j]>len(self.imp_index[ii]):
-                            for k in range(imp_equi_mat[i,j]-len(self.imp_index[ii])):
+                    # print(len(self.imp_index[ii]))
+                    if equi_mat[i,j]!=0:
+                        if equi_mat[i,j]>len(self.imp_index[ii]):
+                            for k in range(equi_mat[i,j]-len(self.imp_index[ii])):
                                 self.imp_index[ii].append([])
-                            self.imp_index[ii][imp_equi_mat[i,j]-1].append([i,j])
+                            self.imp_index[ii][equi_mat[i,j]-1].append([i,j])
                         else:
-                            self.imp_index[ii][imp_equi_mat[i,j]-1].append([i,j])
+                            self.imp_index[ii][equi_mat[i,j]-1].append([i,j])
+        
+        return equi_mat

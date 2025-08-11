@@ -252,9 +252,9 @@ class FLocDyn(object):
                 
                 for k in range(nft):
                     try:
-                        self.F[iimp][index_of_equivalance].append(0)
+                        F[iimp][index_of_equivalance].append(0)
                     except KeyError:
-                        self.F[iimp][index_of_equivalance] = [0]
+                        F[iimp][index_of_equivalance] = [0]
 
                 for k in range(nft):
                     for j in range(len(self.crystal.imp_index[ii][i])):
@@ -273,7 +273,7 @@ class FLocDyn(object):
         nft = len(self.ft.omega)
         norbc = self.crystal.fprojector.shape[1]
 
-        B = np.zeros((norbc,norbc,nft,nprob))
+        B = np.zeros((norbc,norbc,nft,nprob),dtype=np.complex128,order='F')
 
         ii = 0 # index of impurity problems -- nprob
         for key,val in F.items():
@@ -304,6 +304,46 @@ class FLocDyn(object):
     #         A_final[...,ift] = np.kron(A[...],np.eye(2,2))
         
     #     return A_final,mu
+
+
+    def write_dict_LocDyn(self,equiv : np.ndarray, mat_in : np.ndarray)->dict:
+        
+        ns = mat_in.shape[2]
+        Nind = int(np.amax(equiv))
+        # print(Nind)
+        # exit()
+        mat_dict = {}    
+
+        for ind in range(Nind):
+            mat_dict[ind+1]=[]
+            # pos = find_positions(equiv,ind+1)
+            pos_row, pos_col = np.where(equiv==ind+1)
+            for js in range(ns):
+                e = 0
+                # for ii, jj in pos:
+                for i in range(len(pos_row)):
+                    
+                    e+=mat_in[pos_row[i],pos_col[i],js]
+                e/=len(pos_row)
+                mat_dict[ind+1].append(e.tolist())
+
+        return mat_dict
+    
+
+
+    def run_ctqmc(self):
+        
+        #run_cmd = 'mpirun -np 1 '+diage_path+'/ComCTQMC/bin/CTQMC params'
+        run_cmd = 'mpirun -np 4 ~/DiagE/ComCTQMC/bin/CTQMC params'
+        print(run_cmd)
+        
+        with open('./ctqmc.out', 'w') as logfile, open('./ctqmc.err', 'w') as errfile:
+            ret = subprocess.call(run_cmd, shell=True,stdout = logfile, stderr = errfile)
+            if ret != 0:
+                print("Error in CTQMC. Check ctqmc.err for error message.")
+                sys.exit()
+        
+        return None
 
 
 
@@ -658,83 +698,204 @@ class Hybridisation(FLocDyn):
         return None
     
 
+    # hyb_dict = self.fermion.write_dict_LocDyn(equiv_mat,self.fermion.hyb)
+    # self.write_hyb_json(iter,str(iprob+1),hyb_dict)
+    
+
+    
+
+    def write_hyb_json(self,iter,key,hyb : dict):
+
+        if self.crystal.soc is False:
+            if self.crystal.ns == 1:
+                json_dict = {}
+                for ikey,val in hyb.items():
+                    json_dict[ikey] = {}
+                    json_dict[ikey]['beta'] = self.ft.beta
+                    json_dict[ikey]['real'] = np.real(val[0]).tolist()
+                    json_dict[ikey]['imag'] = np.imag(val[0]).tolist()
+
+                with open(f'hyb.{iter}.{key}.json','w') as outfile:
+                    json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
+                with open('hyb.json','w') as outfile:
+                    json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
+            
+            elif self.crystal.ns == 2:
+                print("Nspin is not 1")
+                sys.exit()
+        elif self.crystal.soc is True:
+            print("SOC must be False")
+            sys.exit()
+        return None
+    
 
 
 
-    # def read_imp_equi_mat(self,imp): ### put in the Crystal class F2B/B2F
 
-    #     self.Nimp = len(imp) - 1
-    #     nprob = len(self.crystal.probspace)
-    #     if self.Nimp!=nprob:
-    #         print("***** number of impurity problems are not the same *****")
-    #         print("***** program stopped!!! *****")
-    #         exit()
 
-    #     self.index = []
-    #     for i in range(self.Nimp):
-    #         self.index.append([])
+    def write_ctqmc_params(self, iter, key, E_imp : EImp, equiv : np.ndarray):
         
-    #     self.F = {}
+        if self.crystal.soc is False:
+            if self.crystal.ns ==1:
+                params = {}
+                params["hloc"] = {}
 
-    #     for ii in range(self.Nimp):
+                # mu_ctqmc=-np.real(E_imp[0,0,0])
+                # # print(mu_ctqmc,type(mu_ctqmc))
+                # E_imp = E_imp[:,:,0]+mu_ctqmc*np.eye(E_imp.shape[0],E_imp.shape[0])
+                # E_imp = np.array(np.real(E_imp),dtype=float)
+                # tempmat = np.kron(E_imp,np.eye(2,2))
 
-    #         iimp = str(ii+1)
+                E_imp.A_final = np.array(np.real(E_imp.A_final),dtype=float)
+                E_imp.ctqmc_mu = np.array(np.real(E_imp.ctqmc_mu),dtype=float)
 
-    #         N = len(imp[iimp]['impurity_matrix'])
+                params["hloc"]['one body'] = E_imp.A_final[...,key-1].tolist()
 
-    #         imp_equi_mat = np.array(imp[iimp]['impurity_matrix'])
-            
-    #         for i in range(N):
-    #             for j in range(N):
-    #                 print(len(self.index[ii]))
-    #                 if imp_equi_mat[i,j]!=0:
-    #                     if imp_equi_mat[i,j]>len(self.index[ii]):
-    #                         for k in range(imp_equi_mat[i,j]-len(self.index[ii])):
-    #                             self.index[ii].append([])
-    #                         self.index[ii][imp_equi_mat[i,j]-1].append([i,j])
-    #                     else:
-    #                         self.index[ii][imp_equi_mat[i,j]-1].append([i,j])
-            
-    #         # self.F[iimp] = {}
-    #         # for i in range(len(self.index[ii])):
-    #         #     number_string = str(i+1)
-    #         #     self.F[iimp][number_string] = 0
-    #         #     for j in range(len(self.index[ii][i])):
-    #         #         self.F[iimp][number_string] = self.F[iimp][number_string] + self.rf[self.index[ii][i][j][0],self.index[ii][i][j][1]]
-    #         #     self.F[iimp][number_string] = self.F[iimp][number_string]/len(self.index[ii][i])
-            
-    #         self.F[iimp] = {}
-    #         for i in range(len(self.index[ii])):
-    #             number_string = str(i+1)
-    #             for k in range(self.nft):
-    #                 try:
-    #                     self.F[iimp][number_string].append(0)
-    #                 except KeyError:
-    #                     self.F[iimp][number_string] = [0]
+                # self.boson.get_Uijkl_comctqmc(key)    ####### !!!
+                params["hloc"]["two body"]=0 # self.boson.U_ctqmc.tolist() ####### !!!
                 
-    #             for k in range(self.nft):
-    #                 for j in range(len(self.index[ii][i])):
-    #                     self.F[iimp][number_string][k] = self.F[iimp][number_string][k] + self.rf[self.index[ii][i][j][0],self.index[ii][i][j][1],k]
-    #                 self.F[iimp][number_string][k] = self.F[iimp][number_string][k]/len(self.index[ii][i])
+                params["partition"]={}
+                
+                params["partition"]["green basis"]= "matsubara"
+                params["partition"]["green bulla"]= True
+                params["partition"]["green matsubara cutoff"] = 50
+                params["partition"]["occupation susceptibility bulla"]=True
+                params["partition"]["occupation susceptibility direct"]=False
+                params["partition"]["quantum number susceptibility"] = True
+                params["partition"]["susceptibility cutoff"]=50
+                params["partition"]["susceptibility tail"]=200
+                params["partition"]["quantum numbers"]={}
+                tempmat = np.ones(E_imp.A_final[...,key-1].shape[0]*2)
+                params["partition"]["quantum numbers"]["N"]=tempmat.tolist()
+                for ii in range(len(tempmat)):
+                    if ii < E_imp.A_final[...,key-1].shape[0]:
+                        tempmat[ii]*= 0.5
+                    elif ii >= E_imp.A_final[...,key-1].shape[0]:
+                        tempmat[ii]*=-0.5
+                params["partition"]["quantum numbers"]["Sz"]=tempmat.tolist() # make 
+                params["partition"]["probabilities"]={}
+                params["partition"]["probabilities"]=["N","energy","Sz"]#["N","energy","S2","Sz"]
+                params["partition"]["density matrix precise"] = True
+                params["partition"]["print eigenstates"] = True
+                params["partition"]["print density matrix"]= True
+                
+
+                params["beta"]=self.ft.beta
+                params["complex"] = False
+                params["mu"]=E_imp.ctqmc_mu[key-1].tolist()
+                params["hybridisation"]={}
+
+                tempmat2 = np.kron(equiv,np.eye(2,2))  ###### equiv ??
+                tempmat2 = tempmat2.tolist()
+                for ii in range(len(tempmat2)):
+                    for jj in range(len(tempmat2)):
+                        if tempmat2[ii][jj]==0.0:
+                            tempmat2[ii][jj] = ""
+                        else:
+                            tempmat2[ii][jj] = str(int(tempmat2[ii][jj]))
+
+                params["hybridisation"]["matrix"]=tempmat2
+                params["hybridisation"]["functions"]="hyb.json"
+                params["thermalisation time"]=1 #imp['thermalization_time']
+                params["quantum number susceptibility"]=True
+                params["occupation susceptibility bulla"]=True        
+                params["green bulla"]=True       
+                params["density matrix precise"]=False #True 
+                params["measurement time"]=3 #imp['measurement_time']
+                
+                with open(f'params.{iter}.{key}.json','w') as outfile:
+                    json.dump(params,outfile, sort_keys=True, indent=4, separators=(',', ': '))
+                with open('params.json','w') as outfile:
+                    json.dump(params,outfile, sort_keys=True, indent=4, separators=(',', ': '))
+                # print("params.json written", file=self.m_ini.control['h_log'])
+            elif self.crystal.ns == 2:
+                print("Nspin is not 1")
+                sys.exit()
+        elif self.crystal.soc is True:
+            print("SOC is not  False, please change SOC")
+            sys.exit()
+
+        return None
+    
+
+
+
+
+    def get_Uijkl_comctqmc(self,key,vloc,imp_dic):
         
-    #     return None
+        # V_loc_temp = self.Convert_4_2_LocStc(vloc,0)
 
 
-    # def F2B(self):
+        ns = self.crystal.ns
+        (norb1,norb1) = self.crystal.bbasis.shape
+        # norb_squared = norb1**2
 
-    #     norbc = self.crystal.fprojector.shape[1]
-    #     self.B = np.zeros((norbc,norbc,self.nft,self.Nimp))
-    #     ii = 0 # number of impurity problems -- nprob
-    #     for key,val in self.F.items():
-    #         i=0 # number of equivalances
-    #         for valkey,valval in val.items():
-    #             for j in range(len(self.index[ii][i])):
-    #                 for k in range(self.nft): # number of omega -- nft
-    #                     self.B[self.index[ii][i][j][0],self.index[ii][i][j][1],k,ii] = valval[k]
-    #             i += 1
-    #         ii += 1
+        V_loc_temp = np.zeros((norb1,norb1,norb1,norb1,ns,ns),dtype=complex,order='F')
+        for js in range(self.ns):
+                for ks in range(self.ns):
+                    for iorb1 in range(norb1):
+                        for iorb2 in range(norb1):
+                            for iorb3 in range(norb1):
+                                for iorb4 in range(norb1):
+                                    V_loc_temp[iorb1,iorb2,iorb3,iorb4,js,ks] = vloc[self.crystal.bbasis[iorb1,iorb2],self.crystal.bbasis[iorb3,iorb4],js,ks]
+
+
+        orb = self.imp_dict[key][0]
+        norb = len(orb)
+        ns = self.ns
+        V_loc = np.zeros((norb,norb,norb,norb,ns,ns),dtype=complex)
+        for js in range(ns):
+            for ks in range(ns):
+                for ii,iorb in enumerate(orb):
+                    for jj, jorb in enumerate(orb):
+                        for kk, korb in enumerate(orb):
+                            for ll, lorb in enumerate(orb):
+                                V_loc[ii,jj,kk,ll,js,ks] = V_loc_temp[iorb,jorb,korb,lorb,js,ks]
+        nimp_orb = V_loc.shape[0]
         
-    #     return None
+        if self.fermion.SOC is False:
+            U = np.zeros(nimp_orb**4*2**4,dtype=float)
+            index = 0
+            if self.ns == 1:
+                for sl in range(2):
+                    for l in range(nimp_orb):
+                        for sk in range(2):
+                            for k in range(nimp_orb):
+                                for sj in range(2):
+                                    for j in range(nimp_orb):
+                                        for si in range(2):
+                                            for i in range(nimp_orb):
+                                                    
+                                                    
+                                                if(sj==sk and si==sl):
+                                                    val=V_loc[i,j,k,l,0,0].real
+                                                    val=abs(val)
+                                                    if(val > 0.001):
+                                                        U[index]=val
+                                                index=index+1
+            elif self.ns == 2:
+                for sl in range(2):
+                    for l in range(nimp_orb):
+                        for sk in range(2):
+                            for k in range(nimp_orb):
+                                for sj in range(2):
+                                    for j in range(nimp_orb):
+                                        for si in range(2):
+                                            for i in range(nimp_orb):
+                                                    
+                                                    
+                                                if(sj==sk and si==sl):
+                                                    val=V_loc[i,j,k,l,si,sj].real
+                                                    val=abs(val)
+                                                    if(val > 0.001):
+                                                        U[index]=val
+                                                index=index+1
+        else:
+            print("SOC is not False")
+            sys.exit()
+        self.U_ctqmc = U
+        
+        return None
     
 
 

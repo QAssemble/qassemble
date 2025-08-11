@@ -408,7 +408,7 @@ for ik in range(nk):
 # exit()
 
 print("**WLoc start")
-wloc = WLoc_temp(crystal=cf.crystal, ft=cf.ft, pol=polloc.rf, vLoc=vloc)
+wloc_temp = WLoc_temp(crystal=cf.crystal, ft=cf.ft, pol=polloc.rf, vLoc=vloc)
 # wlat = WLat(crystal=cf.crystal, ft=cf.ft, pol=pollat.kf, vbare=cf.vbare)
 wlat = WLat_k(crystal=cf.crystal, ft=cf.ft, pol=pollat.kf, vbare=vloc2)
 # wlat = WLat_k(crystal=cf.crystal,ft=cf.ft, pol=pollat.kf,vbare=vbare_k_average)
@@ -435,7 +435,7 @@ print(wlat.crf.shape)
 plot = plt.figure(1)
 plt.scatter(cf.ft.nu[:], wlat.crf[0, 0, 0, 0, 0, :], color="blue")
 # plt.scatter(cf.ft.nu[:],wlat_average[0,0,0,0,:],color='blue')
-plt.scatter(cf.ft.nu[:], wloc.crf[0, 0, 0, 0, :, 0], color="red")
+plt.scatter(cf.ft.nu[:], wloc_temp.crf[0, 0, 0, 0, :, 0], color="red")
 plt.title("W_Loc")
 plt.xlabel("freq")
 plt.ylabel("W")
@@ -489,14 +489,35 @@ from qacore.FLocStc import EImp
 from qacore.FLocDyn import Hybridisation
 from qacore.BLocDyn import UImp
 
+print(vloc.shape)
+
 print("**Uimp start")
-uimp = UImp(crystal=cf.crystal,ft=cf.ft,wloc=wloc.rf,ploc=polloc.rf,vloc=vloc)
+uimp = UImp(crystal=cf.crystal,ft=cf.ft,wloc=wloc_temp.rf,ploc=polloc.rf,vloc=vloc)
 print("**Uimp finish\n")
+
+plot = plt.figure(1)
+plt.scatter(cf.ft.nu[1:], uimp.utilde_rf[0, 0, 0, 0, 1:, 0].real, color="blue")
+plt.title("ubar -- real part")
+plt.xlabel("freq")
+plt.ylabel("Delta")
+# plt.ylim(-5, 5)
+plt.legend()
+plt.grid(which="both", linestyle="--", linewidth=0.3)
+plt.show()
 
 print("**WLoc start")
 wloc = WLoc(crystal=cf.crystal, ft=cf.ft, pol=polloc.rf, vLoc=vloc, vDyn=uimp.utilde_rf)
 print("**WLoc finish\n")
-
+plot = plt.figure(1)
+plt.scatter(cf.ft.nu[:], wloc.rf[0, 0, 0, 0, :, 0], color="blue")
+# plt.scatter(cf.ft.nu[:],wlat_average[0,0,0,0,:],color='blue')
+plt.scatter(cf.ft.nu[:], wloc_temp.rf[0, 0, 0, 0, :, 0], color="red")
+plt.title("W_Loc")
+plt.xlabel("freq")
+plt.ylabel("W")
+plt.legend()
+plt.grid(which="both", linestyle="--", linewidth=0.3)
+plt.show()
 print("**SigmaLGWC start")
 sigma_loc_gwc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
 print("**SigmaLGWC finish\n")
@@ -611,15 +632,96 @@ plt.show()
 
 
 
+imp={'temperature'            : 300, # temperature (in K)
+     '1':
+     {
+      'impurity_matrix': [ # equivalent orbital index matrix. starting from 1.
+         [1]
+         ],       
+     'thermalization_time': 3,
+     'measurement_time': 20,
+     'green_cutoff':  40,  
+     'coulomb': 'full',
+     }}
+
+
+
+equiv = cf.crystal.read_imp_equi_mat(imp)
+
+# equiv = np.array([[1,2,0],
+#                   [2,1,0],
+#                   [0,0,1]])
+
+
+
+
+
+
+
+
+
+
+
+
+
 print("**Eimp start")
 eimp = EImp(crystal=cf.crystal,niham=cf.niham,mu=cf.green.mu,hamh=cf.sigmah,hamf=cf.sigmaf,hloc=hloc,floc=floc)
 print("**Eimp finish\n")
+
+print("Eimp ")
+for i in range(len(cf.crystal.probspace)):
+    print(eimp.r[:,:,0,i])
+
+print('*** Eimp B2F start ***')
+eimp_F = eimp.imp_B2F(imp,eimp.r[...,0,0])
+print('*** Eimp B2F finish ***')
+
+print('*** Eimp F2B start ***')
+eimp_B = eimp.imp_F2B(imp,eimp_F)
+print('*** Eimp F2B finish ***')
+
+print('*** Eimp_final_input start ***')
+eimp.imp_final_input()
+print('*** Eimp_final_input finish ***')
+
+
 
 print("**Hybridisation start")
 delta = Hybridisation(crystal=cf.crystal,ft=cf.ft,gloc=gloc,eimp=eimp,sigmahimp=hloc.r,sigmafimp=floc.r,sigmacimp=sigma_loc_gwc.rf)
 print("**Hybridisation finish\n")
 
 
+print('*** Hybridisation B2F start ***')
+(norbc,norbc,ns,nft,nprob)=delta.rf.shape
+# print(delta.rf.shape)
+rf_temp = np.zeros((norbc,norbc,nft,nprob),dtype=np.complex128,order='F')
+for iprob in range(nprob):
+    for ifreq in range(nft):
+        rf_temp[...,ifreq,iprob] = delta.rf[...,0,ifreq,iprob]
+delta_F = delta.imp_B2F(imp,rf_temp[...,0])
+print('*** Hybridisation B2F finish ***')
+
+print('*** Hybridisation F2B start ***')
+delta_B = delta.imp_F2B(imp,delta_F)
+print('*** Hybridisation F2B finish ***')
+
+# print(delta_B)
+
+
+print('*** write_Hybridisation_json start ***')
+hyb_dict = delta.write_dict_LocDyn(equiv,delta.rf[...,0])
+delta.write_hyb_json(1,1,hyb_dict)
+print('*** write_Hybridisation_json finish ***')
+
+
+print('*** write_ctqmc_params start ***')
+delta.write_ctqmc_params(1,1,eimp,equiv)
+print('*** write_ctqmc_params finish ***')
+
+delta.run_ctqmc()
+
+
+exit()
 
 plot = plt.figure(1)
 plt.scatter(cf.ft.omega[1:], delta.rf[0, 0, 0, 1:, 0].real, color="blue")
