@@ -1,6 +1,4 @@
-import sys
 import numpy as np
-from .Crystal import Crystal
 from .MPIManager import MPIManager, FLatDynMPI
 import h5py
 
