@@ -1,11 +1,33 @@
+"""
+This module provides a collection of static methods to calculate bare Green's functions
+for fermionic and bosonic systems in various representations (frequency/imaginary time,
+local/lattice).
+"""
 from Common import Common
 from sys import exit
 import numpy as np
 
 class Bare:
+    """
+    A collection of static methods to compute bare Green's functions for non-interacting systems.
+
+    The methods handle fermionic and bosonic statistics, and can compute Green's functions
+    in both frequency and imaginary-time (Matsubara) domains. It also provides functions
+    to compute these for both single-site (local) and multi-site (lattice) Hamiltonians.
+    """
 
     @staticmethod
     def FFreq(freq : np.ndarray, energy : np.ndarray) -> np.ndarray:
+        """
+        Calculates the bare fermionic Green's function in frequency domain.
+
+        Args:
+            freq (np.ndarray): An array of fermionic Matsubara frequencies (iω_n).
+            energy (np.ndarray): An array of single-particle energy eigenvalues.
+
+        Returns:
+            np.ndarray: The Green's function G(iω_n) = 1 / (iω_n - E).
+        """
 
         nfreq = len(freq)
         gfreq = np.ndarray((nfreq), dtype=np.ndarray, order='F')
@@ -17,6 +39,16 @@ class Bare:
     
     @staticmethod
     def FTau(tau : np.ndarray, energy : np.ndarray) -> np.ndarray:
+        """
+        Calculates the bare fermionic Green's function in imaginary time domain.
+
+        Args:
+            tau (np.ndarray): An array of imaginary time points (τ).
+            energy (np.ndarray): An array of single-particle energy eigenvalues.
+
+        Returns:
+            np.ndarray: The Green's function G(τ).
+        """
 
         ntau = len(tau)
         gtau = np.ndarray((ntau), dtype=np.complex128, order='F')
@@ -38,13 +70,23 @@ class Bare:
                 gtau[itau] = (-1)**(unitnum+1)*np.exp(-energy*taunew, dtype=np.complex128) \
                     * (1 - 1/(np.exp(energy*beta, dtype=np.complex128) + 1))
             else:
-                gtau[itau] = (-1)**(unitnum+1)* np.exp(-energy*(taunew-beta), dtype=np.complex128)\
+                gtau[itau] = (-1)**(unitnum+1)* np.exp(-energy*(taunew-beta), dtype=np.complex128) \
                     * (1.0/(np.exp(energy*beta, dtype=np.complex128) + 1))
 
         return gtau
 
     @staticmethod
     def BFreq(freq : np.ndarray, energy : np.ndarray) -> np.ndarray:
+        """
+        Calculates the bare bosonic Green's function in frequency domain.
+
+        Args:
+            freq (np.ndarray): An array of bosonic Matsubara frequencies (iΩ_n).
+            energy (np.ndarray): An array of single-particle energy eigenvalues.
+
+        Returns:
+            np.ndarray: The Green's function W(iΩ_n) = 1 / (iΩ_n - E).
+        """
 
         nfreq = len(freq)
         wfreq = np.zeros((nfreq), dtype=np.complex128, order='F')
@@ -56,6 +98,16 @@ class Bare:
     
     @staticmethod
     def BTau(tau : np.ndarray, energy : np.ndarray) -> np.ndarray:
+        """
+        Calculates the bare bosonic Green's function in imaginary time domain.
+
+        Args:
+            tau (np.ndarray): An array of imaginary time points (τ).
+            energy (np.ndarray): An array of single-particle energy eigenvalues.
+
+        Returns:
+            np.ndarray: The Green's function W(τ).
+        """
 
         ntau = len(tau)
         wtau = np.zeros((ntau), dtype=np.complex128, order='F')
@@ -76,16 +128,24 @@ class Bare:
             taunew = tau[itau] - beta*unitnum
 
             if (energy > 0):
-                wtau[itau] = -np.exp(-energy*beta, dtype=np.complex128) \
-                    * (1.0 - 1.0/(np.exp(energy*beta, dtype=np.complex128) - 1))
+                wtau[itau] = -np.exp(-energy*beta, dtype=np.complex128)                     * (1.0 - 1.0/(np.exp(energy*beta, dtype=np.complex128) - 1))
             else:
-                wtau[itau] = -np.exp(-energy*(taunew-beta), dtype=np.complex128) \
-                    * (1.0/np.exp(energy*beta, dtype=np.complex128) - 1)
+                wtau[itau] = -np.exp(-energy*(taunew-beta), dtype=np.complex128)                     * (1.0/np.exp(energy*beta, dtype=np.complex128) - 1)
         return wtau
 
 
     @staticmethod
     def FLocFreq(freq : np.ndarray, hloc : np.ndarray)->np.ndarray:
+        """
+        Calculates the local fermionic Green's function in frequency domain from a local Hamiltonian.
+
+        Args:
+            freq (np.ndarray): Array of fermionic Matsubara frequencies.
+            hloc (np.ndarray): The local Hamiltonian matrix (norb, norb, ns).
+
+        Returns:
+            np.ndarray: The local Green's function G_loc(iω_n) (norb, norb, ns, nfreq).
+        """
 
         norb, _, ns = hloc.shape
         nfreq = len(freq)
@@ -112,6 +172,16 @@ class Bare:
     
     @staticmethod
     def FLatFreq(freq : np.ndarray, hlatt : np.ndarray) -> np.ndarray:
+        """
+        Calculates the lattice fermionic Green's function in frequency domain from a lattice Hamiltonian.
+
+        Args:
+            freq (np.ndarray): Array of fermionic Matsubara frequencies.
+            hlatt (np.ndarray): The lattice Hamiltonian (norb, norb, ns, nk).
+
+        Returns:
+            np.ndarray: The lattice Green's function G_latt(k, iω_n) (norb, norb, ns, nk, nfreq).
+        """
 
         norb, _, ns, nk = hlatt.shape
         nfreq = len(freq)
@@ -124,6 +194,16 @@ class Bare:
     
     @staticmethod
     def FLocTau(tau : np.ndarray, hloc : np.ndarray) -> np.ndarray:
+        """
+        Calculates the local fermionic Green's function in imaginary time from a local Hamiltonian.
+
+        Args:
+            tau (np.ndarray): Array of imaginary time points.
+            hloc (np.ndarray): The local Hamiltonian matrix (norb, norb, ns).
+
+        Returns:
+            np.ndarray: The local Green's function G_loc(τ) (norb, norb, ns, ntau).
+        """
         
         norb, _, ns = hloc.shape
         ntau = len(tau)
@@ -150,6 +230,16 @@ class Bare:
     
     @staticmethod
     def FLatTau(tau : np.ndarray, hlatt : np.ndarray) -> np.ndarray:
+        """
+        Calculates the lattice fermionic Green's function in imaginary time from a lattice Hamiltonian.
+
+        Args:
+            tau (np.ndarray): Array of imaginary time points.
+            hlatt (np.ndarray): The lattice Hamiltonian (norb, norb, ns, nk).
+
+        Returns:
+            np.ndarray: The lattice Green's function G_latt(k, τ) (norb, norb, ns, nk, ntau).
+        """
 
         norb, _, ns, nk = hlatt.shape
         ntau = len(tau)
@@ -162,6 +252,16 @@ class Bare:
 
     @staticmethod
     def BLocFreq(freq : np.ndarray, hloc : np.ndarray) -> np.ndarray:
+        """
+        Calculates the local bosonic Green's function in frequency domain from a local Hamiltonian.
+
+        Args:
+            freq (np.ndarray): Array of bosonic Matsubara frequencies.
+            hloc (np.ndarray): The local Hamiltonian matrix (norb, norb, ns, ns).
+
+        Returns:
+            np.ndarray: The local Green's function W_loc(iΩ_n) (norb, norb, ns, ns, nfreq).
+        """
 
         norb, _, ns, _ = hloc.shape
         nfreq = len(freq)
@@ -189,6 +289,16 @@ class Bare:
     
     @staticmethod
     def BLatFreq(freq : np.ndarray, hlatt : np.ndarray) -> np.ndarray:
+        """
+        Calculates the lattice bosonic Green's function in frequency domain from a lattice Hamiltonian.
+
+        Args:
+            freq (np.ndarray): Array of bosonic Matsubara frequencies.
+            hlatt (np.ndarray): The lattice Hamiltonian (norb, norb, ns, ns, nk).
+
+        Returns:
+            np.ndarray: The lattice Green's function W_latt(k, iΩ_n) (norb, norb, ns, ns, nk, nfreq).
+        """
 
         norb, _, ns, _, nk = hlatt.shape
         nfreq = len(freq)
@@ -201,6 +311,16 @@ class Bare:
     
     @staticmethod
     def BLocTau(tau : np.ndarray, hloc : np.ndarray) -> np.ndarray:
+        """
+        Calculates the local bosonic Green's function in imaginary time from a local Hamiltonian.
+
+        Args:
+            tau (np.ndarray): Array of imaginary time points.
+            hloc (np.ndarray): The local Hamiltonian matrix (norb, norb, ns, ns).
+
+        Returns:
+            np.ndarray: The local Green's function W_loc(τ) (norb, norb, ns, ns, ntau).
+        """
 
         norb, _, ns, _ = hloc.shape
         ntau = len(tau)
@@ -228,6 +348,16 @@ class Bare:
     
     @staticmethod
     def BLatTau(tau : np.ndarray, hlatt : np.ndarray) -> np.ndarray:
+        """
+        Calculates the lattice bosonic Green's function in imaginary time from a lattice Hamiltonian.
+
+        Args:
+            tau (np.ndarray): Array of imaginary time points.
+            hlatt (np.ndarray): The lattice Hamiltonian (norb, norb, ns, ns, nk).
+
+        Returns:
+            np.ndarray: The lattice Green's function W_latt(k, τ) (norb, norb, ns, ns, nk, ntau).
+        """
 
         norb, _, ns, _, nk = hlatt.shape
         ntau = len(tau)
@@ -237,4 +367,3 @@ class Bare:
             wlatt[..., ik, :] = Bare.BLocTau(tau, hlatt[..., ik])
 
         return wlatt
-    

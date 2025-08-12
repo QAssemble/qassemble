@@ -11,7 +11,7 @@ import time
 import h5py
 import numpy as np
 
-from qacore.CorrelationFunction import CorrelationFunction
+from QAssemble.Src_mpi.CorrelationFunction import CorrelationFunction
 
 
 class Run:

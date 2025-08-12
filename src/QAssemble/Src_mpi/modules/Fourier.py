@@ -1,12 +1,40 @@
+
+"""
+This module provides a collection of static methods for performing Fourier transforms
+between the imaginary-time and Matsubara frequency domains for Green's functions and
+self-energies.
+"""
 import numpy as np
 from Common import Common
+# import numba    
+from numba import jit
 import finufft
 from scipy.linalg import solve
 
 class Fourier:
+    """
+    A collection of static methods for performing Fourier transforms on Green's functions.
+
+    These methods handle the transformation between the imaginary-time (τ) and
+    Matsubara frequency (iω_n or iΩ_n) representations of fermionic and bosonic
+    Green's functions. The transformations are implemented for both local and
+    lattice quantities.
+    """
 
     @staticmethod
     def FLocDynT2F(tau : np.ndarray, ftau : np.ndarray, freq : np.ndarray) -> np.ndarray:
+        """
+        Performs a dynamic Fourier transform from imaginary time to Matsubara frequency
+        for a local fermionic Green's function.
+
+        Args:
+            tau (np.ndarray): Array of imaginary time points.
+            ftau (np.ndarray): The local fermionic Green's function in imaginary time (norb, norb, ns, ntau).
+            freq (np.ndarray): Array of fermionic Matsubara frequencies.
+
+        Returns:
+            np.ndarray: The local fermionic Green's function in Matsubara frequency (norb, norb, ns, nfreq).
+        """
 
         norb, _, ns, ntau = ftau.shape
         nfreq = len(freq)
@@ -20,31 +48,40 @@ class Fourier:
 
         taurad_finu = np.zeros((ntau_finu), dtype=np.float64, order='F')
         for itau in range(ntau):
-            # itheta = Common.Ttind(itau, ntau)
             taurad_finu[itau + ntau] = tau[itau] / beta * np.pi
-            taurad_finu[itau] = -taurad_finu[itau]
-            # taurad_finu[itheta] = -taurad_finu[itau]
+            taurad_finu[ntau - itau - 1] = -taurad_finu[itau + ntau]
 
         for iorb in range(norb):
             for jorb in range(norb):
                 for js in range(ns):
                     ftau_finu = np.zeros((ntau_finu), dtype=np.complex128, order='F')
-                    ff_finu = np.zeros((nfreq_finu), dtype=np.complex128, order='F')
                     for itau in range(ntau):
                         ftau_finu[itau + ntau] = ftau[iorb, jorb, js, itau] * \
                                     np.sqrt(tau[itau] * (beta - tau[itau])) * pi / ntau
-                        ftau_finu[itau] = -ftau_finu[itau]
+                        ftau_finu[itau] = -ftau_finu[itau + ntau]
 
                     ff_finu = finufft.nufft1d1(taurad_finu, ftau_finu, nfreq_finu, isign=1, eps=1e-12, nthreads=1)
-
+                    k0_index = (nfreq_finu - 1) // 2  
                     for ifreq in range(nfreq*2):
-                        if (ifreq %2 == 1):
-                            ff[iorb, jorb, js, (ifreq-1)//2] = ff_finu[ifreq] / 2.0
+                        if (ifreq % 2 == 1):
+                            ff[iorb, jorb, js, (ifreq-1)//2] = ff_finu[k0_index + ifreq] / 2.0
 
         return ff
     
     @staticmethod
     def FLatDynT2F(tau : np.ndarray, ftau : np.ndarray, freq : np.ndarray) -> np.ndarray:
+        """
+        Performs a dynamic Fourier transform from imaginary time to Matsubara frequency
+        for a lattice fermionic Green's function.
+
+        Args:
+            tau (np.ndarray): Array of imaginary time points.
+            ftau (np.ndarray): The lattice fermionic Green's function in imaginary time (norb, norb, ns, nk, ntau).
+            freq (np.ndarray): Array of fermionic Matsubara frequencies.
+
+        Returns:
+            np.ndarray: The lattice fermionic Green's function in Matsubara frequency (norb, norb, ns, nk, nfreq).
+        """
 
         norb, _, ns, nk, _ = ftau.shape
         nfreq = len(freq)
@@ -57,6 +94,19 @@ class Fourier:
     
     @staticmethod
     def FLocDynF2T(freq : np.ndarray, ff : np.ndarray, moment : np.ndarray, tau : np.ndarray) -> np.ndarray:
+        """
+        Performs a dynamic Fourier transform from Matsubara frequency to imaginary time
+        for a local fermionic Green's function.
+
+        Args:
+            freq (np.ndarray): Array of fermionic Matsubara frequencies.
+            ff (np.ndarray): The local fermionic Green's function in Matsubara frequency (norb, norb, ns, nfreq).
+            moment (np.ndarray): High-frequency moments of the Green's function.
+            tau (np.ndarray): Array of imaginary time points.
+
+        Returns:
+            np.ndarray: The local fermionic Green's function in imaginary time (norb, norb, ns, ntau).
+        """
 
         pi = np.pi
         beta = pi / freq[0]
@@ -74,11 +124,11 @@ class Fourier:
             if (ifreq % 2 ==1):
                 momega_finu[ifreq + 2*nfreq -1 , 0] = 1.0/(pi/beta * ifreq * 1j)
                 momega_finu[ifreq + 2*nfreq -1 , 1] = 1.0/(pi/beta * ifreq * 1j)**2
-                momega_finu[ifreq + 2*nfreq -1 , 2] = 1.0/(pi/beta * ifreq * 1j)**2
+                momega_finu[ifreq + 2*nfreq -1 , 2] = 1.0/(pi/beta * ifreq * 1j)**3
 
         taurad_finu = tau / beta * pi
 
-        mtau_finu = np.zeros((ntau_finu), dtype=np.complex128, order='F')
+        mtau_finu = np.zeros((ntau_finu, 3), dtype=np.complex128, order='F')
         for ii in range(3):
             mtau_finu[:, ii] = finufft.nufft1d2(taurad_finu, momega_finu[:, ii], isign=-1, eps=1e-12, nthreads=1)
 
@@ -110,20 +160,47 @@ class Fourier:
     
     @staticmethod
     def FLatDynF2T(freq : np.ndarray, ff : np.ndarray, moment : np.ndarray, tau : np.ndarray) -> np.ndarray:
+        """
+        Performs a dynamic Fourier transform from Matsubara frequency to imaginary time
+        for a lattice fermionic Green's function.
+
+        Args:
+            freq (np.ndarray): Array of fermionic Matsubara frequencies.
+            ff (np.ndarray): The lattice fermionic Green's function in Matsubara frequency (norb, norb, ns, nk, nfreq).
+            moment (np.ndarray): High-frequency moments of the Green's function.
+            tau (np.ndarray): Array of imaginary time points.
+
+        Returns:
+            np.ndarray: The lattice fermionic Green's function in imaginary time (norb, norb, ns, nk, ntau).
+        """
 
         norb, _, ns, nk, _ = ff.shape
         ntau = len(tau)
         ftau = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
 
         for ik in range(nk):
-            ftau[..., ik, :] = Fourier.FLocDynF2T(freq, ff[..., ik, :], moment[..., ik], tau)
+            ftau[..., ik, :] = Fourier.FLocDynF2T(freq, ff[..., ik, :], moment[..., ik, :], tau)
 
         return ftau
     
     @staticmethod
-    def FLocDynM(freq : np.ndarray, ff : np.ndarray, isgreen : bool, highzero : bool) -> tuple:
+    def FLocDynM(freq : np.ndarray, ff1 : np.ndarray, ff2 : np.ndarray, isgreen : bool, highzero : bool) -> tuple:
+        """
+        Calculates the high-frequency moments of a local fermionic Green's function.
 
-        norb, _, ns, _ = ff.shape
+        Args:
+            freq (np.ndarray): Array of fermionic Matsubara frequencies.
+            ff (np.ndarray): The local fermionic Green's function in Matsubara frequency.
+            isgreen (bool): True if `ff` is a Green's function, False if it is a self-energy.
+            highzero (bool): If True, assumes the constant part of the high-frequency tail is zero.
+
+        Returns:
+            tuple: A tuple containing:
+                - moment (np.ndarray): The calculated high-frequency moments.
+                - high (np.ndarray): The constant part of the high-frequency tail.
+        """
+
+        norb, _, ns = ff1.shape
         nfreq = len(freq)
 
         moment = np.zeros((norb, norb, ns, 3), dtype=np.complex128, order='F')
@@ -140,22 +217,22 @@ class Fourier:
                         else:
                             moment[iorb, jorb, js, 0] = 0.0
                         
-                        moment[iorb, jorb, js, 1] = (ff[iorb, jorb, js, nfreq-1] + 
-                                                      np.conj(ff[jorb, iorb, js, nfreq-1])) / 2.0 * (freq[nfreq-1] * ai)**2
+                        moment[iorb, jorb, js, 1] = (ff1[iorb, jorb, js, nfreq-1] + 
+                                                      np.conj(ff1[jorb, iorb, js, nfreq-1])) / 2.0 * (freq[nfreq-1] * ai)**2
                         
-                        moment[iorb, jorb, js, 2] = (ff[iorb, jorb, js, nfreq-1] - 
-                                                      np.conj(ff[jorb, iorb, js, nfreq-1]) - 
+                        moment[iorb, jorb, js, 2] = (ff1[iorb, jorb, js, nfreq-1] - 
+                                                      np.conj(ff1[jorb, iorb, js, nfreq-1]) - 
                                                       moment[iorb, jorb, js, 0] * 2.0 / (freq[nfreq-1] * ai)) / 2.0 * (freq[nfreq-1] * ai)**3
         else:
             if (highzero):
                 for js in range(ns):
                     for jorb in range(norb):
                         for iorb in range(norb):
-                            moment[iorb, jorb, js , 0] = (ff[iorb, jorb, js, nfreq-1] - 
-                                                          np.conjugate(ff[jorb, iorb, js, nfreq-1])) / 2.0 * (freq[nfreq-1] * ai)
+                            moment[iorb, jorb, js , 0] = (ff1[iorb, jorb, js, nfreq-1] - 
+                                                          np.conjugate(ff1[jorb, iorb, js, nfreq-1])) / 2.0 * (freq[nfreq-1] * ai)
                             
-                            moment[iorb, jorb, js, 1] = (ff[iorb, jorb, js, nfreq-1] + 
-                                                         np.conjugate(ff[jorb, iorb, js, nfreq-1])) / 2.0 * (freq[nfreq-1] * ai)**2
+                            moment[iorb, jorb, js, 1] = (ff1[iorb, jorb, js, nfreq-1] + 
+                                                         np.conjugate(ff1[jorb, iorb, js, nfreq-1])) / 2.0 * (freq[nfreq-1] * ai)**2
                             
             else:
 
@@ -170,10 +247,10 @@ class Fourier:
                             amat[2, :] = [1.0, 1.0/(freq[nfreq-2]*ai), 1.0/(freq[nfreq-2]*ai)**2, 1.0/(freq[nfreq-2]*ai)**3]
                             amat[3, :] = [1.0, -1.0/(freq[nfreq-2]*ai), 1.0/(freq[nfreq-2]*ai)**2, -1.0/(freq[nfreq-2]*ai)**3]
 
-                            bmat[0, 0] = ff[iorb, jorb, js, nfreq-1]
-                            bmat[1, 0] = np.conjugate(ff[jorb, iorb, js, nfreq-1])
-                            bmat[2, 0] = ff[iorb, jorb, js, nfreq-2]
-                            bmat[3, 0] = np.conjugate(ff[jorb, iorb, js, nfreq-2])
+                            bmat[0, 0] = ff1[iorb, jorb, js, nfreq-1]
+                            bmat[1, 0] = np.conjugate(ff1[jorb, iorb, js, nfreq-1])
+                            bmat[2, 0] = ff2[iorb, jorb, js, nfreq-2]
+                            bmat[3, 0] = np.conjugate(ff2[jorb, iorb, js, nfreq-2])
 
                             sol = solve(amat, bmat)
 
@@ -186,5 +263,138 @@ class Fourier:
             high[:, :, js] = (high[:, :, js].T.conj() + high[:, :, js]) / 2.0
             for ii in range(3):
                 moment[:, :, js, ii] = (moment[:, :, js, ii].T.conj() + moment[:, :, js, ii]) / 2.0
+
+        return moment, high
+    
+    @staticmethod
+    def FLatDynM(freq : np.ndarray, ff1 : np.ndarray, ff2 : np.ndarray, isgreen : bool, highzero : bool) ->  tuple:
+        """
+        Calculates the high-frequency moments of a lattice fermionic Green's function.
+
+        Args:
+            freq (np.ndarray): Array of fermionic Matsubara frequencies.
+            ff1 (np.ndarray): The last frequency point about lattice fermionic Green's function in Matsubara frequency.
+            ff2 (np.ndarray): The last frequency point about lattice fermionic Green's function in Matsubara frequency.
+            isgreen (bool): True if `ff` is a Green's function, False if it is a self-energy.
+            highzero (bool): If True, assumes the constant part of the high-frequency tail is zero.
+
+        Returns:
+            tuple: A tuple containing:
+                - moment (np.ndarray): The calculated high-frequency moments.
+                - high (np.ndarray): The constant part of the high-frequency tail.
+        """
+
+        norb, _, ns, nk = ff1.shape
+
+        moment = np.zeros((norb, norb, ns, nk, 3), dtype=np.complex128, order='F')
+        high = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
+
+        for ik in range(nk):
+            moment[..., ik, :], high[..., ik, :] = Fourier.FLocDynM(freq, ff1[..., ik,:], ff2[..., ik,:], isgreen, highzero)
+
+        return moment, high
+    
+
+    @staticmethod
+    def BLocDynM(freq : np.ndarray, ff : np.ndarray, oddzero : bool, highzero : bool):
+        """
+        Calculates the high-frequency moments of a local bosonic Green's function.
+
+        Args:
+            freq (np.ndarray): Array of bosonic Matsubara frequencies.
+            ff (np.ndarray): The local bosonic Green's function in Matsubara frequency.
+            oddzero (bool): If True, assumes the odd moments of the high-frequency tail are zero.
+            highzero (bool): If True, assumes the constant part of the high-frequency tail is zero.
+
+        Returns:
+            tuple: A tuple containing:
+                - moment (np.ndarray): The calculated high-frequency moments.
+                - high (np.ndarray): The constant part of the high-frequency tail.
+        """
+        
+        ai = 1j  # Complex unit
+        norb, _, ns, _, _ = ff.shape
+        moment = np.zeros((norb, norb, ns, ns, 3), dtype=np.complex128, order='F')
+        high = np.zeros((norb, norb, ns, ns), dtype=np.complex128, order='F')
+
+        if oddzero:
+            if highzero:
+                moment[..., 1] = ff[..., -1] * (freq[-1] * ai)**2
+            else:
+                moment[..., 1] = (ff[..., -1] - ff[..., -2]) * -1.0 * (freq[-1] * ai * freq[-2] * ai)**2 / \
+                                ((freq[-1] * ai + freq[-2] * ai) * (freq[-1] * ai - freq[-2] * ai))
+                high = ff[..., -1] - moment[..., 1] / (freq[-1] * ai)**2
+        else:
+            if highzero:
+                for is_ in range(ns):
+                    for js in range(ns):
+                        for iorb in range(norb):
+                            for jorb in range(norb):
+                                moment[iorb, jorb, is_, js, 0] += (ff[iorb, jorb, is_, js, -1] -
+                                                                np.conj(ff[jorb, iorb, js, is_, -1])) / \
+                                                                (2.0 * (freq[-1] * ai))
+                                moment[iorb, jorb, is_, js, 1] += (ff[iorb, jorb, is_, js, -1] +
+                                                                np.conj(ff[jorb, iorb, js, is_, -1])) / \
+                                                                (2.0 * (freq[-1] * ai)**2)
+            else:
+                amat = np.zeros((4, 4), dtype=np.complex128)
+                bmat = np.zeros((4, 1), dtype=np.complex128)
+                for is_ in range(ns):
+                    for js in range(ns):
+                        for iorb in range(norb):
+                            for jorb in range(norb):
+                                amat[0, :] = [1.0, 1.0 / (freq[-1] * ai), 1.0 / (freq[-1] * ai)**2, 1.0 / (freq[-1] * ai)**3]
+                                amat[1, :] = [1.0, -1.0 / (freq[-1] * ai), 1.0 / (freq[-1] * ai)**2, -1.0 / (freq[-1] * ai)**3]
+                                amat[2, :] = [1.0, 1.0 / (freq[-2] * ai), 1.0 / (freq[-2] * ai)**2, 1.0 / (freq[-2] * ai)**3]
+                                amat[3, :] = [1.0, -1.0 / (freq[-2] * ai), 1.0 / (freq[-2] * ai)**2, -1.0 / (freq[-2] * ai)**3]
+
+                                bmat[0, 0] = ff[iorb, jorb, is_, js, -1]
+                                bmat[1, 0] = np.conj(ff[jorb, iorb, js, is_, -1])
+                                bmat[2, 0] = ff[iorb, jorb, is_, js, -2]
+                                bmat[3, 0] = np.conj(ff[jorb, iorb, js, is_, -2])
+
+                                # Solve the linear system amat * x = bmat
+                                x = np.linalg.solve(amat, bmat)
+
+                                high[iorb, jorb, is_, js] = x[0, 0]
+                                moment[iorb, jorb, is_, js, 0] = x[1, 0]
+                                moment[iorb, jorb, is_, js, 1] = x[2, 0]
+                                moment[iorb, jorb, is_, js, 2] = x[3, 0]
+
+        # Symmetrize the results
+        for iorb in range(norb):
+            for jorb in range(norb):
+                for is_ in range(ns):
+                    for js in range(ns):
+                        high[iorb, jorb, is_, js] = (np.conj(high[jorb, iorb, js, is_]) + high[iorb, jorb, is_, js]) / 2.0
+                        for ii in range(3):
+                            moment[iorb, jorb, is_, js, ii] = (np.conj(moment[jorb, iorb, js, is_, ii]) +
+                                                            moment[iorb, jorb, is_, js, ii]) / 2.0
+
+        return moment, high
+    
+    @staticmethod
+    def BLatDynM(freq : np.ndarray, ff : np.ndarray, oddzero : bool, highzero : bool):
+        """
+        Calculates the high-frequency moments of a lattice bosonic Green's function.
+
+        Args:
+            freq (np.ndarray): Array of bosonic Matsubara frequencies.
+            ff (np.ndarray): The lattice bosonic Green's function in Matsubara frequency.
+            oddzero (bool): If True, assumes the odd moments of the high-frequency tail are zero.
+            highzero (bool): If True, assumes the constant part of the high-frequency tail is zero.
+
+        Returns:
+            tuple: A tuple containing:
+                - moment (np.ndarray): The calculated high-frequency moments.
+                - high (np.ndarray): The constant part of the high-frequency tail.
+        """
+
+        norb, _, ns, _, nk, _ = ff.shape
+        moment = np.zeros((norb, norb, ns, ns, nk, 3), dtype=np.complex128, order='F')
+        high = np.zeros((norb, norb, ns, ns, nk), dtype=np.complex128, order='F')
+
+        for ik in range(nk):
+            moment[...,ik, :], high[..., ik] = Fourier.BLocDynM(freq, ff[...,ik,:], oddzero, highzero)
 
         return moment, high

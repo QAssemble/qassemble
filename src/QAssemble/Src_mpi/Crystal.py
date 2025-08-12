@@ -9,11 +9,9 @@ import matplotlib.font_manager as fm
 from collections import OrderedDict
 import json, os, shutil, sys
 import itertools
-import scipy.optimize
+# import scipy.optimize
 from sympy.physics.wigner import gaunt, wigner_3j
 from scipy.fftpack import fftn, ifftn
-import scipy.linalg
-import subprocess
 import copy, gc
 qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/QAssemble/modules')
@@ -94,8 +92,7 @@ class Crystal(object):
         self.find = {}
         self.bind = {}
         self.full = {}
-        self.pbasis = None
-        self.bbasis = None
+        # 
         # self.b2f = None
         self.c2b = None
         self.probspace = {}
@@ -112,6 +109,8 @@ class Crystal(object):
 
 
         self.SetBasisIndex(orboption)
+        self.pbasis = np.zeros((len(self.find),len(self.find)),dtype=int)
+        self.bbasis = np.zeros((len(self.find),len(self.find)),dtype=int)
         self.Boson2Fermion()
         self.SetFullBasis()
         self.Boson2Full()

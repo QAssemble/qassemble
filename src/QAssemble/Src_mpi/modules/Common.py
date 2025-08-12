@@ -1,38 +1,46 @@
+"""
+This module provides a collection of common utility functions for numerical calculations,
+including matrix operations, interpolation, and special polynomials.
+"""
 import numpy as np
 from scipy.linalg import eigh
 
 
 class Common:
+    """
+    A collection of static methods for common numerical tasks.
+    """
 
     @staticmethod
     def CmplxMatInv(matin : np.ndarray) -> np.ndarray:
-
         """
-        Complex matrix inversion using LU decomposition
-        
-        Parameters:
-        matin : complex numpy array of shape (n, n)
-        
+        Computes the inverse of a complex square matrix.
+
+        Args:
+            matin (np.ndarray): A complex-valued square matrix of shape (n, n).
+
         Returns:
-        matout : inverse of the input matrix
+            np.ndarray: The inverse of the input matrix.
         """
 
         return np.linalg.inv(matin)
     
     @staticmethod
     def Indexing(ntot, ndivision, divisionarray, flag, n1, n2):
-        """Map between flat index and multi-dimensional indices.
+        """Map between a flat 1D index and a multi-dimensional index.
 
         Args:
-            ntot (int): Total number of elements.
-            ndivision (int): Number of dimensions.
-            divisionarray (list of int): Size of each dimension.
-            flag (int): Mode flag (1 for encode, 0 for decode).
-            n1 (int): Input or output flat index.
-            n2 (list of int): Input or output multi-dimensional index list.
+            ntot (int): Total number of elements in the multi-dimensional array.
+            ndivision (int): The number of dimensions.
+            divisionarray (list of int): A list containing the size of each dimension.
+            flag (int): Conversion direction flag. 
+                        1: Encode from multi-dimensional index (n2) to flat index (n1).
+                        0: Decode from flat index (n1) to multi-dimensional index (n2).
+            n1 (int): The flat (1D) index. Input for decoding, output for encoding.
+            n2 (list of int): The multi-dimensional index. Input for encoding, output for decoding.
 
         Returns:
-            tuple: (n1, n2) updated by the indexing operation.
+            tuple: A tuple (n1, n2) containing the updated flat and multi-dimensional indices.
         """
         tmpsize = 1
         for size in divisionarray:
@@ -66,14 +74,15 @@ class Common:
     @staticmethod
     def HermitianEigenCmplx(datamat : np.ndarray):
         """
-        Hermitian eigenvalue decomposition
-        
-        Parameters:
-        datamat: complex hermitian matrix
-        
+        Computes the eigenvalues and eigenvectors of a complex Hermitian matrix.
+
+        Args:
+            datamat (np.ndarray): A complex Hermitian matrix.
+
         Returns:
-        w: eigenvalues
-        datamat: eigenvectors (overwrites input)
+            tuple: A tuple containing:
+                - w (np.ndarray): The eigenvalues of the matrix.
+                - v (np.ndarray): The eigenvectors of the matrix.
         """
         w, v = eigh(datamat)
         return w, v
@@ -81,15 +90,15 @@ class Common:
     @staticmethod
     def FderivCmplx(m, x, f):
         """
-        Compute derivatives or anti-derivatives of complex functions
-        
-        Parameters:
-        m: order of derivative (negative for anti-derivative)
-        x: abscissa array
-        f: function values (complex)
-        
+        Computes the m-th derivative or anti-derivative of a complex-valued function.
+
+        Args:
+            m (int): The order of the derivative. Negative values correspond to anti-derivatives.
+            x (np.ndarray): The array of x-coordinates (abscissa).
+            f (np.ndarray): The array of complex function values at x.
+
         Returns:
-        g: (anti-)derivative of f
+            np.ndarray: The computed (anti-)derivative of the function.
         """
         n = len(x)
         g = np.zeros_like(f, dtype=complex)
@@ -151,22 +160,14 @@ class Common:
     @staticmethod
     def SplineCmplx(x, f):
         """
-        Calculate cubic spline coefficients for complex data
-        
-        Parameters:
-        x  : abscissa array (real array of length n)
-        f  : input data array (complex array of length n)
-        
+        Calculates the coefficients for a cubic spline interpolation of complex data.
+
+        Args:
+            x (np.ndarray): The array of x-coordinates (abscissa).
+            f (np.ndarray): The array of complex function values at x.
+
         Returns:
-        cf : cubic spline coefficients (complex array of shape (3,n))
-        
-        Description:
-        Calculates the coefficients of a cubic spline fitted to input data. In other
-        words, given a set of data points f_i defined at x_i, where
-        i=1...n, the coefficients c_j^i are determined such that
-        y_i(x)=f_i+c_1^i(x-x_i)+c_2^i(x-x_i)^2+c_3^i(x-x_i)^3,
-        is the interpolating function for x∈[x_i,x_{i+1}). The coefficients are
-        determined piecewise by fitting a cubic polynomial to adjacent points.
+            np.ndarray: An array of shape (3, n) containing the cubic spline coefficients.
         """
         
         n = len(x)
@@ -281,6 +282,16 @@ class Common:
 
     @staticmethod
     def BernoulliPolynomial(x, n):
+        """
+        Computes the n-th Bernoulli polynomial at a given point x.
+
+        Args:
+            x (float): The point at which to evaluate the polynomial.
+            n (int): The order of the Bernoulli polynomial (0 to 6).
+
+        Returns:
+            float: The value of the Bernoulli polynomial B_n(x).
+        """
 
         val = 0.0
         xmat = np.array([x**6, x**5, x**4, x**3, x**2, x, 1.0])
@@ -304,6 +315,16 @@ class Common:
     
     @staticmethod
     def EulerPolynomial(x, n):
+        """
+        Computes the n-th Euler polynomial at a given point x.
+
+        Args:
+            x (float): The point at which to evaluate the polynomial.
+            n (int): The order of the Euler polynomial (0 to 6).
+
+        Returns:
+            float: The value of the Euler polynomial E_n(x).
+        """
 
         
         val = 0.0
@@ -329,6 +350,18 @@ class Common:
 
     @staticmethod
     def FactorialInt(j):
+        """
+        Computes the factorial of a non-negative integer.
+
+        Args:
+            j (int): A non-negative integer.
+
+        Returns:
+            int: The factorial of j.
+
+        Raises:
+            ValueError: If j is a negative integer.
+        """
 
         if j < 0:
             raise ValueError("factorial is defined only for non-negative numbers")
@@ -344,16 +377,15 @@ class Common:
         
     @staticmethod
     def Ttind(itheta, ntau):
-
         """
-        Index transformation for tau-theta grids
-        
-        Parameters:
-        itheta: theta index
-        ntau: number of tau points
-        
+        Performs an index transformation for tau-theta grids.
+
+        Args:
+            itheta (int): The index in the theta grid.
+            ntau (int): The number of points in the tau grid.
+
         Returns:
-        transformed index
+            int: The transformed index in the tau grid.
         """
         if itheta >= 0:
             return ntau - 1 - itheta
@@ -363,13 +395,16 @@ class Common:
     @staticmethod
     def Gcoeff(m):
         """
-        Calculate coefficient for Legendre-Chebyshev transformation
-        
-        Parameters:
-        m: non-negative integer
-        
+        Calculates the coefficient for the Legendre-Chebyshev transformation.
+
+        Args:
+            m (int): A non-negative integer.
+
         Returns:
-        coefficient value
+            float: The calculated coefficient.
+
+        Raises:
+            ValueError: If m is a negative integer.
         """
         if m < 0:
             raise ValueError("gcoeff defined only for non-negative numbers!")
@@ -388,14 +423,14 @@ class Common:
     @staticmethod
     def MinDistance(S, d):
         """
-        Find minimum distance considering periodic boundary conditions
-        
-        Parameters:
-        S: 3x3 lattice vectors
-        d: 3D position vector
-        
+        Finds the minimum distance to a point in a lattice, considering periodic boundary conditions.
+
+        Args:
+            S (np.ndarray): A 3x3 matrix where rows are the lattice vectors.
+            d (np.ndarray): A 3D position vector.
+
         Returns:
-        R: minimum distance
+            float: The minimum distance R.
         """
         R = 1.0e6
         R1 = np.sqrt(np.sum(d**2))

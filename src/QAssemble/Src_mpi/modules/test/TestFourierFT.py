@@ -26,8 +26,8 @@ flatdyn_f = np.zeros([norb,norb,ns,nk,nomega],dtype=complex,order='F')
 flatdyn_moment = np.zeros([norb,norb,ns,nk,3],dtype=complex,order='F')
 flatdyn_high = np.zeros([norb,norb,ns,nk],dtype=complex,order='F')
 
-omega = np.zeros([nomega],dtype=complex,order='F')
-tau = np.zeros([ntau],dtype=complex,order='F')
+omega = np.zeros([nomega],dtype=np.float64,order='F')
+tau = np.zeros([ntau],dtype=np.float64,order='F')
 
 beta = 1.0/(8.617333262145e-5*300.0)
 pi = np.pi
@@ -57,12 +57,21 @@ for ik in range(nk):
 
 flatdyn_moment, flatdyn_high = QAFort.fourier.flatdyn_m(omega,glatt0,1,1)
 flatdyn_t = QAFort.fourier.flatdyn_f2t(omega,glatt0,flatdyn_moment,tau)
-
+flatdyn_t2 = Fourier.FLatDynF2T(omega, glatt0, flatdyn_moment, tau)
+print("Fourier FLatDynF2T Test")
+for itau in range(ntau):
+    for ik in range(nk):
+        for js in range(ns):
+            for iorb in range(norb):
+                for jorb in range(norb):
+                    err = flatdyn_t[iorb,jorb,js,ik,itau]-flatdyn_t2[iorb,jorb,js,ik,itau]
+                    if abs(err)>=1.0e-6:
+                        print(iorb,jorb,js,ik,itau,abs(err),flatdyn_t[iorb,jorb,js,ik,itau],flatdyn_t2[iorb,jorb,js,ik,itau])
 
 flatdyn_f = QAFort.fourier.flatdyn_t2f(tau,beta,flatdyn_t,omega)
 flatdyn_f2 = Fourier.FLatDynT2F(tau, flatdyn_t, omega)
 
-print("Fourier FLatDynFT")
+print("Fourier FLatDynT2F Test")
 
 for iomega in range(nomega):
     for ik in range(nk):
@@ -70,5 +79,5 @@ for iomega in range(nomega):
             for iorb in range(norb):
                 for jorb in range(norb):
                     err = flatdyn_f[iorb,jorb,js,ik,iomega]-flatdyn_f2[iorb,jorb,js,ik,iomega]
-                    if abs(err)>=1.0e-2:
+                    if abs(err)>=1.0e-6:
                         print(iorb,jorb,js,ik,iomega,abs(err),flatdyn_f[iorb,jorb,js,ik,iomega],flatdyn_f2[iorb,jorb,js,ik,iomega])

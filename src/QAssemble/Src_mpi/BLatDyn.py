@@ -45,7 +45,7 @@ class BLatDyn(object):
         tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex128)
         tempmat2 = np.zeros((norb*ns,norb*ns),dtype=np.complex128)
 
-        # Make composite matrix#
+        # Make composite matrix #
         for ift in range(nft):
             for irk in range(nrk):
                 tempmat = self.crystal.OrbSpin2Composite(matin[:,:,:,:,irk,ift])
