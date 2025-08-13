@@ -571,7 +571,7 @@ class SigmaLGWC(FLocDyn):
             sys.exit()
 
         if wloc is None:
-            print("Error, wlat doesn't exist")
+            print("Error, wloc doesn't exist")
             sys.exit()
         self.green = green
         self.wloc = wloc
@@ -733,7 +733,7 @@ class Hybridisation(FLocDyn):
 
 
 
-    def write_ctqmc_params(self, iter, key, E_imp : EImp, equiv : np.ndarray):
+    def write_ctqmc_params(self, iter, key, E_imp : EImp, equiv : np.ndarray, vloc : np.ndarray):
         
         if self.crystal.soc is False:
             if self.crystal.ns ==1:
@@ -751,8 +751,8 @@ class Hybridisation(FLocDyn):
 
                 params["hloc"]['one body'] = E_imp.A_final[...,key-1].tolist()
 
-                # self.boson.get_Uijkl_comctqmc(key)    ####### !!!
-                params["hloc"]["two body"]=0 # self.boson.U_ctqmc.tolist() ####### !!!
+                U = self.GetUijklComCTQMC(key, vloc)    ####### !!!
+                params["hloc"]["two body"]=U.tolist() ####### !!!
                 
                 params["partition"]={}
                 
@@ -821,81 +821,72 @@ class Hybridisation(FLocDyn):
 
 
 
-    def get_Uijkl_comctqmc(self,key,vloc,imp_dic):
-        
-        # V_loc_temp = self.Convert_4_2_LocStc(vloc,0)
+    def GetUijklComCTQMC(self, key, VLOC):
 
-
+        norb = len(self.crystal.find)
         ns = self.crystal.ns
-        (norb1,norb1) = self.crystal.bbasis.shape
-        # norb_squared = norb1**2
 
-        V_loc_temp = np.zeros((norb1,norb1,norb1,norb1,ns,ns),dtype=complex,order='F')
-        for js in range(self.ns):
-                for ks in range(self.ns):
-                    for iorb1 in range(norb1):
-                        for iorb2 in range(norb1):
-                            for iorb3 in range(norb1):
-                                for iorb4 in range(norb1):
-                                    V_loc_temp[iorb1,iorb2,iorb3,iorb4,js,ks] = vloc[self.crystal.bbasis[iorb1,iorb2],self.crystal.bbasis[iorb3,iorb4],js,ks]
-
-
-        orb = self.imp_dict[key][0]
-        norb = len(orb)
-        ns = self.ns
-        V_loc = np.zeros((norb,norb,norb,norb,ns,ns),dtype=complex)
-        for js in range(ns):
-            for ks in range(ns):
-                for ii,iorb in enumerate(orb):
+        print(self.crystal.bimpdict)
+        
+        orb = self.crystal.bimpdict[str(key)][0]
+        norbc = len(orb)
+        print(norbc)
+        tempmat = np.zeros((norb, norb, norb, norb), dtype=np.complex128, order='F')
+        vloc_temp = np.zeros((norbc, norbc, norbc, norbc, ns, ns), dtype=np.complex128, order='F')
+        for ks in range(ns):
+            for js in range(ns):
+                tempmat1 = self.crystal.Double2Quad(VLOC[...,js,ks])
+                print(tempmat1.shape)
+                for ii, iorb in enumerate(orb):
                     for jj, jorb in enumerate(orb):
                         for kk, korb in enumerate(orb):
                             for ll, lorb in enumerate(orb):
-                                V_loc[ii,jj,kk,ll,js,ks] = V_loc_temp[iorb,jorb,korb,lorb,js,ks]
-        nimp_orb = V_loc.shape[0]
-        
-        if self.fermion.SOC is False:
-            U = np.zeros(nimp_orb**4*2**4,dtype=float)
-            index = 0
-            if self.ns == 1:
+                                print(ii,jj,kk,ll,iorb,jorb,korb,lorb)
+                                vloc_temp[ii, jj, kk, ll, js, ks] = tempmat1[iorb, jorb, korb, lorb]
+
+        if (self.crystal.soc == False):
+            U = np.zeros((norbc**4*2**4), dtype=np.float64, order='F')
+            idx = 0
+            if (ns == 1):
                 for sl in range(2):
-                    for l in range(nimp_orb):
+                    for l in range(norbc):
                         for sk in range(2):
-                            for k in range(nimp_orb):
+                            for k in range(norbc):
                                 for sj in range(2):
-                                    for j in range(nimp_orb):
+                                    for j in range(norbc):
                                         for si in range(2):
-                                            for i in range(nimp_orb):
+                                            for i in range(norbc):
                                                     
                                                     
                                                 if(sj==sk and si==sl):
-                                                    val=V_loc[i,j,k,l,0,0].real
-                                                    val=abs(val)
-                                                    if(val > 0.001):
-                                                        U[index]=val
-                                                index=index+1
-            elif self.ns == 2:
+                                                    val = vloc_temp[i, j, k, l, 0, 0].real
+                                                    val = abs(val)
+                                                    if (val > 0.001):
+                                                        U[idx] = val
+                                                idx += 1
+            else:
                 for sl in range(2):
-                    for l in range(nimp_orb):
+                    for l in range(norbc):
                         for sk in range(2):
-                            for k in range(nimp_orb):
+                            for k in range(norbc):
                                 for sj in range(2):
-                                    for j in range(nimp_orb):
+                                    for j in range(norbc):
                                         for si in range(2):
-                                            for i in range(nimp_orb):
+                                            for i in range(norbc):
                                                     
                                                     
                                                 if(sj==sk and si==sl):
-                                                    val=V_loc[i,j,k,l,si,sj].real
-                                                    val=abs(val)
-                                                    if(val > 0.001):
-                                                        U[index]=val
-                                                index=index+1
+                                                    val = vloc_temp[i, j, k, l, si, sj].real
+                                                    val = abs(val)
+                                                    if (val > 0.001):
+                                                        U[idx] = val
+                                                idx += 1
         else:
             print("SOC is not False")
             sys.exit()
-        self.U_ctqmc = U
-        
-        return None
+        # self.u_ctqmc = U
+
+        return U
     
 
 

@@ -648,16 +648,29 @@ class Crystal(object):
                     find = self.FIndex(orb)
                     templist.append(find)
                 fimpdict[key].append(templist)
-        self.fimpdict = fimpdict
         for val in fimpdict.values():
             for orb in val:
                 if len(orb) > forbc:
                     forbc = len(orb)
+        self.fimpdict = fimpdict
         
 
 
         for key, val in fimpdict.items():
             bimpdict[key] = []
+            # nn = len(fimpdict[key])
+            # for ii in range(nn):
+            #     orb = fimpdict[key][ii]
+            #     temp_list= []
+            #     for iorb in orb:
+            #         for jorb in orb:
+            #             a, m1 = self.FAtomOrb(iorb)
+            #             b, m2 = self.FAtomOrb(jorb)
+            #             if a==b:
+            #                 bind = self.bbasis[iorb, jorb]
+            #                 temp_list.append(bind)
+            #     bimpdict[key].append(temp_list)
+
             for orb in val:
                 templist = []
                 for iorb in orb:

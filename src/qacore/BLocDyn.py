@@ -22,6 +22,7 @@ from .Crystal import Crystal
 from .FTGrid import FTGrid
 from .FLocDyn import FLocDyn
 from .BLocStc import VLoc
+from .BLatDyn import WLat
 qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/qacore/modules')
 import QAFort
@@ -155,13 +156,13 @@ class BLocDyn(object):
         nprob = len(self.crystal.probspace)
         norb = matloc.shape[0]
         ns = matloc.shape[2]
-        nft = matloc.shape[3]
+        nft = matloc.shape[4]
 
         matimp = np.zeros((norb,norb,ns,ns,nft,nprob),dtype=np.complex128,order='F')
 
         for key, val in self.crystal.probspace.items():
             iprob = int(key)-1
-            tempmat = np.zeros((norb,norb,ns,nft),dtype=np.complex128)
+            tempmat = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex128)
             for ispace in val:
                 tempmat += matloc[...,ispace]
             tempmat /=len(val)
@@ -428,6 +429,7 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
 
     def __init__(self, crystal: Crystal, ft: FTGrid
     ,pol : PolLoc = None, vLoc : VLoc = None, vDyn : np.array = None, c : float = 1.0, hdf5file : str = 'glob.h5', group : str = None):
+    # def __init__(self, crystal: Crystal, ft: FTGrid ,wlat : WLat = None, hdf5file : str = 'glob.h5', group : str = None):
         super().__init__(crystal, ft)
 
         # pass
@@ -439,19 +441,27 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
         self.crf = None
         # self.ckt = None
         # self.ckf = None
-        self.c = c #### ??
+        # self.c = c #### ??
+
+        # self.wlat = wlat
+
+
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
-        if pol is None:
-            print("Error, polarizability doesn't exist")
-            sys.exit()
-        if vLoc is None:
-            print("Error, bare coulomb interaction doesn't exist")
-            sys.exit()
-        self.pol = pol
-        self.vDyn = vDyn
-        self.vLoc = vLoc
+
+
+        # if pol is None:
+        #     print("Error, polarizability doesn't exist")
+        #     sys.exit()
+        # if vLoc is None:
+        #     print("Error, bare coulomb interaction doesn't exist")
+        #     sys.exit()
+        # self.pol = pol
+        # self.vDyn = vDyn
+        # self.vLoc = vLoc
+
+
 
         self.Cal()
 
@@ -475,44 +485,52 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
         nspace = self.crystal.fprojector.shape[3]
         nprob = len(self.crystal.probspace)
 
+
+
+        # wrf_nspace  = np.zeros((norb,norb,ns,ns,nfreq,nspace),dtype=np.complex128,order='F')
+
+        # wrf_nspace = self.wlat.Projection(self.wlat.kf)
+
+        # self.rf = self.Loc2Imp(wrf_nspace)
+
+        # rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
+        # for iprob in range(nprob):
+        #     rt[...,iprob] = self.F2T(self.rf[...,iprob], 1, 1)
+        # self.rt = np.copy(rt)
+
+        
+
+
+        # crf = self.wlat.Projection(self.wlat.ckf)
+        # self.crf = self.Loc2Imp(crf)
+
+        # crt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
+        # for iprob in range(nprob):
+        #     crt[...,iprob] = self.F2T(self.crf[...,iprob], 1, 1)
+        # self.crt = np.copy(crt)
+
+
+
+
         
         ####### Initialization #######
         tempmat = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
         wrf  = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
         wcrf = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
-        # vdyn = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        vdyn = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
 
-        # for iprob in range(nprob):
-        #     vdyn[...,iprob] = self.StcEmbedding(self.vLoc[...,iprob]) ####  define StcEmbedding ### remove this part when it is dynamic
+        for iprob in range(nprob):
+            vdyn[...,iprob] = self.StcEmbedding(self.vLoc[...,iprob]) ####  define StcEmbedding ### remove this part when it is dynamic
         
-        # print(self.pol.shape)
-        # print(vdyn.shape)
+        print(self.pol.shape)
+        print(vdyn.shape)
         
-        # polcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
-        # vcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
-        ####### Initialization #######
-        # polcomp = self.Loc2Imp(self.pol)*self.c #### ??
-        # # del self.pol
-        # vcomp = self.Loc2Imp(vdyn) #### ??
-
-        # for iprob in range(nprob):
-        #     wrf[...,iprob] = self.Dyson(self.vDyn[...,iprob],self.pol[...,iprob])
-        # # wrf = self.Imp2Loc(tempmat)
-
-        # ## tempmat -> wrf
-
-        # self.rf = wrf
-
-        # wcrf = wrf - self.vLoc  #### wrf - vloc --> static bare V
-
-        # self.crf = wcrf
-        # crt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
-        # for iprob in range(nprob):
-        #     crt[...,iprob] = self.F2T(wcrf[...,iprob], 1, 1)
-        # self.crt = crt
-
-
-
+        polcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        vcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        ###### Initialization #######
+        polcomp = self.Loc2Imp(self.pol)*self.c #### ??
+        # del self.pol
+        vcomp = self.Loc2Imp(vdyn) #### ??
 
         for iprob in range(nprob):
             wrf[...,iprob] = self.Dyson(self.vDyn[...,iprob],self.pol[...,iprob])
@@ -520,22 +538,49 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
 
         ## tempmat -> wrf
 
-        self.rf = np.copy(wrf)
 
-
+        #### W
+        self.rf = wrf
+        rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
         for iprob in range(nprob):
-            for ifreq in range(nfreq):
-                for iis in range(ns):
-                    for jjs in range(ns):
-                        wcrf[...,iis,jjs,ifreq,iprob] = wrf[...,iis,jjs,ifreq,iprob] - self.vLoc[...,iis,jjs,iprob]  #### wrf - vloc --> static bare V
-        
+            rt[...,iprob] = self.F2T(wrf[...,iprob], 1, 1)
+        self.rt = np.copy(rt)
 
-        self.crf = np.copy(wcrf)
+
+        #### Wc
+        wcrf = wrf - self.vLoc  #### wrf - vloc --> static bare V
+        self.crf = wcrf
         crt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
         for iprob in range(nprob):
             crt[...,iprob] = self.F2T(wcrf[...,iprob], 1, 1)
-        self.crt = np.copy(crt)
-        del wrf, wcrf, crt
+        self.crt = crt
+
+
+
+
+        # for iprob in range(nprob):
+        #     wrf[...,iprob] = self.Dyson(self.vDyn[...,iprob],self.pol[...,iprob])
+        # # wrf = self.Imp2Loc(tempmat)
+
+        # ## tempmat -> wrf
+
+        # self.rf = np.copy(wrf)
+        
+
+
+        # for iprob in range(nprob):
+        #     for ifreq in range(nfreq):
+        #         for iis in range(ns):
+        #             for jjs in range(ns):
+        #                 wcrf[...,iis,jjs,ifreq,iprob] = wrf[...,iis,jjs,ifreq,iprob] - self.vLoc[...,iis,jjs,iprob]  #### wrf - vloc --> static bare V
+        
+
+        # self.crf = np.copy(wcrf)
+        # crt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
+        # for iprob in range(nprob):
+        #     crt[...,iprob] = self.F2T(wcrf[...,iprob], 1, 1)
+        # self.crt = np.copy(crt)
+        # del wrf, wcrf, crt
         return None
 
 
@@ -626,15 +671,20 @@ class WLoc_temp(BLocDyn): #### contains WLoc and WcLoc
         ## tempmat -> wrf
 
         self.rf = np.copy(wrf)
+        rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
+        for iprob in range(nprob):
+            rt[...,iprob] = self.F2T(wrf[...,iprob], 1, 1)
+        self.rt = np.copy(rt)
+
+
 
         wcrf = wrf - vdyn  #### wrf - vloc --> static bare V
-
         self.crf = np.copy(wcrf)
         crt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
         for iprob in range(nprob):
             crt[...,iprob] = self.F2T(wcrf[...,iprob], 1, 1)
         self.crt = np.copy(crt)
-        del wrf, wcrf, vdyn, crt
+        # del wrf, wcrf, vdyn, crt
         return None
 
 class WImp(BLocDyn):

@@ -273,6 +273,7 @@ class VLoc(BLocStc):
         ns = self.crystal.ns
         self.onsitelist = None
         self.vloc = np.zeros((norb,norb,ns,ns),dtype=float,order='F')
+        self.u_ctqmc = None
         if voption is None:
             print("voption does not exist")
             sys.exit()
@@ -605,6 +606,65 @@ class VLoc(BLocStc):
         return V
 
 
-    def GetUijklComCTQMC(self):
+    def GetUijklComCTQMC(self, key):
 
-        pass
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        
+        orb = self.crystal.bimpdict[key][0]
+        norbc = len(orb)
+        tempmat = np.zeros((norb, norb, norb, norb), dtype=np.complex128, order='F')
+        vloc = np.zeros((norbc, norbc, norbc, norbc, ns, ns), dtype=np.complex128, order='F')
+        for ks in range(ns):
+            for js in range(ns):
+                tempmat = self.crystal.Double2Quad(self.vloc[...,js,ks])
+                for ll, lorb in enumerate(orb):
+                    for kk, korb in enumerate(orb):
+                        for jj, jorb in enumerate(orb):
+                            for ii, iorb in enumerate(orb):
+                                vloc[ii, jj, kk, ll, js, ks] = tempmat[iorb, jorb, korb, lorb]
+
+        if (self.crystal.soc == False):
+            U = np.zeros((norbc**4*2**4), dtype=np.float64, order='F')
+            idx = 0
+            if (ns == 1):
+                for sl in range(2):
+                    for l in range(norbc):
+                        for sk in range(2):
+                            for k in range(norbc):
+                                for sj in range(2):
+                                    for j in range(norbc):
+                                        for si in range(2):
+                                            for i in range(norbc):
+                                                    
+                                                    
+                                                if(sj==sk and si==sl):
+                                                    val = vloc[i, j, k, l, 0, 0].real
+                                                    val = abs(val)
+                                                    if (val > 0.001):
+                                                        U[idx] = val
+                                                idx += 1
+            else:
+                for sl in range(2):
+                    for l in range(norbc):
+                        for sk in range(2):
+                            for k in range(norbc):
+                                for sj in range(2):
+                                    for j in range(norbc):
+                                        for si in range(2):
+                                            for i in range(norbc):
+                                                    
+                                                    
+                                                if(sj==sk and si==sl):
+                                                    val = vloc[i, j, k, l, si, sj].real
+                                                    val = abs(val)
+                                                    if (val > 0.001):
+                                                        U[idx] = val
+                                                idx += 1
+        else:
+            print("SOC is not False")
+            sys.exit()
+        self.u_ctqmc = U
+
+        return U
+            

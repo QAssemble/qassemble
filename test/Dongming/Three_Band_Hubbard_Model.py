@@ -174,12 +174,28 @@ from qacore.FLocStc import FLocStc, SigmaFLoc, SigmaHLoc
 
 gint = cf.green
 cf.crystal.Projector(impdict={"1": [[[0, 0],[0, 1],[0, 2]]]})
+# impdict = {
+#     "1" : [
+#         [
+#             [0, 5],
+#             [0, 6],
+#             [0, 7],
+#             [0, 8],
+#             [0, 9]
+#         ]
+#     ]
+# }
+# cf.crystal.Projector(impdict)
 # cf.crystal.Projector(impdict={"1": [[[0, 0],[0, 1]]]})
 # cf.crystal.Projector(impdict = {"1" : [[[0, 1]]], "2" : [[[1, 2], [1,3]]], "3" : [[[2, 2]]]})
 # exit()
-print(cf.crystal.fprojector.shape)
-print(cf.crystal.bprojector.shape)
+# print(cf.crystal.fprojector.shape)
+# print(cf.crystal.bprojector.shape)
+import pprint
 
+pprint.pprint(cf.crystal.bimpdict)
+print(cf.crystal.bimpdict['1'][0])
+print(len(cf.crystal.bimpdict['1'][0]))
 # exit()
 
 
@@ -249,10 +265,10 @@ for ik in range(nk):
 # vloc2[...,0] = cf.vbare.vloc.vloc
 vloc[..., 0] = vloc2[..., 0]
 # vloc[..., 1] = vloc2[0, 0, 0, 0, 0]
-print("vloc.shape --", vloc.shape)
-print(vloc[:, :, 0, 0, 0])
-print("vbare.shape --", cf.vbare.k.shape)
-print(vloc2[:, :, 0, 0, 0])
+# print("vloc.shape --", vloc.shape)
+# print(vloc[:, :, 0, 0, 0])
+# print("vbare.shape --", cf.vbare.k.shape)
+# print(vloc2[:, :, 0, 0, 0])
 print("**Vloc finish\n")
 
 # exit()
@@ -366,7 +382,7 @@ for ikk in range(nk):
 
 
 print("**PolLoc start")
-polloc = PolLoc(crystal=cf.crystal, ft=cf.ft, green=gloc)
+polloc_dc = PolLoc(crystal=cf.crystal, ft=cf.ft, green=gloc)
 pollat = PolLat(crystal=cf.crystal, ft=cf.ft, green=g_average2)
 # polloc_average = PolLoc(crystal=cf.crystal,ft=cf.ft,green=g_average)
 # print('polLoc.rt.shape --',polloc.rt.shape)
@@ -377,32 +393,32 @@ print("**PolLoc finish\n")
 # for i in range(nk):
 #     pol_average += 1/nk*cf.pol.kf[...,i,:]
 
-for iff in range(nf):
-    for js in range(ns):
-        for ks in range(ns):
-            for jorb in range(1):
-                for iorb in range(1):
-                    # err = pol_average[iorb, jorb, js, ks, iff] - polloc.rf[iorb, jorb, js, ks, iff, 0]
-                    err = (
-                        pollat.rf[iorb, jorb, js, ks, 0, iff]
-                        - polloc.rf[iorb, jorb, js, ks, iff, 0]
-                    )
-                    if abs(err) > 1.0e-6:
-                        print(
-                            iorb,
-                            jorb,
-                            js,
-                            ks,
-                            iff,
-                            abs(err),
-                            pollat.rf[iorb, jorb, js, ks, 0, iff],
-                            polloc.rf[iorb, jorb, js, ks, iff, 0],
-                        )
+# for iff in range(nf):
+#     for js in range(ns):
+#         for ks in range(ns):
+#             for jorb in range(1):
+#                 for iorb in range(1):
+#                     # err = pol_average[iorb, jorb, js, ks, iff] - polloc.rf[iorb, jorb, js, ks, iff, 0]
+#                     err = (
+#                         pollat.rf[iorb, jorb, js, ks, 0, iff]
+#                         - polloc_dc.rf[iorb, jorb, js, ks, iff, 0]
+#                     )
+#                     if abs(err) > 1.0e-6:
+#                         print(
+#                             iorb,
+#                             jorb,
+#                             js,
+#                             ks,
+#                             iff,
+#                             abs(err),
+#                             pollat.rf[iorb, jorb, js, ks, 0, iff],
+#                             polloc_dc.rf[iorb, jorb, js, ks, iff, 0],
+#                         )
 
 plot = plt.figure(1)
 plt.scatter(cf.ft.nu[:], pollat.rf[0, 0, 0, 0, 0, :], color="blue")
 # plt.scatter(cf.ft.nu[:],polloc_average.rf[0,0,0,0,:],color='blue')
-plt.scatter(cf.ft.nu[:], polloc.rf[0, 0, 0, 0, :, 0], color="red")
+plt.scatter(cf.ft.nu[:], polloc_dc.rf[0, 0, 0, 0, :, 0], color="red")
 plt.title("Polarizability_Loc")
 plt.xlabel("freq")
 plt.ylabel("P")
@@ -431,9 +447,9 @@ plt.show()
 # print(vbare_k_average.shape)
 
 
-print(pollat.kf[..., 0:5, 0])
+# print(pollat.kf[..., 0:5, 0])
 
-print(polloc.rf[..., 0, 0])
+# print(polloc_dc.rf[..., 0, 0])
 kf = np.zeros_like(pollat.kf, dtype=np.complex128, order='F')
 for ik in range(nk):
     kf[..., ik, :] = pollat.rf[..., 0, :]
@@ -455,7 +471,8 @@ for ik in range(nk):
 # exit()
 
 print("**WLoc start")
-wloc_temp = WLoc_temp(crystal=cf.crystal, ft=cf.ft, pol=polloc.rf, vLoc=vloc)
+wloc = WLoc_temp(crystal=cf.crystal, ft=cf.ft, pol=polloc_dc.rf, vLoc=vloc)
+# wloc = WLoc(crystal=cf.crystal, ft=cf.ft, wlat=cf.w)
 # wlat = WLat(crystal=cf.crystal, ft=cf.ft, pol=pollat.kf, vbare=cf.vbare)
 wlat = WLat_k(crystal=cf.crystal, ft=cf.ft, pol=kf, vbare=vloc2)
 # wlat = WLat_k(crystal=cf.crystal,ft=cf.ft, pol=pollat.kf,vbare=vbare_k_average)
@@ -482,7 +499,7 @@ print(wlat.crf.shape)
 plot = plt.figure(1)
 plt.scatter(cf.ft.nu[:], wlat.crf[0, 0, 0, 0, 0, :], color="blue")
 # plt.scatter(cf.ft.nu[:],wlat_average[0,0,0,0,:],color='blue')
-plt.scatter(cf.ft.nu[:], wloc_temp.crf[0, 0, 0, 0, :, 0], color="red")
+plt.scatter(cf.ft.nu[:], wloc.crf[0, 0, 0, 0, :, 0], color="red")
 plt.title("W_Loc")
 plt.xlabel("freq")
 plt.ylabel("W")
@@ -493,7 +510,7 @@ plt.show()
 plot = plt.figure(1)
 plt.scatter(cf.ft.nu[:], wlat.rf[0, 0, 0, 0, 0, :], color="blue")
 # plt.scatter(cf.ft.nu[:],wlat_average[0,0,0,0,:],color='blue')
-plt.scatter(cf.ft.nu[:], wloc_temp.rf[0, 0, 0, 0, :, 0], color="red")
+plt.scatter(cf.ft.nu[:], wloc.rf[0, 0, 0, 0, :, 0], color="red")
 plt.title("W_Loc")
 plt.xlabel("freq")
 plt.ylabel("W")
@@ -549,7 +566,7 @@ from qacore.BLocDyn import UImp
 print(vloc.shape)
 
 print("**Uimp start")
-uimp = UImp(crystal=cf.crystal,ft=cf.ft,wloc=wloc_temp.rf,ploc=polloc.rf,vloc=vloc)
+uimp = UImp(crystal=cf.crystal,ft=cf.ft,wloc=wloc.rf,ploc=polloc_dc.rf,vloc=vloc)
 print("**Uimp finish\n")
 
 plot = plt.figure(1)
@@ -562,27 +579,40 @@ plt.legend()
 plt.grid(which="both", linestyle="--", linewidth=0.3)
 plt.show()
 
-print("**WLoc start")
-wloc = WLoc(crystal=cf.crystal, ft=cf.ft, pol=polloc.rf, vLoc=vloc, vDyn=uimp.utilde_rf)
-print("**WLoc finish\n")
 plot = plt.figure(1)
-plt.scatter(cf.ft.nu[:], wloc.rf[0, 0, 0, 0, :, 0], color="blue")
-# plt.scatter(cf.ft.nu[:],wlat_average[0,0,0,0,:],color='blue')
-plt.scatter(cf.ft.nu[:], wloc_temp.rf[0, 0, 0, 0, :, 0], color="red")
-plt.title("W_Loc")
+plt.scatter(cf.ft.nu[1:], uimp.ubar_rf[0, 0, 0, 0, 1:, 0].real, color="blue")
+plt.title("ubar -- real part")
 plt.xlabel("freq")
-plt.ylabel("W")
+plt.ylabel("Delta")
+# plt.ylim(-5, 5)
 plt.legend()
 plt.grid(which="both", linestyle="--", linewidth=0.3)
 plt.show()
+
+# print("**WLoc start")
+# wloc = WLoc(crystal=cf.crystal, ft=cf.ft, pol=polloc.rf, vLoc=vloc, vDyn=uimp.utilde_rf)
+# print("**WLoc finish\n")
+# plot = plt.figure(1)
+# plt.scatter(cf.ft.nu[:], wloc.rf[0, 0, 0, 0, :, 0], color="blue")
+# # plt.scatter(cf.ft.nu[:],wlat_average[0,0,0,0,:],color='blue')
+# plt.scatter(cf.ft.nu[:], wloc_temp.rf[0, 0, 0, 0, :, 0], color="red")
+# plt.title("W_Loc")
+# plt.xlabel("freq")
+# plt.ylabel("W")
+# plt.legend()
+# plt.grid(which="both", linestyle="--", linewidth=0.3)
+# plt.show()
+
+
+
 print("**SigmaLGWC start")
-sigma_loc_gwc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
+sigma_loc_dc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
 print("**SigmaLGWC finish\n")
 
 plot = plt.figure(1)
 # plt.scatter(cf.ft.omega[:], sigma_lat_gwc.rf[0, 0, 0, 0, :], color="blue")
 # # plt.scatter(cf.ft.omega[:],sigmagwc_lat_average[0,0,0,:],color='blue')
-plt.scatter(cf.ft.omega[:], sigma_loc_gwc.rf[0, 0, 0, :, 0], color="red")
+plt.scatter(cf.ft.omega[:], sigma_loc_dc.rf[0, 0, 0, :, 0], color="red")
 plt.title("Sigma")
 plt.xlabel("freq")
 plt.ylabel("Sigma")
@@ -592,7 +622,7 @@ plt.show()
 
 
 
-
+# exit()
 
 
 
@@ -746,7 +776,7 @@ print('*** Eimp_final_input finish ***')
 
 
 print("**Hybridisation start")
-delta = Hybridisation(crystal=cf.crystal,ft=cf.ft,gloc=gloc,eimp=eimp,sigmahimp=hloc.r,sigmafimp=floc.r,sigmacimp=sigma_loc_gwc.rf)
+delta = Hybridisation(crystal=cf.crystal,ft=cf.ft,gloc=gloc,eimp=eimp,sigmahimp=hloc.r,sigmafimp=floc.r,sigmacimp=sigma_loc_dc.rf)
 print("**Hybridisation finish\n")
 
 
@@ -774,7 +804,7 @@ print('*** write_Hybridisation_json finish ***')
 
 
 print('*** write_ctqmc_params start ***')
-delta.write_ctqmc_params(1,1,eimp,equiv)
+delta.write_ctqmc_params(1,1,eimp,equiv,vloc)
 print('*** write_ctqmc_params finish ***')
 
 delta.run_ctqmc()
