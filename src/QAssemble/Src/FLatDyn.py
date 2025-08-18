@@ -22,115 +22,252 @@ import h5py
 from .Crystal import Crystal
 from .FTGrid import FTGrid
 from .FLatStc import FLatStc
-from .MPIManager import MPIManager
-from .modules.Dyson import Dyson
-from .modules.Fourier import Fourier
-from .modules.Bare import Bare
-from .modules.Common import Common
-
+# from .MPIManager import MPIManager
+qapath = os.environ.get('QAssemble','')
+sys.path.append(qapath+'/src/QAssemble/modules')
+import QAFort
 
 class FLatDyn(object):
-
-    def __init__(self, crystal : Crystal, ftgrid : FTGrid, nk : int, nw : int, ntau : int, nprock : int, nprocw : int, mpimanager : MPIManager):
-
+    def __init__(self,crystal : Crystal, ft : FTGrid) -> object:
         self.crystal = crystal
-        self.ftgrid = ftgrid
-        self.nk = nk
-        self.nw = nw
-        self.nprock = nprock
-        self.nprocw = nprocw
-        self.mpimanager = mpimanager
-        self.nodedict = mpimanager.Quary(nk, nw, ntau, nprock, nprocw, self.crystal)
-
-        self.commk = self.nodedict['commk']
-        self.commw = self.nodedict['commf']
-        self.submatrixkf = self.nodedict['submatrixkf']
-        self.submatrixkb = self.nodedict['submatrixkb']
-        self.submatrixw = self.nodedict['submatrixw']
-
-        self.commtau = self.nodedict['commtau']
-
-        self.submatrixtau = self.nodedict['submatrixtau']
-
-    
-    
-    def MappingGlobal2Local(self, localdict : dict) -> dict:
-        mapping = {}
-        for irank in range(self.commk.Get_size()):
-            mapping[irank] = {}
-            for key, value in localdict[irank].items():
-                kidx = self.crystal.MergeKind(value)
-                mapping[irank][key] = kidx
-
-        return mapping
-
-    def CheckGroup(self, filepath : str, group : str):
-
-        with h5py.File(filepath, 'r') as file:
-            return group in file
-
-    def Save(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
-
-        with h5py.File(hdf5file, 'a', driver='mpio', comm = self.mpimanager.comm) as file:
-            if (self.CheckGroup(hdf5file, group)):
-                g =  file[group]
-                if subgroup in g:
-                    subg = g[subgroup]
-                else:
-                    subg = g.create_group(subgroup)
-            else:
-                g = file.create_group(group)
-                subg = g.create_group(subgroup)
-
-            subg.create_dataset(dataname, data=data, dtype=np.complex128)
-
-            return None
-
-    def Load(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
-
-        with h5py.File(hdf5file, 'r', driver='mpio', comm=self.mpimanager.comm) as file:
-            if (self.CheckGroup(hdf5file, group)):
-                g =  file[group]
-                if subgroup in g:
-                    subg = g[subgroup]
-                    if dataname in subg:
-                        data = subg[dataname][:]
-                        return data
-                    else:
-                        raise KeyError(f"{dataname} not found in {subgroup}")
-                else:
-                    raise KeyError(f"{subgroup} not found in {group}")
-            else:
-                raise KeyError(f"{group} not found in {hdf5file}")
-
-    def Inverse(self, matin : np.ndarray) -> np.ndarray:
-
+        self.ft = ft
+        self.mappingidx = None
         
-        norb, _, ns, nk, nft = matin.shape
+    def Inverse(self, mat : np.ndarray) -> np.ndarray:
 
-        matout = np.zeros((norb, norb, ns, nk, nft), dtype=np.complex128, order='F')
+        norb = mat.shape[0]
+        ns = mat.shape[2]
+        nrk = mat.shape[3]
+        nft = mat.shape[4]
+
+        matinv = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                for js in range(ns):
+                    matinv[:,:,js,irk,ift] = np.linalg.inv(mat[:,:,js,irk,ift])
+        # for js, irk, ift in itertools.product(list(range(ns)),list(range(nrk),list(range(nft)))):
+        #     matinv[:,:,js,irk,ift] = np.linalg.inv(mat[:,:,js,irk,ift])
+        
+        return matinv
+    
+    def T2F(self,ftau : np.ndarray) -> np.ndarray:
+        
+
+        norb = ftau.shape[0]
+        ns = ftau.shape[2]
+        nk = ftau.shape[3]
+        nfreq = len(self.ft.omega)
+        ff = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order='F')
+
+        ff = QAFort.fourier.flatdyn_t2f(self.ft.tau,self.ft.beta, ftau,self.ft.omega)
+
+        return ff
+    
+    def F2T(self,ff : np.ndarray,isgreen : int, highzero : int) -> np.ndarray:
+
+        norb = ff.shape[0]
+        ns = ff.shape[2]
+        nk = ff.shape[3]
+        ntau = len(self.ft.tau)
+
+        ftau = np.zeros((norb,norb,ns,nk,ntau),dtype=np.complex128,order='F')
+        tempmat = copy.deepcopy(ff)
+        moment, high = self.Moment(tempmat,isgreen,highzero)
+        
+        ftau = QAFort.fourier.flatdyn_f2t(self.ft.omega,tempmat,moment,self.ft.tau)
+
+        return ftau
+
+    
+    def Moment(self,ff : np.ndarray, isgreen : int, highzero : int) -> np.ndarray:
+
+        norb = ff.shape[0]
+        ns = ff.shape[2]
+        nk = ff.shape[3]
+
+        moment = np.zeros((norb,norb,ns,nk,3),dtype=np.complex128,order='F')
+        high = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order='F')
+
+        tempmat = copy.deepcopy(ff)
+
+        moment, high = QAFort.fourier.flatdyn_m(self.ft.omega,tempmat,isgreen,highzero)
+
+        return moment, high
+    
+    
+    def K2R(self,matk : np.ndarray, rkgrid : list = None) -> np.ndarray:
+
+        rkvec = self.crystal.kpoint
+        if rkgrid == None:
+            rkgrid = self.crystal.rkgrid
+        
+        
+        norb = matk.shape[0]
+        ns = matk.shape[2]
+        nrk = matk.shape[3]
+        nft = matk.shape[4]
+        matr = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+        tempmat = copy.deepcopy(matk)
         
 
         for ift in range(nft):
-            for ik in range(nk):
+            for irk in range(nrk):
                 for js in range(ns):
-                    matout[:, :, js, ik, ift] = Common.CmplxMatInv(matin[:, :, js ,ik, ift])
+                    for iorb in range(norb):
+                        for jorb in range(norb):
+
+                            [a,m1] = self.crystal.FAtomOrb(iorb)
+                            [b,m2] = self.crystal.FAtomOrb(jorb)
+
+                            delta = self.crystal.basisf[a,:] - self.crystal.basisf[b,:]
+                            phase = np.exp(2.0j*np.pi*np.dot(rkvec[irk],delta))
+
+                            tempmat[iorb,jorb,js,irk,ift] *= phase
+
+        matr = QAFort.fourier.flatdyn_k2r(rkgrid,tempmat)
+        
+        return matr
+    
+    def R2K(self, matr : np.ndarray) -> np.ndarray:
+
+        rkvec = self.crystal.kpoint
+        rkgrid = self.crystal.rkgrid
+
+        norb = matr.shape[0]
+        ns = matr.shape[2]
+        nrk = matr.shape[3]
+        nft = matr.shape[4]
+
+        matk = QAFort.fourier.flatdyn_r2k(rkgrid,matr)
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                for js in range(ns):
+                    for iorb in range(norb):
+                        for jorb in range(norb):
+
+                            [a,m1] = self.crystal.FAtomOrb(iorb)
+                            [b,m2] = self.crystal.FAtomOrb(jorb)
+
+                            delta = self.crystal.basisf[a,:]- self.crystal.basisf[b,:]
+
+                            phase = np.exp(-2.0j*np.pi*np.dot(rkvec[irk],delta))
+                            matk[iorb,jorb,js,irk,ift] *= phase
+        return matk
+    
+    def R2mR(self) -> list: # move to crystal
+
+        rkvec = self.crystal.kpoint
+
+        mrkvec = np.array(1.0-rkvec,dtype=float)
+
+        for ii in range(mrkvec.shape[0]):
+            for jj in range(mrkvec.shape[1]):
+                if mrkvec[ii,jj] == 1.0:
+                    mrkvec[ii,jj] = 0.0
+        
+        mappingidx = []
+
+        for ii in range(rkvec.shape[0]):
+            for jj in range(mrkvec.shape[1]):
+                if (abs(rkvec[ii,0]-mrkvec[jj,0])<=1.0e-6)and(abs(rkvec[ii,1]-mrkvec[jj,1])<=1.0e-6)and(abs(rkvec[ii,2]-mrkvec[jj,2])<=1.0e-6):
+                    mappingidx.append([ii,jj])
+
+        self.mappingidx = mappingidx
+        return None
+    
+    def RT2mRmT(self,G : np.ndarray) -> np.ndarray: # move to crystal
+
+        self.R2mR()
+
+        norb = G.shape[0]
+        ns = G.shape[2]
+        nr = G.shape[3]
+        ntau = G.shape[4]
+
+        GmRmT = np.zeros((norb,norb,ns,nr,ntau),dtype=np.complex128,order='F')
+
+        for itau in range(ntau):
+            for rp in self.mappingidx:
+                for js in range(ns):
+                    for iorb in range(norb):
+                        for jorb in range(norb):
+                            GmRmT[iorb,jorb,js,rp[0],itau] = -G[iorb,jorb,js,rp[1],ntau-itau-1]
+
+        return GmRmT
+    
+    def GaussianLinearBroad(self,x, y, w1, temperature, cutoff):
+
+        norb = y.shape[0]
+        ns = y.shape[2]
+        nrk = y.shape[3]
+        nft = y.shape[4]
+
+        ynew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        w0 = (1.0 - 3.0*w1)*np.pi*temperature
+        widtharray = w0+w1*x
+        cnt = 0
+        for irk in range(nrk):
+            for x0 in x:
+                if (x0>cutoff+(w0+w1*cutoff)*3.0):
+                    ynew[...,irk,cnt] = y[...,irk,cnt]
+                else : 
+                    if ((x0>3*widtharray[cnt])and((x[-1]-x0)>3*widtharray[cnt])):
+                        dist = 1.0/np.sqrt(2*np.pi)/widtharray[cnt]*np.exp(-(x-x0)**2/2.0/widtharray[cnt]**2)
+                        for js in range(ns):
+                            for iorb in range(norb):
+                                for jorb in range(norb):
+                                    ynew[iorb,jorb,js,irk,cnt] = sum(dist*y[iorb,jorb,js,irk])/sum(dist)
+                    else:
+                        ynew[...,irk,cnt] = y[...,irk,cnt]
+                cnt += 1
+
+        return ynew
+    
+    def Mixing(self, iter : int, mix : float, Fb : np.ndarray, Fm : np.ndarray) -> np.ndarray:
+
+        norb = Fb.shape[0]
+        ns = Fb.shape[2]
+        nrk = Fb.shape[3]
+        nft = Fb.shape[4]
+
+        Fnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        if iter == 1:
+            mix = 1.0
+            Fm = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+        
+        Fnew = mix*Fb + (1.0-mix)*Fm
+
+        return Fnew
+    
+    def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
+
+        norb = mat1.shape[0]
+        ns = mat1.shape[2]
+        nrk = mat1.shape[3]
+        nft = mat1.shape[4]
+        
+        matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        matout = QAFort.dyson.flatdyn(mat1,mat2)
 
         return matout
 
-    def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray) -> np.ndarray:
+    def Projection(self, matin : np.ndarray):
 
-        # norb, _, ns, nk, nft = mat1.shape
-        # nk = mat1.shape[3]
-        # nft = mat1.shape[4]
-        matout = np.zeros_like(mat1, dtype=np.complex128, order='F')
         
-        # for ift in range(nft):
-        #     for ik in range(nk):
-        #         matout[:, :, :, ik, ift] = QAFort.dyson.flocstc(mat1[:, :, :, ik, ift], mat2[:, :, :, ik, ift])      
-        
-        matout = Dyson.FLatDyn(mat1, mat2)
+        ns = matin.shape[2]
+        nft = matin.shape[4]
+        norbc = self.crystal.fprojector.shape[1]
+        nspace = self.crystal.fprojector.shape[3]
 
+        matout = np.zeros((norbc,norbc,ns,nft,nspace),dtype=np.complex128,order='F')
+
+        for ispace in range(nspace):
+            matout[...,ispace] = QAFort.projection.flatdyn(matin,self.crystal.fprojector[...,ispace])
 
         return matout
     
@@ -139,7 +276,7 @@ class FLatDyn(object):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = len(self.ftgrid.omega)#self.ft.size
+        nft = len(self.ft.omega)#self.ft.size
 
         chem = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
@@ -160,7 +297,7 @@ class FLatDyn(object):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = len(self.ftgrid.omega)#self.ft.size
+        nft = len(self.ft.omega)#self.ft.size
 
         matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
@@ -168,236 +305,117 @@ class FLatDyn(object):
             matout[...,ift] = matin
 
         return matout
+    # def Save(self, matin : np.ndarray, fn : str):
 
-    def K2R(self, matk : np.ndarray) -> np.ndarray:
 
-        
-        # rkvec = self.crystal.kpoint.reshape((self.crystal.rkgrid[0], self.crystal.rkgrid[1], self.crystal.rkgrid[2], 3), order='F')
-
-        
-        # norb, _, ns, nkx, nky, nkz, nf = matk.shape
-        norb, _, ns, nk, nf = matk.shape
-        rkvec = self.crystal.kpoint
-        rank = self.nodedict['commkrank']
-        (nkx, nky, nkz) = self.mpimanager.localshapef[self.nodedict['commkrank']]
-        nkglobal = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
-        if (nk != nkx * nky * nkz):
-            raise ValueError(f"Error: nk ({nk}) does not match local shape ({nkx}, {nky}, {nkz})")
-        (nx, ny, nz) = self.mpimanager.localshapeb[self.nodedict['commkrank']]
-        tempmat = np.zeros((norb, norb, ns, nk, nf), dtype=np.complex128, order='F')
-        tempmat2 = np.zeros((nx, ny, nz), order='F', dtype=np.complex128)
-        
-        nr = len(self.mpimanager.rlocal[rank])
-        matr = np.zeros((norb, norb, ns, nr, nf), dtype=np.complex128, order='F')
-
-        for iff in range(nf):            
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        for ik in range(nk):
-                            a, _ = self.crystal.FAtomOrb(iorb)
-                            b, _ = self.crystal.FAtomOrb(jorb)
-                            delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
-                            kidx = self.mpimanager.KLocal2Global([rank, ik])
-                            phase = np.exp(2.0j * np.pi * np.dot(rkvec[kidx], delta))
-                            tempmat[iorb, jorb, js, ik, iff] = matk[iorb, jorb, js, ik, iff] * phase
-                        # --------------------------------------------------------------------------- #
-                        tempval = self.mpimanager.K2K3D(self.commk, tempmat[iorb, jorb, js, :, iff])
-                        tempval2 = self.mpimanager.Backward(tempval)
-                        tempmat2 = tempval2*1/(nkglobal)
-
-                        matr[iorb, jorb, js,:,iff] = self.mpimanager.R3D2R(self.commk, tempmat2)
-
-        return matr
+    #     os.chdir('work')
+    #     # with open(fn+'.txt','w') as f:
+    #     #     f.write("#iorb, jorb, is, ik, ift, Re(F(k,w)), Im(F(k,w))\n")
+    #     #     for ift in range(nft):
+    #     #         for irk in range(nrk):
+    #     #             for js in range(ns):
+    #     #                 for jorb in range(norb):
+    #     #                     for iorb in range(norb):
+    #     #                         f.write(f"{iorb} {jorb} {js} {irk} {ift} {matin[iorb,jorb,js,irk,ift].real} {matin[iorb,jorb,js,irk,ift].imag}\n")
+    #     with h5py.File('flatdyn.h5','w') as file:
+    #         file.create_dataset('name',data='FLatDyn')
+    #     os.chdir("..")
+    #     return None
     
-
-    def R2K(self, matr : np.ndarray) -> np.ndarray:
-
-        rkvec = self.crystal.kpoint
-
-        norb, _, ns, nr, nf = matr.shape
-        rank = self.nodedict['commkrank']
-        (nx, ny, nz) = self.mpimanager.localshapeb[rank]
-        (nkx, nky, nkz) = self.mpimanager.localshapef[rank]
-        if (nr != nx * ny * nz):
-            print(f"Error: nk ({nr}) does not match local shape ({nx}, {ny}, {nz})")
-            sys.exit()
-        tempmat = np.zeros_like(matr, dtype=np.complex128, order='F')
-        tempmat2 = np.zeros((nkx, nky, nkz), order='F', dtype=np.complex128)
-        matk = np.zeros((norb, norb, ns, nkx*nky*nkz, nf), dtype=np.complex128, order='F')
-
+    def CheckGroup(self, filepath :str, group : str):
         
-        for iff in range(nf):
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        
-                        tempval = self.mpimanager.R2R3D(self.commk, matr[iorb, jorb, js, :, iff])
-                        tempval2 = self.mpimanager.Forward(tempval)
-                        tempmat2 = tempval2
-                        tempmat[iorb, jorb, js, :, iff] = self.mpimanager.K3D2K(self.commk, tempmat2)
-                        
+        with h5py.File(filepath,'r') as file:
+            return group in file
         
-                        for ik in range(nkx*nky*nkz):
-                            a, _ = self.crystal.FAtomOrb(iorb)
-                            b, _ = self.crystal.FAtomOrb(jorb)
-                            delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
-                            kidx = self.mpimanager.KLocal2Global([rank, ik])
-                            phase = np.exp(-2.0j * np.pi * np.dot(rkvec[kidx], delta))
-                            matk[iorb, jorb, js, ik, iff] = tempmat[iorb, jorb, js, ik, iff] * phase
-
-        return matk
     
-    def Moment(self, ff : np.ndarray, isgreen : bool, highzero : bool) -> np.ndarray:
+    def Spectral(self, green : np.ndarray):
 
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nk = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
+        nfreq = len(self.ft.omega)
 
+        akf = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,oder='F')
 
-        norb, _, ns, nkloc, nfloc = ff.shape 
-        omega = self.ftgrid.omega*1j
-        moment = np.zeros((norb, norb, ns, nkloc, 3), dtype=np.complex128, order='F')
-        high = np.zeros((norb, norb, ns, nkloc), dtype=np.complex128, order='F')
-        
+        akf = -1/np.pi*green.imag
 
-        fflast = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-1)
-        fflast2 = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-2)
+        return akf
+    
+    def R2KArb(self,matr : np.ndarray = None,kpoint : np.ndarray = None): # R2KAny
 
-        if (isgreen):
-            for ik in range(nkloc):
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nr = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
+        nk = len(kpoint)
+        nft = matr.shape[4]
+
+        self.crystal.Rvec()
+        tempmat = copy.deepcopy(matr)
+        matk = np.zeros((norb,norb,ns,nk,nft),dtype=complex,order='F')
+
+        for ift in range(nft):
+            for ik in range(nk):
                 for js in range(ns):
                     for jorb in range(norb):
                         for iorb in range(norb):
-                            
-                            if (iorb == jorb):
-                                moment[iorb, jorb, js, ik, 0] = 1.0
+                            temp = 0
+                            for ir in range(nr):
+                                temp += tempmat[iorb,jorb,js,ir,ift]*np.exp(-2.0j*np.pi*(kpoint[ik]@self.crystal.rvec[ir]))
+                            [a,m1] = self.crystal.FAtomOrb(iorb)
+                            [b,m2] = self.crystal.FAtomOrb(jorb)
+                            delta = self.crystal.basisf[a,:]-self.crystal.basisf[b,:]
+                            phase = np.exp(-2.0j*np.pi*(kpoint[ik]@delta))
+                            matk[iorb,jorb,js,ik,ift] = temp*phase
+        
+        return matk
+
+    def KArb(self, matr : np.ndarray = None, kpoint : np.ndarray = None):
+
+        norb = matr.shape[0]
+        ns = matr.shape[2]
+        nr = matr.shape[3]
+        nfreq = matr.shape[4]
+        nk = len(kpoint)
+
+        tempmat = np.zeros((norb,norb,ns,nr,nfreq),dtype=complex,order='F')
+        matkinv = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
+
+        matrinv = self.Inverse(matr)
+        omega = self.ft.omega
+
+        for ifreq in range(nfreq):
+            for ir in range(nr):
+                for js in range(ns):
+                    for jorb in range(norb):
+                        for iorb in range(norb):
+                            if iorb==jorb:
+                                tempmat[iorb,jorb,js,ir,ifreq] = 1j*omega[ifreq]-matrinv[iorb,jorb,js,ir,ifreq]
                             else:
-                                moment[iorb, jorb, js, ik, 0] = 0.0
+                                tempmat[iorb,jorb,js,ir,ifreq] = -matrinv[iorb,jorb,js,ir,ifreq]
 
-                            moment[iorb, jorb, js, ik, 1] += (fflast[iorb, jorb, js, ik] + np.conjugate(fflast[jorb, iorb, js, ik])) \
-                                / 2.0 * (omega[-1])**2
+        tempmat2 = self.R2KArb(tempmat,kpoint)
 
-                            moment[iorb, jorb, js, ik, 2] += (fflast[iorb, jorb, js, ik] - np.conjugate(fflast[jorb, iorb, js, ik]) 
-                                                              - moment[iorb, jorb, js, ik, 0]* 2.0/(omega[-1])) \
-                                                                  /2.0 * (omega[-1])**3
-
-        else:
-            if (highzero):
-                for ik in range(nkloc):
-                    for js in range(ns):
-                        for jorb in range(norb):
-                            for iorb in range(norb):
-
-                                moment[iorb, jorb, js, ik, 0] += (fflast[iorb, jorb, js, ik] \
-                                                                  - np.conjugate(fflast[jorb, iorb, js, ik]))/2.0 * (omega[-1])
-                                moment[iorb, jorb, js, ik, 1] += (fflast[iorb, jorb, js, ik] \
-                                                                  + np.conjugate(ff[jorb, iorb, js, ik]))/2.0 * (omega[-1])**2
-            else:
-                amat = np.zeros((4, 4), dtype=np.complex128, order='F')
-                bmat = np.zeros((4, 1), dtype=np.complex128, order='F')
-                # ipiv = np.zeros((4), dtype=int, order='F')
-                for ik in range(nkloc):
-                    for js in range(ns):
-                        for jorb in range(norb):
-                            for iorb in range(norb):
-                                w1 = omega[-1]
-                                w2 = omega[-2]
-
-                                amat[0, :] = [1.0, 1.0/(w1), 1.0/(w1)**2, 1.0/(w1)**3]
-                                amat[1, :] = [1.0, -1.0/(w1), 1.0/(w1)**2, -1.0/(w1)**3]
-                                amat[2, :] = [1.0, 1.0 / (w2), 1.0 / (w2) ** 2, 1.0 / (w2) ** 3]
-                                amat[3, :] = [1.0, -1.0 / (w2), 1.0 / (w2) ** 2, -1.0 / (w2) ** 3]
-
-                                bmat[0, 0] = fflast[iorb, jorb, js, ik]
-                                bmat[1, 0] = np.conjugate(fflast[jorb, iorb, js, ik])
-                                bmat[2, 0] = fflast2[iorb ,jorb, js, ik]
-                                bmat[3, 0] = np.conjugate(fflast2[jorb, iorb, js, ik])
-
-                                x = scipy.linalg.solve(amat, bmat)
-
-                                high[iorb, jorb, js, ik] = x[0, 0]
-                                moment[iorb, jorb, js, ik ,0] = x[1, 0]
-                                moment[iorb, jorb, js, ik, 1] = x[2, 0]
-                                moment[iorb, jorb, js, ik, 2] = x[3, 0]
-
-        for ik in range(nkloc):
-            for js in range(ns):
-                high[:, :, js, ik] = (np.conjugate(high[:, :, js, ik]).T + high[:, :, js, ik])/2.0
-                for i in range(3):
-                    moment[:, :, js, ik, i] = (np.conjugate(moment[:, :, js, ik, i]).T + moment[:, :, js, ik, i]) / 2.0
-
-        return moment, high
-    
-    def F2T(self, ff : np.ndarray, isgreen : bool, highzero : bool):
-
-        rank = self.nodedict['commtaurank']
-        ntauloc = self.submatrixtau[rank][1] - self.submatrixtau[rank][0]
-        tau = np.zeros((ntauloc), dtype=np.float64, order='F')
-        for itau in range(ntauloc):
-            tauidx = self.mpimanager.TLocal2Global([rank, itau])
-            tau[itau] = self.ftgrid.tau[tauidx]
-        norb = ff.shape[0]
-        ns = ff.shape[2]
-        nk = ff.shape[3]
-        nomega = len(self.ftgrid.omega)
-        ftau = np.zeros((norb, norb, ns, nk, ntauloc), dtype=np.complex128, order='F')
+        for ifreq in range(nfreq):
+            for ik in range(nk):
+                for js in range(ns):
+                    for jorb in range(norb):
+                        for iorb in range(norb):
+                            if iorb==jorb:
+                                matkinv[iorb,jorb,js,ik,ifreq] = 1j*omega[ifreq]-tempmat2[iorb,jorb,js,ik,ifreq]
+                            else:
+                                matkinv[iorb,jorb,js,ik,ifreq] = -tempmat2[iorb,jorb,js,ik,ifreq]
         
-        moment, high = self.Moment(ff, isgreen, highzero)
+        matk = self.Inverse(matkinv)
 
-        ffglob = np.zeros((norb, norb, ns, nk, nomega), dtype=np.complex128, order='F')
-
-        for ik in range(nk):
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        ffglob[iorb, jorb, js, ik] = self.mpimanager.FMPIAllreduce(self.commw, ff[iorb, jorb, js, ik], nomega)
-        
-        ftau = Fourier.FLatDynF2T(self.ftgrid.omega, ffglob, moment, tau)
-
-        return ftau
-    
-    def T2F(self, ftau : np.ndarray) -> np.ndarray:
-
-        rank = self.nodedict['commfrank']
-        nfloc = self.submatrixw[rank][1]-self.submatrixw[rank][0]
-        norb = ftau.shape[0]
-        ns = ftau.shape[2]
-        nk = ftau.shape[3]
-        # ntauloc = ftau.shape[4]
-        # tau = self.ftgrid.tau
-        ntau = len(self.ftgrid.tau)
-        
-        # print(f"commfrank : {rank}, total comm rank : {self.mpimanager.rank}")
-
-        ff = np.zeros((norb, norb, ns, nk, nfloc), dtype=np.complex128, order='F')
-        omega = np.zeros((nfloc), dtype=np.float64, order='F')
-
-        ftauglob = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
-
-        for ik in range(nk):
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        ftauglob[iorb, jorb, js, ik] = self.mpimanager.TMPIAllreduce(self.commtau, ftau[iorb, jorb, js, ik], ntau)
-
-        for ifloc in range(nfloc):
-            fidx = self.mpimanager.FLocal2Global([rank, ifloc])
-            omega[ifloc] = self.ftgrid.omega[fidx]
-
-        # ff = QAFort.fourier.flatdyn_t2f(self.ftgrid.tau, self.ftgrid.beta, ftauglob, omega)
-        ffglob = Fourier.FLatDynT2F(self.ftgrid.tau, ftauglob, self.ftgrid.omega)
-
-        for ifreq in range(nfloc):
-            fidx = self.mpimanager.FLocal2Global([rank, ifreq])
-            ff[...,ifreq] = ffglob[...,fidx]
-
-        return ff
+        return matk
         
 
     
 class GreenBare(FLatDyn):
 
-    def __init__(self, crystal: Crystal, ftgrid: FTGrid, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
+    def __init__(self, crystal: Crystal, ft: FTGrid, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
         
-        super().__init__(crystal, ftgrid)
+        super().__init__(crystal, ft)
         # print(self.niham.hamtb[...,0,0])
         self.hamtb = hamtb
         self.kt = None
@@ -415,13 +433,14 @@ class GreenBare(FLatDyn):
     def Cal(self): # freq, tau combine
         
         
-        gnotkf = Bare.FLatFreq(self.hamtb, self.ftgrid.omega)
+        print(self.hamtb[:,:,0,0])
+        gnotkf = QAFort.bare.flatfreq(self.hamtb,self.ft.omega)
         gnotrf = self.K2R(gnotkf)#######
         
         self.kf = gnotkf
         self.rf = gnotrf
 
-        gnotkt = Bare.FLatTau(self.hamtb,self.ftgrid.tau)
+        gnotkt = QAFort.bare.flattau(self.hamtb,self.ft.tau)
         gnotrt = self.K2R(gnotkt)
 
         self.kt = gnotkt
@@ -472,12 +491,12 @@ class GreenBare(FLatDyn):
     
 class GreenInt(FLatDyn):
 
-    def __init__(self, crystal: Crystal, ftgrid: FTGrid, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
+    def __init__(self, crystal: Crystal, ft: FTGrid, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
         
         if greenbare is None:
             print("Bare Green's function doesn't exist")
             sys.exit()
-        super().__init__(crystal, ftgrid)
+        super().__init__(crystal, ft)
         self.flatstc = FLatStc(crystal=crystal)
         self.kf = None
         self.kt = None
@@ -508,7 +527,7 @@ class GreenInt(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nomega = len(self.ftgrid.omega)
+        nomega = len(self.ft.omega)
         sigma = np.zeros((norb,norb,ns,nrk,nomega),dtype=np.complex128,order='F')
         print("Initialization start")
         if (self.sigmah is None)and(self.sigmaf is None)and(self.sigmac is None):
@@ -534,7 +553,7 @@ class GreenInt(FLatDyn):
             self.gkfmu0 = self.Dyson(self.gbare,sigma) 
         
 
-        self.gktmu0 = self.F2T(self.gkfmu0,True, True)
+        self.gktmu0 = self.F2T(self.gkfmu0,1,1)
         self.grfmu0 = self.K2R(self.gkfmu0)
         self.grtmu0 = self.K2R(self.gktmu0)
         print("Initialization finish")
@@ -571,7 +590,7 @@ class GreenInt(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = len(self.ftgrid.omega)
+        nft = len(self.ft.omega)
 
         gkfnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
         chem = self.ChemEmbedding(self.mu)
@@ -580,7 +599,7 @@ class GreenInt(FLatDyn):
         gkfnew = self.Dyson(self.gkfmu0,-chem)
         
         self.kf = gkfnew
-        self.kt = self.F2T(gkfnew,True, True)
+        self.kt = self.F2T(gkfnew,1,1)
         # self.grf = self.K2R(self.Dyson(self.gkfmu0,-chem))
         # self.grt = self.K2R(self.F2T(self.Dyson(self.gkfmu0,-chem),1,1))
         self.rf = self.K2R(self.kf)
@@ -595,7 +614,7 @@ class GreenInt(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = len(self.ftgrid.omega)#self.ft.size
+        nft = len(self.ft.omega)#self.ft.size
         tempmat = copy.deepcopy(self.gkfmu0)
         chem = self.ChemEmbedding(mu)
         gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
@@ -603,7 +622,7 @@ class GreenInt(FLatDyn):
 
         
         gcalf = self.Dyson(tempmat,-chem)
-        gcalt = self.F2T(gcalf, True, True)
+        gcalt = self.F2T(gcalf,1,1)
         
         
         
@@ -623,8 +642,8 @@ class GreenInt(FLatDyn):
     def SearchMu(self):
         
         print("Finding chemical potential start")
-        mumin = -self.ftgrid.omega[-1]*0.6
-        mumax = self.ftgrid.omega[-1]*0.6
+        mumin = -self.ft.omega[-1]*0.6
+        mumax = self.ft.omega[-1]*0.6
         print(f"minimum : {mumin}, maximum : {mumax}")
         nmin = self.NumOfE(mumin)
         nmax = self.NumOfE(mumax)
@@ -785,8 +804,8 @@ class SigmaGWC(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nk = len(self.crystal.kpoint)
-        nfreq = len(self.ftgrid.omega)#self.ft.size
-        beta = self.ftgrid.beta
+        nfreq = len(self.ft.omega)#self.ft.size
+        beta = self.ft.beta
 
         z = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order='F')
         # identity = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order='F')
@@ -858,14 +877,9 @@ class GreenAB(FLatDyn):
         self.n3 = glob['full_space']['Gfull_n3'][:]
         glob.close()
 
-        self.crystal.MappingKpoint(self.kpt_latt)
-
     def KI2KF(self):
 
-        rank = self.nodedict['commkrank']
-        (nkx, nky, nkz) = self.mpimanager.localshapef[rank]
-        nkloc = nkx * nky * nkz
-        tempmat = np.zeros((self.nbndf[0], self.nbndf[0], self.n3[0], nkloc, self.crystal.ns), dtype=np.complex128, order='F')
+        tempmat = np.zeros((self.nbndf[0], self.nbndf[0], self.n3[0], len(self.kpt_latt), self.crystal.ns), dtype=np.complex128, order='F')
 
         glob = h5py.File('../../glob_dat/global.dat', 'r')
 
@@ -874,16 +888,13 @@ class GreenAB(FLatDyn):
                 for ik in range(len(self.kpt_latt)):
                     kidx = self.i_kerf[ik]
                     name = 'Gfull_w_'+str(iw+1)+'_k_'+str(kidx)
-                    kglob = self.crystal.mappingkp[kidx]
-                    [rank_temp, kk] = self.mpimanager.KGlobal2Local(kglob)
-                    if (rank_temp == rank):
-                        tempmat[...,iw,kk, js] = glob['full_space'][name][:]
+                    tempmat[...,iw,ik, js] = glob['full_space'][name][:]
         glob.close()
         # kpt_latt != kpoints
 
         self.kf = np.copy(tempmat)
 
-        self.kt = self.F2T(tempmat, True, True)
+        self.kt = self.F2T(tempmat, 1, 1)
         self.rf = self.K2R(tempmat)
         self.rt = self.K2R(self.kt)
 

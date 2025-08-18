@@ -15,6 +15,4 @@ from .FPathDyn import *
 from .FPathStc import *
 from .BPathDyn import *
 from .BPathStc import *
-
-from .MPIManager import *
 from .Projector import *

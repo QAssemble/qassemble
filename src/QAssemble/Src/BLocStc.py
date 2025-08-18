@@ -610,7 +610,7 @@ class VLoc(BLocStc):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         
-        orb = self.crystal.bimpdict[key][0]
+        orb = self.crystal.fimpdict[key][0]
         norbc = len(orb)
         tempmat = np.zeros((norb, norb, norb, norb), dtype=np.complex128, order='F')
         vloc = np.zeros((norbc, norbc, norbc, norbc, ns, ns), dtype=np.complex128, order='F')
@@ -666,3 +666,4 @@ class VLoc(BLocStc):
         self.u_ctqmc = U
 
         return U
+

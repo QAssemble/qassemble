@@ -10,15 +10,13 @@ from Common import Common
 from numba import jit
 import finufft
 from scipy.linalg import solve
-from mpi4py import MPI
-from .MPIManager import MPIManager
 
 class Fourier:
     """
     A collection of static methods for performing Fourier transforms on Green's functions.
 
     These methods handle the transformation between the imaginary-time (τ) and
-    Matsubara frequency (i\omega_n or i\nu_n) representations of fermionic and bosonic
+    Matsubara frequency (iω_n or iΩ_n) representations of fermionic and bosonic
     Green's functions. The transformations are implemented for both local and
     lattice quantities.
     """
@@ -400,131 +398,3 @@ class Fourier:
             moment[...,ik, :], high[..., ik] = Fourier.BLocDynM(freq, ff[...,ik,:], oddzero, highzero)
 
         return moment, high
-    
-    def FLatStcK2R(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
-
-        norb, _, ns, _ = fin.shape
-        rank = commk.Get_rank()
-        nr = len(mpimanager.rlocal[rank])
-        fout = np.zeros((norb, norb, ns, nr), dtype=np.complex128, order='F')
-        rkgrid = mpimanager.crystal.rkgrid
-        (nx, ny, nz) = mpimanager.localshapeb[rank]
-        tempmat = np.zeros((nx, ny, nz), dtype=np.complex128, order='F')
-
-        for js in range(ns):
-            for jorb in range(norb):
-                for iorb in range(norb):
-                    tempval = mpimanager.K2K3D(commk, fin[iorb, jorb, js, :])
-                    tempmat = mpimanager.Backward(tempval)
-                    tempmat = tempmat*1/(rkgrid[0]*rkgrid[1]*rkgrid[2])
-
-                    fout[iorb, jorb, js, :] = mpimanager.R3D2R(commk, tempmat)
-
-        return fout
-    
-    def FLatDynK2R(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
-
-        norb, _, ns, _, nfreq = fin.shape
-        rank = commk.Get_rank()
-        nr = len(mpimanager.rlocal[rank])
-        fout = np.zeros((norb, norb, ns, nr, nfreq), dtype=np.complex128, order='F')
-
-        for ifreq in range(nfreq):
-            fout[..., ifreq] = Fourier.FLatStcK2R(commk, fin[..., ifreq], mpimanager)
-        
-        return fout
-    
-    def FLatStcR2K(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
-
-        norb, _, ns, _ = fin.shape
-        rank = commk.Get_rank()
-        nk = len(mpimanager.klocal[rank])
-        fout = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
-        (nkx, nky, nkz) = mpimanager.localshapef[rank]
-        tempmat = np.zeros((nkx, nky, nkz), dtype=np.complex128, order='F')
-
-        for js in range(ns):
-            for jorb in range(norb):
-                for iorb in range(norb):
-                    tempval = mpimanager.R2R3D(commk, fin[iorb, jorb, js, :])
-                    tempmat = mpimanager.Forward(tempval)
-                    fout[iorb, jorb, js, :] = mpimanager.K3D2K(commk, tempmat)
-        
-        return fout
-    
-     def FLatDynR2K(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
-
-        norb, _, ns, _, nfreq = fin.shape
-        rank = commk.Get_rank()
-        nk = len(mpimanager.klocal[rank])
-        fout = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
-
-        for ifreq in range(nfreq):
-            fout[..., ifreq] = Fourier.FLatStcR2K(commk, fin[..., ifreq], mpimanager)
-        
-        return fout
-    
-    def BLatStcK2R(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
-
-        norb, _, ns, _, _ = fin.shape
-        rank = commk.Get_rank()
-        nr = len(mpimanager.rlocal[rank])
-        fout = np.zeros((norb, norb, ns, ns, nr), dtype=np.complex128, order='F')
-        rkgrid = mpimanager.crystal.rkgrid
-        (nx, ny, nz) = mpimanager.localshapeb[rank]
-        tempmat = np.zeros((nx, ny, nz), dtype=np.complex128, order='F')
-
-        for ks in range(ns):
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        tempval = mpimanager.K2K3D(commk, fin[iorb, jorb, js, ks, :])
-                        tempmat = mpimanager.Backward(tempval)
-                        tempmat = tempmat*1/(rkgrid[0]*rkgrid[1]*rkgrid[2])
-
-                        fout[iorb, jorb, js, ks, :] = mpimanager.R3D2R(commk, tempmat)
-
-        return fout
-    
-    def BLatDynK2R(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
-
-        norb, _, ns, _, _, nfreq = fin.shape
-        rank = commk.Get_rank()
-        nr = len(mpimanager.rlocal[rank])
-        fout = np.zeros((norb, norb, ns, ns, nr, nfreq), dtype=np.complex128, order='F')
-
-        for ifreq in range(nfreq):
-            fout[..., ifreq] = Fourier.BLatStcK2R(commk, fin[..., ifreq], mpimanager)
-
-        return fout
-    
-    def BLatStcR2K(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
-
-        norb, _, ns, _, _ = fin.shape
-        rank = commk.Get_rank()
-        nk = len(mpimanager.klocal[rank])
-        fout = np.zeros((norb, norb, ns, ns, nk), dtype=np.complex128, order='F')
-        (nkx, nky, nkz) = mpimanager.localshapef[rank]
-        tempmat = np.zeros((nkx, nky, nkz), dtype=np.complex128, order='F')
-
-        for ks in range(ns):
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        tempval = mpimanager.R2R3D(commk, fin[iorb, jorb, js, ks, :])
-                        tempmat = mpimanager.Forward(tempval)
-                        fout[iorb, jorb, js, ks, :] = mpimanager.K3D2K(commk, tempmat)
-
-        return fout
-    
-    def BLatDynR2K(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
-
-        norb, _, ns, _, _, nfreq = fin.shape
-        rank = commk.Get_rank()
-        nk = len(mpimanager.klocal[rank])
-        fout = np.zeros((norb, norb, ns, ns, nk, nfreq), dtype=np.complex128, order='F')
-
-        for ifreq in range(nfreq):
-            fout[..., ifreq] = Fourier.BLatStcR2K(commk, fin[..., ifreq], mpimanager)
-
-        return fout
