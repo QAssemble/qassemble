@@ -5,10 +5,11 @@ from mpi4py import MPI
 qapath = os.environ.get("QAssemble")
 sys.path.append(qapath + "/src")
 # sys.path.append(qapath + "/src/qacore/modules")
-from QAssemble.MPIManager import FLatDynMPI, MPIManager
-from QAssemble.Crystal import Crystal
-from QAssemble.FTGrid import FTGrid
-from QAssemble.FLatDyn import FLatDyn
+from QAssemble.Src_mpi.MPIManager import MPIManager
+from QAssemble.Src_mpi.Crystal import Crystal
+from QAssemble.Src_mpi.FTGrid import FTGrid
+from QAssemble.Src_mpi.FLatDyn import FLatDyn as FLatDynMPI
+from QAssemble.Src.FLatDyn import FLatDyn
 
 def parse_args():
     if len(sys.argv) != 3:
@@ -32,7 +33,7 @@ def main():
     Basis = [[[1/2,1/2,1/2],1]]
     NSpin = 1
     SOC = False
-    KGrid = [9, 9, 9]
+    KGrid = [8, 7, 10]
     NElec = 1
     T = 2000
     cutoff = 100
@@ -97,8 +98,7 @@ def main():
     # glatk_check = glatk2.reshape((norb, norb, ns, nk, nw), order='F')
 
     if (comm.Get_rank() == 0):
-        
-        print('Checking the results of R2K')
+        print('Fourier Transform R2K test Start')
     nkloc = len(flatdynmpi.mpimanager.klocal[flatdynmpi.commk.Get_rank()])
     for iw in range(nwloc):
         for ik in range(nkloc):
@@ -110,5 +110,7 @@ def main():
                         err = glatk[iorb, jorb, js, kidx, fidx] - tempmat2[iorb, jorb, js, ik, iw]
                         if (abs(err) > 1.0e-6):
                             print(iorb, jorb, js, ik, iw, abs(err), glatk[iorb, jorb, js, kidx, fidx], tempmat2[iorb, jorb, js, ik, iw])
+    if (comm.Get_rank() == 0):
+        print('Fourier Transform R2K test Finish')
 if __name__ == '__main__':
     main()

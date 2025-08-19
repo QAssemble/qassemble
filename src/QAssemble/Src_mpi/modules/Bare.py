@@ -3,7 +3,7 @@ This module provides a collection of static methods to calculate bare Green's fu
 for fermionic and bosonic systems in various representations (frequency/imaginary time,
 local/lattice).
 """
-from Common import Common
+from .Common import Common
 from sys import exit
 import numpy as np
 

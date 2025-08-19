@@ -7,12 +7,11 @@ from mpi4py import MPI
 
 qapath = os.environ.get("QAssemble")
 sys.path.append(qapath + "/src")
+from QAssemble.Src_mpi.MPIManager import MPIManager
 from QAssemble.Src_mpi.Crystal import Crystal
-from QAssemble.Src_mpi.FLatDyn import FLatDyn
 from QAssemble.Src_mpi.FTGrid import FTGrid
-
-# sys.path.append(qapath + "/src/qacore/modules")
-from QAssemble.Src_mpi.MPIManager import FLatDynMPI, MPIManager
+from QAssemble.Src_mpi.FLatDyn import FLatDyn as FLatDynMPI
+from QAssemble.Src.FLatDyn import FLatDyn
 
 
 def parse_args():
@@ -122,7 +121,7 @@ def main():
     # tempmat4 = flatdynmpi.Dyson(tempmat2, tempmat3)
 
     if comm.Get_rank() == 0:
-        print("Fourier transform F2T test start")  #!/usr/bin/env python
+        print('Fourier Transform T2F test Start')
 
     for iw in range(nwloc):
         for ik in range(nkloc):
@@ -140,7 +139,8 @@ def main():
                         )
                         if (abs(err) > 1.0e-4):
                             print(iorb, jorb, js, ik, iw, abs(err), glatt0[iorb, jorb, js, kidx, fidx], glatf2[iorb, jorb, js, ik, iw])
-
+    if comm.Get_rank() == 0:
+        print('Fourier Transform T2F test Finish')
 
 if __name__ == "__main__":
     main()

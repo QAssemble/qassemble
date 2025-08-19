@@ -4,7 +4,7 @@ renormalized Green's functions from bare Green's functions and self-energies.
 """
 import numpy as np
 # import scipy
-from Common import Common
+from .Common import Common
 
 class Dyson:
     """

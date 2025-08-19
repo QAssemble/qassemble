@@ -7,12 +7,11 @@ from mpi4py import MPI
 
 qapath = os.environ.get("QAssemble")
 sys.path.append(qapath + "/src")
+from QAssemble.Src_mpi.MPIManager import MPIManager
 from QAssemble.Src_mpi.Crystal import Crystal
-from QAssemble.Src_mpi.FLatDyn import FLatDyn
 from QAssemble.Src_mpi.FTGrid import FTGrid
-
-# sys.path.append(qapath + "/src/qacore/modules")
-from QAssemble.Src_mpi.MPIManager import FLatDynMPI, MPIManager
+from QAssemble.Src_mpi.FLatDyn import FLatDyn as FLatDynMPI
+from QAssemble.Src.FLatDyn import FLatDyn
 
 
 def parse_args():
@@ -118,37 +117,22 @@ def main():
     # tempmat4 = flatdynmpi.Dyson(tempmat2, tempmat3)
     ntauloc = glattau2.shape[4]
 
-    if comm.Get_rank() == 0:
-        print("Fourier transform F2T test start")  #!/usr/bin/env python
+    if (comm.Get_rank() == 0):
+        print('Fourier Transform F2T test Start')
 
     for itau in range(ntauloc):
         for ik in range(nkloc):
             for js in range(ns):
                 for jorb in range(norb):
                     for iorb in range(norb):
-                        kidx = flatdynmpi.mpimanager.KLocal2Global(
-                            [flatdynmpi.commk.Get_rank(), ik]
-                        )
-                        fidx = flatdynmpi.mpimanager.TLocal2Global(
-                            [flatdynmpi.commtau.Get_rank(), itau]
-                        )
-                        err = (
-                            glattau[iorb, jorb, js, kidx, fidx]
-                            - glattau2[iorb, jorb, js, ik, itau]
-                        )
+                        kidx = flatdynmpi.mpimanager.KLocal2Global([flatdynmpi.commk.Get_rank(), ik])
+                        fidx = flatdynmpi.mpimanager.TLocal2Global([flatdynmpi.commtau.Get_rank(), itau])
+                        err = (glattau[iorb, jorb, js, kidx, fidx]- glattau2[iorb, jorb, js, ik, itau])
                         if abs(err) > 1.0e-6:
-                            print(
-                                comm.Get_rank(),
-                                iorb,
-                                jorb,
-                                js,
-                                ik,
-                                itau,
-                                abs(err),
-                                glattau[iorb, jorb, js, kidx, fidx],
-                                glattau2[iorb, jorb, js, ik, itau],
-                            )
+                            print(comm.Get_rank(),iorb,jorb,js,ik,itau,abs(err),glattau[iorb, jorb, js, kidx, fidx],glattau2[iorb, jorb, js, ik, itau],)
 
+    if (comm.Get_rank() == 0):
+        print('Fourier Transform F2T test Finish')
 
 if __name__ == "__main__":
     main()

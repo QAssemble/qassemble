@@ -1,112 +1,110 @@
-import copy
-import itertools
-import json
-import os
-import re as re
-import shutil
 import string as string
-import subprocess
-import sys
-from collections import OrderedDict
-from typing import Any
-
-import h5py
-import matplotlib as mat
-import matplotlib.font_manager as fm
+import re as re
 import matplotlib.pyplot as plt
 import numpy as np
-import scipy.linalg
-import scipy.optimize
 from pylab import cm
-from pymatgen.core import Lattice, Structure
-from pymatgen.transformations.standard_transformations import \
-    SupercellTransformation
-from scipy.fftpack import fftn, ifftn
-from sympy.physics.wigner import gaunt, wigner_3j
-
+import matplotlib.font_manager as fm
+from collections import OrderedDict
+import os, sys
+import itertools
+import scipy.optimize
+import copy
+import h5py
 from .Crystal import Crystal
-
-# from .FLatDyn import SigmaGWC
-qapath = os.environ.get("QAssemble", "")
-sys.path.append(qapath + "/src/QAssemble/modules")
-import QAFort
+from .MPIManager import MPIManager
+from .modules.Dyson import Dyson
+from .modules.Fourier import Fourier
+from .modules.Common import Common
 
 
 class FLatStc(object):
 
-    def __init__(self, crystal: Crystal):
+    def __init__(self, crystal: Crystal, nk : int, nw : int, ntau : int, nprock : int, nprocw : int, mpimanager : MPIManager):
 
         self.crystal = crystal
 
+        self.nk = nk
+        self.nw = nw
+        self.nprock = nprock
+        self.nprocw = nprocw
+        self.mpimanager = mpimanager
+        self.nodedict = mpimanager.Quary(nk, nw, ntau, nprock, nprocw, self.crystal)
+
+        self.commk = self.nodedict['commk']
+        self.commw = self.nodedict['commf']
+        self.submatrixkf = self.nodedict['submatrixkf']
+        self.submatrixkb = self.nodedict['submatrixkb']
+        self.submatrixw = self.nodedict['submatrixw']
+
+        self.commtau = self.nodedict['commtau']
+        self.submatrixtau = self.nodedict['submatrixtau']
+
     def Inverse(self, mat: np.ndarray):
 
-        norb = mat.shape[0]
-        ns = mat.shape[2]
-        nrk = mat.shape[3]
+        norb, _, ns, nrk = mat.shape
 
         matinv = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
 
         for irk in range(nrk):
             for js in range(ns):
-                matinv[:, :, js, irk] = np.linalg.inv(mat[:, :, js, irk])
+                matinv[:, :, js, irk] = Common.MatInv(mat[..., js, irk])
 
         return matinv
 
-    def K2R(self, matk: np.ndarray = None, rkgrid: list = None) -> np.ndarray:
+    def K2R(self, matk: np.ndarray) -> np.ndarray:
 
-        if rkgrid == None:
-            rkgrid = self.crystal.rkgrid
+        norb, _, ns, nk = matk.shape
         rkvec = self.crystal.kpoint
+        rank = self.nodedict['commkrank']
+        (nkx, nky, nkz) = self.mpimanager.localshapef[self.nodedict['commkrank']]
+        if (nk != nkx * nky * nkz):
+            raise ValueError(f"Error: nk ({nk}) does not match local shape ({nkx}, {nky}, {nkz})")        
+        nr = len(self.mpimanager.rlocal[rank])
+        matr = np.zeros((norb, norb, ns, nr), dtype=np.complex128, order='F')
+        tempmat = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
 
-        norb = matk.shape[0]
-        ns = matk.shape[2]
-        nrk = matk.shape[3]
-
-        tempmat = copy.deepcopy(matk)
-
-        for irk in range(nrk):
-            for js in range(ns):
+        
+        for js in range(ns):
+            for jorb in range(norb):
                 for iorb in range(norb):
-                    for jorb in range(norb):
-                        [a, m1] = self.crystal.FAtomOrb(iorb)
-                        [b, m2] = self.crystal.FAtomOrb(jorb)
-
+                    for ik in range(nk):
+                        a, _ = self.crystal.FAtomOrb(iorb)
+                        b, _ = self.crystal.FAtomOrb(jorb)
                         delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+                        kidx = self.mpimanager.KLocal2Global([rank, ik])
+                        phase = np.exp(2.0j * np.pi * np.dot(rkvec[kidx], delta))
+                        tempmat[iorb, jorb, js, ik] = matk[iorb, jorb, js, ik] * phase
 
-                        phase = np.exp(2.0j * np.pi * np.dot(rkvec[irk], delta))
-
-                        # matk[iorb,jorb,js,irk] *= phase
-                        tempmat[iorb, jorb, js, irk] *= phase
-
-        matr = QAFort.fourier.flatstc_k2r(rkgrid, tempmat)
+        matr = Fourier.FLatStcK2R(self.commk, tempmat, self.mpimanager)
 
         return matr
 
-    def R2K(self, matr: np.ndarray = None, rkgrid: list = None) -> np.ndarray:
+    def R2K(self, matr: np.ndarray) -> np.ndarray:
 
-        if rkgrid == None:
-            rkgrid = self.crystal.rkgrid
+        norb, _, ns, nr = matr.shape
+        rank = self.nodedict['commkrank']
         rkvec = self.crystal.kpoint
+        (nx, ny, nz) = self.mpimanager.localshapeb[rank]
+        nk = len(self.mpimanager.klocal[rank])
+        if (nr != nx * ny * nz):
+            print(f"Error: nk ({nr}) does not match local shape ({nx}, {ny}, {nz})")
+            sys.exit()
+        
+        matk = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
 
-        norb = matr.shape[0]
-        ns = matr.shape[2]
-        nrk = matr.shape[3]
+        tempmat = Fourier.FLatStcR2K(self.commk, matr, self.mpimanager)
 
-        matk = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
-        tempmat = copy.deepcopy(matr)
-        matk = QAFort.fourier.flatstc_r2k(rkgrid, tempmat)
-
-        for irk in range(nrk):
-            for js in range(ns):
+        for js in range(ns):
+            for jorb in range(norb):
                 for iorb in range(norb):
-                    for jorb in range(norb):
-                        [a, m1] = self.crystal.FAtomOrb(iorb)
-                        [b, m2] = self.crystal.FAtomOrb(jorb)
-
+                    for ik in range(nk):
+                        a, _ = self.crystal.FAtomOrb(iorb)
+                        b, _ = self.crystal.FAtomOrb(jorb)
                         delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
-                        phase = np.exp(-2.0j * np.pi * np.dot(rkvec[irk], delta))
+                        kidx = self.mpimanager.KLocal2Global([rank, ik])
+                        phase = np.exp(-2.0j * np.pi * np.dot(rkvec[kidx], delta))
 
-                        matk[iorb, jorb, js, irk] = matk[iorb, jorb, js, irk] * phase
+                        matk[iorb, jorb, js, ik] = matk[iorb, jorb, js, ik] * phase
 
         return matk
 
@@ -401,25 +399,25 @@ class FLatStc(object):
 
         matout = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
 
-        matout = QAFort.dyson.flatstc(mat1, mat2)
+        matout = Dyson.FLatStc(mat1, mat2)
 
         return matout
 
-    def Projection(self, matin: np.ndarray):
+    # def Projection(self, matin: np.ndarray):
 
-        norb = len(self.crystal.fin)
-        ns = self.crystal.ns
-        norbc = self.crystal.fprojector.shape[1]
-        nspace = self.crystal.fprojector.shape[3]
+    #     norb = len(self.crystal.fin)
+    #     ns = self.crystal.ns
+    #     norbc = self.crystal.fprojector.shape[1]
+    #     nspace = self.crystal.fprojector.shape[3]
 
-        matout = np.zeros((norbc, norbc, ns, nspace), dtype=np.complex128, order="F")
+    #     matout = np.zeros((norbc, norbc, ns, nspace), dtype=np.complex128, order="F")
 
-        for ispace in range(nspace):
-            matout[..., ispace] = QAFort.projection.flatstc(
-                matin, self.crystal.fprojector[..., ispace]
-            )
+    #     for ispace in range(nspace):
+    #         matout[..., ispace] = QAFort.projection.flatstc(
+    #             matin, self.crystal.fprojector[..., ispace]
+    #         )
 
-        return matout
+    #     return matout
 
     # def Save(self, matin: np.ndarray, fn: str):
 

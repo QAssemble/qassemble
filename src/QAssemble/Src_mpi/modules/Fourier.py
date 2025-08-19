@@ -5,14 +5,22 @@ between the imaginary-time and Matsubara frequency domains for Green's functions
 self-energies.
 """
 import numpy as np
-from Common import Common
+from .Common import Common
 # import numba    
 from numba import jit
 import finufft
 from scipy.linalg import solve
 from mpi4py import MPI
 from .MPIManager import MPIManager
+# from numba import jit, float64, complex128
+# from numba.experimental import jitclass
+# spec = [
+#     ('tau', float64),
+#     ('freq', float64),
 
+# ]
+
+# @jitclass(spec)
 class Fourier:
     """
     A collection of static methods for performing Fourier transforms on Green's functions.
@@ -219,23 +227,23 @@ class Fourier:
                         else:
                             moment[iorb, jorb, js, 0] = 0.0
                         
-                        moment[iorb, jorb, js, 1] = (ff1[iorb, jorb, js, nfreq-1] + 
-                                                      np.conj(ff1[jorb, iorb, js, nfreq-1])) / 2.0 * (freq[nfreq-1] * ai)**2
+                        moment[iorb, jorb, js, 1] = (ff1[iorb, jorb, js] + 
+                                                      np.conj(ff1[jorb, iorb, js])) / 2.0 * (freq[nfreq-1] * ai)**2
                         
-                        moment[iorb, jorb, js, 2] = (ff1[iorb, jorb, js, nfreq-1] - 
-                                                      np.conj(ff1[jorb, iorb, js, nfreq-1]) - 
+                        moment[iorb, jorb, js, 2] = (ff1[iorb, jorb, js] - 
+                                                      np.conj(ff1[jorb, iorb, js]) - 
                                                       moment[iorb, jorb, js, 0] * 2.0 / (freq[nfreq-1] * ai)) / 2.0 * (freq[nfreq-1] * ai)**3
         else:
             if (highzero):
                 for js in range(ns):
                     for jorb in range(norb):
                         for iorb in range(norb):
-                            moment[iorb, jorb, js , 0] = (ff1[iorb, jorb, js, nfreq-1] - 
-                                                          np.conjugate(ff1[jorb, iorb, js, nfreq-1])) / 2.0 * (freq[nfreq-1] * ai)
-                            
-                            moment[iorb, jorb, js, 1] = (ff1[iorb, jorb, js, nfreq-1] + 
-                                                         np.conjugate(ff1[jorb, iorb, js, nfreq-1])) / 2.0 * (freq[nfreq-1] * ai)**2
-                            
+                            moment[iorb, jorb, js , 0] = (ff1[iorb, jorb, js] - 
+                                                          np.conjugate(ff1[jorb, iorb, js])) / 2.0 * (freq[nfreq-1] * ai)
+
+                            moment[iorb, jorb, js, 1] = (ff1[iorb, jorb, js] + 
+                                                         np.conjugate(ff1[jorb, iorb, js])) / 2.0 * (freq[nfreq-1] * ai)**2
+
             else:
 
                 for js in range(ns):
@@ -249,10 +257,10 @@ class Fourier:
                             amat[2, :] = [1.0, 1.0/(freq[nfreq-2]*ai), 1.0/(freq[nfreq-2]*ai)**2, 1.0/(freq[nfreq-2]*ai)**3]
                             amat[3, :] = [1.0, -1.0/(freq[nfreq-2]*ai), 1.0/(freq[nfreq-2]*ai)**2, -1.0/(freq[nfreq-2]*ai)**3]
 
-                            bmat[0, 0] = ff1[iorb, jorb, js, nfreq-1]
-                            bmat[1, 0] = np.conjugate(ff1[jorb, iorb, js, nfreq-1])
-                            bmat[2, 0] = ff2[iorb, jorb, js, nfreq-2]
-                            bmat[3, 0] = np.conjugate(ff2[jorb, iorb, js, nfreq-2])
+                            bmat[0, 0] = ff1[iorb, jorb, js]
+                            bmat[1, 0] = np.conjugate(ff1[jorb, iorb, js])
+                            bmat[2, 0] = ff2[iorb, jorb, js]
+                            bmat[3, 0] = np.conjugate(ff2[jorb, iorb, js])
 
                             sol = solve(amat, bmat)
 
@@ -287,12 +295,12 @@ class Fourier:
         """
 
         norb, _, ns, nk = ff1.shape
-
+        
         moment = np.zeros((norb, norb, ns, nk, 3), dtype=np.complex128, order='F')
         high = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
 
         for ik in range(nk):
-            moment[..., ik, :], high[..., ik, :] = Fourier.FLocDynM(freq, ff1[..., ik,:], ff2[..., ik,:], isgreen, highzero)
+            moment[..., ik, :], high[..., ik] = Fourier.FLocDynM(freq, ff1[..., ik], ff2[..., ik], isgreen, highzero)
 
         return moment, high
     
@@ -401,6 +409,7 @@ class Fourier:
 
         return moment, high
     
+    @staticmethod
     def FLatStcK2R(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
 
         norb, _, ns, _ = fin.shape
@@ -422,6 +431,7 @@ class Fourier:
 
         return fout
     
+    @staticmethod
     def FLatDynK2R(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
 
         norb, _, ns, _, nfreq = fin.shape
@@ -434,6 +444,7 @@ class Fourier:
         
         return fout
     
+    @staticmethod
     def FLatStcR2K(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
 
         norb, _, ns, _ = fin.shape
@@ -452,7 +463,8 @@ class Fourier:
         
         return fout
     
-     def FLatDynR2K(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
+    @staticmethod
+    def FLatDynR2K(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
 
         norb, _, ns, _, nfreq = fin.shape
         rank = commk.Get_rank()
@@ -464,6 +476,7 @@ class Fourier:
         
         return fout
     
+    @staticmethod
     def BLatStcK2R(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
 
         norb, _, ns, _, _ = fin.shape
@@ -486,6 +499,7 @@ class Fourier:
 
         return fout
     
+    @staticmethod
     def BLatDynK2R(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
 
         norb, _, ns, _, _, nfreq = fin.shape
@@ -498,6 +512,7 @@ class Fourier:
 
         return fout
     
+    @staticmethod
     def BLatStcR2K(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
 
         norb, _, ns, _, _ = fin.shape
@@ -517,6 +532,7 @@ class Fourier:
 
         return fout
     
+    @staticmethod
     def BLatDynR2K(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
 
         norb, _, ns, _, _, nfreq = fin.shape

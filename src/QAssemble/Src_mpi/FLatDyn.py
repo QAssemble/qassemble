@@ -1,22 +1,12 @@
 import string as string
-from typing import Any
-import matplotlib as mat
 import re as re
 import matplotlib.pyplot as plt
 import numpy as np
 from pylab import cm
 import matplotlib.font_manager as fm
 from collections import OrderedDict
-# import json, os, shutil, sys
 import os, sys
-# import itertools
 import scipy.optimize
-from sympy.physics.wigner import gaunt, wigner_3j
-from scipy.fftpack import fftn, ifftn
-# import scipy.linalg
-# from pymatgen.core import Lattice, Structure
-# from pymatgen.transformations.standard_transformations import SupercellTransformation
-# import subprocess
 import copy
 import h5py
 from .Crystal import Crystal
@@ -51,18 +41,6 @@ class FLatDyn(object):
         self.commtau = self.nodedict['commtau']
 
         self.submatrixtau = self.nodedict['submatrixtau']
-
-    
-    
-    def MappingGlobal2Local(self, localdict : dict) -> dict:
-        mapping = {}
-        for irank in range(self.commk.Get_size()):
-            mapping[irank] = {}
-            for key, value in localdict[irank].items():
-                kidx = self.crystal.MergeKind(value)
-                mapping[irank][key] = kidx
-
-        return mapping
 
     def CheckGroup(self, filepath : str, group : str):
 
@@ -114,23 +92,13 @@ class FLatDyn(object):
         for ift in range(nft):
             for ik in range(nk):
                 for js in range(ns):
-                    matout[:, :, js, ik, ift] = Common.CmplxMatInv(matin[:, :, js ,ik, ift])
+                    matout[:, :, js, ik, ift] = Common.MatInv(matin[:, :, js, ik, ift])
 
         return matout
 
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray) -> np.ndarray:
-
-        # norb, _, ns, nk, nft = mat1.shape
-        # nk = mat1.shape[3]
-        # nft = mat1.shape[4]
-        matout = np.zeros_like(mat1, dtype=np.complex128, order='F')
-        
-        # for ift in range(nft):
-        #     for ik in range(nk):
-        #         matout[:, :, :, ik, ift] = QAFort.dyson.flocstc(mat1[:, :, :, ik, ift], mat2[:, :, :, ik, ift])      
-        
+    
         matout = Dyson.FLatDyn(mat1, mat2)
-
 
         return matout
     
@@ -171,24 +139,15 @@ class FLatDyn(object):
 
     def K2R(self, matk : np.ndarray) -> np.ndarray:
 
-        
-        # rkvec = self.crystal.kpoint.reshape((self.crystal.rkgrid[0], self.crystal.rkgrid[1], self.crystal.rkgrid[2], 3), order='F')
-
-        
-        # norb, _, ns, nkx, nky, nkz, nf = matk.shape
         norb, _, ns, nk, nf = matk.shape
         rkvec = self.crystal.kpoint
         rank = self.nodedict['commkrank']
         (nkx, nky, nkz) = self.mpimanager.localshapef[self.nodedict['commkrank']]
-        nkglobal = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
         if (nk != nkx * nky * nkz):
-            raise ValueError(f"Error: nk ({nk}) does not match local shape ({nkx}, {nky}, {nkz})")
-        (nx, ny, nz) = self.mpimanager.localshapeb[self.nodedict['commkrank']]
-        tempmat = np.zeros((norb, norb, ns, nk, nf), dtype=np.complex128, order='F')
-        tempmat2 = np.zeros((nx, ny, nz), order='F', dtype=np.complex128)
-        
+            raise ValueError(f"Error: nk ({nk}) does not match local shape ({nkx}, {nky}, {nkz})")        
         nr = len(self.mpimanager.rlocal[rank])
         matr = np.zeros((norb, norb, ns, nr, nf), dtype=np.complex128, order='F')
+        tempmat = np.zeros((norb, norb, ns, nk, nf), dtype=np.complex128, order='F')
 
         for iff in range(nf):            
             for js in range(ns):
@@ -201,44 +160,34 @@ class FLatDyn(object):
                             kidx = self.mpimanager.KLocal2Global([rank, ik])
                             phase = np.exp(2.0j * np.pi * np.dot(rkvec[kidx], delta))
                             tempmat[iorb, jorb, js, ik, iff] = matk[iorb, jorb, js, ik, iff] * phase
-                        # --------------------------------------------------------------------------- #
-                        tempval = self.mpimanager.K2K3D(self.commk, tempmat[iorb, jorb, js, :, iff])
-                        tempval2 = self.mpimanager.Backward(tempval)
-                        tempmat2 = tempval2*1/(nkglobal)
 
-                        matr[iorb, jorb, js,:,iff] = self.mpimanager.R3D2R(self.commk, tempmat2)
+        matr = Fourier.FLatDynK2R(self.commk, tempmat, self.mpimanager)
 
         return matr
     
 
     def R2K(self, matr : np.ndarray) -> np.ndarray:
 
-        rkvec = self.crystal.kpoint
+        
 
         norb, _, ns, nr, nf = matr.shape
         rank = self.nodedict['commkrank']
+        rkvec = self.crystal.kpoint
         (nx, ny, nz) = self.mpimanager.localshapeb[rank]
-        (nkx, nky, nkz) = self.mpimanager.localshapef[rank]
+        nk = len(self.mpimanager.klocal[rank])
         if (nr != nx * ny * nz):
             print(f"Error: nk ({nr}) does not match local shape ({nx}, {ny}, {nz})")
             sys.exit()
-        tempmat = np.zeros_like(matr, dtype=np.complex128, order='F')
-        tempmat2 = np.zeros((nkx, nky, nkz), order='F', dtype=np.complex128)
-        matk = np.zeros((norb, norb, ns, nkx*nky*nkz, nf), dtype=np.complex128, order='F')
-
         
+        matk = np.zeros((norb, norb, ns, nk, nf), dtype=np.complex128, order='F')
+
+        tempmat = Fourier.FLatDynR2K(self.commk, matr, self.mpimanager)
+
         for iff in range(nf):
             for js in range(ns):
                 for jorb in range(norb):
                     for iorb in range(norb):
-                        
-                        tempval = self.mpimanager.R2R3D(self.commk, matr[iorb, jorb, js, :, iff])
-                        tempval2 = self.mpimanager.Forward(tempval)
-                        tempmat2 = tempval2
-                        tempmat[iorb, jorb, js, :, iff] = self.mpimanager.K3D2K(self.commk, tempmat2)
-                        
-        
-                        for ik in range(nkx*nky*nkz):
+                        for ik in range(nk):
                             a, _ = self.crystal.FAtomOrb(iorb)
                             b, _ = self.crystal.FAtomOrb(jorb)
                             delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
@@ -252,7 +201,7 @@ class FLatDyn(object):
 
 
 
-        norb, _, ns, nkloc, nfloc = ff.shape 
+        norb, _, ns, nkloc, _ = ff.shape 
         omega = self.ftgrid.omega*1j
         moment = np.zeros((norb, norb, ns, nkloc, 3), dtype=np.complex128, order='F')
         high = np.zeros((norb, norb, ns, nkloc), dtype=np.complex128, order='F')
@@ -261,68 +210,7 @@ class FLatDyn(object):
         fflast = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-1)
         fflast2 = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-2)
 
-        if (isgreen):
-            for ik in range(nkloc):
-                for js in range(ns):
-                    for jorb in range(norb):
-                        for iorb in range(norb):
-                            
-                            if (iorb == jorb):
-                                moment[iorb, jorb, js, ik, 0] = 1.0
-                            else:
-                                moment[iorb, jorb, js, ik, 0] = 0.0
-
-                            moment[iorb, jorb, js, ik, 1] += (fflast[iorb, jorb, js, ik] + np.conjugate(fflast[jorb, iorb, js, ik])) \
-                                / 2.0 * (omega[-1])**2
-
-                            moment[iorb, jorb, js, ik, 2] += (fflast[iorb, jorb, js, ik] - np.conjugate(fflast[jorb, iorb, js, ik]) 
-                                                              - moment[iorb, jorb, js, ik, 0]* 2.0/(omega[-1])) \
-                                                                  /2.0 * (omega[-1])**3
-
-        else:
-            if (highzero):
-                for ik in range(nkloc):
-                    for js in range(ns):
-                        for jorb in range(norb):
-                            for iorb in range(norb):
-
-                                moment[iorb, jorb, js, ik, 0] += (fflast[iorb, jorb, js, ik] \
-                                                                  - np.conjugate(fflast[jorb, iorb, js, ik]))/2.0 * (omega[-1])
-                                moment[iorb, jorb, js, ik, 1] += (fflast[iorb, jorb, js, ik] \
-                                                                  + np.conjugate(ff[jorb, iorb, js, ik]))/2.0 * (omega[-1])**2
-            else:
-                amat = np.zeros((4, 4), dtype=np.complex128, order='F')
-                bmat = np.zeros((4, 1), dtype=np.complex128, order='F')
-                # ipiv = np.zeros((4), dtype=int, order='F')
-                for ik in range(nkloc):
-                    for js in range(ns):
-                        for jorb in range(norb):
-                            for iorb in range(norb):
-                                w1 = omega[-1]
-                                w2 = omega[-2]
-
-                                amat[0, :] = [1.0, 1.0/(w1), 1.0/(w1)**2, 1.0/(w1)**3]
-                                amat[1, :] = [1.0, -1.0/(w1), 1.0/(w1)**2, -1.0/(w1)**3]
-                                amat[2, :] = [1.0, 1.0 / (w2), 1.0 / (w2) ** 2, 1.0 / (w2) ** 3]
-                                amat[3, :] = [1.0, -1.0 / (w2), 1.0 / (w2) ** 2, -1.0 / (w2) ** 3]
-
-                                bmat[0, 0] = fflast[iorb, jorb, js, ik]
-                                bmat[1, 0] = np.conjugate(fflast[jorb, iorb, js, ik])
-                                bmat[2, 0] = fflast2[iorb ,jorb, js, ik]
-                                bmat[3, 0] = np.conjugate(fflast2[jorb, iorb, js, ik])
-
-                                x = scipy.linalg.solve(amat, bmat)
-
-                                high[iorb, jorb, js, ik] = x[0, 0]
-                                moment[iorb, jorb, js, ik ,0] = x[1, 0]
-                                moment[iorb, jorb, js, ik, 1] = x[2, 0]
-                                moment[iorb, jorb, js, ik, 2] = x[3, 0]
-
-        for ik in range(nkloc):
-            for js in range(ns):
-                high[:, :, js, ik] = (np.conjugate(high[:, :, js, ik]).T + high[:, :, js, ik])/2.0
-                for i in range(3):
-                    moment[:, :, js, ik, i] = (np.conjugate(moment[:, :, js, ik, i]).T + moment[:, :, js, ik, i]) / 2.0
+        moment, high = Fourier.FLatDynM(self.ftgrid.omega, fflast, fflast2, isgreen, highzero)
 
         return moment, high
     
@@ -871,13 +759,19 @@ class GreenAB(FLatDyn):
 
         for js in range(self.crystal.ns):
             for iw in range(self.n3[0]):
-                for ik in range(len(self.kpt_latt)):
-                    kidx = self.i_kerf[ik]
-                    name = 'Gfull_w_'+str(iw+1)+'_k_'+str(kidx)
-                    kglob = self.crystal.mappingkp[kidx]
-                    [rank_temp, kk] = self.mpimanager.KGlobal2Local(kglob)
-                    if (rank_temp == rank):
-                        tempmat[...,iw,kk, js] = glob['full_space'][name][:]
+                for ik in range(nkloc):
+                    kglob = self.mpimanager.KLocal2Global([rank, ik])
+                    kidx = self.crystal.mappingkp[kglob]
+                    kk = self.i_kerf[kidx]
+                    name = 'Gfull_w_'+str(iw+1)+'_k_'+str(kk)
+                    tempmat[..., iw, ik, js] = glob['full_space'][name][:]
+                # for ik in range(len(self.kpt_latt)):
+                #     kidx = self.i_kerf[ik]
+                #     name = 'Gfull_w_'+str(iw+1)+'_k_'+str(kidx)
+                #     kglob = self.crystal.mappingkp[kidx]
+                #     [rank_temp, kk] = self.mpimanager.KGlobal2Local(kglob)
+                #     if (rank_temp == rank):
+                #         tempmat[...,iw,kk, js] = glob['full_space'][name][:]
         glob.close()
         # kpt_latt != kpoints
 

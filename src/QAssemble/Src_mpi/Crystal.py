@@ -924,8 +924,8 @@ class Crystal(object):
 
         mapping = []
         
-        for i, pt in enumerate(kpoint_temp):
-            diff = np.linalg.norm(self.kpoint - pt, axis = 1)
+        for i, pt in enumerate(self.kpoint):
+            diff = np.linalg.norm(kpoint_temp - pt, axis = 1)
             idx = np.argmin(diff)
             mapping.append(idx)
 

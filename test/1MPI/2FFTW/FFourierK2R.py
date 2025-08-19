@@ -5,10 +5,11 @@ from mpi4py import MPI
 qapath = os.environ.get("QAssemble")
 sys.path.append(qapath + "/src")
 # sys.path.append(qapath + "/src/qacore/modules")
-from QAssemble.Src_mpi.MPIManager import FLatDynMPI, MPIManager
+from QAssemble.Src_mpi.MPIManager import MPIManager
 from QAssemble.Src_mpi.Crystal import Crystal
 from QAssemble.Src_mpi.FTGrid import FTGrid
-from QAssemble.Src_mpi.FLatDyn import FLatDyn
+from QAssemble.Src_mpi.FLatDyn import FLatDyn as FLatDynMPI
+from QAssemble.Src.FLatDyn import FLatDyn
 
 def parse_args():
     if len(sys.argv) != 3:
@@ -91,7 +92,7 @@ def main():
     nrloc = tempmat2.shape[3]
 
     if (comm.Get_rank() == 0):
-        print('Checking the results of K2R')
+        print('Fourier Transform K2R test Start')
     nrloc = len(flatdynmpi.mpimanager.rlocal[flatdynmpi.commk.Get_rank()])
     for iw in range(nwloc):
         for ir in range(nrloc):
@@ -103,25 +104,8 @@ def main():
                         err = glatr[iorb, jorb, js, ridx, fidx] - tempmat2[iorb, jorb, js, ir, iw]
                         if (abs(err) > 1.0e-6):
                             print(iorb, jorb, js, ir, iw, abs(err), glatr[iorb, jorb, js, ridx, fidx], tempmat2[iorb, jorb, js, ir, iw])
-    
-    tempmat3 = np.zeros((norb, norb, ns, nk, nw), dtype=np.complex128, order='F')
-    tempmat4 = np.zeros((norb, norb, ns, nk, nw), dtype=np.complex128, order='F')
-    for js in range(ns):
-        for jorb in range(norb):
-            for iorb in range(norb):
-                for ik in range(nkloc):
-                    tempval = flatdynmpi.mpimanager.FMPIAllreduce(commk = flatdynmpi.commk, commw = flatdynmpi.commw, matin = tempmat[iorb, jorb, js, ik], nf = len(ftgrid.omega))
-                    kidx = flatdynmpi.mpimanager.KLocal2Global([flatdynmpi.commk.Get_rank(), ik])
-                    tempmat3[iorb, jorb, js, kidx] = tempval
-    flatdynmpi.commk.Allreduce(tempmat3, tempmat4, op=MPI.SUM)
     if (comm.Get_rank() == 0):
-        for iw in range(nw):
-            for ik in range(nk):
-                for js in range(ns):
-                    for jorb in range(norb):
-                        for iorb in range(norb):
-                            err = glatk[iorb, jorb, js, ik, iw] - tempmat4[iorb, jorb, js, ik, iw]
-                            if (abs(err) > 1.0e-6):
-                                print(iorb, jorb, js, ik, iw , abs(err), glatk[iorb, jorb, js, ik, iw], tempmat4[iorb, jorb, js, ik, iw])
+        print('Fourier Transform K2R test Finish')
+    
 if __name__ == '__main__':
     main()

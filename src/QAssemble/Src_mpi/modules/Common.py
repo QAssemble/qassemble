@@ -4,6 +4,7 @@ including matrix operations, interpolation, and special polynomials.
 """
 import numpy as np
 from scipy.linalg import eigh
+from scipy.linalg import lapack
 
 
 class Common:
@@ -12,7 +13,7 @@ class Common:
     """
 
     @staticmethod
-    def CmplxMatInv(matin : np.ndarray) -> np.ndarray:
+    def MatInv(matin : np.ndarray) -> np.ndarray:
         """
         Computes the inverse of a complex square matrix.
 
@@ -23,7 +24,33 @@ class Common:
             np.ndarray: The inverse of the input matrix.
         """
 
-        return np.linalg.inv(matin)
+        if (matin.ndim != 2 or matin.shape[0] != matin.shape[1]):
+            raise ValueError("Input must be a square 2D matrix.")
+        
+        if (matin.dtype != np.complex128):
+            matin = matin.astype(np.complex128)
+        
+        tempmat = np.copy(matin)
+
+        lu, piv, info = lapack.zgetrf(tempmat, overwrite_a=True)
+
+        if (info < 0):
+            raise np.linalg.LinAlgError(
+            f"LAPACK error (zgetrf): Illegal value in argument {-info}"
+            )
+        elif (info > 0):
+            raise np.linalg.LinAlgError(
+            "LAPACK error (zgetrf): Matrix is singular."
+            )
+        
+        invmat, info = lapack.zgetri(lu, piv, overwrite_lu=True)
+
+        if (info < 0):
+            raise np.linalg.LinAlgError(
+            f"LAPACK error (zgetri): Illegal value in argument {-info}"
+            )
+        
+        return invmat
     
     @staticmethod
     def Indexing(ntot, ndivision, divisionarray, flag, n1, n2):
