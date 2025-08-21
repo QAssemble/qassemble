@@ -16,6 +16,7 @@ import copy, gc
 qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/QAssemble/modules')
 import QAFort
+# from .modules.Common import Common
 
 # Ask to professor for change variables
 class Crystal(object):
@@ -115,7 +116,7 @@ class Crystal(object):
         self.Boson2Fermion()
         self.SetFullBasis()
         self.Boson2Full()
-        self.Rvec()
+        self.RVec()
 
         return None
 
@@ -797,7 +798,7 @@ class Crystal(object):
 
         return GmRmT
 
-    def Rvec(self) -> None:
+    def RVec(self) -> None:
         """Generate real-space vector mappings for the k-point grid.
 
         Returns:
@@ -805,26 +806,13 @@ class Crystal(object):
         """
         r = np.zeros((self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2], 3), dtype=float)
         rind = np.zeros((self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2],3),dtype=float) 
-        # for iz in range(self.rkgrid[2]//2 +1):
-        #     for iy in range(self.rkgrid[1]//2 + 1):
-        #         for ix in range(self.rkgrid[0]//2+1):
-        #             nn1 = [ix,iy,iz]
-        #             ind1,nn1 = self.indexing(self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2],3,self.rkgrid,1,0,nn1)
-        #             r[ind1] = nn1
-        #             if (nn1==[0,0,0]):
-        #                 continue
-        #             ii = (self.rkgrid[0]-ix) % self.rkgrid[0]
-        #             jj = (self.rkgrid[1]-iy) % self.rkgrid[1]
-        #             kk = (self.rkgrid[2]-iz) % self.rkgrid[2]
-        #             nn2 = [ii,jj,kk]
-        #             ind2,nn2 = self.indexing(self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2],3,self.rkgrid,1,0,nn2)
-        #             r[ind2] = [-ix,-iy,-iz]
+        from .modules.Common import Common
 
         for iz in range(self.rkgrid[2]):
             for iy in range(self.rkgrid[1]):
                 for ix in range(self.rkgrid[0]):
                     nn1 = [ix,iy,iz]
-                    ind1, nn1 = self.indexing(self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2],3,self.rkgrid,1,0,nn1)
+                    ind1, nn1 = Common.Indexing(self.rkgrid[0]*self.rkgrid[1]*self.rkgrid[2],3,self.rkgrid,1,0,nn1)
                     if (ix > self.rkgrid[0]//2):
                         xx = ix-self.rkgrid[0]
                     else:

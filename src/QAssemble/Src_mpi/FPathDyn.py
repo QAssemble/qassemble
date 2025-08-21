@@ -121,7 +121,7 @@ class FPathDyn(object):
         nk = len(kpoint)
         nft = matr.shape[4]
 
-        self.crystal.Rvec()
+        self.crystal.RVec()
         tempmat = copy.deepcopy(matr)
         matk = QAFort.fourier.fpathdyn_r2k(self.crystal.rvec, kpoint, tempmat)
 
@@ -197,7 +197,7 @@ class FPathDyn(object):
 
     def  MQEMWrapper(self, option: dict = None, gmat: np.ndarray = None):
 
-        #       target = option['target']
+        target = option['target']
         gauxmode = option["gauxmode"]
         defaultmodel = option["defaultmodel"]
         blur = float(option["smearing"])
@@ -386,6 +386,7 @@ class FPathDyn(object):
 
         print("Spectral calculation start")
         gauxmode = option["gauxmode"]
+        target = option["target"]
         glob = h5py.File(self.hdf5file, "r")
         gw = glob["gw"]
         if gauxmode == "asisit":

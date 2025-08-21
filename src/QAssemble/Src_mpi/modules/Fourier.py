@@ -544,3 +544,53 @@ class Fourier:
             fout[..., ifreq] = Fourier.BLatStcR2K(commk, fin[..., ifreq], mpimanager)
 
         return fout
+    
+    @staticmethod
+    def FPathStcR2K(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager, k : np.ndarray) -> np.ndarray:
+
+        pi = np.pi
+        ai = 1j
+
+        norb, _, ns, nr = fin.shape
+        rank = commk.Get_rank()
+        nk = len(mpimanager.klocal[rank])
+
+        fout = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
+
+        for js in range(ns):
+            for jorb in range(norb):
+                for iorb in range(norb):
+                    for ik in range(nk):
+                        tempval = 0.0
+                        for ir in range(nr):
+                            kidx = mpimanager.KLocal2Global([rank, ik])
+                            ridx = mpimanager.RLocal2Global([rank, ir])
+                            tempval = tempval + fin[iorb, jorb, js, ir] * \
+                            np.exp(-2.0*ai*pi*np.dot(k[kidx], mpimanager.crystal.rvec[ridx]))
+
+                        fout[iorb, jorb, js, ik] = tempval
+        
+        return fout
+    
+    @staticmethod
+    def FPathDynR2K(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager, k : np.ndarray) -> np.ndarray:
+
+        norb, _, ns, _, nfreq = fin.shape
+        rank = commk.Get_rank()
+        nk = len(mpimanager.klocal[rank])
+        fout = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
+
+        for ifreq in range(nfreq):
+
+            fout[..., ifreq] = Fourier.FPathStcR2K(commk, fin[..., ifreq], mpimanager, k)
+        
+        return fout
+    
+    # @staticmethod
+    # def FPathStcK2R(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager, k : np.ndarray) -> np.ndarray:
+
+    #     norb, _, ns, nk = fin.shape
+    #     rank = commk.Get_rank()
+    #     nr = len(mpimanager.rlocal[rank])
+
+    #     fout = np.zeros((norb, norb, ns, nr), dtype=np.complex128, order='F')

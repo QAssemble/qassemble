@@ -30,7 +30,7 @@ class FLatDyn(object):
         self.nprock = nprock
         self.nprocw = nprocw
         self.mpimanager = mpimanager
-        self.nodedict = mpimanager.Quary(nk, nw, ntau, nprock, nprocw, self.crystal)
+        self.nodedict = mpimanager.Quary(nk, nw, ntau, nprock, nprocw, self.crystal.rkgrid)
 
         self.commk = self.nodedict['commk']
         self.commw = self.nodedict['commf']
@@ -49,25 +49,51 @@ class FLatDyn(object):
 
     def Save(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
 
-        with h5py.File(hdf5file, 'a', driver='mpio', comm = self.mpimanager.comm) as file:
-            if (self.CheckGroup(hdf5file, group)):
-                g =  file[group]
-                if subgroup in g:
-                    subg = g[subgroup]
-                else:
-                    subg = g.create_group(subgroup)
-            else:
-                g = file.create_group(group)
-                subg = g.create_group(subgroup)
+        file = h5py.File(hdf5file, 'a', driver='mpio', comm = self.mpimanager.comm)
+        
+        if group in file:
+            g =  file[group]
+        else:
+            g = file.create_group(group)
+        
+        if subgroup in g:
+            subg = g[subgroup]
+        else:
+            subg = g.create_group(subgroup)
 
-            subg.create_dataset(dataname, data=data, dtype=np.complex128)
+        
+        print('Saving data...')
+        rankf = self.nodedict['commfrank']
+        rankk = self.nodedict['commkrank']
 
-            return None
+        nfreq = len(self.mpimanager.floc[rankf])
+        nk = len(self.mpimanager.klocal[rankk])
+        n4 = data.shape[3]
+        n5 = data.shape[4]
+        if (nk != n4) or (nfreq != n5):
+            print('Data mismatch')
+            sys.exit()
+        for ifreq in range(nfreq):
+            for ik in range(nk):
+                for js in range(self.crystal.ns):
+                    fidx = self.mpimanager.FLocal2Global([rankf, ifreq])
+                    kidx = self.mpimanager.KLocal2Global([rankk, ik])
+                    name = f"{dataname}_w_{fidx+1}_k_{kidx+1}_s_{js+1}"
+                    print(f"Saving {name} data to {hdf5file}")
+                    subg.create_dataset(name, data=data[:, :, js, ik, ifreq], dtype=np.complex128)
+        
+        print('Saving data finish')
+    
+        # self.mpimanager.comm.Barrier()
+        file.close()
+
+        return None
 
     def Load(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
 
-        with h5py.File(hdf5file, 'r', driver='mpio', comm=self.mpimanager.comm) as file:
-            if (self.CheckGroup(hdf5file, group)):
+        file = h5py.File(hdf5file, 'r', driver='mpio', comm=self.mpimanager.comm)
+        try:
+            if group in file:
                 g =  file[group]
                 if subgroup in g:
                     subg = g[subgroup]
@@ -80,6 +106,9 @@ class FLatDyn(object):
                     raise KeyError(f"{subgroup} not found in {group}")
             else:
                 raise KeyError(f"{group} not found in {hdf5file}")
+        finally:
+            self.mpimanager.comm.Barrier()
+            file.close()
 
     def Inverse(self, matin : np.ndarray) -> np.ndarray:
 
@@ -278,6 +307,43 @@ class FLatDyn(object):
             ff[...,ifreq] = ffglob[...,fidx]
 
         return ff
+    
+    def Kfc2Kff(self, fin : np.ndarray, kvec : np.ndarray) -> np.ndarray:
+
+        finv = self.Inverse(fin)
+        rankf = self.nodedict['commfrank']
+        rankk = self.nodedict['commkrank']
+        tempmat = self.K2R(finv)
+        norb, _, ns, nk, nfreq = finv.shape
+        tempmat2 = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
+        omega = self.ftgrid.omega * 1j
+
+        for ifreq in range(nfreq):
+            for ik in range(nk):
+                for js in range(ns):
+                    for jorb in range(norb):
+                        for iorb in range(norb):
+                            fidx = self.mpimanager.FLocal2Global([rankf, ifreq])
+                            if (iorb == jorb):
+                                tempmat2[iorb, jorb, js, ik, ifreq] = (
+                                    omega[fidx] - finv[iorb, jorb, js, ik, ifreq]
+                                )
+                            else:
+                                tempmat2[iorb, jorb, js, ik, ifreq] = (
+                                    -finv[iorb, jorb, js, ik, ifreq]
+                                )
+        
+        self.crystal.RVec()
+        tempmat3 = Fourier.FPathDynR2K(self.commk, tempmat2, self.mpimanager, kvec)
+
+        return tempmat3
+
+
+
+
+
+
+        
         
 
     

@@ -18,12 +18,13 @@ import QAFort
 class MPIManager(object):
 
 
-    def __init__(self, comm : MPI.COMM_WORLD):
+    def __init__(self, comm : MPI.COMM_WORLD, crystal : Crystal):
 
 
         self.comm = comm
         self.rank = self.comm.Get_rank()
         self.size = self.comm.Get_size()
+        self.crystal = crystal
         if (self.rank == 0):
             print("Parallelization with MPI Start")
         required = MPI.THREAD_MULTIPLE
@@ -41,8 +42,10 @@ class MPIManager(object):
         self.localshapef = None
         self.localshapeb = None
 
-    def Quary(self, nk : int, nf : int, ntau : int, nprock : int, nprocf : int, crystal : Crystal):
-
+    def Quary(self, nk : int, nf : int, ntau : int, nprock : int, nprocf : int, shape : list):
+        
+        self.nprock = nprock
+        self.nprocf = nprocf
         if (nk, nf, ntau, nprock, nprocf) in self.mpidict:
             #return the node dict for nk, nw
             return self.mpidict[(nk, nf, ntau, nprock, nprocf)]
@@ -61,7 +64,7 @@ class MPIManager(object):
             # kchunk = np.array_split(ktemp, nprock)
             # submatrixk = [(chunk[0], chunk[-1]+1) for chunk in kchunk]
             # nodedict['submatrixk'] = submatrixk
-            self.crystal = crystal
+
             
             wtemp = np.arange(nf)
             wchunk = np.array_split(wtemp, nprocf)
@@ -83,7 +86,7 @@ class MPIManager(object):
             commtau = self.comm.Split(color=widx, key=kidx)
 
             # mpifft = MPIFFT(commk,kgrid)
-            self.fft = self.FFT(commk,crystal.rkgrid)
+            self.fft = self.FFT(commk,shape)
             self.klocal = self.CreateMPICompositeIndex(self.slicef)
             self.rlocal = self.CreateMPICompositeIndex(self.sliceb)
 
@@ -633,718 +636,718 @@ class MPIManager(object):
     
     
 
-class FLatDynMPI(object):
+# class FLatDynMPI(object):
 
-    def __init__(self, crystal : Crystal, ftgrid : FTGrid, nk : int, nw : int, ntau : int, nprock : int, nprocw : int, mpimanager : MPIManager):
+#     def __init__(self, crystal : Crystal, ftgrid : FTGrid, nk : int, nw : int, ntau : int, nprock : int, nprocw : int, mpimanager : MPIManager):
 
-        self.crystal = crystal
-        self.ftgrid = ftgrid
-        self.nk = nk
-        self.nw = nw
-        self.nprock = nprock
-        self.nprocw = nprocw
-        self.mpimanager = mpimanager
-        self.nodedict = mpimanager.Quary(nk, nw, ntau, nprock, nprocw, self.crystal)
+#         self.crystal = crystal
+#         self.ftgrid = ftgrid
+#         self.nk = nk
+#         self.nw = nw
+#         self.nprock = nprock
+#         self.nprocw = nprocw
+#         self.mpimanager = mpimanager
+#         self.nodedict = mpimanager.Quary(nk, nw, ntau, nprock, nprocw, self.crystal)
 
-        self.commk = self.nodedict['commk']
-        self.commw = self.nodedict['commf']
-        self.submatrixkf = self.nodedict['submatrixkf']
-        self.submatrixkb = self.nodedict['submatrixkb']
-        self.submatrixw = self.nodedict['submatrixw']
+#         self.commk = self.nodedict['commk']
+#         self.commw = self.nodedict['commf']
+#         self.submatrixkf = self.nodedict['submatrixkf']
+#         self.submatrixkb = self.nodedict['submatrixkb']
+#         self.submatrixw = self.nodedict['submatrixw']
 
-        self.commtau = self.nodedict['commtau']
+#         self.commtau = self.nodedict['commtau']
 
-        self.submatrixtau = self.nodedict['submatrixtau']
+#         self.submatrixtau = self.nodedict['submatrixtau']
 
     
     
-    def MappingGlobal2Local(self, localdict : dict) -> dict:
-        mapping = {}
-        for irank in range(self.commk.Get_size()):
-            mapping[irank] = {}
-            for key, value in localdict[irank].items():
-                kidx = self.crystal.MergeKind(value)
-                mapping[irank][key] = kidx
+#     def MappingGlobal2Local(self, localdict : dict) -> dict:
+#         mapping = {}
+#         for irank in range(self.commk.Get_size()):
+#             mapping[irank] = {}
+#             for key, value in localdict[irank].items():
+#                 kidx = self.crystal.MergeKind(value)
+#                 mapping[irank][key] = kidx
 
-        return mapping
+#         return mapping
 
-    def CheckGroup(self, filepath : str, group : str):
+#     def CheckGroup(self, filepath : str, group : str):
 
-        with h5py.File(filepath, 'r') as file:
-            return group in file
+#         with h5py.File(filepath, 'r') as file:
+#             return group in file
 
-    def Save(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
+#     def Save(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
 
-        with h5py.File(hdf5file, 'a', driver='mpio', comm = self.mpimanager.comm) as file:
-            if (self.CheckGroup(hdf5file, group)):
-                g =  file[group]
-                if subgroup in g:
-                    subg = g[subgroup]
-                else:
-                    subg = g.create_group(subgroup)
-            else:
-                g = file.create_group(group)
-                subg = g.create_group(subgroup)
+#         with h5py.File(hdf5file, 'a', driver='mpio', comm = self.mpimanager.comm) as file:
+#             if (self.CheckGroup(hdf5file, group)):
+#                 g =  file[group]
+#                 if subgroup in g:
+#                     subg = g[subgroup]
+#                 else:
+#                     subg = g.create_group(subgroup)
+#             else:
+#                 g = file.create_group(group)
+#                 subg = g.create_group(subgroup)
 
-            subg.create_dataset(dataname, data=data, dtype=np.complex128)
+#             subg.create_dataset(dataname, data=data, dtype=np.complex128)
 
-            return None
+#             return None
 
-    def Load(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
+#     def Load(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
 
-        with h5py.File(hdf5file, 'r', driver='mpio', comm=self.mpimanager.comm) as file:
-            if (self.CheckGroup(hdf5file, group)):
-                g =  file[group]
-                if subgroup in g:
-                    subg = g[subgroup]
-                    if dataname in subg:
-                        data = subg[dataname][:]
-                        return data
-                    else:
-                        raise KeyError(f"{dataname} not found in {subgroup}")
-                else:
-                    raise KeyError(f"{subgroup} not found in {group}")
-            else:
-                raise KeyError(f"{group} not found in {hdf5file}")
+#         with h5py.File(hdf5file, 'r', driver='mpio', comm=self.mpimanager.comm) as file:
+#             if (self.CheckGroup(hdf5file, group)):
+#                 g =  file[group]
+#                 if subgroup in g:
+#                     subg = g[subgroup]
+#                     if dataname in subg:
+#                         data = subg[dataname][:]
+#                         return data
+#                     else:
+#                         raise KeyError(f"{dataname} not found in {subgroup}")
+#                 else:
+#                     raise KeyError(f"{subgroup} not found in {group}")
+#             else:
+#                 raise KeyError(f"{group} not found in {hdf5file}")
 
-    def Inverse(self, matin : np.ndarray) -> np.ndarray:
-
-        
-        norb, _, ns, nk, nft = matin.shape
-
-        matout = np.zeros((norb, norb, ns, nk, nft), dtype=np.complex128, order='F')
-        
-
-        for ift in range(nft):
-            for ik in range(nk):
-                for js in range(ns):
-                    matout[:, :, js, ik, ift] = np.linalg.inv(matin[:, :, js ,ik, ift])
-
-        return matout
-
-    def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray) -> np.ndarray:
-
-        # norb, _, ns, nk, nft = mat1.shape
-        # nk = mat1.shape[3]
-        # nft = mat1.shape[4]
-        matout = np.zeros_like(mat1, dtype=np.complex128, order='F')
-        
-        # for ift in range(nft):
-        #     for ik in range(nk):
-        #         matout[:, :, :, ik, ift] = QAFort.dyson.flocstc(mat1[:, :, :, ik, ift], mat2[:, :, :, ik, ift])      
-        matout = QAFort.dyson.flatdyn(mat1, mat2)
-
-
-        return matout
-
-    def K2R(self, matk : np.ndarray) -> np.ndarray:
+#     def Inverse(self, matin : np.ndarray) -> np.ndarray:
 
         
-        # rkvec = self.crystal.kpoint.reshape((self.crystal.rkgrid[0], self.crystal.rkgrid[1], self.crystal.rkgrid[2], 3), order='F')
+#         norb, _, ns, nk, nft = matin.shape
+
+#         matout = np.zeros((norb, norb, ns, nk, nft), dtype=np.complex128, order='F')
+        
+
+#         for ift in range(nft):
+#             for ik in range(nk):
+#                 for js in range(ns):
+#                     matout[:, :, js, ik, ift] = np.linalg.inv(matin[:, :, js ,ik, ift])
+
+#         return matout
+
+#     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray) -> np.ndarray:
+
+#         # norb, _, ns, nk, nft = mat1.shape
+#         # nk = mat1.shape[3]
+#         # nft = mat1.shape[4]
+#         matout = np.zeros_like(mat1, dtype=np.complex128, order='F')
+        
+#         # for ift in range(nft):
+#         #     for ik in range(nk):
+#         #         matout[:, :, :, ik, ift] = QAFort.dyson.flocstc(mat1[:, :, :, ik, ift], mat2[:, :, :, ik, ift])      
+#         matout = QAFort.dyson.flatdyn(mat1, mat2)
+
+
+#         return matout
+
+#     def K2R(self, matk : np.ndarray) -> np.ndarray:
 
         
-        # norb, _, ns, nkx, nky, nkz, nf = matk.shape
-        norb, _, ns, nk, nf = matk.shape
-        rkvec = self.crystal.kpoint
-        rank = self.nodedict['commkrank']
-        (nkx, nky, nkz) = self.mpimanager.localshapef[self.nodedict['commkrank']]
-        nkglobal = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
-        if (nk != nkx * nky * nkz):
-            raise ValueError(f"Error: nk ({nk}) does not match local shape ({nkx}, {nky}, {nkz})")
-        (nx, ny, nz) = self.mpimanager.localshapeb[self.nodedict['commkrank']]
-        tempmat = np.zeros((norb, norb, ns, nk, nf), dtype=np.complex128, order='F')
-        tempmat2 = np.zeros((nx, ny, nz), order='F', dtype=np.complex128)
+#         # rkvec = self.crystal.kpoint.reshape((self.crystal.rkgrid[0], self.crystal.rkgrid[1], self.crystal.rkgrid[2], 3), order='F')
+
         
-        nr = len(self.mpimanager.rlocal[rank])
-        matr = np.zeros((norb, norb, ns, nr, nf), dtype=np.complex128, order='F')
+#         # norb, _, ns, nkx, nky, nkz, nf = matk.shape
+#         norb, _, ns, nk, nf = matk.shape
+#         rkvec = self.crystal.kpoint
+#         rank = self.nodedict['commkrank']
+#         (nkx, nky, nkz) = self.mpimanager.localshapef[self.nodedict['commkrank']]
+#         nkglobal = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
+#         if (nk != nkx * nky * nkz):
+#             raise ValueError(f"Error: nk ({nk}) does not match local shape ({nkx}, {nky}, {nkz})")
+#         (nx, ny, nz) = self.mpimanager.localshapeb[self.nodedict['commkrank']]
+#         tempmat = np.zeros((norb, norb, ns, nk, nf), dtype=np.complex128, order='F')
+#         tempmat2 = np.zeros((nx, ny, nz), order='F', dtype=np.complex128)
+        
+#         nr = len(self.mpimanager.rlocal[rank])
+#         matr = np.zeros((norb, norb, ns, nr, nf), dtype=np.complex128, order='F')
 
-        for iff in range(nf):            
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        for ik in range(nk):
-                            a, _ = self.crystal.FAtomOrb(iorb)
-                            b, _ = self.crystal.FAtomOrb(jorb)
-                            delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
-                            kidx = self.mpimanager.KLocal2Global([rank, ik])
-                            phase = np.exp(2.0j * np.pi * np.dot(rkvec[kidx], delta))
-                            tempmat[iorb, jorb, js, ik, iff] = matk[iorb, jorb, js, ik, iff] * phase
-                        # --------------------------------------------------------------------------- #
-                        tempval = self.mpimanager.K2K3D(self.commk, tempmat[iorb, jorb, js, :, iff])
-                        tempval2 = self.mpimanager.Backward(tempval)
-                        tempmat2 = tempval2*1/(nkglobal)
+#         for iff in range(nf):            
+#             for js in range(ns):
+#                 for jorb in range(norb):
+#                     for iorb in range(norb):
+#                         for ik in range(nk):
+#                             a, _ = self.crystal.FAtomOrb(iorb)
+#                             b, _ = self.crystal.FAtomOrb(jorb)
+#                             delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+#                             kidx = self.mpimanager.KLocal2Global([rank, ik])
+#                             phase = np.exp(2.0j * np.pi * np.dot(rkvec[kidx], delta))
+#                             tempmat[iorb, jorb, js, ik, iff] = matk[iorb, jorb, js, ik, iff] * phase
+#                         # --------------------------------------------------------------------------- #
+#                         tempval = self.mpimanager.K2K3D(self.commk, tempmat[iorb, jorb, js, :, iff])
+#                         tempval2 = self.mpimanager.Backward(tempval)
+#                         tempmat2 = tempval2*1/(nkglobal)
 
-                        matr[iorb, jorb, js,:,iff] = self.mpimanager.R3D2R(self.commk, tempmat2)
+#                         matr[iorb, jorb, js,:,iff] = self.mpimanager.R3D2R(self.commk, tempmat2)
 
-        return matr
+#         return matr
     
 
-    def R2K(self, matr : np.ndarray) -> np.ndarray:
+#     def R2K(self, matr : np.ndarray) -> np.ndarray:
 
-        rkvec = self.crystal.kpoint
+#         rkvec = self.crystal.kpoint
 
-        norb, _, ns, nr, nf = matr.shape
-        rank = self.nodedict['commkrank']
-        (nx, ny, nz) = self.mpimanager.localshapeb[rank]
-        (nkx, nky, nkz) = self.mpimanager.localshapef[rank]
-        if (nr != nx * ny * nz):
-            print(f"Error: nk ({nr}) does not match local shape ({nx}, {ny}, {nz})")
-            sys.exit()
-        tempmat = np.zeros_like(matr, dtype=np.complex128, order='F')
-        tempmat2 = np.zeros((nkx, nky, nkz), order='F', dtype=np.complex128)
-        matk = np.zeros((norb, norb, ns, nkx*nky*nkz, nf), dtype=np.complex128, order='F')
+#         norb, _, ns, nr, nf = matr.shape
+#         rank = self.nodedict['commkrank']
+#         (nx, ny, nz) = self.mpimanager.localshapeb[rank]
+#         (nkx, nky, nkz) = self.mpimanager.localshapef[rank]
+#         if (nr != nx * ny * nz):
+#             print(f"Error: nk ({nr}) does not match local shape ({nx}, {ny}, {nz})")
+#             sys.exit()
+#         tempmat = np.zeros_like(matr, dtype=np.complex128, order='F')
+#         tempmat2 = np.zeros((nkx, nky, nkz), order='F', dtype=np.complex128)
+#         matk = np.zeros((norb, norb, ns, nkx*nky*nkz, nf), dtype=np.complex128, order='F')
 
         
-        for iff in range(nf):
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
+#         for iff in range(nf):
+#             for js in range(ns):
+#                 for jorb in range(norb):
+#                     for iorb in range(norb):
                         
-                        tempval = self.mpimanager.R2R3D(self.commk, matr[iorb, jorb, js, :, iff])
-                        tempval2 = self.mpimanager.Forward(tempval)
-                        tempmat2 = tempval2
-                        tempmat[iorb, jorb, js, :, iff] = self.mpimanager.K3D2K(self.commk, tempmat2)
+#                         tempval = self.mpimanager.R2R3D(self.commk, matr[iorb, jorb, js, :, iff])
+#                         tempval2 = self.mpimanager.Forward(tempval)
+#                         tempmat2 = tempval2
+#                         tempmat[iorb, jorb, js, :, iff] = self.mpimanager.K3D2K(self.commk, tempmat2)
                         
         
-                        for ik in range(nkx*nky*nkz):
-                            a, _ = self.crystal.FAtomOrb(iorb)
-                            b, _ = self.crystal.FAtomOrb(jorb)
-                            delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
-                            kidx = self.mpimanager.KLocal2Global([rank, ik])
-                            phase = np.exp(-2.0j * np.pi * np.dot(rkvec[kidx], delta))
-                            matk[iorb, jorb, js, ik, iff] = tempmat[iorb, jorb, js, ik, iff] * phase
+#                         for ik in range(nkx*nky*nkz):
+#                             a, _ = self.crystal.FAtomOrb(iorb)
+#                             b, _ = self.crystal.FAtomOrb(jorb)
+#                             delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+#                             kidx = self.mpimanager.KLocal2Global([rank, ik])
+#                             phase = np.exp(-2.0j * np.pi * np.dot(rkvec[kidx], delta))
+#                             matk[iorb, jorb, js, ik, iff] = tempmat[iorb, jorb, js, ik, iff] * phase
 
-        return matk
+#         return matk
     
-    def Moment(self, ff : np.ndarray, isgreen : bool, highzero : bool) -> np.ndarray:
+#     def Moment(self, ff : np.ndarray, isgreen : bool, highzero : bool) -> np.ndarray:
 
 
 
-        norb, _, ns, nkloc, nfloc = ff.shape 
-        omega = self.ftgrid.omega*1j
-        moment = np.zeros((norb, norb, ns, nkloc, 3), dtype=np.complex128, order='F')
-        high = np.zeros((norb, norb, ns, nkloc), dtype=np.complex128, order='F')
+#         norb, _, ns, nkloc, nfloc = ff.shape 
+#         omega = self.ftgrid.omega*1j
+#         moment = np.zeros((norb, norb, ns, nkloc, 3), dtype=np.complex128, order='F')
+#         high = np.zeros((norb, norb, ns, nkloc), dtype=np.complex128, order='F')
         
 
-        fflast = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-1)
-        fflast2 = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-2)
+#         fflast = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-1)
+#         fflast2 = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-2)
 
-        if (isgreen):
-            for ik in range(nkloc):
-                for js in range(ns):
-                    for jorb in range(norb):
-                        for iorb in range(norb):
+#         if (isgreen):
+#             for ik in range(nkloc):
+#                 for js in range(ns):
+#                     for jorb in range(norb):
+#                         for iorb in range(norb):
                             
-                            if (iorb == jorb):
-                                moment[iorb, jorb, js, ik, 0] = 1.0
-                            else:
-                                moment[iorb, jorb, js, ik, 0] = 0.0
+#                             if (iorb == jorb):
+#                                 moment[iorb, jorb, js, ik, 0] = 1.0
+#                             else:
+#                                 moment[iorb, jorb, js, ik, 0] = 0.0
 
-                            moment[iorb, jorb, js, ik, 1] += (fflast[iorb, jorb, js, ik] + np.conjugate(fflast[jorb, iorb, js, ik])) \
-                                / 2.0 * (omega[-1])**2
+#                             moment[iorb, jorb, js, ik, 1] += (fflast[iorb, jorb, js, ik] + np.conjugate(fflast[jorb, iorb, js, ik])) \
+#                                 / 2.0 * (omega[-1])**2
 
-                            moment[iorb, jorb, js, ik, 2] += (fflast[iorb, jorb, js, ik] - np.conjugate(fflast[jorb, iorb, js, ik]) 
-                                                              - moment[iorb, jorb, js, ik, 0]* 2.0/(omega[-1])) \
-                                                                  /2.0 * (omega[-1])**3
+#                             moment[iorb, jorb, js, ik, 2] += (fflast[iorb, jorb, js, ik] - np.conjugate(fflast[jorb, iorb, js, ik]) 
+#                                                               - moment[iorb, jorb, js, ik, 0]* 2.0/(omega[-1])) \
+#                                                                   /2.0 * (omega[-1])**3
 
-        else:
-            if (highzero):
-                for ik in range(nkloc):
-                    for js in range(ns):
-                        for jorb in range(norb):
-                            for iorb in range(norb):
+#         else:
+#             if (highzero):
+#                 for ik in range(nkloc):
+#                     for js in range(ns):
+#                         for jorb in range(norb):
+#                             for iorb in range(norb):
 
-                                moment[iorb, jorb, js, ik, 0] += (fflast[iorb, jorb, js, ik] \
-                                                                  - np.conjugate(fflast[jorb, iorb, js, ik]))/2.0 * (omega[-1])
-                                moment[iorb, jorb, js, ik, 1] += (fflast[iorb, jorb, js, ik] \
-                                                                  + np.conjugate(ff[jorb, iorb, js, ik]))/2.0 * (omega[-1])**2
-            else:
-                amat = np.zeros((4, 4), dtype=np.complex128, order='F')
-                bmat = np.zeros((4, 1), dtype=np.complex128, order='F')
-                # ipiv = np.zeros((4), dtype=int, order='F')
-                for ik in range(nkloc):
-                    for js in range(ns):
-                        for jorb in range(norb):
-                            for iorb in range(norb):
-                                w1 = omega[-1]
-                                w2 = omega[-2]
+#                                 moment[iorb, jorb, js, ik, 0] += (fflast[iorb, jorb, js, ik] \
+#                                                                   - np.conjugate(fflast[jorb, iorb, js, ik]))/2.0 * (omega[-1])
+#                                 moment[iorb, jorb, js, ik, 1] += (fflast[iorb, jorb, js, ik] \
+#                                                                   + np.conjugate(ff[jorb, iorb, js, ik]))/2.0 * (omega[-1])**2
+#             else:
+#                 amat = np.zeros((4, 4), dtype=np.complex128, order='F')
+#                 bmat = np.zeros((4, 1), dtype=np.complex128, order='F')
+#                 # ipiv = np.zeros((4), dtype=int, order='F')
+#                 for ik in range(nkloc):
+#                     for js in range(ns):
+#                         for jorb in range(norb):
+#                             for iorb in range(norb):
+#                                 w1 = omega[-1]
+#                                 w2 = omega[-2]
 
-                                amat[0, :] = [1.0, 1.0/(w1), 1.0/(w1)**2, 1.0/(w1)**3]
-                                amat[1, :] = [1.0, -1.0/(w1), 1.0/(w1)**2, -1.0/(w1)**3]
-                                amat[2, :] = [1.0, 1.0 / (w2), 1.0 / (w2) ** 2, 1.0 / (w2) ** 3]
-                                amat[3, :] = [1.0, -1.0 / (w2), 1.0 / (w2) ** 2, -1.0 / (w2) ** 3]
+#                                 amat[0, :] = [1.0, 1.0/(w1), 1.0/(w1)**2, 1.0/(w1)**3]
+#                                 amat[1, :] = [1.0, -1.0/(w1), 1.0/(w1)**2, -1.0/(w1)**3]
+#                                 amat[2, :] = [1.0, 1.0 / (w2), 1.0 / (w2) ** 2, 1.0 / (w2) ** 3]
+#                                 amat[3, :] = [1.0, -1.0 / (w2), 1.0 / (w2) ** 2, -1.0 / (w2) ** 3]
 
-                                bmat[0, 0] = fflast[iorb, jorb, js, ik]
-                                bmat[1, 0] = np.conjugate(fflast[jorb, iorb, js, ik])
-                                bmat[2, 0] = fflast2[iorb ,jorb, js, ik]
-                                bmat[3, 0] = np.conjugate(fflast2[jorb, iorb, js, ik])
+#                                 bmat[0, 0] = fflast[iorb, jorb, js, ik]
+#                                 bmat[1, 0] = np.conjugate(fflast[jorb, iorb, js, ik])
+#                                 bmat[2, 0] = fflast2[iorb ,jorb, js, ik]
+#                                 bmat[3, 0] = np.conjugate(fflast2[jorb, iorb, js, ik])
 
-                                x = scipy.linalg.solve(amat, bmat)
+#                                 x = scipy.linalg.solve(amat, bmat)
 
-                                high[iorb, jorb, js, ik] = x[0, 0]
-                                moment[iorb, jorb, js, ik ,0] = x[1, 0]
-                                moment[iorb, jorb, js, ik, 1] = x[2, 0]
-                                moment[iorb, jorb, js, ik, 2] = x[3, 0]
+#                                 high[iorb, jorb, js, ik] = x[0, 0]
+#                                 moment[iorb, jorb, js, ik ,0] = x[1, 0]
+#                                 moment[iorb, jorb, js, ik, 1] = x[2, 0]
+#                                 moment[iorb, jorb, js, ik, 2] = x[3, 0]
 
-        for ik in range(nkloc):
-            for js in range(ns):
-                high[:, :, js, ik] = (np.conjugate(high[:, :, js, ik]).T + high[:, :, js, ik])/2.0
-                for i in range(3):
-                    moment[:, :, js, ik, i] = (np.conjugate(moment[:, :, js, ik, i]).T + moment[:, :, js, ik, i]) / 2.0
+#         for ik in range(nkloc):
+#             for js in range(ns):
+#                 high[:, :, js, ik] = (np.conjugate(high[:, :, js, ik]).T + high[:, :, js, ik])/2.0
+#                 for i in range(3):
+#                     moment[:, :, js, ik, i] = (np.conjugate(moment[:, :, js, ik, i]).T + moment[:, :, js, ik, i]) / 2.0
 
-        return moment, high
+#         return moment, high
     
-    def F2T(self, ff : np.ndarray, isgreen : bool, highzero : bool):
+#     def F2T(self, ff : np.ndarray, isgreen : bool, highzero : bool):
 
-        rank = self.nodedict['commtaurank']
-        ntauloc = self.submatrixtau[rank][1] - self.submatrixtau[rank][0]
-        tau = np.zeros((ntauloc), dtype=np.float64, order='F')
-        for itau in range(ntauloc):
-            tauidx = self.mpimanager.TLocal2Global([rank, itau])
-            tau[itau] = self.ftgrid.tau[tauidx]
-        norb = ff.shape[0]
-        ns = ff.shape[2]
-        nk = ff.shape[3]
-        nomega = len(self.ftgrid.omega)
-        ftau = np.zeros((norb, norb, ns, nk, ntauloc), dtype=np.complex128, order='F')
+#         rank = self.nodedict['commtaurank']
+#         ntauloc = self.submatrixtau[rank][1] - self.submatrixtau[rank][0]
+#         tau = np.zeros((ntauloc), dtype=np.float64, order='F')
+#         for itau in range(ntauloc):
+#             tauidx = self.mpimanager.TLocal2Global([rank, itau])
+#             tau[itau] = self.ftgrid.tau[tauidx]
+#         norb = ff.shape[0]
+#         ns = ff.shape[2]
+#         nk = ff.shape[3]
+#         nomega = len(self.ftgrid.omega)
+#         ftau = np.zeros((norb, norb, ns, nk, ntauloc), dtype=np.complex128, order='F')
         
-        moment, high = self.Moment(ff, isgreen, highzero)
+#         moment, high = self.Moment(ff, isgreen, highzero)
 
-        ffglob = np.zeros((norb, norb, ns, nk, nomega), dtype=np.complex128, order='F')
+#         ffglob = np.zeros((norb, norb, ns, nk, nomega), dtype=np.complex128, order='F')
 
-        for ik in range(nk):
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        ffglob[iorb, jorb, js, ik] = self.mpimanager.FMPIAllreduce(self.commw, ff[iorb, jorb, js, ik], nomega)
+#         for ik in range(nk):
+#             for js in range(ns):
+#                 for jorb in range(norb):
+#                     for iorb in range(norb):
+#                         ffglob[iorb, jorb, js, ik] = self.mpimanager.FMPIAllreduce(self.commw, ff[iorb, jorb, js, ik], nomega)
         
-        ftau = QAFort.fourier.flatdyn_f2t(self.ftgrid.omega, ffglob, moment, tau)
+#         ftau = QAFort.fourier.flatdyn_f2t(self.ftgrid.omega, ffglob, moment, tau)
 
-        return ftau
-
-
+#         return ftau
 
 
-    # def F2T(self, ff : np.ndarray, isgreen : bool, highzero : bool) -> np.ndarray:
 
-    #     if (self.mpimanager.rank == 0):
-    #         print("Compute Fourier transform F2T Start")
-    #     moment, high = self.Moment(ff, isgreen, highzero)
 
-    #     rank = self.nodedict['commtaurank']
-    #     ntauloc = self.submatrixtau[rank][1]-self.submatrixtau[rank][0]
-    #     beta = self.ftgrid.beta
-    #     omega = self.ftgrid.omega*1j
-    #     nomega = len(omega)
-    #     norb, _, ns, nrk, _ = ff.shape
+#     # def F2T(self, ff : np.ndarray, isgreen : bool, highzero : bool) -> np.ndarray:
 
-    #     tau = np.zeros((ntauloc), dtype=np.float64, order='F')
-    #     ftau = np.zeros((norb, norb, ns, nrk, ntauloc), dtype=np.complex128, order='F')
-    #     ffglob = np.zeros((norb, norb, ns, nrk, nomega), dtype=np.complex128, order='F')
+#     #     if (self.mpimanager.rank == 0):
+#     #         print("Compute Fourier transform F2T Start")
+#     #     moment, high = self.Moment(ff, isgreen, highzero)
 
-    #     for itau in range(ntauloc):
-    #         tidx = self.mpimanager.TLocal2Global([rank, itau])
-    #         tau[itau] = self.ftgrid.tau[tidx]
+#     #     rank = self.nodedict['commtaurank']
+#     #     ntauloc = self.submatrixtau[rank][1]-self.submatrixtau[rank][0]
+#     #     beta = self.ftgrid.beta
+#     #     omega = self.ftgrid.omega*1j
+#     #     nomega = len(omega)
+#     #     norb, _, ns, nrk, _ = ff.shape
 
-    #     for irk in range(nrk):
-    #         for js in range(ns):
-    #             for jorb in range(norb):
-    #                 for iorb in range(norb):
-    #                     ffglob[iorb, jorb, js, irk] = self.mpimanager.FMPIAllreduce(self.commw, ff[iorb, jorb, js, irk], nomega)
+#     #     tau = np.zeros((ntauloc), dtype=np.float64, order='F')
+#     #     ftau = np.zeros((norb, norb, ns, nrk, ntauloc), dtype=np.complex128, order='F')
+#     #     ffglob = np.zeros((norb, norb, ns, nrk, nomega), dtype=np.complex128, order='F')
+
+#     #     for itau in range(ntauloc):
+#     #         tidx = self.mpimanager.TLocal2Global([rank, itau])
+#     #         tau[itau] = self.ftgrid.tau[tidx]
+
+#     #     for irk in range(nrk):
+#     #         for js in range(ns):
+#     #             for jorb in range(norb):
+#     #                 for iorb in range(norb):
+#     #                     ffglob[iorb, jorb, js, irk] = self.mpimanager.FMPIAllreduce(self.commw, ff[iorb, jorb, js, irk], nomega)
         
         
-    #             # for jorb in range(norb):
-    #             #     for iorb in range(norb):
-    #             #         for itau in range(ntauloc):
-    #             #             for iomega in range(nomega):
-    #             #                 ftau[iorb, jorb, js, irk, itau] += 1/beta * np.exp(-tau[itau]*omega[iomega]) \
-    #             #                 *(
-    #             #                     ffglob[iorb, jorb, js, irk, iomega] 
-    #             #                     - moment[iorb, jorb, js, irk, 0]/omega[iomega] 
-    #             #                     - moment[iorb, jorb, js, irk, 1]/(omega[iomega])**2 
-    #             #                     - moment[iorb, jorb, js, irk, 2]/(omega[iomega])**3
-    #             #                 ) \
-    #             #                   +1/beta * np.exp(tau[itau]*omega[iomega]) \
-    #             #                   *(
-    #             #                       np.conjugate(ffglob[jorb, iorb, js, irk, iomega])
-    #             #                       + moment[iorb, jorb, js, irk, 0]/omega[iomega]
-    #             #                       - moment[iorb, jorb, js, irk, 1]/(omega[iomega])**2
-    #             #                       + moment[iorb, jorb, js, irk, 2]/(omega[iomega])**3
-    #             #                   )
-    #             #             ftau[iorb, jorb, js, irk, itau] += \
-    #             #             - moment[iorb, jorb, js, irk, 0]/2.0 \
-    #             #             + moment[iorb, jorb, js, irk, 1]*beta/2.0 * \
-    #             #                 (tau[itau]/beta - 1/2) \
-    #             #             - moment[iorb, jorb, js, irk, 2]*beta**2/4.0 * \
-    #             #                 ((tau[itau]/beta)**2 - (tau[itau]/beta))
+#     #             # for jorb in range(norb):
+#     #             #     for iorb in range(norb):
+#     #             #         for itau in range(ntauloc):
+#     #             #             for iomega in range(nomega):
+#     #             #                 ftau[iorb, jorb, js, irk, itau] += 1/beta * np.exp(-tau[itau]*omega[iomega]) \
+#     #             #                 *(
+#     #             #                     ffglob[iorb, jorb, js, irk, iomega] 
+#     #             #                     - moment[iorb, jorb, js, irk, 0]/omega[iomega] 
+#     #             #                     - moment[iorb, jorb, js, irk, 1]/(omega[iomega])**2 
+#     #             #                     - moment[iorb, jorb, js, irk, 2]/(omega[iomega])**3
+#     #             #                 ) \
+#     #             #                   +1/beta * np.exp(tau[itau]*omega[iomega]) \
+#     #             #                   *(
+#     #             #                       np.conjugate(ffglob[jorb, iorb, js, irk, iomega])
+#     #             #                       + moment[iorb, jorb, js, irk, 0]/omega[iomega]
+#     #             #                       - moment[iorb, jorb, js, irk, 1]/(omega[iomega])**2
+#     #             #                       + moment[iorb, jorb, js, irk, 2]/(omega[iomega])**3
+#     #             #                   )
+#     #             #             ftau[iorb, jorb, js, irk, itau] += \
+#     #             #             - moment[iorb, jorb, js, irk, 0]/2.0 \
+#     #             #             + moment[iorb, jorb, js, irk, 1]*beta/2.0 * \
+#     #             #                 (tau[itau]/beta - 1/2) \
+#     #             #             - moment[iorb, jorb, js, irk, 2]*beta**2/4.0 * \
+#     #             #                 ((tau[itau]/beta)**2 - (tau[itau]/beta))
         
-    #     ftau = QAFort.fourier.dyn_f2t(omega, ffglob, moment, tau)
-    #     if (self.mpimanager.rank == 0):
-    #         print("Compute Fourier transform F2T Finish")
+#     #     ftau = QAFort.fourier.dyn_f2t(omega, ffglob, moment, tau)
+#     #     if (self.mpimanager.rank == 0):
+#     #         print("Compute Fourier transform F2T Finish")
                             
-    #     return ftau
+#     #     return ftau
 
     
-    # def T2F(self, ftau: np.ndarray) -> np.ndarray:
-    #     """
-    #     Performs the T2F transform using FINUFFT's built-in MPI support.
-    #     """
-    #     # 1. Get communicators and local shape info
-    #     comm_f = self.nodedict['commf']
-    #     comm_tau = self.nodedict['commtau']
-    #     rank_f = self.nodedict['commfrank']
+#     # def T2F(self, ftau: np.ndarray) -> np.ndarray:
+#     #     """
+#     #     Performs the T2F transform using FINUFFT's built-in MPI support.
+#     #     """
+#     #     # 1. Get communicators and local shape info
+#     #     comm_f = self.nodedict['commf']
+#     #     comm_tau = self.nodedict['commtau']
+#     #     rank_f = self.nodedict['commfrank']
 
-    #     nfloc = self.submatrixw[rank_f][1] - self.submatrixw[rank_f][0]
-    #     norb, _, ns, nk, ntauloc = ftau.shape
+#     #     nfloc = self.submatrixw[rank_f][1] - self.submatrixw[rank_f][0]
+#     #     norb, _, ns, nk, ntauloc = ftau.shape
 
-    #     # 2. Prepare the source (tau) and target (omega) points
-    #     # Each process only needs its local slice of tau points
-    #     rank_tau = self.nodedict['commtaurank']
-    #     tau_start = self.submatrixtau[rank_tau][0]
-    #     tau_end = self.submatrixtau[rank_tau][1]
-    #     local_tau = self.ftgrid.tau[tau_start:tau_end]
+#     #     # 2. Prepare the source (tau) and target (omega) points
+#     #     # Each process only needs its local slice of tau points
+#     #     rank_tau = self.nodedict['commtaurank']
+#     #     tau_start = self.submatrixtau[rank_tau][0]
+#     #     tau_end = self.submatrixtau[rank_tau][1]
+#     #     local_tau = self.ftgrid.tau[tau_start:tau_end]
 
-    #     # For fermionic transform, rescale tau to [0, 2*pi]
-    #     # This corresponds to the integer modes 'n' in omega_n = (2n+1)pi/beta
-    #     # The kernel is exp(i*n*x_j) * exp(i*pi*tau/beta)
-    #     local_x_j = 2 * np.pi * local_tau / self.ftgrid.beta
-    #     phase_factor = np.exp(1j * np.pi * local_tau / self.ftgrid.beta)
+#     #     # For fermionic transform, rescale tau to [0, 2*pi]
+#     #     # This corresponds to the integer modes 'n' in omega_n = (2n+1)pi/beta
+#     #     # The kernel is exp(i*n*x_j) * exp(i*pi*tau/beta)
+#     #     local_x_j = 2 * np.pi * local_tau / self.ftgrid.beta
+#     #     phase_factor = np.exp(1j * np.pi * local_tau / self.ftgrid.beta)
         
-    #     # Total number of output omega modes
-    #     nomega_total = len(self.ftgrid.omega)
+#     #     # Total number of output omega modes
+#     #     nomega_total = len(self.ftgrid.omega)
 
-    #     # 3. Allocate output array
-    #     ff = np.zeros((norb, norb, ns, nk, nfloc), dtype=np.complex128, order='F')
+#     #     # 3. Allocate output array
+#     #     ff = np.zeros((norb, norb, ns, nk, nfloc), dtype=np.complex128, order='F')
 
-    #     # 4. Loop over the data and perform the parallel NUFFT
-    #     # The loops are still needed, but the core operation is now a parallel NUFFT call.
-    #     for iorb in range(norb):
-    #         for jorb in range(norb):
-    #             for js in range(ns):
-    #                 for ik in range(nk):
-    #                     # Get the local slice of ftau for this matrix element
-    #                     # phase_factor = np.sqrt(local_tau )
-    #                     local_strengths = ftau[iorb, jorb, js, ik, :]
+#     #     # 4. Loop over the data and perform the parallel NUFFT
+#     #     # The loops are still needed, but the core operation is now a parallel NUFFT call.
+#     #     for iorb in range(norb):
+#     #         for jorb in range(norb):
+#     #             for js in range(ns):
+#     #                 for ik in range(nk):
+#     #                     # Get the local slice of ftau for this matrix element
+#     #                     # phase_factor = np.sqrt(local_tau )
+#     #                     local_strengths = ftau[iorb, jorb, js, ik, :]
 
-    #                     # Apply the phase factor for fermionic frequencies
-    #                     modified_strengths = local_strengths * phase_factor
+#     #                     # Apply the phase factor for fermionic frequencies
+#     #                     modified_strengths = local_strengths * phase_factor
 
-    #                     # This is the key call:
-    #                     # - Each process provides its LOCAL tau points and strengths.
-    #                     # - FINUFFT handles the MPI_Alltoallv communication internally.
-    #                     # - The output is distributed across the same communicator.
-    #                     local_ff_slice = finufft.nufft1d1(
-    #                         local_x_j,
-    #                         modified_strengths,
-    #                         n_modes=nomega_total,
-    #                         isign=1,  # For exp(+i*omega*tau)
-    #                         eps=1e-12,
-    #                         nthreads=1  # Use the tau communicator
-    #                     )
+#     #                     # This is the key call:
+#     #                     # - Each process provides its LOCAL tau points and strengths.
+#     #                     # - FINUFFT handles the MPI_Alltoallv communication internally.
+#     #                     # - The output is distributed across the same communicator.
+#     #                     local_ff_slice = finufft.nufft1d1(
+#     #                         local_x_j,
+#     #                         modified_strengths,
+#     #                         n_modes=nomega_total,
+#     #                         isign=1,  # For exp(+i*omega*tau)
+#     #                         eps=1e-12,
+#     #                         nthreads=1  # Use the tau communicator
+#     #                     )
 
-    #                     # Since comm_f and comm_tau have the same processes, the output
-    #                     # `local_ff_slice` is already the correct local frequency slice.
-    #                     for iomega in range(nfloc):
-    #                         fidx = self.mpimanager.FLocal2Global([comm_f.Get_rank(), iomega])
-    #                         ff[iorb, jorb, js, ik, iomega] = local_ff_slice[fidx]
+#     #                     # Since comm_f and comm_tau have the same processes, the output
+#     #                     # `local_ff_slice` is already the correct local frequency slice.
+#     #                     for iomega in range(nfloc):
+#     #                         fidx = self.mpimanager.FLocal2Global([comm_f.Get_rank(), iomega])
+#     #                         ff[iorb, jorb, js, ik, iomega] = local_ff_slice[fidx]
 
-    #     return ff
+#     #     return ff
 
-    def T2F(self, ftau : np.ndarray) -> np.ndarray:
+#     def T2F(self, ftau : np.ndarray) -> np.ndarray:
 
-        rank = self.nodedict['commfrank']
-        nfloc = self.submatrixw[rank][1]-self.submatrixw[rank][0]
-        norb = ftau.shape[0]
-        ns = ftau.shape[2]
-        nk = ftau.shape[3]
-        # ntauloc = ftau.shape[4]
-        # tau = self.ftgrid.tau
-        ntau = len(self.ftgrid.tau)
+#         rank = self.nodedict['commfrank']
+#         nfloc = self.submatrixw[rank][1]-self.submatrixw[rank][0]
+#         norb = ftau.shape[0]
+#         ns = ftau.shape[2]
+#         nk = ftau.shape[3]
+#         # ntauloc = ftau.shape[4]
+#         # tau = self.ftgrid.tau
+#         ntau = len(self.ftgrid.tau)
         
-        # print(f"commfrank : {rank}, total comm rank : {self.mpimanager.rank}")
+#         # print(f"commfrank : {rank}, total comm rank : {self.mpimanager.rank}")
 
-        ff = np.zeros((norb, norb, ns, nk, nfloc), dtype=np.complex128, order='F')
-        omega = np.zeros((nfloc), dtype=np.float64, order='F')
+#         ff = np.zeros((norb, norb, ns, nk, nfloc), dtype=np.complex128, order='F')
+#         omega = np.zeros((nfloc), dtype=np.float64, order='F')
 
-        ftauglob = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
+#         ftauglob = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
 
-        for ik in range(nk):
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        ftauglob[iorb, jorb, js, ik] = self.mpimanager.TMPIAllreduce(self.commtau, ftau[iorb, jorb, js, ik], ntau)
+#         for ik in range(nk):
+#             for js in range(ns):
+#                 for jorb in range(norb):
+#                     for iorb in range(norb):
+#                         ftauglob[iorb, jorb, js, ik] = self.mpimanager.TMPIAllreduce(self.commtau, ftau[iorb, jorb, js, ik], ntau)
 
-        for ifloc in range(nfloc):
-            fidx = self.mpimanager.FLocal2Global([rank, ifloc])
-            omega[ifloc] = self.ftgrid.omega[fidx]
+#         for ifloc in range(nfloc):
+#             fidx = self.mpimanager.FLocal2Global([rank, ifloc])
+#             omega[ifloc] = self.ftgrid.omega[fidx]
 
-        # ff = QAFort.fourier.flatdyn_t2f(self.ftgrid.tau, self.ftgrid.beta, ftauglob, omega)
-        ffglob = QAFort.fourier.flatdyn_t2f(self.ftgrid.tau, self.ftgrid.beta, ftauglob, self.ftgrid.omega)
+#         # ff = QAFort.fourier.flatdyn_t2f(self.ftgrid.tau, self.ftgrid.beta, ftauglob, omega)
+#         ffglob = QAFort.fourier.flatdyn_t2f(self.ftgrid.tau, self.ftgrid.beta, ftauglob, self.ftgrid.omega)
 
-        for ifreq in range(nfloc):
-            fidx = self.mpimanager.FLocal2Global([rank, ifreq])
-            ff[...,ifreq] = ffglob[...,fidx]
+#         for ifreq in range(nfloc):
+#             fidx = self.mpimanager.FLocal2Global([rank, ifreq])
+#             ff[...,ifreq] = ffglob[...,fidx]
 
-        return ff
+#         return ff
 
 
         
 
-    # def T2F_v0(self, ftau : np.ndarray) -> np.ndarray:
+#     # def T2F_v0(self, ftau : np.ndarray) -> np.ndarray:
 
-    #     rank = self.nodedict['commfrank']
-    #     nfloc = self.submatrixw[rank][1]-self.submatrixw[rank][0]
-    #     beta = self.ftgrid.beta
-    #     tau = self.ftgrid.tau
-    #     omega = self.ftgrid.omega
-    #     ntau = len(tau)
+#     #     rank = self.nodedict['commfrank']
+#     #     nfloc = self.submatrixw[rank][1]-self.submatrixw[rank][0]
+#     #     beta = self.ftgrid.beta
+#     #     tau = self.ftgrid.tau
+#     #     omega = self.ftgrid.omega
+#     #     ntau = len(tau)
 
-    #     norb, _, ns, nk, ntauloc = ftau.shape
-    #     ntaufinu = 2*ntau
-    #     nffinu = 4*len(omega) -1
-    #     tauradfinu = np.zeros((ntaufinu), dtype=np.float64, order='F')
-    #     ftaufinu = np.zeros((ntaufinu), dtype=np.complex128, order='F')
-    #     ff = np.zeros((norb, norb, ns, nk, nfloc), dtype=np.complex128, order='F')
+#     #     norb, _, ns, nk, ntauloc = ftau.shape
+#     #     ntaufinu = 2*ntau
+#     #     nffinu = 4*len(omega) -1
+#     #     tauradfinu = np.zeros((ntaufinu), dtype=np.float64, order='F')
+#     #     ftaufinu = np.zeros((ntaufinu), dtype=np.complex128, order='F')
+#     #     ff = np.zeros((norb, norb, ns, nk, nfloc), dtype=np.complex128, order='F')
 
-    #     for itau in range(ntau):
-    #         # itehta = QAFort.common.ttind(itau, ntau)
-    #         tauradfinu[itau] = tau[itau]/beta*np.pi
-    #         tauradfinu[-itau -1] = -tauradfinu[itau]
+#     #     for itau in range(ntau):
+#     #         # itehta = QAFort.common.ttind(itau, ntau)
+#     #         tauradfinu[itau] = tau[itau]/beta*np.pi
+#     #         tauradfinu[-itau -1] = -tauradfinu[itau]
 
-    #     for ik in range(nk):
-    #         for js in range(ns):
-    #             for jorb in range(norb):
-    #                 for iorb in range(norb):
-    #                     ftauglob = self.mpimanager.TMPIAllreduce(self.commtau, ftau[iorb, jorb, js, ik], ntau = ntau)
-    #                     for itau in range(ntau):
-    #                         ftaufinu[itau] = ftauglob[itau] * np.sqrt(tau[itau]*(beta-tau[itau]))*np.pi/ntau
-    #                         ftaufinu[itau-ntau] = -ftaufinu[itau]
+#     #     for ik in range(nk):
+#     #         for js in range(ns):
+#     #             for jorb in range(norb):
+#     #                 for iorb in range(norb):
+#     #                     ftauglob = self.mpimanager.TMPIAllreduce(self.commtau, ftau[iorb, jorb, js, ik], ntau = ntau)
+#     #                     for itau in range(ntau):
+#     #                         ftaufinu[itau] = ftauglob[itau] * np.sqrt(tau[itau]*(beta-tau[itau]))*np.pi/ntau
+#     #                         ftaufinu[itau-ntau] = -ftaufinu[itau]
                         
-    #                     fffinu = finufft.nufft1d1(tauradfinu, ftaufinu, nffinu, isign=1, eps=1e-12, nthreads=1)
-    #                     for ifreq in range(0, 2*len(omega)):
-    #                         if ((ifreq % 2) == 1):
-    #                             irank, iomega = self.mpimanager.FGlobal2Local(int((ifreq-1)/2))
-    #                             if (irank == rank):
-    #                                 ff[iorb, jorb, js, iomega] = fffinu[ifreq]/2.0
+#     #                     fffinu = finufft.nufft1d1(tauradfinu, ftaufinu, nffinu, isign=1, eps=1e-12, nthreads=1)
+#     #                     for ifreq in range(0, 2*len(omega)):
+#     #                         if ((ifreq % 2) == 1):
+#     #                             irank, iomega = self.mpimanager.FGlobal2Local(int((ifreq-1)/2))
+#     #                             if (irank == rank):
+#     #                                 ff[iorb, jorb, js, iomega] = fffinu[ifreq]/2.0
 
-    #     return ff
+#     #     return ff
                         
-    # def T2F(self, ftau : np.ndarray) -> np.ndarray:
+#     # def T2F(self, ftau : np.ndarray) -> np.ndarray:
 
-    #     if (self.mpimanager.rank == 0):
-    #         print("Compute Fourier transform T2F Start")
+#     #     if (self.mpimanager.rank == 0):
+#     #         print("Compute Fourier transform T2F Start")
         
-    #     rank = self.nodedict['commfrank']
-    #     nfloc = self.submatrixw[rank][1]-self.submatrixw[rank][0]
-    #     beta = self.ftgrid.beta
-    #     # nomega = len(self.ftgrid.omega)
-    #     ntau = len(self.ftgrid.tau)
-    #     norb = ftau.shape[0]
-    #     ns = ftau.shape[2]
-    #     nrk = ftau.shape[3]
+#     #     rank = self.nodedict['commfrank']
+#     #     nfloc = self.submatrixw[rank][1]-self.submatrixw[rank][0]
+#     #     beta = self.ftgrid.beta
+#     #     # nomega = len(self.ftgrid.omega)
+#     #     ntau = len(self.ftgrid.tau)
+#     #     norb = ftau.shape[0]
+#     #     ns = ftau.shape[2]
+#     #     nrk = ftau.shape[3]
 
-    #     # tempmat = np.zeros((ntau), dtype=np.complex128, order='F')
-    #     ftauglob = np.zeros((ntau), dtype=np.complex128, order='F')
-    #     omega = np.zeros((nfloc), dtype=np.float64, order='F')
-    #     ff = np.zeros((norb, norb, ns, nrk, nfloc), dtype=np.complex128, order='F')
+#     #     # tempmat = np.zeros((ntau), dtype=np.complex128, order='F')
+#     #     ftauglob = np.zeros((ntau), dtype=np.complex128, order='F')
+#     #     omega = np.zeros((nfloc), dtype=np.float64, order='F')
+#     #     ff = np.zeros((norb, norb, ns, nrk, nfloc), dtype=np.complex128, order='F')
 
-    #     for ifreq in range(nfloc):
-    #         fidx = self.mpimanager.FLocal2Global([rank, ifreq])
-    #         omega[ifreq] = self.ftgrid.omega[fidx]
+#     #     for ifreq in range(nfloc):
+#     #         fidx = self.mpimanager.FLocal2Global([rank, ifreq])
+#     #         omega[ifreq] = self.ftgrid.omega[fidx]
 
-    #     for irk in range(nrk):
-    #         for js in range(ns):
-    #             for jorb in range(norb):
-    #                 for iorb in range(norb):
-    #                     ftauglob = self.mpimanager.TMPIAllreduce(self.commtau, ftau[iorb, jorb, js, irk], ntau)
-    #                     ff[iorb, jorb, js, irk] = QAFort.fourier.dyn_t2f(self.ftgrid.tau, ftauglob, omega)
+#     #     for irk in range(nrk):
+#     #         for js in range(ns):
+#     #             for jorb in range(norb):
+#     #                 for iorb in range(norb):
+#     #                     ftauglob = self.mpimanager.TMPIAllreduce(self.commtau, ftau[iorb, jorb, js, irk], ntau)
+#     #                     ff[iorb, jorb, js, irk] = QAFort.fourier.dyn_t2f(self.ftgrid.tau, ftauglob, omega)
         
-    #     if (self.mpimanager.rank == 0):
-    #         print("Compute Fourier transform T2F Finish")
+#     #     if (self.mpimanager.rank == 0):
+#     #         print("Compute Fourier transform T2F Finish")
         
-    #     return ff
+#     #     return ff
 
 
-class BLatDynMPI(object):
+# class BLatDynMPI(object):
 
-    def __init__(self, crystal : Crystal, ftgrid : FTGrid, nk : int, nw : int, ntau : int, nprock : int, nprocw : int, mpimanager : MPIManager):
+#     def __init__(self, crystal : Crystal, ftgrid : FTGrid, nk : int, nw : int, ntau : int, nprock : int, nprocw : int, mpimanager : MPIManager):
 
-        self.crystal = crystal
-        self.ftgrid = ftgrid
-        self.nk = nk
-        self.nw = nw
-        self.nprock = nprock
-        self.nprocw = nprocw
-        self.mpimanager = mpimanager
-        self.nodedict = mpimanager.Quary(nk, nw, ntau, nprock, nprocw, self.crystal)
+#         self.crystal = crystal
+#         self.ftgrid = ftgrid
+#         self.nk = nk
+#         self.nw = nw
+#         self.nprock = nprock
+#         self.nprocw = nprocw
+#         self.mpimanager = mpimanager
+#         self.nodedict = mpimanager.Quary(nk, nw, ntau, nprock, nprocw, self.crystal)
 
-        self.commk = self.nodedict['commk']
-        self.commw = self.nodedict['commf']
-        self.submatrixkf = self.nodedict['submatrixkf']
-        self.submatrixkb = self.nodedict['submatrixkb']
-        self.submatrixw = self.nodedict['submatrixw']
+#         self.commk = self.nodedict['commk']
+#         self.commw = self.nodedict['commf']
+#         self.submatrixkf = self.nodedict['submatrixkf']
+#         self.submatrixkb = self.nodedict['submatrixkb']
+#         self.submatrixw = self.nodedict['submatrixw']
 
-        self.commtau = self.nodedict['commtau']
+#         self.commtau = self.nodedict['commtau']
 
-        self.submatrixtau = self.nodedict['submatrixtau']
+#         self.submatrixtau = self.nodedict['submatrixtau']
 
 
-    def CheckGroup(self, filepath : str, group : str):
+#     def CheckGroup(self, filepath : str, group : str):
 
-        with h5py.File(filepath, 'r') as file:
-            return group in file
+#         with h5py.File(filepath, 'r') as file:
+#             return group in file
         
     
-    def Save(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
+#     def Save(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
 
-        with h5py.File(hdf5file, 'a') as file:
-            if (self.CheckGroup(hdf5file, group)):
-                g =  file[group]
-                if subgroup in g:
-                    subg = g[subgroup]
-                else:
-                    subg = g.create_group(subgroup)
-            else:
-                g = file.create_group(group)
-                subg = g.create_group(subgroup)
+#         with h5py.File(hdf5file, 'a') as file:
+#             if (self.CheckGroup(hdf5file, group)):
+#                 g =  file[group]
+#                 if subgroup in g:
+#                     subg = g[subgroup]
+#                 else:
+#                     subg = g.create_group(subgroup)
+#             else:
+#                 g = file.create_group(group)
+#                 subg = g.create_group(subgroup)
 
-            subg.create_dataset(dataname, data=data, dtype=np.complex128, driver='mpio', comm = self.mpimanager.comm)
+#             subg.create_dataset(dataname, data=data, dtype=np.complex128, driver='mpio', comm = self.mpimanager.comm)
 
-            return None
+#             return None
 
-    def Load(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
+#     def Load(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
 
-        with h5py.File(hdf5file, 'r') as file:
-            if (self.CheckGroup(hdf5file, group)):
-                g =  file[group]
-                if subgroup in g:
-                    subg = g[subgroup]
-                    if dataname in subg:
-                        data = subg[dataname][:]
-                        return data
-                    else:
-                        raise KeyError(f"{dataname} not found in {subgroup}")
-                else:
-                    raise KeyError(f"{subgroup} not found in {group}")
-            else:
-                raise KeyError(f"{group} not found in {hdf5file}")
+#         with h5py.File(hdf5file, 'r') as file:
+#             if (self.CheckGroup(hdf5file, group)):
+#                 g =  file[group]
+#                 if subgroup in g:
+#                     subg = g[subgroup]
+#                     if dataname in subg:
+#                         data = subg[dataname][:]
+#                         return data
+#                     else:
+#                         raise KeyError(f"{dataname} not found in {subgroup}")
+#                 else:
+#                     raise KeyError(f"{subgroup} not found in {group}")
+#             else:
+#                 raise KeyError(f"{group} not found in {hdf5file}")
 
 
 
-    def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray) -> np.ndarray:
+#     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray) -> np.ndarray:
 
-        nk = mat1.shape[4]
-        nft = mat1.shape[5]
-        matout = np.zeros_like(mat1, dtype=np.complex128, order='F')
+#         nk = mat1.shape[4]
+#         nft = mat1.shape[5]
+#         matout = np.zeros_like(mat1, dtype=np.complex128, order='F')
         
-        for ift in range(nft):
-            for ik in range(nk):
-                matout[:, :, :, :, ik, ift] = QAFort.dyson.blocstc(mat1[:, :, :, :, ik, ift], mat2[:, :, :, :, ik, ift])      
+#         for ift in range(nft):
+#             for ik in range(nk):
+#                 matout[:, :, :, :, ik, ift] = QAFort.dyson.blocstc(mat1[:, :, :, :, ik, ift], mat2[:, :, :, :, ik, ift])      
 
-        return matout
+#         return matout
 
     
-    def Inverse(self, matin : np.ndarray) -> np.ndarray:
+#     def Inverse(self, matin : np.ndarray) -> np.ndarray:
 
         
-        norb, _, ns, _, nk, nft = matin.shape
+#         norb, _, ns, _, nk, nft = matin.shape
 
-        matout = np.zeros((norb, norb, ns, ns, nk, nft), dtype=np.complex128, order='F')
-        tempmat = np.zeros((norb*ns, norb*ns, nk, nft), dtype=np.complex128, order='F')
-        tempmat2 = np.zeros((norb*ns, norb*ns, nk, nft), dtype=np.complex128, order='F')
-
-
-        for ift in range(nft):
-            for ik in range(nk):
-                tempmat[:, :, ik, ift] = self.crystal.OrbSpin2Composite(matin[:, :, :, :, ik, ift])
-
-                tempmat2[:, :, ik, ift] = np.linalg.inv(tempmat[:, :, ik, ift])
-
-                matout[:, :, :, :, ik, ift] = self.crystal.Composite2OrbSpin(tempmat2[:, :, ik, ift])
-
-        return matout
-
-    def K2R(self, matk : np.ndarray) -> np.ndarray:
+#         matout = np.zeros((norb, norb, ns, ns, nk, nft), dtype=np.complex128, order='F')
+#         tempmat = np.zeros((norb*ns, norb*ns, nk, nft), dtype=np.complex128, order='F')
+#         tempmat2 = np.zeros((norb*ns, norb*ns, nk, nft), dtype=np.complex128, order='F')
 
 
-        norb, _, ns, _, nk, nf = matk.shape
-        rkvec = self.crystal.kpoint
-        rank = self.nodedict['commkrank']
-        (nkx, nky, nkz) = self.mpimanager.localshapef[rank]
-        (nx, ny, nz) = self.mpimanager.localshapeb[rank]
-        nkglobal = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
-        if (nk != nkx*nky*nkz):
-            print(f"Error: nk ({nk}) does not match local shape ({nkx}, {nky}, {nkz})")
-            sys.exit()
-        tempmat = np.zeros((norb, norb, ns, ns, nk, nf), dtype=np.complex128, order='F')
-        tempmat2 = np.zeros((nx, ny, nz), order='F', dtype=np.complex128)
-        nr = len(self.mpimanager.rlocal[rank])
-        matr = np.zeros((norb, norb, ns, ns, nr, nf), dtype=np.complex128, order='F')
+#         for ift in range(nft):
+#             for ik in range(nk):
+#                 tempmat[:, :, ik, ift] = self.crystal.OrbSpin2Composite(matin[:, :, :, :, ik, ift])
+
+#                 tempmat2[:, :, ik, ift] = np.linalg.inv(tempmat[:, :, ik, ift])
+
+#                 matout[:, :, :, :, ik, ift] = self.crystal.Composite2OrbSpin(tempmat2[:, :, ik, ift])
+
+#         return matout
+
+#     def K2R(self, matk : np.ndarray) -> np.ndarray:
 
 
-        for iff in range(nf):
-            for ks in range(ns):
-                for js in range(ns):
-                    for jorb in range(norb):
-                        for iorb in range(norb):
-                            for ik in range(nk):
-                                a, _ = self.crystal.BAtomOrb(iorb)
-                                b, _ = self.crystal.BAtomOrb(jorb)
-                                delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
-                                kidx = self.mpimanager.KLocal2Global([rank, ik])
-                                phase = np.exp(2.0j * np.pi * np.dot(rkvec[kidx], delta))
-                                tempmat[iorb, jorb, js, ks, ik, iff] = matk[iorb, jorb, js, ks, ik, iff] * phase
-                            # ----------------------------------------------------------------------------------- #
-                            tempval = self.mpimanager.K2K3D(self.commk, tempmat[iorb, jorb, js, ks, :, iff])
-                            tempval2 = self.mpimanager.Backward(tempval)
-                            tempmat2 = tempval2 * 1/(nkglobal)
+#         norb, _, ns, _, nk, nf = matk.shape
+#         rkvec = self.crystal.kpoint
+#         rank = self.nodedict['commkrank']
+#         (nkx, nky, nkz) = self.mpimanager.localshapef[rank]
+#         (nx, ny, nz) = self.mpimanager.localshapeb[rank]
+#         nkglobal = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
+#         if (nk != nkx*nky*nkz):
+#             print(f"Error: nk ({nk}) does not match local shape ({nkx}, {nky}, {nkz})")
+#             sys.exit()
+#         tempmat = np.zeros((norb, norb, ns, ns, nk, nf), dtype=np.complex128, order='F')
+#         tempmat2 = np.zeros((nx, ny, nz), order='F', dtype=np.complex128)
+#         nr = len(self.mpimanager.rlocal[rank])
+#         matr = np.zeros((norb, norb, ns, ns, nr, nf), dtype=np.complex128, order='F')
 
-                            matr[iorb, jorb, js, ks, :, iff] = self.mpimanager.R3D2R(self.commk, tempmat2)
 
-        return matr
+#         for iff in range(nf):
+#             for ks in range(ns):
+#                 for js in range(ns):
+#                     for jorb in range(norb):
+#                         for iorb in range(norb):
+#                             for ik in range(nk):
+#                                 a, _ = self.crystal.BAtomOrb(iorb)
+#                                 b, _ = self.crystal.BAtomOrb(jorb)
+#                                 delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+#                                 kidx = self.mpimanager.KLocal2Global([rank, ik])
+#                                 phase = np.exp(2.0j * np.pi * np.dot(rkvec[kidx], delta))
+#                                 tempmat[iorb, jorb, js, ks, ik, iff] = matk[iorb, jorb, js, ks, ik, iff] * phase
+#                             # ----------------------------------------------------------------------------------- #
+#                             tempval = self.mpimanager.K2K3D(self.commk, tempmat[iorb, jorb, js, ks, :, iff])
+#                             tempval2 = self.mpimanager.Backward(tempval)
+#                             tempmat2 = tempval2 * 1/(nkglobal)
+
+#                             matr[iorb, jorb, js, ks, :, iff] = self.mpimanager.R3D2R(self.commk, tempmat2)
+
+#         return matr
 
             
 
         
         
 
-    def R2K(self, matr : np.ndarray) -> np.ndarray:
+#     def R2K(self, matr : np.ndarray) -> np.ndarray:
 
         
 
-        norb, _, ns, _, nr, nf = matr.shape
-        rkvec = self.crystal.kpoint
-        rank = self.nodedict['commkrank']
-        (nx, ny, nz) = self.mpimanager.localshapeb[rank]
-        (nkx, nky, nkz) = self.mpimanager.localshapef[rank]
+#         norb, _, ns, _, nr, nf = matr.shape
+#         rkvec = self.crystal.kpoint
+#         rank = self.nodedict['commkrank']
+#         (nx, ny, nz) = self.mpimanager.localshapeb[rank]
+#         (nkx, nky, nkz) = self.mpimanager.localshapef[rank]
 
-        if (nr != nx * ny * nz):
-            print(f"Error: nk ({nr}) does not match local shape ({nx}, {ny}, {nz})")
-            sys.exit()
+#         if (nr != nx * ny * nz):
+#             print(f"Error: nk ({nr}) does not match local shape ({nx}, {ny}, {nz})")
+#             sys.exit()
 
-        tempmat = np.zeros_like(matr, dtype=np.complex128, order='F')
-        tempmat2 = np.zeros((nx, ny, nz), dtype=np.complex128, order='F')
-        matk = np.zeros((norb, norb, ns, ns, nkx*nky*nkz, nf), dtype=np.complex128, order='F')
+#         tempmat = np.zeros_like(matr, dtype=np.complex128, order='F')
+#         tempmat2 = np.zeros((nx, ny, nz), dtype=np.complex128, order='F')
+#         matk = np.zeros((norb, norb, ns, ns, nkx*nky*nkz, nf), dtype=np.complex128, order='F')
 
-        for iff in range(nf):
-            for ks in range(ns):
-                for js in range(ns):
-                    for jorb in range(norb):
-                        for iorb in range(norb):
-                            tempval = self.mpimanager.R2R3D(self.commk, matr[iorb, jorb, js, ks, :, iff])
-                            tempval2 = self.mpimanager.Forward(tempval)
-                            tempmat2 = tempval2
-                            tempmat[iorb, jorb, js, ks, :, iff] = self.mpimanager.K3D2K(self.commk, tempmat2)
+#         for iff in range(nf):
+#             for ks in range(ns):
+#                 for js in range(ns):
+#                     for jorb in range(norb):
+#                         for iorb in range(norb):
+#                             tempval = self.mpimanager.R2R3D(self.commk, matr[iorb, jorb, js, ks, :, iff])
+#                             tempval2 = self.mpimanager.Forward(tempval)
+#                             tempmat2 = tempval2
+#                             tempmat[iorb, jorb, js, ks, :, iff] = self.mpimanager.K3D2K(self.commk, tempmat2)
 
-                            for ik in range(nkx*nky*nkz):
-                                a, _ = self.crystal.BAtomOrb(iorb)
-                                b, _ = self.crystal.BAtomOrb(jorb)
+#                             for ik in range(nkx*nky*nkz):
+#                                 a, _ = self.crystal.BAtomOrb(iorb)
+#                                 b, _ = self.crystal.BAtomOrb(jorb)
 
-                                delta = self.crystal.basisf[a,:] - self.crystal.basisf[b,:]
-                                kidx = self.mpimanager.KLocal2Global([rank, ik])
-                                phase = np.exp(-2.0j * np.pi * np.dot(rkvec[kidx], delta))
-                                matk[iorb, jorb, js, ks, ik, iff] = tempmat[iorb, jorb, js, ks, ik, iff] * phase
+#                                 delta = self.crystal.basisf[a,:] - self.crystal.basisf[b,:]
+#                                 kidx = self.mpimanager.KLocal2Global([rank, ik])
+#                                 phase = np.exp(-2.0j * np.pi * np.dot(rkvec[kidx], delta))
+#                                 matk[iorb, jorb, js, ks, ik, iff] = tempmat[iorb, jorb, js, ks, ik, iff] * phase
 
-        return matk
+#         return matk
 
 
