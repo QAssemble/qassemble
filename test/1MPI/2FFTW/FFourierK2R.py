@@ -26,7 +26,7 @@ def parse_args():
 
 def main():
     comm = MPI.COMM_WORLD
-    mpimanager = MPIManager(comm=comm)
+    # mpimanager = MPIManager(comm=comm)
 
     nprock, nprocw = parse_args()
     RVec = [[10,0,0],[0,10,0],[0,0,10]]
@@ -58,6 +58,7 @@ def main():
     ntau = len(ftgrid.tau)
     norb = len(crystal.find)
     ns = crystal.ns
+    mpimanager = MPIManager(comm=comm, crystal=crystal)
     flatdynmpi = FLatDynMPI(crystal=crystal, ftgrid=ftgrid,nprock=nprock, nprocw=nprocw, nk = len(crystal.kpoint), nw = len(ftgrid.omega), ntau = len(ftgrid.tau), mpimanager=mpimanager)
 
     glatk = np.zeros((norb, norb, ns, nk, nw), dtype=np.complex128, order='F')
