@@ -610,19 +610,24 @@ class VLoc(BLocStc):
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
+
+        # print(self.crystal.fimpdict)
         
-        orb = self.crystal.bimpdict[key][0]
+        orb = self.crystal.fimpdict[str(key)][0]
         norbc = len(orb)
+        # print(norbc)
         tempmat = np.zeros((norb, norb, norb, norb), dtype=np.complex128, order='F')
-        vloc = np.zeros((norbc, norbc, norbc, norbc, ns, ns), dtype=np.complex128, order='F')
+        vloc_temp = np.zeros((norbc, norbc, norbc, norbc, ns, ns), dtype=np.complex128, order='F')
         for ks in range(ns):
             for js in range(ns):
                 tempmat = self.crystal.Double2Quad(self.vloc[...,js,ks])
-                for ll, lorb in enumerate(orb):
-                    for kk, korb in enumerate(orb):
-                        for jj, jorb in enumerate(orb):
-                            for ii, iorb in enumerate(orb):
-                                vloc[ii, jj, kk, ll, js, ks] = tempmat[iorb, jorb, korb, lorb]
+                # print(tempmat.shape)
+                for ii, iorb in enumerate(orb):
+                    for jj, jorb in enumerate(orb):
+                        for kk, korb in enumerate(orb):
+                            for ll, lorb in enumerate(orb):
+                                # print(ii,jj,kk,ll,iorb,jorb,korb,lorb)
+                                vloc_temp[ii, jj, kk, ll, js, ks] = tempmat[iorb, jorb, korb, lorb]
 
         if (self.crystal.soc == False):
             U = np.zeros((norbc**4*2**4), dtype=np.float64, order='F')
@@ -639,7 +644,7 @@ class VLoc(BLocStc):
                                                     
                                                     
                                                 if(sj==sk and si==sl):
-                                                    val = vloc[i, j, k, l, 0, 0].real
+                                                    val = vloc_temp[i, j, k, l, 0, 0].real
                                                     val = abs(val)
                                                     if (val > 0.001):
                                                         U[idx] = val
@@ -656,7 +661,7 @@ class VLoc(BLocStc):
                                                     
                                                     
                                                 if(sj==sk and si==sl):
-                                                    val = vloc[i, j, k, l, si, sj].real
+                                                    val = vloc_temp[i, j, k, l, si, sj].real
                                                     val = abs(val)
                                                     if (val > 0.001):
                                                         U[idx] = val

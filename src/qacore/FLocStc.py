@@ -702,7 +702,7 @@ class EImp(FLocStc):
             for i in range(nprob):
                 mu[i] = -self.r[0,0,0,i]
                 A = self.r[...,0,i] + mu[i]*I
-                A_final[...,i] = np.kron(A,np.eye(2,2))
+                A_final[...,i] = np.kron(np.eye(2),A)
 
             self.A_final = np.copy(A_final)
             self.ctqmc_mu = np.copy(mu)
@@ -712,90 +712,6 @@ class EImp(FLocStc):
             sys.exit()
         
         return None
-
-
-    # # def write_ctqmc_params(self,iter,key,E_imp : np.ndarray,equiv : np.ndarray):
-    # def write_ctqmc_params(self,iter,key,equiv : np.ndarray):
-        
-    #     if self.crystal.soc is False:
-    #         if self.crystal.ns ==1:
-    #             params = {}
-    #             params["hloc"] = {}
-
-    #             # mu_ctqmc=-np.real(E_imp[0,0,0])
-    #             # # print(mu_ctqmc,type(mu_ctqmc))
-    #             # E_imp = E_imp[:,:,0]+mu_ctqmc*np.eye(E_imp.shape[0],E_imp.shape[0])
-    #             # E_imp = np.array(np.real(E_imp),dtype=float)
-    #             # tempmat = np.kron(E_imp,np.eye(2,2))
-
-    #             params["hloc"]['one body'] = self.A_final[...,key-1].tolist()
-
-    #             # self.boson.get_Uijkl_comctqmc(key)
-    #             params["hloc"]["two body"]=0 # self.boson.U_ctqmc.tolist()
-                
-    #             params["partition"]={}
-                
-    #             params["partition"]["green basis"]= "matsubara"
-    #             params["partition"]["green bulla"]= True
-    #             params["partition"]["green matsubara cutoff"] = 50
-    #             params["partition"]["occupation susceptibility bulla"]=True
-    #             params["partition"]["occupation susceptibility direct"]=False
-    #             params["partition"]["quantum number susceptibility"] = True
-    #             params["partition"]["susceptibility cutoff"]=50
-    #             params["partition"]["susceptibility tail"]=200
-    #             params["partition"]["quantum numbers"]={}
-    #             tempmat = np.ones(self.A_final[...,key-1].shape[0]*2)
-    #             params["partition"]["quantum numbers"]["N"]=tempmat.tolist()
-    #             for ii in range(len(tempmat)):
-    #                 if ii < self.A_final[...,key-1].shape[0]:
-    #                     tempmat[ii]*= 0.5
-    #                 elif ii >= self.A_final[...,key-1].shape[0]:
-    #                     tempmat[ii]*=-0.5
-    #             params["partition"]["quantum numbers"]["Sz"]=tempmat.tolist() # make 
-    #             params["partition"]["probabilities"]={}
-    #             params["partition"]["probabilities"]=["N","energy","Sz"]#["N","energy","S2","Sz"]
-    #             params["partition"]["density matrix precise"] = True
-    #             params["partition"]["print eigenstates"] = True
-    #             params["partition"]["print density matrix"]= True
-                
-
-    #             params["beta"]=0 #self.ft.beta  ##### ft.beta ??
-    #             params["complex"] = False
-    #             params["mu"]=self.ctqmc_mu[key-1]
-    #             params["hybridisation"]={}
-
-    #             tempmat2 = np.kron(equiv,np.eye(2,2))  ###### equiv ??
-    #             tempmat2 = tempmat2.tolist()
-    #             for ii in range(len(tempmat2)):
-    #                 for jj in range(len(tempmat2)):
-    #                     if tempmat2[ii][jj]==0.0:
-    #                         tempmat2[ii][jj] = ""
-    #                     else:
-    #                         tempmat2[ii][jj] = str(int(tempmat2[ii][jj]))
-
-    #             params["hybridisation"]["matrix"]=tempmat2
-    #             params["hybridisation"]["functions"]="hyb.json"
-    #             params["thermalisation time"]=1 #imp['thermalization_time']
-    #             params["quantum number susceptibility"]=True
-    #             params["occupation susceptibility bulla"]=True        
-    #             params["green bulla"]=True       
-    #             params["density matrix precise"]=False #True 
-    #             params["measurement time"]=3 #imp['measurement_time']
-                
-    #             with open(f'params.{iter}.{key}.json','w') as outfile:
-    #                 json.dump(params,outfile, sort_keys=True, indent=4, separators=(',', ': '))
-    #             with open('params.json','w') as outfile:
-    #                 json.dump(params,outfile, sort_keys=True, indent=4, separators=(',', ': '))
-    #             # print("params.json written", file=self.m_ini.control['h_log'])
-    #         elif self.crystal.ns == 2:
-    #             print("Nspin is not 1")
-    #             sys.exit()
-    #     elif self.crystal.soc is True:
-    #         print("SOC is not  False, please change SOC")
-    #         sys.exit()
-
-    #     return None
-
 
 
 

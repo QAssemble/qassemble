@@ -95,7 +95,10 @@ class FTGrid(object):
             if (w > self.cutoff):
                 break
             nu.append(w)
-
-        self.nu = np.array(nu, dtype=float,order='F')
+        self.nu = np.zeros((len(self.omega)), dtype=np.float64, order='F')
+        
+        for iomega in range(len(self.omega)):
+            self.nu[iomega] = nu[iomega]
+        # self.nu = np.array(nu, dtype=float,order='F')
 
         return None

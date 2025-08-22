@@ -309,7 +309,8 @@ class BLocDyn(object):
 
 
 
-class PolLoc(BLocDyn):
+# class PolLoc(BLocDyn):
+class PolLGW(BLocDyn):
 
     def __init__(self, crystal: Crystal, ft: FTGrid, green, hdf5file : str = 'glob.h5', group :str = None):
         super().__init__(crystal, ft)
@@ -379,20 +380,48 @@ class PolLoc(BLocDyn):
                                     korbc = self.crystal.FIndex([b,m3])
                                     if js == ks:
                                         polrt[iorb,jorb,js,ks,itau,iprob] = gmrt[korbc,iorbc,js,itau,iprob]*grt[lorbc,jorbc,ks,itau,iprob]
+                    # for ind1 in range(norb*ns):
+                    #     nn1 = [0]*2
+                    #     ind1, [iorb, js] = self.crystal.indexing(norb*ns, 2, [norb, ns], 0, ind1, nn1)
+                    #     [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
+                    #     iorbc = self.crystal.FIndex([a, m1])
+                    #     lorbc = self.crystal.FIndex([a, m4])
+                    #     for ind2 in range(norb*ns):
+                    #         nn2 = [0]*2
+                    #         ind2, [jorb, ks] = self.crystal.indexing(norb*ns, 2, [norb, ns], 0, ind2, nn2)
+                    #         [b, [m2, m3]] = self.crystal.BAtomOrb(jorb)
+                    #         jorbc = self.crystal.FIndex([b, m2])
+                    #         korbc = self.crystal.FIndex([b, m3])
+                    #         if (js == ks):
+                    #             polrt[iorb, jorb, js, ks, itau, iprob] = gmrt[korbc, iorbc, js, itau, iprob] * grt[lorbc, jorbc, ks, itau, iprob]
         else:
             if self.crystal.soc == True:
                 C = 1
                 for itau in range(ntau):
                     for iprob in range(nprob):
-                        for iorb in range(norb):
-                            [a,[m1,m3]] = self.crystal.BAtomOrb(iorb)
-                            iorbc = self.crystal.FIndex([a,m1])
-                            korbc = self.crystal.FIndex([a,m3])
-                            for jorb in range(norb):
-                                [b,[m4,m2]] = self.crystal.BAtomOrb(jorb)
-                                lorbc = self.crystal.FIndex([b,m4])
-                                jorbc = self.crystal.FIndex([b,m2])
-                                polrt[iorb,jorb,0,0,itau,iprob] = gmrt[jorbc,iorbc,0,itau,iprob]*grt[korbc,lorbc,0,itau,iprob]*C
+                        # for iorb in range(norb):
+                        #     [a,[m1,m3]] = self.crystal.BAtomOrb(iorb)
+                        #     iorbc = self.crystal.FIndex([a,m1])
+                        #     korbc = self.crystal.FIndex([a,m3])
+                        #     for jorb in range(norb):
+                        #         [b,[m4,m2]] = self.crystal.BAtomOrb(jorb)
+                        #         lorbc = self.crystal.FIndex([b,m4])
+                        #         jorbc = self.crystal.FIndex([b,m2])
+                        #         polrt[iorb,jorb,0,0,itau,iprob] = gmrt[jorbc,iorbc,0,itau,iprob]*grt[korbc,lorbc,0,itau,iprob]*C
+                        for ind1 in range(norb*ns):
+                            nn1 = [0]*2
+                            ind1, [iorb, js] = self.crystal.indexing(norb*ns, 2, [norb, ns], 0, ind1, nn1)
+                            [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
+                            iorbc = self.crystal.FIndex([a, m1])
+                            lorbc = self.crystal.FIndex([a, m4])
+                            for ind2 in range(norb*ns):
+                                nn2 = [0]*2
+                                ind2, [jorb, ks] = self.crystal.indexing(norb*ns, 2, [norb, ns], 0, ind2, nn2)
+                                [b, [m2, m3]] = self.crystal.BAtomOrb(jorb)
+                                jorbc = self.crystal.FIndex([b, m2])
+                                korbc = self.crystal.FIndex([b, m3])
+                                if (js == ks):
+                                    polrt[iorb, jorb, js, ks, itau, iprob] = gmrt[korbc, iorbc, js, itau, iprob] * grt[lorbc, jorbc, ks, itau, iprob]
             else:
                 C = 2
                 for itau in range(ntau):
@@ -408,6 +437,20 @@ class PolLoc(BLocDyn):
                                 # if (iorb==0)and(jorb==0)and(irk==0):
                                 #     print(iorbc,jorbc,korbc,lorbc,irk,itau,gmrt[jorbc,iorbc,0,irk,itau],grt[korbc,lorbc,0,irk,itau])
                                 polrt[iorb,jorb,0,0,itau,iprob] = gmrt[jorbc,iorbc,0,itau,iprob]*grt[korbc,lorbc,0,itau,iprob]*C
+                        # for ind1 in range(norb*ns):
+                        #     nn1 = [0]*2
+                        #     ind1, [iorb, js] = self.crystal.indexing(norb*ns, 2, [norb, ns], 0, ind1, nn1)
+                        #     [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
+                        #     iorbc = self.crystal.FIndex([a, m1])
+                        #     lorbc = self.crystal.FIndex([a, m4])
+                        #     for ind2 in range(norb*ns):
+                        #         nn2 = [0]*2
+                        #         ind2, [jorb, ks] = self.crystal.indexing(norb*ns, 2, [norb, ns], 0, ind2, nn2)
+                        #         [b, [m2, m3]] = self.crystal.BAtomOrb(jorb)
+                        #         jorbc = self.crystal.FIndex([b, m2])
+                        #         korbc = self.crystal.FIndex([b, m3])
+                        #         if (js == ks):
+                        #             polrt[iorb, jorb, js, ks, itau, iprob] = gmrt[korbc, iorbc, js, itau, iprob] * grt[lorbc, jorbc, ks, itau, iprob]
 
         self.rt = polrt
 
@@ -427,9 +470,9 @@ class PolImp(BLocDyn): # read Polarizability from CTQMC
 
 class WLoc(BLocDyn): #### contains WLoc and WcLoc
 
-    def __init__(self, crystal: Crystal, ft: FTGrid
-    ,pol : PolLoc = None, vLoc : VLoc = None, vDyn : np.array = None, c : float = 1.0, hdf5file : str = 'glob.h5', group : str = None):
-    # def __init__(self, crystal: Crystal, ft: FTGrid ,wlat : WLat = None, hdf5file : str = 'glob.h5', group : str = None):
+    # def __init__(self, crystal: Crystal, ft: FTGrid
+    # ,pol : PolLoc = None, vLoc : VLoc = None, vDyn : np.array = None, c : float = 1.0, hdf5file : str = 'glob.h5', group : str = None):
+    def __init__(self, crystal: Crystal, ft: FTGrid ,wlat : WLat = None, hdf5file : str = 'glob.h5', group : str = None):
         super().__init__(crystal, ft)
 
         # pass
@@ -487,73 +530,73 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
 
 
 
-        # wrf_nspace  = np.zeros((norb,norb,ns,ns,nfreq,nspace),dtype=np.complex128,order='F')
+        wrf_nspace  = np.zeros((norb,norb,ns,ns,nfreq,nspace),dtype=np.complex128,order='F')
 
-        # wrf_nspace = self.wlat.Projection(self.wlat.kf)
+        wrf_nspace = self.wlat.Projection(self.wlat.kf)
 
-        # self.rf = self.Loc2Imp(wrf_nspace)
+        self.rf = self.Loc2Imp(wrf_nspace)
 
-        # rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
-        # for iprob in range(nprob):
-        #     rt[...,iprob] = self.F2T(self.rf[...,iprob], 1, 1)
-        # self.rt = np.copy(rt)
-
-        
-
-
-        # crf = self.wlat.Projection(self.wlat.ckf)
-        # self.crf = self.Loc2Imp(crf)
-
-        # crt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
-        # for iprob in range(nprob):
-        #     crt[...,iprob] = self.F2T(self.crf[...,iprob], 1, 1)
-        # self.crt = np.copy(crt)
-
-
-
-
-        
-        ####### Initialization #######
-        tempmat = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
-        wrf  = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
-        wcrf = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
-        vdyn = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
-
-        for iprob in range(nprob):
-            vdyn[...,iprob] = self.StcEmbedding(self.vLoc[...,iprob]) ####  define StcEmbedding ### remove this part when it is dynamic
-        
-        print(self.pol.shape)
-        print(vdyn.shape)
-        
-        polcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
-        vcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
-        ###### Initialization #######
-        polcomp = self.Loc2Imp(self.pol)*self.c #### ??
-        # del self.pol
-        vcomp = self.Loc2Imp(vdyn) #### ??
-
-        for iprob in range(nprob):
-            wrf[...,iprob] = self.Dyson(self.vDyn[...,iprob],self.pol[...,iprob])
-        # wrf = self.Imp2Loc(tempmat)
-
-        ## tempmat -> wrf
-
-
-        #### W
-        self.rf = wrf
         rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
         for iprob in range(nprob):
-            rt[...,iprob] = self.F2T(wrf[...,iprob], 1, 1)
+            rt[...,iprob] = self.F2T(self.rf[...,iprob], 1, 1)
         self.rt = np.copy(rt)
 
+        
 
-        #### Wc
-        wcrf = wrf - self.vLoc  #### wrf - vloc --> static bare V
-        self.crf = wcrf
+
+        crf = self.wlat.Projection(self.wlat.ckf)
+        self.crf = self.Loc2Imp(crf)
+
         crt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
         for iprob in range(nprob):
-            crt[...,iprob] = self.F2T(wcrf[...,iprob], 1, 1)
-        self.crt = crt
+            crt[...,iprob] = self.F2T(self.crf[...,iprob], 1, 1)
+        self.crt = np.copy(crt)
+
+
+
+
+        
+        # ####### Initialization #######
+        # tempmat = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        # wrf  = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        # wcrf = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        # vdyn = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+
+        # for iprob in range(nprob):
+        #     vdyn[...,iprob] = self.StcEmbedding(self.vLoc[...,iprob]) ####  define StcEmbedding ### remove this part when it is dynamic
+        
+        # print(self.pol.shape)
+        # print(vdyn.shape)
+        
+        # polcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        # vcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        # ###### Initialization #######
+        # polcomp = self.Loc2Imp(self.pol)*self.c #### ??
+        # # del self.pol
+        # vcomp = self.Loc2Imp(vdyn) #### ??
+
+        # for iprob in range(nprob):
+        #     wrf[...,iprob] = self.Dyson(self.vDyn[...,iprob],self.pol[...,iprob])
+        # # wrf = self.Imp2Loc(tempmat)
+
+        # ## tempmat -> wrf
+
+
+        # #### W
+        # self.rf = wrf
+        # rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
+        # for iprob in range(nprob):
+        #     rt[...,iprob] = self.F2T(wrf[...,iprob], 1, 1)
+        # self.rt = np.copy(rt)
+
+
+        # #### Wc
+        # wcrf = wrf - self.vLoc  #### wrf - vloc --> static bare V
+        # self.crf = wcrf
+        # crt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
+        # for iprob in range(nprob):
+        #     crt[...,iprob] = self.F2T(wcrf[...,iprob], 1, 1)
+        # self.crt = crt
 
 
 
@@ -588,7 +631,7 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
 class WLoc_temp(BLocDyn): #### contains WLoc and WcLoc
 
     def __init__(self, crystal: Crystal, ft: FTGrid
-    ,pol : PolLoc = None, vLoc : VLoc = None, c : float = 1.0, hdf5file : str = 'glob.h5', group : str = None):
+    ,pol : PolLGW = None, vLoc : VLoc = None, c : float = 1.0, hdf5file : str = 'glob.h5', group : str = None):
         super().__init__(crystal, ft)
 
         # pass
@@ -712,7 +755,7 @@ class WcImp(BLocDyn):
 
 class UImp(BLocDyn):
 
-    def __init__(self, crystal: Crystal, ft: FTGrid, wloc : WLoc, ploc : PolLoc, vloc : np.array):
+    def __init__(self, crystal: Crystal, ft: FTGrid, wloc : WLoc, ploc : PolLGW, vloc : np.array):
         super().__init__(crystal, ft)
 
         self.utilde_rt = None
