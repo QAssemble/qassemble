@@ -1,8 +1,9 @@
-Start task at Fri Aug 22 01:18:39 2025
+Start task at Mon Aug 25 00:44:20 2025
 
 
 Number of invariant subspaces: 44
 Dimension of the biggest subspace: 3
+Reading in dynamic interaction ... Ok
 Reading eigenvalues ... Ok
 Reading operators ... Ok
 Reading in hybridisation ... Ok
@@ -13,21 +14,5 @@ End setting up partition observables
 Begin setting updates
 Setting expansion updates for partition space ... Ok
 End setting updates
-partition eta = 1
-Begin evaluating partition measurements
-Calculating quantum number observables ... Ok
-Calculating observables ... Ok
-Calculating energy ... Ok
-Reading hybridisation function ... Ok
-Reading green function ... Ok
-Calculating self-energy with dyson ... OK
-Calculating self-energy with bulla ... Ok
-Reading N susceptibility ... Ok
-Adding N susceptibility high frequency tail ... Ok
-Reading Sz susceptibility ... Ok
-Adding Sz susceptibility high frequency tail ... Ok
-Reading impurity probabilities ... Ok
-describing eigenstates ... Ok
-End evaluating partition measurements
-Task of worker finished at Fri Aug 22 01:22:39 2025
-
+[mpiexec@linux-vm] Sending Ctrl-C to processes as requested
+[mpiexec@linux-vm] Press Ctrl-C again to force abort

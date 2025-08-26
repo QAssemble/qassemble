@@ -87,6 +87,28 @@ nkpath = 101
 fpathstc.crystal.Kpath(kpath, nkpath)
 
 
+i = 1
+for size in [9,2]:
+    i = i*size
+
+print(i)
+
+# ind1, [iorb,js] = cf.crystal.indexing(9*2,2,[9,2],0,0,[0,0])
+
+# print(ind1, iorb,js)
+
+exit()
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -165,9 +187,9 @@ mix = 0.1
 
 # exit()
 
-print(len(cf.ft.omega),len(cf.ft.nu),len(cf.ft.tau))
+# print(len(cf.ft.omega),len(cf.ft.nu),len(cf.ft.tau))
 
-exit()
+# exit()
 
 
 
@@ -611,6 +633,7 @@ print("**Uimp start")
 uimp = UImp(crystal=cf.crystal,ft=cf.ft,wloc=wloc.rf,ploc=polloc_dc.rf,vloc=vloc)
 print("**Uimp finish\n")
 
+
 plot = plt.figure(1)
 plt.scatter(cf.ft.nu[1:], uimp.utilde_rf[0, 0, 0, 0, 1:, 0].real, color="blue")
 plt.title("ubar -- real part")
@@ -852,32 +875,126 @@ delta.write_hyb_json(1,1,hyb_dict)
 print('*** write_Hybridisation_json finish ***')
 
 
-print('*** write_ctqmc_params start ***')
+print("\n*** write_Dyn_json start ***")
+print("*** compute F0 start ***")
+norb,_,ns,_,nft,_ = uimp.utilde_rf.shape
+norbc = len(cf.crystal.find)
+
+utilde_rf_4 = np.zeros((norbc,norbc,norbc,norbc,ns,ns,nft),dtype=np.complex64,order='F')
+
+for iis in range(ns):
+    for jjs in range(ns):
+        for ift in range(nft):
+            utilde_rf_4[...,iis,jjs,ift] = cf.crystal.Double2Quad(uimp.utilde_rf[...,iis,jjs,ift,0])
+
+F0_val = np.zeros(nft,dtype=np.float64, order='F')
+for ift in range(nft):
+    F0_val[ift] = 1.0/ns**2/norbc**2*np.einsum('ijjimn->',utilde_rf_4[...,ift]).real
+print("*** compute F0 finish ***")
+F0_dict = {}
+F0_dict["F0"] = F0_val.tolist()
+
+delta.write_dyn_json(1,1,F0_dict)
+
+print("*** write_Dyn_json finish ***")
+
+
+print('\n*** write_ctqmc_params start ***')
 delta.write_ctqmc_params(1,1,eimp,equiv,vloc)
 print('*** write_ctqmc_params finish ***')
 
 
+# exit()
+
 print('\n*** run and measure CTQMC start ***')
-delta.run_ctqmc()
-delta.measure_ctqmc()
+# delta.run_ctqmc()
+# delta.measure_ctqmc()
 print('*** run and measure CTQMC finish ***')
 
 
 print('\n*** impurity postprocessing start ***')
-green_edmft_freq, sigmac_edmft_freq, sigmahf_edmft, Chi_edmft_4 = delta.impurity_postprocessing(1,1,equiv)
+green_edmft_freq, sigmac_edmft_freq, sigmahf_edmft, Chi_edmft_4, histo = delta.impurity_postprocessing(1,1,equiv)
 print('*** impurity postprocessing finish ***')
+
+# exit()
+
+
+
+
+
+plot = plt.figure(1)
+plt.scatter(cf.ft.omega[:], green_edmft_freq[0, 0, 0, :], color="blue")
+# plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
+plt.title("Green's function")
+# plt.xlabel("freq")
+# plt.ylabel("F_Loc")
+plt.legend()
+plt.grid(which="both", linestyle="--", linewidth=0.3)
+plt.show()
+
+
+plot = plt.figure(1)
+plt.scatter(cf.ft.omega[:], sigmac_edmft_freq[0, 0, 0, :], color="blue")
+# plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
+plt.title("Sigma_C")
+# plt.xlabel("freq")
+# plt.ylabel("F_Loc")
+plt.legend()
+plt.grid(which="both", linestyle="--", linewidth=0.3)
+plt.show()
+
+
+
+plot = plt.figure(1)
+plt.scatter(cf.ft.nu[:], Chi_edmft_4[0, 0, 0, 0, 0, 0, :], color="blue")
+# plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
+plt.title("Chi")
+# plt.xlabel("freq")
+# plt.ylabel("F_Loc")
+plt.legend()
+plt.grid(which="both", linestyle="--", linewidth=0.3)
+plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 print("\n*** Pi_edmft start ***")
 
 norbc,_,_,_,ns,_,nft = Chi_edmft_4.shape
-Chi_edmft_2 = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nft),dtype=np.complex64,order='F')
+Chi_edmft_temp = np.zeros((norbc*norbc,norbc*norbc,2,2,nft),dtype=np.complex64,order='F')
 
 for iis in range(ns):
     for jjs in range(ns):
         for ift in range(nft):
-            Chi_edmft_2[:,:,iis,jjs,ift] = cf.crystal.Quad2Double(Chi_edmft_4[:,:,:,:,iis,jjs,ift])
+            Chi_edmft_temp[:,:,iis,jjs,ift] = cf.crystal.Quad2Double(Chi_edmft_4[:,:,:,:,iis,jjs,ift])
+
+Chi_edmft_2 = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nft),dtype=np.complex64,order='F')
+
+for ift in range(nft):
+    Chi_edmft_2[...,0,0,ift] = 1.0/2.0*(Chi_edmft_temp[...,0,0,ift]+Chi_edmft_temp[...,0,1,ift]+Chi_edmft_temp[...,1,0,ift]+Chi_edmft_temp[...,1,1,ift])
 
 # print('Pi_edmft_2 done')
 
@@ -909,15 +1026,32 @@ def compute_Pi(X, u):
     return Pi
 
 
-print(green_edmft_freq.shape)
-print(uimp.utilde_rf.shape)
-print(Chi_edmft_2.shape)
+# print(green_edmft_freq.shape)
+# print(uimp.utilde_rf.shape)
+# print(Chi_edmft_2.shape)
 
 # Pi_edmft = compute_Pi(Chi_edmft_2,uimp.utilde_rf)
 
+
+Pi_test = uimp.Dyson(Chi_edmft_2, -uimp.utilde_rf[...,0])
+
+
+plot = plt.figure(1)
+plt.scatter(cf.ft.nu[:], Pi_test[0, 0, 0, 0, :], color="blue")
+# plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
+plt.title("Chi")
+# plt.xlabel("freq")
+# plt.ylabel("F_Loc")
+plt.legend()
+plt.grid(which="both", linestyle="--", linewidth=0.3)
+plt.show()
+
 print("*** Pi_edmft finish ***")
 
-exit()
+
+
+
+# exit()
 
 # print(cf.crystal.ft.omega)
 # print(cf.crystal.ft.nu)
@@ -940,7 +1074,7 @@ green_edmft_tau = gloc.F2T(green_edmft_freq,1,1) ### ?
 
 # print('toto')
 
-rho = (+1) * green_edmft_tau[:, :, :, 0].copy()         # (i,j,s)
+rho = (-1) * green_edmft_tau[:, :, :, -1].copy()         # (i,j,s)
 # Enforce Hermiticity per spin
 rho = 0.5 * (rho + rho.swapaxes(0, 1).conj())
 
@@ -991,7 +1125,8 @@ def hartree_Sigma_diag_general(rho, v):
     I = np.eye(norb)
 
     # Σ_diag[i,s] = sum_{j,k,l,sp} v[i,j,k,l,s,sp] * rho[l,k,sp] * δ_{ij}
-    Sigma_diag = np.einsum('ijklsp,lkp,ij->is', v, rho, I, optimize=True)
+    # Sigma_diag = np.einsum('ijklsp,lkp,ij->is', v, rho, I, optimize=True)
+    Sigma_diag = np.einsum('ijklmn,jkn,il->im', v, rho, I, optimize=True)
 
     # Pack into diagonal matrices for each spin
     Sigma_H = np.zeros((norb, norb, nspin), dtype=Sigma_diag.dtype)
@@ -1025,7 +1160,7 @@ for i in range(ns):
 print("*** sigmaf_edmft finish ***")
 # print(sigmaf_edmft)
 
-print('toto')
+# print('toto')
 
 exit()
 

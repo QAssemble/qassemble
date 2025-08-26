@@ -2,6 +2,24 @@
     "beta": 100,
     "complex": false,
     "density matrix precise": false,
+    "dyn": {
+        "functions": "dyn.json",
+        "matrix": [
+            [
+                "F0"
+            ]
+        ],
+        "quantum numbers": [
+            [
+                1,
+                1,
+                1,
+                1,
+                1,
+                1
+            ]
+        ]
+    },
     "green bulla": true,
     "hloc": {
         "one body": [
@@ -15,14 +33,6 @@
             ],
             [
                 0.0,
-                -0.0,
-                0.0,
-                0.0,
-                -0.0,
-                0.0
-            ],
-            [
-                0.0,
                 0.0,
                 0.0,
                 0.0,
@@ -39,10 +49,18 @@
             ],
             [
                 0.0,
-                -0.0,
                 0.0,
                 0.0,
-                -0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
                 0.0
             ],
             [
@@ -1406,8 +1424,8 @@
             ]
         ]
     },
-    "measurement time": 3,
-    "mu": 12.019243225979626,
+    "measurement time": 10,
+    "mu": 12.019249390543218,
     "occupation susceptibility bulla": true,
     "partition": {
         "density matrix precise": true,

@@ -956,3 +956,24 @@ class Crystal(object):
                             self.imp_index[ii][equi_mat[i,j]-1].append([i,j])
         
         return equi_mat
+    
+
+
+
+    def mapping1(self,iorb):
+
+        [a,[m1,m4]] = self.BAtomOrb(iorb)
+        iorbc = self.FIndex([a,m1])
+        lorbc = self.FIndex([a,m4])
+
+        return iorbc,lorbc
+    
+
+    def mapping(self,norb,ns,ind):
+        nn1 = [0]*2
+        ind, [iorb, js] = self.crystal.indexing(norb*ns, 2, [norb, ns], 0, ind, nn1)
+        [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
+        iorbc = self.crystal.FIndex([a, m1])
+        lorbc = self.crystal.FIndex([a, m4])
+
+        return iorb,js,iorbc,lorbc

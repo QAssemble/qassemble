@@ -26,6 +26,8 @@ qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/qacore/modules')
 import QAFort
 
+import time, datetime
+
 class BLatDyn(object):
 
     def __init__(self,crystal : Crystal, ft : FTGrid):
@@ -446,6 +448,9 @@ class PolLat(BLatDyn):
 
         gmrt = self.crystal.RT2mRmT(grt)
 
+
+        start = time.time()
+
         if ns == 2:
             for itau in range(ntau):
                 for irk in range(nrk):
@@ -491,6 +496,49 @@ class PolLat(BLatDyn):
                                 # if (iorb==0)and(jorb==0)and(irk==0):
                                 #     print(iorbc,jorbc,korbc,lorbc,irk,itau,gmrt[jorbc,iorbc,0,irk,itau],grt[korbc,lorbc,0,irk,itau])
                                 polrt[iorb,jorb,0,0,irk,itau] = gmrt[jorbc,iorbc,0,irk,itau]*grt[korbc,lorbc,0,irk,itau]*C
+
+
+        end = time.time()
+        tiem_delta = end-start
+        print("original code - ",round(tiem_delta,5),'seconds')
+
+        start = time.time()
+
+        if ns == 2:
+            map0 = np.array([self.crystal.mapping1(i)[0] for i in range(norb)])
+            map1 = np.array([self.crystal.mapping1(i)[1] for i in range(norb)])
+            term1_tensor = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], :, :, :]
+            term2_tensor = grt[map1[:, np.newaxis], map0[np.newaxis, :], :, :, :]
+            diagonal_product = term1_tensor * term2_tensor
+            s_indices = np.arange(ns)
+
+            polrt[:, :, s_indices, s_indices, :, :] = diagonal_product
+
+            # polrt = np.einsum('ijstp,ijktp->ijsktp', term1_tensor, term2_tensor)
+        
+        else:
+            if self.crystal.soc == True:
+                C = 1
+                map0 = np.array([self.crystal.mapping1(i)[0] for i in range(norb)])
+                map1 = np.array([self.crystal.mapping1(i)[1] for i in range(norb)])
+                term1_slice = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], 0, :, :]
+                term2_slice = grt[map1[:, np.newaxis], map0[np.newaxis, :], 0, :, :]
+                result_slice = term1_slice * term2_slice * C
+                polrt[:, :, 0, 0, :, :] = result_slice
+            else:
+                C = 2
+                map0 = np.array([self.crystal.mapping1(i)[0] for i in range(norb)])
+                map1 = np.array([self.crystal.mapping1(i)[1] for i in range(norb)])
+                term1_slice = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], 0, :, :]
+                term2_slice = grt[map1[:, np.newaxis], map0[np.newaxis, :], 0, :, :]
+                result_slice = term1_slice * term2_slice * C
+                polrt[:, :, 0, 0, :, :] = result_slice
+
+
+        end = time.time()
+        tiem_delta = end-start
+        print("new code      - ",round(tiem_delta,5),'seconds')
+
 
 
         self.rt = polrt
@@ -649,20 +697,44 @@ class WLat(BLatDyn):
 
         # for ifreq in range(nfreq):
         #     vdyn[...,ifreq] = self.vbare.k
+        start = time.time()
         vdyn = self.StcEmbedding(self.vbare.k)
+        end = time.time()
+        tiem_delta = end-start
+        print("StcEmbedding - ",round(tiem_delta,5),'seconds')
         polcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
         vcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
         ####### Initialization #######
+        start = time.time()
         polcomp = self.Double2Full(self.pol)*self.c
+        end = time.time()
+        tiem_delta = end-start
+        print("Double2Full  - ",round(tiem_delta,5),'seconds')
         # del self.pol
+        start = time.time()
         vcomp = self.Double2Full(vdyn)
+        end = time.time()
+        tiem_delta = end-start
+        print("Double2Full  - ",round(tiem_delta,5),'seconds')
 
+        start = time.time()
         tempmat = self.Dyson(vcomp,polcomp)
+        end = time.time()
+        tiem_delta = end-start
+        print("Dyson        - ",round(tiem_delta,5),'seconds')
+        start = time.time()
         wkf = self.Full2Double(tempmat)
+        end = time.time()
+        tiem_delta = end-start
+        print("Full2Double  - ",round(tiem_delta,5),'seconds')
 
         self.kf = wkf
 
+        start = time.time()
         self.rf = self.K2R(wkf)
+        end = time.time()
+        tiem_delta = end-start
+        print("K2R          - ",round(tiem_delta,5),'seconds')
 
         wckf = wkf - vdyn
 

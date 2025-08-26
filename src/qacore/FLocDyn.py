@@ -22,6 +22,10 @@ from .FTGrid import FTGrid
 from .FLatDyn import GreenInt
 from .FLocStc import FLocStc,EImp,SigmaHLoc,SigmaFLoc
 from .FLatStc import NIHamiltonian,SigmaHartree,SigmaFock
+
+import time, datetime
+
+
 qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/qacore/modules')
 import QAFort
@@ -588,9 +592,9 @@ class FLocDyn(object):
         params = json.load(open('./params.json'))
         cutoff = params["partition"]["green matsubara cutoff"]
         
-        Sigma_bare = self.FgaussianLocDyn(self.ft.omega,Sigma_bare,0.05,1/self.ft.beta,cutoff)
+        # Sigma_bare = self.FgaussianLocDyn(self.ft.omega,Sigma_bare,0.05,1/self.ft.beta,cutoff)
     
-        Green = self.FgaussianLocDyn(self.ft.omega,Green,0.05,1/self.ft.beta,cutoff)
+        # Green = self.FgaussianLocDyn(self.ft.omega,Green,0.05,1/self.ft.beta,cutoff)
 
 
 
@@ -603,7 +607,7 @@ class FLocDyn(object):
 
         nft = len(obsjson["occupation-susceptibility-bulla"]['0_0']['function'])
 
-        tempmat = np.zeros((norbc,norbc,norbc,norbc,ns,ns,nft), dtype=np.complex128, order='F')
+        tempmat = np.zeros((norbc,norbc,norbc,norbc,nspin,nspin,nft), dtype=np.complex128, order='F')
 
         for ind1 in range(ndim):
             nn1 = [0]*2
@@ -613,9 +617,11 @@ class FLocDyn(object):
                 ind2, [jorb, jspin] = self.crystal.indexing(ndim,2,[norbc,nspin],0,ind2,nn2)
                 name = str(ind1)+'_'+str(ind2)
                 
-                if ispin<ns and jspin<ns:
-                    # print(iorb,jorb,jorb,iorb,ispin,jspin)
-                    tempmat[iorb,jorb,jorb,iorb,ispin,jspin,:] = obsjson["occupation-susceptibility-bulla"][name]["function"]
+                # if ispin<ns and jspin<ns:
+                #     # print(iorb,jorb,jorb,iorb,ispin,jspin)
+                #     tempmat[iorb,jorb,jorb,iorb,ispin,jspin,:] = obsjson["occupation-susceptibility-bulla"][name]["function"]
+
+                tempmat[iorb,jorb,jorb,iorb,ispin,jspin,:] = obsjson["occupation-susceptibility-bulla"][name]["function"]
 
 
         susceptibility = np.copy(tempmat)
@@ -635,7 +641,7 @@ class FLocDyn(object):
         print("******************************")
         print("Impurity Postprocessing Finish")
         print("******************************")
-        return Green, Sigma_bare, Sigma_hf, susceptibility
+        return Green, Sigma_bare, Sigma_hf, susceptibility, histo
 
 
 
@@ -969,18 +975,64 @@ class Hybridisation(FLocDyn):
 
         rf = np.zeros((norbc,norbc,ns,nft,nprob),dtype=np.complex128,order='F')
 
-        IdentityMatrix = np.identity(norbc)
-
         if self.sigmacimp is None:
             self.sigmacimp = np.zeros((norbc,norbc,ns,nft,nprob),dtype=np.complex128,order='F')
 
         gfinv = self.Inverse(self.gloc.gf)
         # self.gfinv = gfinv
         
+
+        start = time.time()
+
+        IdentityMatrix = np.identity(norbc)
+
         for iprob in range(nprob):
             for ift in range(nft):
                 for js in range(ns):
                     rf[...,js,ift,iprob] = imag_one*self.ft.omega[ift]*IdentityMatrix[...] - gfinv[...,js,ift,iprob] - self.eimp.r[...,js,iprob] - (self.sigmahimp[...,js,iprob] + self.sigmafimp[...,js,iprob] + self.sigmacimp[...,js,ift,iprob])
+        
+        end = time.time()
+        tiem_delta = end-start
+        print("original code - ",round(tiem_delta,5),'seconds')
+        
+        
+
+        start = time.time()
+
+        Nm, _, Ns, Ne, Np = gfinv.shape
+        identity_matrix = np.eye(Nm, dtype=np.complex128)
+        i_omega = 1j * self.ft.omega
+        
+        term1 = np.einsum('e,ij->ije', i_omega, identity_matrix)
+        term1_broadcastable = term1[:, :, np.newaxis, :, np.newaxis]
+        Eimp_broadcastable = self.eimp.r[:, :, :, np.newaxis, :]
+        Sigma_H_broadcastable = self.sigmahimp[:, :, :, np.newaxis, :]
+        Sigma_F_broadcastable = self.sigmafimp[:, :, :, np.newaxis, :]
+        
+        rf_2 = (term1_broadcastable - 
+                gfinv - 
+                Eimp_broadcastable - 
+                Sigma_H_broadcastable - 
+                Sigma_F_broadcastable - 
+                self.sigmacimp)
+        
+        end = time.time()
+        tiem_delta = end-start
+        print("new code      - ",round(tiem_delta,5),'seconds')
+        
+        n1,n2,n3,n4,n5 = rf_2.shape
+        idx = 0
+        for i in range(n1):
+            for j in range(n2):
+                for s in range(n3):
+                    for f in range(n4):
+                        for p in range(n5):
+                            if np.abs(rf[i,j,s,f,p]-rf_2[i,j,s,f,p])>1.0E-4:
+                                idx += 1
+        
+        print('idx is ',idx)
+        
+        
         self.rf = rf
 
         self.rt = np.zeros((norbc,norbc,ns,ntau,nprob),dtype=np.complex128)
@@ -1011,6 +1063,32 @@ class Hybridisation(FLocDyn):
                 with open(f'hyb.{iter}.{key}.json','w') as outfile:
                     json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
                 with open('hyb.json','w') as outfile:
+                    json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
+                    # json.dump(json_dict,outfile,sort_keys=True, separators=(']'))
+            
+            elif self.crystal.ns == 2:
+                print("Nspin is not 1")
+                sys.exit()
+        elif self.crystal.soc is True:
+            print("SOC must be False")
+            sys.exit()
+        return None
+    
+
+    def write_dyn_json(self,iter,key,dyn : dict):
+
+        if self.crystal.soc is False:
+            if self.crystal.ns == 1:
+                json_dict = dyn
+                # for ikey,val in dyn.items():
+                #     json_dict[ikey] = {}
+                #     # json_dict[ikey]['beta'] = self.ft.beta
+                #     json_dict[ikey]['real'] = np.real(val[0]).tolist()
+                #     json_dict[ikey]['imag'] = np.imag(val[0]).tolist()
+
+                # with open(f'hyb.{iter}.{key}.json','w') as outfile:
+                    # json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
+                with open('dyn.json','w') as outfile:
                     json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
             
             elif self.crystal.ns == 2:
@@ -1095,12 +1173,23 @@ class Hybridisation(FLocDyn):
                 params["occupation susceptibility bulla"]=True        
                 params["green bulla"]=True       
                 params["density matrix precise"]=False #True 
-                params["measurement time"]=3 #imp['measurement_time']
+                params["measurement time"]=10 # 3 #imp['measurement_time']
+
+
+                #### dyn.json ####
+                params["dyn"] = {}
+                params["dyn"]["matrix"] = [["F0"]]
+                params["dyn"]["functions"] = "dyn.json"
+                quantumnumber_temp = [[]]
+                for i in range(len(E_imp.A_final[0])):
+                    quantumnumber_temp[0].append(1)
+                params["dyn"]["quantum numbers"] = quantumnumber_temp
                 
                 with open(f'params.{iter}.{key}.json','w') as outfile:
                     json.dump(params,outfile, sort_keys=True, indent=4, separators=(',', ': '))
                 with open('params.json','w') as outfile:
                     json.dump(params,outfile, sort_keys=True, indent=4, separators=(',', ': '))
+                    # json.dump(params,outfile, sort_keys=True, separators=(']'))
                 # print("params.json written", file=self.m_ini.control['h_log'])
             elif self.crystal.ns == 2:
                 print("Nspin is not 1")

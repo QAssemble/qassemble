@@ -27,6 +27,8 @@ qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/qacore/modules')
 import QAFort
 
+import time, datetime
+
 class BLocDyn(object):
 
     def __init__(self, crystal : Crystal, ft : FTGrid):
@@ -356,6 +358,7 @@ class PolLGW(BLocDyn):
 
         # polrt = np.zeros((norbc,norbc,ns,ns,ntau,nspace),dtype=np.complex128,order='F')
         polrt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
+        polrt_2 = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
         
         gmrt=np.empty_like(grt)
         for iprob in range(nprob):
@@ -364,6 +367,8 @@ class PolLGW(BLocDyn):
         # print(gmrt.shape)
         # print(grt.shape)
 
+
+        start = time.time()
         
         if ns == 2:
             for itau in range(ntau):
@@ -399,29 +404,29 @@ class PolLGW(BLocDyn):
                 C = 1
                 for itau in range(ntau):
                     for iprob in range(nprob):
-                        # for iorb in range(norb):
-                        #     [a,[m1,m3]] = self.crystal.BAtomOrb(iorb)
-                        #     iorbc = self.crystal.FIndex([a,m1])
-                        #     korbc = self.crystal.FIndex([a,m3])
-                        #     for jorb in range(norb):
-                        #         [b,[m4,m2]] = self.crystal.BAtomOrb(jorb)
-                        #         lorbc = self.crystal.FIndex([b,m4])
-                        #         jorbc = self.crystal.FIndex([b,m2])
-                        #         polrt[iorb,jorb,0,0,itau,iprob] = gmrt[jorbc,iorbc,0,itau,iprob]*grt[korbc,lorbc,0,itau,iprob]*C
-                        for ind1 in range(norb*ns):
-                            nn1 = [0]*2
-                            ind1, [iorb, js] = self.crystal.indexing(norb*ns, 2, [norb, ns], 0, ind1, nn1)
-                            [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
-                            iorbc = self.crystal.FIndex([a, m1])
-                            lorbc = self.crystal.FIndex([a, m4])
-                            for ind2 in range(norb*ns):
-                                nn2 = [0]*2
-                                ind2, [jorb, ks] = self.crystal.indexing(norb*ns, 2, [norb, ns], 0, ind2, nn2)
-                                [b, [m2, m3]] = self.crystal.BAtomOrb(jorb)
-                                jorbc = self.crystal.FIndex([b, m2])
-                                korbc = self.crystal.FIndex([b, m3])
-                                if (js == ks):
-                                    polrt[iorb, jorb, js, ks, itau, iprob] = gmrt[korbc, iorbc, js, itau, iprob] * grt[lorbc, jorbc, ks, itau, iprob]
+                        for iorb in range(norb):
+                            [a,[m1,m3]] = self.crystal.BAtomOrb(iorb)
+                            iorbc = self.crystal.FIndex([a,m1])
+                            korbc = self.crystal.FIndex([a,m3])
+                            for jorb in range(norb):
+                                [b,[m4,m2]] = self.crystal.BAtomOrb(jorb)
+                                lorbc = self.crystal.FIndex([b,m4])
+                                jorbc = self.crystal.FIndex([b,m2])
+                                polrt[iorb,jorb,0,0,itau,iprob] = gmrt[jorbc,iorbc,0,itau,iprob]*grt[korbc,lorbc,0,itau,iprob]*C
+                        # for ind1 in range(norb*ns):
+                        #     nn1 = [0]*2
+                        #     ind1, [iorb, js] = self.crystal.indexing(norb*ns, 2, [norb, ns], 0, ind1, nn1)
+                        #     [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
+                        #     iorbc = self.crystal.FIndex([a, m1])
+                        #     lorbc = self.crystal.FIndex([a, m4])
+                        #     for ind2 in range(norb*ns):
+                        #         nn2 = [0]*2
+                        #         ind2, [jorb, ks] = self.crystal.indexing(norb*ns, 2, [norb, ns], 0, ind2, nn2)
+                        #         [b, [m2, m3]] = self.crystal.BAtomOrb(jorb)
+                        #         jorbc = self.crystal.FIndex([b, m2])
+                        #         korbc = self.crystal.FIndex([b, m3])
+                        #         if (js == ks):
+                        #             polrt[iorb, jorb, js, ks, itau, iprob] = gmrt[korbc, iorbc, js, itau, iprob] * grt[lorbc, jorbc, ks, itau, iprob]
             else:
                 C = 2
                 for itau in range(ntau):
@@ -451,6 +456,125 @@ class PolLGW(BLocDyn):
                         #         korbc = self.crystal.FIndex([b, m3])
                         #         if (js == ks):
                         #             polrt[iorb, jorb, js, ks, itau, iprob] = gmrt[korbc, iorbc, js, itau, iprob] * grt[lorbc, jorbc, ks, itau, iprob]
+        
+
+        end = time.time()
+        tiem_delta = end-start
+        # print("original code",datetime.timedelta(seconds=tiem_delta))
+        print("original code - ",round(tiem_delta,5),'seconds')
+
+
+
+        start = time.time()
+
+        if ns == 2:
+            map0 = np.array([self.crystal.mapping1(i)[0] for i in range(norb)])
+            map1 = np.array([self.crystal.mapping1(i)[1] for i in range(norb)])
+            term1_tensor = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], :, :, :]
+            term2_tensor = grt[map1[:, np.newaxis], map0[np.newaxis, :], :, :, :]
+            diagonal_product = term1_tensor * term2_tensor
+            s_indices = np.arange(ns)
+
+            polrt[:, :, s_indices, s_indices, :, :] = diagonal_product
+
+            # polrt = np.einsum('ijstp,ijktp->ijsktp', term1_tensor, term2_tensor)
+        
+        else:
+            if self.crystal.soc == True:
+                C = 1
+                map0 = np.array([self.crystal.mapping1(i)[0] for i in range(norb)])
+                map1 = np.array([self.crystal.mapping1(i)[1] for i in range(norb)])
+                term1_slice = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], 0, :, :]
+                term2_slice = grt[map1[:, np.newaxis], map0[np.newaxis, :], 0, :, :]
+                result_slice = term1_slice * term2_slice * C
+                polrt[:, :, 0, 0, :, :] = result_slice
+            else:
+                C = 2
+                map0 = np.array([self.crystal.mapping1(i)[0] for i in range(norb)])
+                map1 = np.array([self.crystal.mapping1(i)[1] for i in range(norb)])
+                term1_slice = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], 0, :, :]
+                term2_slice = grt[map1[:, np.newaxis], map0[np.newaxis, :], 0, :, :]
+                result_slice = term1_slice * term2_slice * C
+                polrt_2[:, :, 0, 0, :, :] = result_slice
+
+
+        end = time.time()
+        tiem_delta = end-start
+        # print("new code",datetime.timedelta(seconds=tiem_delta))
+        print("new code      - ",round(tiem_delta,5),'seconds')
+
+
+
+        start = time.time()
+
+        if ns == 2:
+            all_indices = np.arange(norb * ns)
+            iorb_map, js_map, iorbc_map, lorbc_map = np.array([self.crystal.mapping(norb, ns, i) for i in all_indices]).T
+            for s in range(ns):
+                s_indices = np.where(js_map == s)[0]
+                s_iorb_map = iorb_map[s_indices]
+                s_iorbc_map = iorbc_map[s_indices]
+                s_lorbc_map = lorbc_map[s_indices]
+                grt_s = grt[:, :, s, :, :]
+                gmrt_s = gmrt[:, :, s, :, :]
+                term1_s = gmrt_s[s_lorbc_map[np.newaxis, :], s_iorbc_map[:, np.newaxis]]
+                term2_s = grt_s[s_lorbc_map[:, np.newaxis], s_iorbc_map[np.newaxis, :]]
+                product_s = term1_s * term2_s
+                polrt_2[s_iorb_map[:, np.newaxis], s_iorb_map[np.newaxis, :], s, s, :, :] = product_s
+
+        else:
+            if self.crystal.soc == True:
+                C = 1
+                all_indices = np.arange(norb * ns)
+                iorb_map, js_map, iorbc_map, lorbc_map = np.array([self.crystal.mapping(norb, ns, i) for i in all_indices]).T
+                for s in range(ns):
+                    s_indices = np.where(js_map == s)[0]
+                    s_iorb_map = iorb_map[s_indices]
+                    s_iorbc_map = iorbc_map[s_indices]
+                    s_lorbc_map = lorbc_map[s_indices]
+                    grt_s = grt[:, :, s, :, :]
+                    gmrt_s = gmrt[:, :, s, :, :]
+                    term1_s = gmrt_s[s_lorbc_map[np.newaxis, :], s_iorbc_map[:, np.newaxis]]
+                    term2_s = grt_s[s_lorbc_map[:, np.newaxis], s_iorbc_map[np.newaxis, :]]
+                    product_s = term1_s * term2_s
+                    polrt_2[s_iorb_map[:, np.newaxis], s_iorb_map[np.newaxis, :], s, s, :, :] = product_s * C
+                
+            else:
+                C = 2
+                all_indices = np.arange(norb * ns)
+                iorb_map, js_map, iorbc_map, lorbc_map = np.array([self.crystal.mapping(norb, ns, i) for i in all_indices]).T
+                for s in range(ns):
+                    s_indices = np.where(js_map == s)[0]
+                    s_iorb_map = iorb_map[s_indices]
+                    s_iorbc_map = iorbc_map[s_indices]
+                    s_lorbc_map = lorbc_map[s_indices]
+                    grt_s = grt[:, :, s, :, :]
+                    gmrt_s = gmrt[:, :, s, :, :]
+                    term1_s = gmrt_s[s_lorbc_map[np.newaxis, :], s_iorbc_map[:, np.newaxis]]
+                    term2_s = grt_s[s_lorbc_map[:, np.newaxis], s_iorbc_map[np.newaxis, :]]
+                    product_s = term1_s * term2_s
+                    polrt_2[s_iorb_map[:, np.newaxis], s_iorb_map[np.newaxis, :], s, s, :, :] = product_s * C
+            
+        
+        end = time.time()
+        tiem_delta = end-start
+        # print("new code",datetime.timedelta(seconds=tiem_delta))
+        print("new code2     - ",round(tiem_delta,5),'seconds')
+
+
+        n1,n2,n3,n4,n5,n6 = polrt.shape
+        idx = 0
+        for i in range(n1):
+            for j in range(n2):
+                for s in range(n3):
+                    for f in range(n4):
+                        for p in range(n5):
+                            for l in range(n6):
+                                if np.abs(polrt[i,j,s,f,p,l]-polrt_2[i,j,s,f,p,l])>1.0E-4:
+                                    idx += 1
+        
+        print('idx is ',idx)
+        
 
         self.rt = polrt
 
