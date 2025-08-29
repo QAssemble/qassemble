@@ -465,43 +465,43 @@ class PolLGW(BLocDyn):
 
 
 
-        start = time.time()
+        # start = time.time()
 
-        if ns == 2:
-            map0 = np.array([self.crystal.mapping1(i)[0] for i in range(norb)])
-            map1 = np.array([self.crystal.mapping1(i)[1] for i in range(norb)])
-            term1_tensor = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], :, :, :]
-            term2_tensor = grt[map1[:, np.newaxis], map0[np.newaxis, :], :, :, :]
-            diagonal_product = term1_tensor * term2_tensor
-            s_indices = np.arange(ns)
+        # if ns == 2:
+        #     map0 = np.array([self.crystal.mapping1(i)[0] for i in range(norb)])
+        #     map1 = np.array([self.crystal.mapping1(i)[1] for i in range(norb)])
+        #     term1_tensor = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], :, :, :]
+        #     term2_tensor = grt[map1[:, np.newaxis], map0[np.newaxis, :], :, :, :]
+        #     diagonal_product = term1_tensor * term2_tensor
+        #     s_indices = np.arange(ns)
 
-            polrt[:, :, s_indices, s_indices, :, :] = diagonal_product
+        #     polrt[:, :, s_indices, s_indices, :, :] = diagonal_product
 
-            # polrt = np.einsum('ijstp,ijktp->ijsktp', term1_tensor, term2_tensor)
+        #     # polrt = np.einsum('ijstp,ijktp->ijsktp', term1_tensor, term2_tensor)
         
-        else:
-            if self.crystal.soc == True:
-                C = 1
-                map0 = np.array([self.crystal.mapping1(i)[0] for i in range(norb)])
-                map1 = np.array([self.crystal.mapping1(i)[1] for i in range(norb)])
-                term1_slice = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], 0, :, :]
-                term2_slice = grt[map1[:, np.newaxis], map0[np.newaxis, :], 0, :, :]
-                result_slice = term1_slice * term2_slice * C
-                polrt[:, :, 0, 0, :, :] = result_slice
-            else:
-                C = 2
-                map0 = np.array([self.crystal.mapping1(i)[0] for i in range(norb)])
-                map1 = np.array([self.crystal.mapping1(i)[1] for i in range(norb)])
-                term1_slice = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], 0, :, :]
-                term2_slice = grt[map1[:, np.newaxis], map0[np.newaxis, :], 0, :, :]
-                result_slice = term1_slice * term2_slice * C
-                polrt_2[:, :, 0, 0, :, :] = result_slice
+        # else:
+        #     if self.crystal.soc == True:
+        #         C = 1
+        #         map0 = np.array([self.crystal.mapping1(i)[0] for i in range(norb)])
+        #         map1 = np.array([self.crystal.mapping1(i)[1] for i in range(norb)])
+        #         term1_slice = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], 0, :, :]
+        #         term2_slice = grt[map1[:, np.newaxis], map0[np.newaxis, :], 0, :, :]
+        #         result_slice = term1_slice * term2_slice * C
+        #         polrt[:, :, 0, 0, :, :] = result_slice
+        #     else:
+        #         C = 2
+        #         map0 = np.array([self.crystal.mapping1(i)[0] for i in range(norb)])
+        #         map1 = np.array([self.crystal.mapping1(i)[1] for i in range(norb)])
+        #         term1_slice = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], 0, :, :]
+        #         term2_slice = grt[map1[:, np.newaxis], map0[np.newaxis, :], 0, :, :]
+        #         result_slice = term1_slice * term2_slice * C
+        #         polrt_2[:, :, 0, 0, :, :] = result_slice
 
 
-        end = time.time()
-        tiem_delta = end-start
-        # print("new code",datetime.timedelta(seconds=tiem_delta))
-        print("new code      - ",round(tiem_delta,5),'seconds')
+        # end = time.time()
+        # tiem_delta = end-start
+        # # print("new code",datetime.timedelta(seconds=tiem_delta))
+        # print("new code      - ",round(tiem_delta,5),'seconds')
 
 
 
@@ -579,18 +579,24 @@ class PolLGW(BLocDyn):
         self.rt = polrt
 
 
+        start = time.time()
+
         self.rf=np.zeros((norb,norb,ns,ns,nft,nprob),dtype=np.complex128,order='F')
         for iprob in range(nprob):
             self.rf[...,iprob] = self.T2F(self.rt[...,iprob])
+
+        end = time.time()
+        tiem_delta = end-start
+        print(round(tiem_delta,5),'seconds')
 		                    
 		                    
 
-class PolImp(BLocDyn): # read Polarizability from CTQMC
+# class PolImp(BLocDyn): # read Polarizability from CTQMC
 
-    def __init__(self, crystal: Crystal, ft: FTGrid):
-        super().__init__(crystal, ft)
+#     def __init__(self, crystal: Crystal, ft: FTGrid):
+#         super().__init__(crystal, ft)
 
-        pass
+#         pass
 
 class WLoc(BLocDyn): #### contains WLoc and WcLoc
 
@@ -610,7 +616,7 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
         # self.ckf = None
         # self.c = c #### ??
 
-        # self.wlat = wlat
+        self.wlat = wlat
 
 
         self.hdf5file = hdf5file
@@ -657,7 +663,6 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
         wrf_nspace  = np.zeros((norb,norb,ns,ns,nfreq,nspace),dtype=np.complex128,order='F')
 
         wrf_nspace = self.wlat.Projection(self.wlat.kf)
-
         self.rf = self.Loc2Imp(wrf_nspace)
 
         rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
@@ -854,37 +859,37 @@ class WLoc_temp(BLocDyn): #### contains WLoc and WcLoc
         # del wrf, wcrf, vdyn, crt
         return None
 
-class WImp(BLocDyn):
+# class WImp(BLocDyn):
 
-    def __init__(self, crystal: Crystal, ft: FTGrid, flocdyn: FLocDyn):
-        super().__init__(crystal, ft, flocdyn)
+#     def __init__(self, crystal: Crystal, ft: FTGrid, flocdyn: FLocDyn):
+#         super().__init__(crystal, ft, flocdyn)
 
-        pass
+#         pass
 
-class WcLoc(BLocDyn):
+# class WcLoc(BLocDyn):
 
-    def __init__(self, crystal: Crystal, ft: FTGrid, flocdyn: FLocDyn):
-        super().__init__(crystal, ft, flocdyn)
+#     def __init__(self, crystal: Crystal, ft: FTGrid, flocdyn: FLocDyn):
+#         super().__init__(crystal, ft, flocdyn)
 
-        pass
+#         pass
 
-class WcImp(BLocDyn):
+# class WcImp(BLocDyn):
 
-    def __init__(self, crystal: Crystal, ft: FTGrid, flocdyn: FLocDyn):
-        super().__init__(crystal, ft, flocdyn)
+#     def __init__(self, crystal: Crystal, ft: FTGrid, flocdyn: FLocDyn):
+#         super().__init__(crystal, ft, flocdyn)
 
-        pass
+#         pass
 
 
 
-class UImp(BLocDyn):
+class BWeiss(BLocDyn):
 
     def __init__(self, crystal: Crystal, ft: FTGrid, wloc : WLoc, ploc : PolLGW, vloc : np.array):
         super().__init__(crystal, ft)
 
-        self.utilde_rt = None
+        self.utilde_rt = None ###uweiss
         self.utilde_rf = None
-        self.ubar_rt = None
+        self.ubar_rt = None  ###uweiss0
         self.ubar_rf = None
 
         self.wloc = wloc
@@ -910,39 +915,56 @@ class UImp(BLocDyn):
         self.utilde_rf = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
         self.ubar_rf = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
 
-        # temp = np.zeros((norb,norb,ns,ns,nfreq),dtype=np.complex128,order='F')
-        # for iprob in range(nprob):
-        #     temp = self.Inverse(self.wloc[...,iprob]) + self.ploc[..., iprob]
-        #     self.utilde_rf[...,iprob] = self.Inverse(temp)
-        # # for iprob in range(nprob):
-        # #     for ifreq in range(nfreq):
-        # #         for iis in range(ns):
-        # #             for jjs in range(ns):
-        # #                 uinv_rf_temp[...] = temp[...,iis,jjs,ifreq,iprob] + self.ploc[...,iis,jjs,ifreq,iprob]
-        # #                 self.utilde_rf[...,iis,jjs,ifreq,iprob] = np.linalg.inv(uinv_rf_temp[...])
-
-        # self.ubar_rf = self.utilde_rf - self.vloc
-
-        temp0 = np.zeros((norb,norb,ns,ns,nfreq),dtype=np.complex128,order='F')
-        temp  = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
-
         for iprob in range(nprob):
-            for ifreq in range(nfreq):
-                for iis in range(ns):
-                    for jjs in range(ns):
-                        temp0[...,iis,jjs,ifreq] = IdendityMatrix + np.dot(self.wloc[...,iis,jjs,ifreq,iprob],self.ploc[...,iis,jjs,ifreq,iprob])
-            temp[...,iprob] = self.Inverse(temp0)
-
-        for iprob in range(nprob):
-            for ifreq in range(nfreq):
-                for iis in range(ns):
-                    for jjs in range(ns):
-                        # temp = IdendityMatrix + np.dot(self.wloc[...,iis,jjs,ifreq,iprob],self.ploc[...,iis,jjs,ifreq,iprob])
-                        # self.utilde_rf[...,iis,jjs,ifreq,iprob] = np.dot(np.linalg.inv(temp),self.wloc[...,iis,jjs,ifreq,iprob])
-                        self.utilde_rf[...,iis,jjs,ifreq,iprob] = np.dot(temp[...,iis,jjs,ifreq,iprob],self.wloc[...,iis,jjs,ifreq,iprob])
-                        self.ubar_rf[...,iis,jjs,ifreq,iprob] = self.utilde_rf[...,iis,jjs,ifreq,iprob] - self.vloc[...,iis,jjs,iprob]
+            self.utilde_rf[...,iprob] = self.Dyson(self.wloc[...,iprob],-self.ploc[...,iprob])
         
-        # self.ubar_rf = self.utilde_rf - self.vloc
+        for iprob in range(nprob):
+            for ifreq in range(nfreq):
+                for iis in range(ns):
+                    for jjs in range(ns):
+                        self.ubar_rf[...,iis,jjs,ifreq,iprob] = self.utilde_rf[...,iis,jjs,ifreq,iprob] - self.vloc[...,iis,jjs,iprob]
+
+
+
+
+        # # temp = np.zeros((norb,norb,ns,ns,nfreq),dtype=np.complex128,order='F')
+        # # for iprob in range(nprob):
+        # #     temp = self.Inverse(self.wloc[...,iprob]) + self.ploc[..., iprob]
+        # #     self.utilde_rf[...,iprob] = self.Inverse(temp)
+        # # # for iprob in range(nprob):
+        # # #     for ifreq in range(nfreq):
+        # # #         for iis in range(ns):
+        # # #             for jjs in range(ns):
+        # # #                 uinv_rf_temp[...] = temp[...,iis,jjs,ifreq,iprob] + self.ploc[...,iis,jjs,ifreq,iprob]
+        # # #                 self.utilde_rf[...,iis,jjs,ifreq,iprob] = np.linalg.inv(uinv_rf_temp[...])
+
+        # # self.ubar_rf = self.utilde_rf - self.vloc
+
+        # temp0 = np.zeros((norb,norb,ns,ns,nfreq),dtype=np.complex128,order='F')
+        # temp  = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+
+        # for iprob in range(nprob):
+        #     for ifreq in range(nfreq):
+        #         for iis in range(ns):
+        #             for jjs in range(ns):
+        #                 temp0[...,iis,jjs,ifreq] = IdendityMatrix + np.dot(self.wloc[...,iis,jjs,ifreq,iprob],self.ploc[...,iis,jjs,ifreq,iprob])
+        #     temp[...,iprob] = self.Inverse(temp0)
+
+        # for iprob in range(nprob):
+        #     for ifreq in range(nfreq):
+        #         for iis in range(ns):
+        #             for jjs in range(ns):
+        #                 # temp = IdendityMatrix + np.dot(self.wloc[...,iis,jjs,ifreq,iprob],self.ploc[...,iis,jjs,ifreq,iprob])
+        #                 # self.utilde_rf[...,iis,jjs,ifreq,iprob] = np.dot(np.linalg.inv(temp),self.wloc[...,iis,jjs,ifreq,iprob])
+        #                 self.utilde_rf[...,iis,jjs,ifreq,iprob] = np.dot(temp[...,iis,jjs,ifreq,iprob],self.wloc[...,iis,jjs,ifreq,iprob])
+        #                 self.ubar_rf[...,iis,jjs,ifreq,iprob] = self.utilde_rf[...,iis,jjs,ifreq,iprob] - self.vloc[...,iis,jjs,iprob]
+        
+        # # self.ubar_rf = self.utilde_rf - self.vloc
+                        
+
+
+
+
 
         self.ubar_rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
         self.utilde_rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')

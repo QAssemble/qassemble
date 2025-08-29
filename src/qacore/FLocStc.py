@@ -160,49 +160,49 @@ class FLocStc(object):
 
 
 
-    def imp_B2F(self,imp,B):
+    # def imp_B2F(self,imp,B):
 
-        self.crystal.read_imp_equi_mat(imp)  ## read imp_equivalant_mat and store information in crystal.imp_index
+    #     self.crystal.read_imp_equi_mat(imp)  ## read imp_equivalant_mat and store information in crystal.imp_index
 
-        nprob = len(self.crystal.probspace)
+    #     nprob = len(self.crystal.probspace)
 
-        F = {}
+    #     F = {}
         
-        for ii in range(nprob):
+    #     for ii in range(nprob):
 
-            iimp = str(ii+1)
+    #         iimp = str(ii+1)
 
-            F[iimp] = {}
-            for i in range(len(self.crystal.imp_index[ii])):
-                index_of_equivalance = str(i+1)
-                F[iimp][index_of_equivalance] = 0
+    #         F[iimp] = {}
+    #         for i in range(len(self.crystal.imp_index[ii])):
+    #             index_of_equivalance = str(i+1)
+    #             F[iimp][index_of_equivalance] = 0
 
-                for j in range(len(self.crystal.imp_index[ii][i])):
-                    F[iimp][index_of_equivalance] = F[iimp][index_of_equivalance] + B[self.crystal.imp_index[ii][i][j][0],self.crystal.imp_index[ii][i][j][1]]
+    #             for j in range(len(self.crystal.imp_index[ii][i])):
+    #                 F[iimp][index_of_equivalance] = F[iimp][index_of_equivalance] + B[self.crystal.imp_index[ii][i][j][0],self.crystal.imp_index[ii][i][j][1]]
 
-                F[iimp][index_of_equivalance] = F[iimp][index_of_equivalance]/len(self.crystal.imp_index[ii][i]) ### take the average
+    #             F[iimp][index_of_equivalance] = F[iimp][index_of_equivalance]/len(self.crystal.imp_index[ii][i]) ### take the average
             
-        return F
+    #     return F
     
 
-    def imp_F2B(self,imp,F):
+    # def imp_F2B(self,imp,F):
 
-        self.crystal.read_imp_equi_mat(imp)  ## read imp_equivalant_mat and store information in crystal.imp_index
+    #     self.crystal.read_imp_equi_mat(imp)  ## read imp_equivalant_mat and store information in crystal.imp_index
         
-        nprob = len(self.crystal.probspace)
-        norbc = self.crystal.fprojector.shape[1]
+    #     nprob = len(self.crystal.probspace)
+    #     norbc = self.crystal.fprojector.shape[1]
 
-        B = np.zeros((norbc,norbc,nprob), dtype=np.complex128, order='F')
-        ii = 0 # index of impurity problems -- nprob
-        for key,val in F.items():
-            i=0 # index of equivalances
-            for valkey,valval in val.items():
-                for j in range(len(self.crystal.imp_index[ii][i])):
-                    B[self.crystal.imp_index[ii][i][j][0],self.crystal.imp_index[ii][i][j][1],ii] = valval
-                i += 1
-            ii += 1
+    #     B = np.zeros((norbc,norbc,nprob), dtype=np.complex128, order='F')
+    #     ii = 0 # index of impurity problems -- nprob
+    #     for key,val in F.items():
+    #         i=0 # index of equivalances
+    #         for valkey,valval in val.items():
+    #             for j in range(len(self.crystal.imp_index[ii][i])):
+    #                 B[self.crystal.imp_index[ii][i][j][0],self.crystal.imp_index[ii][i][j][1],ii] = valval
+    #             i += 1
+    #         ii += 1
         
-        return B
+    #     return B
     
 
     
@@ -356,7 +356,6 @@ class SigmaHLoc(FLocStc):
                 #             #     gtemp[iorbc4,iorbc3,0] += g0kt[iorbc4,iorbc3,0,0,-1]
                 #             h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0]*C #1/nk*gtemp[iorbc4,iorbc3,0]*C
                 for iprob in range(nprob):
-                    # for iff in range(nf):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
                         ind1, [iorb, js] = self.crystal.indexing(
@@ -617,30 +616,24 @@ class SigmaFLoc(FLocStc):
 
 class EImp(FLocStc):
 
-    def __init__(self, crystal: Crystal, niham : NIHamiltonian = None, mu = None, hamh : SigmaHartree = None, hamf : SigmaFock = None, hloc : SigmaHLoc = None, floc : SigmaFLoc = None):
+    def __init__(self, crystal: Crystal, niham : np.array, mu, hamh : np.array, hamf : np.array, hloc : np.array, floc : np.array):
         super().__init__(crystal)
 
 
-        # self.ham = ham
         self.niham = niham
         self.hamh = hamh
         self.hamf = hamf
         self.hloc = hloc
         self.floc = floc
 
-        # print('hartree_loc')
-        # print(self.hloc.r[:,:,0,0])
-        # print('fock_loc')
-        # print(self.floc.r[:,:,0,0])
-
         self.mu = mu
 
-        self.hamhf = self.niham.k + self.hamh.k + self.hamf.k
-        self.sigmahfloc = self.hloc.r + self.floc.r
+        self.hamhf = self.niham + self.hamh + self.hamf
+        self.sigmahfloc = self.hloc + self.floc
 
         self.r = None
-        self.A_final = None
-        self.ctqmc_mu = None
+        # self.A_final = None
+        # self.ctqmc_mu = None
 
         self.Cal()
 
@@ -663,55 +656,45 @@ class EImp(FLocStc):
             for js in range(ns):
                 for iorb in range(norb):
                     hamhf[iorb, iorb, js, ik] -= self.mu
-                    # self.hamhf[iorb, iorb, js, ik] -= self.mu
         
-
         for ispace in range(nspace):
             tempmat[...,ispace] = QAFort.projection.flatstc(hamhf,self.crystal.fprojector[...,ispace])
         
-        # print('hf_projection')
-        # print(tempmat[:,:,0,0])
-        # exit()
-        # tempmat = self.niham.Projection(self.hamhf)
         self.hamhf_projection = self.Loc2Imp(tempmat)
-
-        # print('hamhf_projection --'+str(self.hamhf_projection[0,0,0,0]))
-        
-        # I = np.identity(norbc)
 
         self.r = np.zeros((norbc,norbc,ns,nprob), dtype=np.complex128, order='F')
         for iis in range(ns):
             for iprob in range(nprob):
-                self.r[...,iis,iprob] = self.hamhf_projection[...,iis,iprob] - self.sigmahfloc[...,iis,iprob] #- self.mu*I
+                self.r[...,iis,iprob] = self.hamhf_projection[...,iis,iprob] - self.sigmahfloc[...,iis,iprob]
 
 
-    def imp_final_input(self): ## move to EImp
+    # def imp_final_input(self): ## move to EImp
 
-        nprob = len(self.crystal.probspace)
-        ns = self.crystal.ns
-        norbc = self.crystal.fprojector.shape[1]
+    #     nprob = len(self.crystal.probspace)
+    #     ns = self.crystal.ns
+    #     norbc = self.crystal.fprojector.shape[1]
 
-        if ns==1:
-            mu = np.zeros(nprob, dtype=np.complex128, order='F')
-            # for i in range(nprob):
-            #     mu[i] = -B[0,0,i]  ### is the mu the same along the omega space?
-            I = np.identity(len(self.r))
-            A = np.zeros((norbc,norbc), dtype=np.complex128, order='F')
-            A_final = np.zeros((norbc*2,norbc*2,nprob), dtype=np.complex128, order='F')
+    #     if ns==1:
+    #         mu = np.zeros(nprob, dtype=np.complex128, order='F')
+    #         # for i in range(nprob):
+    #         #     mu[i] = -B[0,0,i]  ### is the mu the same along the omega space?
+    #         I = np.identity(len(self.r))
+    #         A = np.zeros((norbc,norbc), dtype=np.complex128, order='F')
+    #         A_final = np.zeros((norbc*2,norbc*2,nprob), dtype=np.complex128, order='F')
 
-            for i in range(nprob):
-                mu[i] = -self.r[0,0,0,i]
-                A = self.r[...,0,i] + mu[i]*I
-                A_final[...,i] = np.kron(np.eye(2),A)
+    #         for i in range(nprob):
+    #             mu[i] = -self.r[0,0,0,i]
+    #             A = self.r[...,0,i] + mu[i]*I
+    #             A_final[...,i] = np.kron(np.eye(2),A)
 
-            self.A_final = np.copy(A_final)
-            self.ctqmc_mu = np.copy(mu)
+    #         self.A_final = np.copy(A_final)
+    #         self.ctqmc_mu = np.copy(mu)
         
-        elif ns==2:
-            print("Nspin is not 1")
-            sys.exit()
+    #     elif ns==2:
+    #         print("Nspin is not 1")
+    #         sys.exit()
         
-        return None
+    #     return None
 
 
 
