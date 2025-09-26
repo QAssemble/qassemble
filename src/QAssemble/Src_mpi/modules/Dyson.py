@@ -45,7 +45,7 @@ class Dyson:
             for iorb in range(norb):
                 tempmat[iorb, iorb] += 1.0
             
-            tempmat2 = Common.CmplxMatInv(tempmat)
+            tempmat2 = Common.MatInv(tempmat)
 
             ffout[..., js] = np.dot(ffin[...,js], tempmat2)
 
@@ -152,7 +152,7 @@ class Dyson:
         for ind in range(ndim):
             tempmat[ind, ind] += 1.0
         
-        tempmat2 = Common.CmplxMatInv(tempmat)
+        tempmat2 = Common.MatInv(tempmat)
         tempmat3 = np.dot(ffintemp, tempmat2)
 
         for ks in range(ns):

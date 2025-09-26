@@ -93,9 +93,11 @@ class MPIManager(object):
             self.klocal2 = self.CreateMPICompositeIndex2(self.localshapef)
             self.rlocal2 = self.CreateMPICompositeIndex2(self.localshapeb)
             
-            self.klocal2global = self.MappingGlobal2Local(commk, self.klocal)
-            self.rlocal2global = self.MappingGlobal2Local(commk, self.rlocal)
+            self.klocal2global = self.MappingGlobal2Local(commk, self.klocal, shape)
+            self.rlocal2global = self.MappingGlobal2Local(commk, self.rlocal, shape)
 
+            nodedict['nfreq'] = nf
+            nodedict['ntau'] = ntau
             nodedict['submatrixkf'] = self.slicef
             nodedict['localshapef'] = self.localshapef
             nodedict['submatrixkb'] = self.sliceb
@@ -109,6 +111,24 @@ class MPIManager(object):
             nodedict['commksize'] = commk.Get_size()
             nodedict['commfsize'] = commf.Get_size()
             nodedict['commtausize'] = commtau.Get_size()
+            nodedict['fft'] = self.fft
+            nodedict['arr'] = self.arr
+            nodedict['arrT'] = self.arrT
+            nodedict['klocal'] = self.klocal
+            nodedict['rlocal'] = self.rlocal
+            nodedict['floc'] = self.floc
+            nodedict['tloc'] = self.tloc
+            nodedict['klocal2global'] = self.klocal2global
+            nodedict['rlocal2global'] = self.rlocal2global
+            nodedict['RLocal2Global'] = self.RLocal2Global
+            nodedict['RGlobal2Local'] = self.RGlobal2Local
+            nodedict['KLocal2Global'] = self.KLocal2Global
+            nodedict['KGlobal2Local'] = self.KGlobal2Local
+            nodedict['FLocal2Global'] = self.FLocal2Global
+            nodedict['FGlobal2Local'] = self.FGlobal2Local
+            nodedict['TLocal2Global'] = self.TLocal2Global
+            nodedict['TGlobal2Local'] = self.TGlobal2Local
+            nodedict['grid'] = shape
 
             self.mpidict[(nk, nf, ntau, nprock, nprocf)] = nodedict
 
@@ -116,11 +136,11 @@ class MPIManager(object):
             # commk, commw, submatrixk, submatrixw, commk.rank, commk.size, commw.rank, commw.size,
             return nodedict
         
-    def FFT(self, comm = MPI.COMM_WORLD, shape = None, decomposition = 'pencil'):
+    def FFT(self, comm = MPI.COMM_WORLD, shape : list = None):
 
-        if (decomposition == 'slab'):
-            fft = PFFT(comm = comm, shape=shape, axes=(0, 1, 2), dtype=np.complex128, grid=(-1))
-        elif (decomposition == 'pencil'):
+        if (shape[2] == 1):
+            fft = PFFT(comm = comm, shape=shape, axes=(0, 1, 2), dtype=np.complex128, grid=(-1,))
+        else:
             fft = PFFT(comm = comm, shape=shape, axes=(0, 1, 2), dtype=np.complex128)
 
         self.arr = newDistArray(fft, forward_output=True)
@@ -186,17 +206,19 @@ class MPIManager(object):
 
         return floc
     
-    def FGlobal2Local(self, fidx : int) -> list:
+    def FGlobal2Local(self, fidx : int, nodedict : dict) -> list:
 
-        for key, val in self.floc.items():
+        floc = nodedict['floc']
+        for key, val in floc.items():
             for key2, val2 in val.items():
                 if (val2 == fidx):
                     return (key, key2)
     
-    def FLocal2Global(self, flist : list) -> int:
+    def FLocal2Global(self, flist : list, nodedict : dict) -> int:
 
         rank, floc = flist
-        return self.floc[rank][floc]
+        flocdict = nodedict['floc']
+        return flocdict[rank][floc]
 
     def TGlobal2Local(self, tidx : int) -> list:
 
@@ -269,17 +291,18 @@ class MPIManager(object):
 
         return rank_composite_indices
     
-    def MappingGlobal2Local(self, commk, localdict : dict) -> dict:
+    def MappingGlobal2Local(self, commk, localdict : dict, grid : list = None) -> dict:
         mapping = {}
+        kind = self.crystal.K2K3D(grid)
         for irank in range(commk.Get_size()):
             mapping[irank] = {}
             for key, value in localdict[irank].items():
-                kidx = self.crystal.MergeKind(value)
+                kidx = self.crystal.MergeKind(value, kind)
                 mapping[irank][key] = kidx
 
         return mapping
     
-    def KGlobal2Local(self, kidx : int) -> list:
+    def KGlobal2Local(self, kidx : int, klocal2global : dict = None) -> list:
         """
         Convert a global k-index to its corresponding local rank and index.
 
@@ -289,13 +312,14 @@ class MPIManager(object):
             (rank, local_index) list: A list containing the rank and local index corresponding to the global k-index.
 
         """
-
-        for key, val in self.klocal2global.items():
+        if (klocal2global is None):
+            klocal2global = self.klocal2global
+        for key, val in klocal2global.items():
             for key2, val2 in val.items():
                 if (kidx == val2):
                     return [key, key2]
                 
-    def KLocal2Global(self, klocal : list) -> int:
+    def KLocal2Global(self, klocal : list, klocal2global : dict = None) -> int:
         """
         Convert a local k-index to its corresponding global index.
 
@@ -304,10 +328,12 @@ class MPIManager(object):
         Returns:
             kidx (int) : Global k-index corresponding to the local k-index.
         """
+        if (klocal2global is None):
+            klocal2global = self.klocal2global
         rank, local_index = klocal
-        return self.klocal2global[rank][local_index]
+        return klocal2global[rank][local_index]
     
-    def KLocalList(self, klocal : list) -> list:
+    def KLocalList(self, klist : list, klocal : dict = None) -> list:
         """
         Convert a local k-index to its corresponding global index.
 
@@ -316,12 +342,13 @@ class MPIManager(object):
         Returns:
             klist (list): Local 3D k-index corresponding to the local k-index.
         """
+        if (klocal is None):
+            klocal = self.klocal
+        rank, local_index = klist
 
-        rank, local_index = klocal
+        return [rank, klocal[rank][local_index]]
 
-        return [rank, self.klocal[rank][local_index]]
-    
-    def KListLocal(self, klist : list) -> list:
+    def KListLocal(self, klist : list, klocal : dict = None) -> list:
         """
         Convert a local k-index to its corresponding global index.
 
@@ -330,10 +357,12 @@ class MPIManager(object):
         Returns:
             klocal (list): Local k-index in the form [rank, local_index].
         """
-
+        
+        if (klocal is None):
+            klocal = self.klocal
         rank, k3d = klist
 
-        for key, val in self.klocal[rank].items():
+        for key, val in klocal[rank].items():
             if (k3d == val):
                 return [rank ,key]
             
@@ -368,7 +397,7 @@ class MPIManager(object):
                 return [rank ,key]
 
     
-    def RGlobal2Local(self, ridx : int) -> list:
+    def RGlobal2Local(self, ridx : int, rlocal2global : dict = None) -> list:
         """
         Convert a global r-index to its corresponding local rank and index.
 
@@ -379,12 +408,15 @@ class MPIManager(object):
 
         """
 
-        for key, val in self.rlocal2global.items():
+        if (rlocal2global is None):
+            rlocal2global = self.rlocal2global
+
+        for key, val in rlocal2global.items():
             for key2, val2 in val.items():
                 if (ridx == val2):
                     return [key, key2]
                 
-    def RLocal2Global(self, rlocal : list) -> int:
+    def RLocal2Global(self, rlocal : list, rlocal2global : dict = None) -> int:
         """
         Convert a local k-index to its corresponding global index.
 
@@ -393,8 +425,11 @@ class MPIManager(object):
         Returns:
             int: Global k-index corresponding to the local k-index.
         """
+        if (rlocal2global is None):
+            rlocal2global = self.rlocal2global
+
         rank, local_index = rlocal
-        return self.rlocal2global[rank][local_index]
+        return rlocal2global[rank][local_index]
     
     def RLocalList(self, rlocal : list) -> list:
         """
@@ -538,16 +573,17 @@ class MPIManager(object):
 
         return matout
     
-    def FMPIAllreduce(self, commw : MPI.COMM_WORLD, matin : np.ndarray, nf : int) -> np.ndarray:
+    def FMPIAllreduce(self, nodedict : dict, matin : np.ndarray) -> np.ndarray:
 
         nfloc = matin.shape[0]
+        commw = nodedict['commf']
 
-
+        nf = nodedict['nfreq']
         tempmat = np.zeros((nf), dtype=np.complex128, order='F')
         matout = np.zeros((nf), dtype=np.complex128, order='F')
 
         for iff in range(nfloc):            
-            fidx = self.FLocal2Global([commw.Get_rank(), iff])
+            fidx = self.FLocal2Global([commw.Get_rank(), iff], nodedict)
             tempmat[fidx] = matin[iff]
 
         commw.Allreduce(tempmat, matout, op=MPI.SUM)
@@ -574,34 +610,35 @@ class MPIManager(object):
         #     print("MPI Allreduce Finish")
 
         return matout
-    
-    def KMPIAllreduce(self, commk : MPI.COMM_WORLD, matin : np.ndarray) -> np.ndarray:
 
-        nk = len(self.crystal.kpoint)
+    def KMPIAllreduce(self, nodedict : dict, matin : np.ndarray) -> np.ndarray:
+
+        nk = nodedict['grid'][0] * nodedict['grid'][1] * nodedict['grid'][2]
         nkloc = matin.shape[0]
 
-
+        commk = nodedict['commk']
         tempmat = np.zeros((nk), dtype=np.complex128, order='F')
         matout = np.zeros((nk), dtype=np.complex128, order='F')
 
         for ik in range(nkloc):            
-            kidx = self.KLocal2Global([commk.Get_rank(), ik])
+            kidx = self.KLocal2Global([commk.Get_rank(), ik], nodedict['klocal2global'])
             tempmat[kidx] = matin[ik]
 
         commk.Allreduce(tempmat, matout, op=MPI.SUM)
 
         return matout
     
-    def RMPIAllreduce(self, commk : MPI.COMM_WORLD, matin : np.ndarray) -> np.ndarray:
+    def RMPIAllreduce(self, nodedict : dict, matin : np.ndarray) -> np.ndarray:
 
-        nr = len(self.crystal.kpoint)
+        nr = nodedict['grid'][0] * nodedict['grid'][1] * nodedict['grid'][2]
         nrloc = matin.shape[0]
 
+        commk = nodedict['commk']
         tempmat = np.zeros((nr), dtype=np.complex128, order='F')
         matout = np.zeros((nr), dtype=np.complex128, order='F')
 
         for ir in range(nrloc):
-            ridx = self.RLocal2Global([commk.Get_rank(), ir])
+            ridx = self.RLocal2Global([commk.Get_rank(), ir], nodedict['rlocal2global'])
             tempmat[ridx] = matin[ir]
 
         commk.Allreduce(tempmat, matout, op=MPI.SUM)
@@ -609,9 +646,9 @@ class MPIManager(object):
 
         return matout
     
-    def FMPIBCast(self, comm : MPI.COMM_WORLD, matin : np.ndarray, idx : int) -> np.ndarray:
+    def FMPIBCast(self, comm : MPI.COMM_WORLD, matin : np.ndarray, idx : int, nodedict) -> np.ndarray:
 
-        (rank, localidx) = self.FGlobal2Local(idx)
+        (rank, localidx) = self.FGlobal2Local(idx, nodedict)
         if (comm.Get_rank() == rank):
             val = matin[...,localidx]
         else:

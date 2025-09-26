@@ -38,7 +38,7 @@ class Bare:
         return gfreq
     
     @staticmethod
-    def FTau(tau : np.ndarray, energy : np.ndarray) -> np.ndarray:
+    def FTau(tau : np.ndarray, beta : np.float64, energy : np.ndarray) -> np.ndarray:
         """
         Calculates the bare fermionic Green's function in imaginary time domain.
 
@@ -49,28 +49,31 @@ class Bare:
         Returns:
             np.ndarray: The Green's function G(τ).
         """
-
+        
+        tau = np.asarray(tau, dtype=np.float64, order='F')
         ntau = len(tau)
         gtau = np.ndarray((ntau), dtype=np.complex128, order='F')
 
         pi = np.pi
-        beta = tau[0]/(np.cos(pi*(ntau-0.5)/ntau) + 1.0)*2.0
+        # beta = tau[0]/(np.cos(pi*(ntau-0.5)/ntau) + 1.0)*2.0
         machep = np.finfo(np.float64).eps
         
         for itau in range(ntau):
             taumod = (tau[itau] % beta)
             unitnum = int(tau[itau] - taumod)/beta
-            
+
             if (taumod < machep):
                 unitnum = unitnum-1
 
+            # Ensure unitnum is a clean integer to avoid power operation warnings
+            # unitnum = int(np.round(unitnum))
             taunew = tau[itau] - beta * unitnum
-            
+
             if (energy > 0):
-                gtau[itau] = (-1)**(unitnum+1)*np.exp(-energy*taunew, dtype=np.complex128) \
+                gtau[itau] = complex(-1)**(unitnum+1)*np.exp(-energy*taunew, dtype=np.complex128) \
                     * (1 - 1/(np.exp(energy*beta, dtype=np.complex128) + 1))
             else:
-                gtau[itau] = (-1)**(unitnum+1)* np.exp(-energy*(taunew-beta), dtype=np.complex128) \
+                gtau[itau] = complex(-1)**(unitnum+1)* np.exp(-energy*(taunew-beta), dtype=np.complex128) \
                     * (1.0/(np.exp(energy*beta, dtype=np.complex128) + 1))
 
         return gtau
@@ -128,9 +131,11 @@ class Bare:
             taunew = tau[itau] - beta*unitnum
 
             if (energy > 0):
-                wtau[itau] = -np.exp(-energy*beta, dtype=np.complex128)                     * (1.0 - 1.0/(np.exp(energy*beta, dtype=np.complex128) - 1))
+                wtau[itau] = -np.exp(-energy*beta, dtype=np.complex128)\
+                    * (1.0 - 1.0/(np.exp(energy*beta, dtype=np.complex128) - 1))
             else:
-                wtau[itau] = -np.exp(-energy*(taunew-beta), dtype=np.complex128)                     * (1.0/np.exp(energy*beta, dtype=np.complex128) - 1)
+                wtau[itau] = -np.exp(-energy*(taunew-beta), dtype=np.complex128)\
+                    * (1.0/np.exp(energy*beta, dtype=np.complex128) - 1)
         return wtau
 
 
@@ -193,7 +198,7 @@ class Bare:
         return glatt
     
     @staticmethod
-    def FLocTau(tau : np.ndarray, hloc : np.ndarray) -> np.ndarray:
+    def FLocTau(tau : np.ndarray, beta : np.float64,  hloc : np.ndarray) -> np.ndarray:
         """
         Calculates the local fermionic Green's function in imaginary time from a local Hamiltonian.
 
@@ -217,7 +222,7 @@ class Bare:
             gtau = np.zeros((ntau, norb), dtype=np.complex128, order='F')
 
             for iorb in range(norb):
-                gtau[:, iorb] = Bare.FTau(tau, w[iorb])
+                gtau[:, iorb] = Bare.FTau(tau, beta, w[iorb])
                 
             for itau in range(ntau):
                 for jorb in range(norb):
@@ -229,7 +234,7 @@ class Bare:
         return gloc
     
     @staticmethod
-    def FLatTau(tau : np.ndarray, hlatt : np.ndarray) -> np.ndarray:
+    def FLatTau(tau : np.ndarray, beta : np.float64, hlatt : np.ndarray) -> np.ndarray:
         """
         Calculates the lattice fermionic Green's function in imaginary time from a lattice Hamiltonian.
 
@@ -246,7 +251,7 @@ class Bare:
         glatt = np.zeros((norb, norb, ns, nk, ntau),dtype=np.complex128, order='F')
 
         for ik in range(nk):
-            glatt[..., ik, :] = Bare.FLocTau(tau, hlatt[..., ik])
+            glatt[..., ik, :] = Bare.FLocTau(tau, beta, hlatt[..., ik])
 
         return glatt
 

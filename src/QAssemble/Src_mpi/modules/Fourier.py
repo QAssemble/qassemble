@@ -546,43 +546,43 @@ class Fourier:
         return fout
     
     @staticmethod
-    def FPathStcR2K(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager, k : np.ndarray) -> np.ndarray:
+    def FPathStcR2K(fin : np.ndarray, nodedict : dict, nodedict2 : dict, k : np.ndarray, rvec : np.ndarray) -> np.ndarray:
 
         pi = np.pi
         ai = 1j
 
         norb, _, ns, nr = fin.shape
-        rank = commk.Get_rank()
-        nk = len(mpimanager.klocal[rank])
+        commk = nodedict['commk']
+        rank = nodedict['commkrank']
+        nk = len(nodedict['klocal'][rank])
 
         fout = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
 
-        for js in range(ns):
-            for jorb in range(norb):
-                for iorb in range(norb):
-                    for ik in range(nk):
-                        tempval = 0.0
-                        for ir in range(nr):
-                            kidx = mpimanager.KLocal2Global([rank, ik])
-                            ridx = mpimanager.RLocal2Global([rank, ir])
-                            tempval = tempval + fin[iorb, jorb, js, ir] * \
-                            np.exp(-2.0*ai*pi*np.dot(k[kidx], mpimanager.crystal.rvec[ridx]))
+        
+        for ik in range(nk):
+            tempval = 0.0
+            for ir in range(nr):
+                kidx = nodedict['KLocal2Global']([rank, ik], nodedict['klocal2global'])
+                ridx = nodedict2['RLocal2Global']([rank, ir], nodedict2['rlocal2global'])
+                tempval = tempval + fin[...,ir] * \
+                np.exp(-2.0*ai*pi*np.dot(k[kidx], rvec[ridx]))
 
-                        fout[iorb, jorb, js, ik] = tempval
+            fout[..., ik] = tempval
         
         return fout
     
     @staticmethod
-    def FPathDynR2K(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager, k : np.ndarray) -> np.ndarray:
+    def FPathDynR2K(fin : np.ndarray, nodedict : dict, nodedict2 : dict, k : np.ndarray, rvec : np.ndarray) -> np.ndarray:
 
         norb, _, ns, _, nfreq = fin.shape
-        rank = commk.Get_rank()
-        nk = len(mpimanager.klocal[rank])
+        commk = nodedict['commk']
+        rank = nodedict['commkrank']
+        nk = len(nodedict['klocal'][rank])
         fout = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
 
         for ifreq in range(nfreq):
 
-            fout[..., ifreq] = Fourier.FPathStcR2K(commk, fin[..., ifreq], mpimanager, k)
+            fout[..., ifreq] = Fourier.FPathStcR2K(fin[..., ifreq], nodedict, nodedict2, k, rvec)
         
         return fout
     

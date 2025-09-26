@@ -9,6 +9,7 @@ import os, sys
 import scipy.optimize
 import copy
 import h5py
+import shutil
 from .Crystal import Crystal
 from .FTGrid import FTGrid
 from .FLatStc import FLatStc
@@ -27,6 +28,7 @@ class FLatDyn(object):
         self.ftgrid = ftgrid
         self.nk = nk
         self.nw = nw
+        self.ntau = ntau
         self.nprock = nprock
         self.nprocw = nprocw
         self.mpimanager = mpimanager
@@ -47,68 +49,366 @@ class FLatDyn(object):
         with h5py.File(filepath, 'r') as file:
             return group in file
 
-    def Save(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
+    # def Save(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
 
-        file = h5py.File(hdf5file, 'a', driver='mpio', comm = self.mpimanager.comm)
+    #     file = h5py.File(hdf5file, 'a', driver='mpio', comm = self.mpimanager.comm)
         
-        if group in file:
-            g =  file[group]
-        else:
-            g = file.create_group(group)
+    #     if group in file:
+    #         g =  file[group]
+    #     else:
+    #         g = file.create_group(group)
         
-        if subgroup in g:
-            subg = g[subgroup]
-        else:
-            subg = g.create_group(subgroup)
+    #     if subgroup in g:
+    #         subg = g[subgroup]
+    #     else:
+    #         subg = g.create_group(subgroup)
 
         
-        print('Saving data...')
+    #     print('Saving data...')
+    #     rankf = self.nodedict['commfrank']
+    #     rankk = self.nodedict['commkrank']
+
+    #     nfreq = len(self.mpimanager.floc[rankf])
+    #     nk = len(self.mpimanager.klocal[rankk])
+    #     n4 = data.shape[3]
+    #     n5 = data.shape[4]
+    #     if (nk != n4) or (nfreq != n5):
+    #         print('Data mismatch')
+    #         sys.exit()
+    #     for ifreq in range(nfreq):
+    #         for ik in range(nk):
+    #             for js in range(self.crystal.ns):
+    #                 fidx = self.mpimanager.FLocal2Global([rankf, ifreq])
+    #                 kidx = self.mpimanager.KLocal2Global([rankk, ik])
+    #                 name = f"{dataname}_w_{fidx+1}_k_{kidx+1}_s_{js+1}"
+    #                 print(f"Saving {name} data to {hdf5file}")
+    #                 subg.create_dataset(name, data=data[:, :, js, ik, ifreq], dtype=np.complex128)
+        
+    #     print('Saving data finish')
+    
+    #     # self.mpimanager.comm.Barrier()
+    #     file.close()
+
+    #     return None
+    def Save(self, data : np.ndarray, dataname : str, hdf5file : str, group : str, subgroup: str):
+        """
+        Saves data by first writing to individual binary files from each MPI process,
+        then consolidating them into a single HDF5 file, mimicking the Fortran workflow.
+
+        Args:
+            data (np.ndarray): The data array to save. Expected shape (norb, norb, ns, nk_local, nfreq_local).
+            dataname (str): The base name for the data, e.g., 'Gfull' or 'hf'.
+            hdf5file (str): The path to the final HDF5 file.
+            group (str): The main group name within the HDF5 file.
+            subgroup (str): The subgroup name within the HDF5 file.
+        """
+        # Define a temporary directory for the binary files
+        temp_dir = os.path.join(os.path.dirname(hdf5file), 'global_dat_temp')
+
+        # === Step 1: Write local data to temporary binary files ===
+        # The root process creates the temporary directory
+        if self.mpimanager.rank == 0:
+            os.makedirs(temp_dir, exist_ok=True)
+        
+        # All processes wait until the directory is created
+        self.mpimanager.comm.Barrier()
+
         rankf = self.nodedict['commfrank']
         rankk = self.nodedict['commkrank']
-
-        nfreq = len(self.mpimanager.floc[rankf])
-        nk = len(self.mpimanager.klocal[rankk])
-        n4 = data.shape[3]
-        n5 = data.shape[4]
-        if (nk != n4) or (nfreq != n5):
-            print('Data mismatch')
-            sys.exit()
-        for ifreq in range(nfreq):
-            for ik in range(nk):
-                for js in range(self.crystal.ns):
-                    fidx = self.mpimanager.FLocal2Global([rankf, ifreq])
-                    kidx = self.mpimanager.KLocal2Global([rankk, ik])
-                    name = f"{dataname}_w_{fidx+1}_k_{kidx+1}_s_{js+1}"
-                    print(f"Saving {name} data to {hdf5file}")
-                    subg.create_dataset(name, data=data[:, :, js, ik, ifreq], dtype=np.complex128)
         
-        print('Saving data finish')
-    
-        # self.mpimanager.comm.Barrier()
-        file.close()
+        norb, _, ns, nk_loc, nfreq_loc = data.shape
+
+        print(f"Rank {self.mpimanager.rank}: Writing {nk_loc * nfreq_loc * ns} temporary files...")
+
+        # Each process writes its chunk of data to separate .tmp files
+        for s in range(ns):
+            for ik in range(nk_loc):
+                for iw in range(nfreq_loc):
+                    # Get global indices for consistent file naming
+                    k_global = self.mpimanager.KLocal2Global([rankk, ik])
+                    w_global = self.mpimanager.FLocal2Global([rankf, iw])
+                    
+                    # Construct filename like in Fortran
+                    filename = f"{dataname}_w_{w_global + 1}_k_{k_global + 1}_s_{s + 1}.tmp"
+                    filepath = os.path.join(temp_dir, filename)
+                    
+                    # Extract the (norb, norb) matrix and write to binary file
+                    data_slice = data[:, :, s, ik, iw]
+                    data_slice.tofile(filepath)
+        
+        print(f"Rank {self.mpimanager.rank}: Finished writing temporary files.")
+
+        # === Step 2: Consolidate binary files into a single HDF5 file ===
+        # Wait for all processes to finish writing before consolidating
+        self.mpimanager.comm.Barrier()
+
+        if self.mpimanager.rank == 0:
+            print("Rank 0: Consolidating temporary files into HDF5...")
+            self._consolidate_to_hdf5(temp_dir, dataname, hdf5file, group, subgroup, (norb, norb), ns)
+            print("Rank 0: Consolidation finished.")
+            
+            # === Step 3: Clean up temporary files ===
+            print("Rank 0: Removing temporary directory.")
+            try:
+                shutil.rmtree(temp_dir)
+            except OSError as e:
+                print(f"Error removing directory {temp_dir}: {e}")
+        
+        # Final barrier to ensure HDF5 file is closed and directory is removed before proceeding
+        self.mpimanager.comm.Barrier()
 
         return None
 
-    def Load(self, hdf5file : str = None, group : str = None, subgroup : str = None, data : np.ndarray = None, dataname : str = None):
+    def SaveBin(self, data : np.ndarray, dataname : str, hdf5file : str, tag : int):
+        """
+        Saves data by first writing to individual binary files from each MPI process,
+        then consolidating them into a single HDF5 file, mimicking the Fortran workflow.
 
+        Args:
+            data (np.ndarray): The data array to save. Expected shape (norb, norb, ns, nk_local, nfreq_local).
+            dataname (str): The base name for the data, e.g., 'Gfull' or 'hf'.
+            hdf5file (str): The path to the final HDF5 file.
+            tag (int) : An integer tag to identify the data, 1 : k-space, 0 : r-space
+        """
+        # Define a temporary directory for the binary files
+        temp_dir = os.path.join(os.path.dirname(hdf5file), 'global_dat_temp')
+
+        # === Step 1: Write local data to temporary binary files ===
+        # The root process creates the temporary directory
+        if self.mpimanager.rank == 0:
+            os.makedirs(temp_dir, exist_ok=True)
+        
+        # All processes wait until the directory is created
+        self.mpimanager.comm.Barrier()
+
+        rankf = self.nodedict['commfrank']
+        rankk = self.nodedict['commkrank']
+        
+        norb, _, ns, nk_loc, nfreq_loc = data.shape
+
+        print(f"Rank {self.mpimanager.rank}: Writing {nk_loc * nfreq_loc * ns} temporary files...")
+
+        # Each process writes its chunk of data to separate .tmp files
+        for s in range(ns):
+            for ik in range(nk_loc):
+                for iw in range(nfreq_loc):
+                    # Get global indices for consistent file naming
+                    if (tag == 1):
+                        k_global = self.mpimanager.KLocal2Global([rankk, ik])
+                    elif (tag == 0):
+                        k_global = self.mpimanager.RLocal2Global([rankk, ik])
+                    w_global = self.mpimanager.FLocal2Global([rankf, iw], self.nodedict)
+                    
+                    # Construct filename like in Fortran
+                    filename = f"{dataname}_w_{w_global + 1}_k_{k_global + 1}_s_{s + 1}.tmp"
+                    filepath = os.path.join(temp_dir, filename)
+                    
+                    # Extract the (norb, norb) matrix and write to binary file
+                    data_slice = data[:, :, s, ik, iw]
+                    data_slice.tofile(filepath)
+        
+        print(f"Rank {self.mpimanager.rank}: Finished writing temporary files.")
+        
+        # Final barrier to ensure HDF5 file is closed and directory is removed before proceeding
+        self.mpimanager.comm.Barrier()
+
+        return None
+
+    def _consolidate_to_hdf5(self, temp_dir: str, dataname: str, hdf5file: str, group: str, subgroup: str, matrix_shape: tuple, ns: int):
+        """
+        (Internal method, run by root process only)
+        Reads temporary binary files and writes them into an HDF5 container.
+        """
+        norb, _ = matrix_shape
+        
+        with h5py.File(hdf5file, 'a') as file:
+            g = file.require_group(group)
+            subg = g.require_group(subgroup)
+            
+            # Loop over global indices (w, k)
+            for w in range(self.nw):
+                for k in range(self.nk):
+                    # This dataset name matches the one in bin_to_hdf
+                    dataset_name = f"{dataname}_w_{w + 1}_k_{k + 1}"
+                    
+                    # Array to hold all spin components for this (w, k) point
+                    collated_data = np.zeros((norb, norb, ns), dtype=np.complex128)
+                    
+                    all_files_found = True
+                    for s in range(ns):
+                        filename = f"{dataname}_w_{w + 1}_k_{k + 1}_s_{s + 1}.tmp"
+                        filepath = os.path.join(temp_dir, filename)
+                        
+                        if os.path.exists(filepath):
+                            # Read from binary file and reshape
+                            read_data = np.fromfile(filepath, dtype=np.complex128)
+                            collated_data[:, :, s] = read_data.reshape(matrix_shape)
+                        else:
+                            print(f"Warning: File not found: {filepath}")
+                            all_files_found = False
+                            break
+                    
+                    # Write the combined (norb, norb, ns) array to the HDF5 file
+                    if all_files_found:
+                        if dataset_name in subg:
+                            del subg[dataset_name] # Overwrite if it exists
+                        subg.create_dataset(dataset_name, data=collated_data, dtype=np.complex128)
+        return None
+
+    
+    def Load(self, hdf5file: str, group: str, subgroup: str, dataname: str) -> np.ndarray:
+        """
+        Loads data in parallel from an HDF5 file created by the Save method.
+
+        Each MPI process reads only the datasets corresponding to its assigned
+        k-points and frequencies.
+
+        Args:
+            hdf5file (str): The path to the HDF5 file.
+            group (str): The main group name within the HDF5 file.
+            subgroup (str): The subgroup name within the HDF5 file.
+            dataname (str): The base name for the data, e.g., 'Gfull'.
+
+        Returns:
+            np.ndarray: The local data array for the current process, with shape
+                        (norb, norb, ns, nk_local, nfreq_local).
+        """
         file = h5py.File(hdf5file, 'r', driver='mpio', comm=self.mpimanager.comm)
         try:
-            if group in file:
-                g =  file[group]
-                if subgroup in g:
-                    subg = g[subgroup]
-                    if dataname in subg:
-                        data = subg[dataname][:]
-                        return data
+            # Navigate to the correct subgroup
+            if group not in file:
+                raise KeyError(f"Group '{group}' not found in {hdf5file}")
+            g = file[group]
+            if subgroup not in g:
+                raise KeyError(f"Subgroup '{subgroup}' not found in group '{group}'")
+            subg = g[subgroup]
+
+            # Determine shape information (norb, ns) from the first dataset
+            # Rank 0 reads the shape and broadcasts it to all other processes
+            shape_info = None
+            if self.mpimanager.rank == 0:
+                first_dset_name = f"{dataname}_w_1_k_1"
+                if first_dset_name not in subg:
+                    raise KeyError(f"Initial dataset '{first_dset_name}' not found. Cannot determine data shape.")
+                shape_info = subg[first_dset_name].shape
+            
+            shape_info = self.mpimanager.comm.bcast(shape_info, root=0)
+            norb, _, ns = shape_info
+
+            # Get local dimensions for this process
+            rankf = self.nodedict['commfrank']
+            rankk = self.nodedict['commkrank']
+            nk_loc = len(self.mpimanager.klocal[rankk])
+            nfreq_loc = len(self.mpimanager.floc[rankf])
+
+            # Initialize the array to hold the local data
+            data_out = np.zeros((norb, norb, ns, nk_loc, nfreq_loc), dtype=np.complex128, order='F')
+
+            print(f"Rank {self.mpimanager.rank}: Reading assigned data...")
+
+            # Each process loops over its local k and frequency indices
+            for ik in range(nk_loc):
+                for iw in range(nfreq_loc):
+                    # Map local indices to global indices to find the correct dataset
+                    k_global = self.mpimanager.KLocal2Global([rankk, ik])
+                    w_global = self.mpimanager.FLocal2Global([rankf, iw])
+
+                    dataset_name = f"{dataname}_w_{w_global + 1}_k_{k_global + 1}"
+
+                    if dataset_name in subg:
+                        # Read the (norb, norb, ns) slice and place it in the local array
+                        data_slice = subg[dataset_name][:]
+                        data_out[:, :, :, ik, iw] = data_slice
                     else:
-                        raise KeyError(f"{dataname} not found in {subgroup}")
-                else:
-                    raise KeyError(f"{subgroup} not found in {group}")
-            else:
-                raise KeyError(f"{group} not found in {hdf5file}")
+                        raise KeyError(f"Dataset '{dataset_name}' not found for rank {self.mpimanager.rank}")
+            
+            print(f"Rank {self.mpimanager.rank}: Finished reading data.")
+            return data_out
+
         finally:
             self.mpimanager.comm.Barrier()
             file.close()
+
+    def LoadBin(self, dataname: str, hdf5file: str, nodedict : dict) -> np.ndarray:
+        """
+        Loads data in parallel from temporary binary files created by SaveBin.
+
+        Each MPI process reads only the binary files corresponding to its assigned
+        k-points and frequencies. This method is the direct counterpart to SaveBin.
+
+        Args:
+            dataname (str): The base name for the data, e.g., 'Gfull'.
+            hdf5file (str): The path to the HDF5 file, used to locate the temp directory.
+
+        Returns:
+            np.ndarray: The local data array for the current process, with shape
+                        (norb, norb, ns, nk_local, nfreq_local).
+        """
+        # Define the temporary directory where binary files are stored
+        temp_dir = os.path.join(os.path.dirname(hdf5file), 'global_dat_temp')
+
+        # Determine the dimensions for the output array for this specific process
+        # This assumes 'find' attribute in crystal holds orbital information
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        
+        # Get the MPI rank for the k-point and frequency communicators
+        rankf = self.nodedict['commfrank']
+        rankk = self.nodedict['commkrank']
+        
+        # Get the number of local k-points and frequencies for this process
+        
+        nr_loc = len(self.nodedict['rlocal'][rankk])
+        nfreq_loc = len(self.mpimanager.floc[rankf])
+
+        nr = nodedict['grid'][0]*nodedict['grid'][1]*nodedict['grid'][2]
+        nr_loc2 = len(nodedict['rlocal'][rankk])
+        # nfreq = self.mpimanager.n
+
+        data_temp = np.zeros((norb, norb, ns, nr, nfreq_loc), dtype=np.complex128, order='F')
+        # data_out = np.zeros((norb, norb, ns, nr_loc2, nfreq_loc), dtype=np.complex128, order='F')
+        matrix_shape = (norb, norb)
+
+        print(f"Rank {self.mpimanager.rank}: Reading assigned binary files from {temp_dir}...")
+
+
+        for s in range(ns):
+            for ir in range(nr_loc):
+                for iw in range(nfreq_loc):
+                    # Map local indices to global indices to find the correct filename
+                    
+                    r_global = self.mpimanager.RLocal2Global([rankk, ir],self.nodedict['rlocal2global'])
+                    w_global = self.mpimanager.FLocal2Global([rankf, iw], self.nodedict)
+
+                    # Construct the filename exactly as it was created in SaveBin
+                    filename = f"{dataname}_w_{w_global + 1}_k_{r_global + 1}_s_{s + 1}.tmp"
+                    filepath = os.path.join(temp_dir, filename)
+
+                    if os.path.exists(filepath):
+                        # Read the binary data from the file
+                        read_data = np.fromfile(filepath, dtype=np.complex128)
+                        ridx = self.crystal.mappingrvec[r_global]
+                        # _, ir2 = nodedict['RGlobal2Local'](ridx, nodedict['rlocal2global'])
+                        
+                        # Reshape the flat array back into its (norb, norb) matrix form
+                        # and place it in the corresponding slice of the local output array
+                        data_temp[:, :, s, ridx, iw] = read_data.reshape(matrix_shape)
+                    else:
+                        # If a file is missing, it indicates a problem in the saving step or workflow
+                        raise FileNotFoundError(f"Required data file not found for rank {self.mpimanager.rank}: {filepath}")
+        
+
+        print(f"Rank {self.mpimanager.rank}: Finished reading binary files.")
+
+        # A barrier to ensure all processes have finished reading before the program proceeds
+        self.mpimanager.comm.Barrier()
+        if (self.mpimanager.rank == 0):
+            print('Removing temporary directory:', temp_dir)
+            shutil.rmtree(temp_dir)
+
+        return data_temp
+
+
 
     def Inverse(self, matin : np.ndarray) -> np.ndarray:
 
@@ -166,12 +466,14 @@ class FLatDyn(object):
 
         return matout
 
-    def K2R(self, matk : np.ndarray) -> np.ndarray:
+    def K2R(self, matk : np.ndarray, nodedict : dict = None) -> np.ndarray:
 
+        if (nodedict is None):
+            nodedict = self.nodedict
         norb, _, ns, nk, nf = matk.shape
         rkvec = self.crystal.kpoint
-        rank = self.nodedict['commkrank']
-        (nkx, nky, nkz) = self.mpimanager.localshapef[self.nodedict['commkrank']]
+        rank = nodedict['commkrank']
+        (nkx, nky, nkz) = nodedict['localshapef'][rank]
         if (nk != nkx * nky * nkz):
             raise ValueError(f"Error: nk ({nk}) does not match local shape ({nkx}, {nky}, {nkz})")        
         nr = len(self.mpimanager.rlocal[rank])
@@ -195,17 +497,22 @@ class FLatDyn(object):
         return matr
     
 
-    def R2K(self, matr : np.ndarray) -> np.ndarray:
+    def R2K(self, matr : np.ndarray, kpoint : np.ndarray = None, nodedict : dict = None) -> np.ndarray:
 
-        
+        if (nodedict is None):
+            nodedict = self.nodedict
 
         norb, _, ns, nr, nf = matr.shape
-        rank = self.nodedict['commkrank']
-        rkvec = self.crystal.kpoint
-        (nx, ny, nz) = self.mpimanager.localshapeb[rank]
-        nk = len(self.mpimanager.klocal[rank])
+        rank = nodedict['commkrank']
+        if (kpoint is None):
+            rkvec = self.crystal.kpoint
+        else:
+            rkvec = kpoint
+        (nx, ny, nz) = nodedict['localshapeb'][rank]
+        # nk = len(self.mpimanager.klocal[rank])
+        nk = len(nodedict['klocal'][rank])
         if (nr != nx * ny * nz):
-            print(f"Error: nk ({nr}) does not match local shape ({nx}, {ny}, {nz})")
+            print(f"Error: nr ({nr}) does not match local shape ({nx}, {ny}, {nz})")
             sys.exit()
         
         matk = np.zeros((norb, norb, ns, nk, nf), dtype=np.complex128, order='F')
@@ -220,8 +527,10 @@ class FLatDyn(object):
                             a, _ = self.crystal.FAtomOrb(iorb)
                             b, _ = self.crystal.FAtomOrb(jorb)
                             delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
-                            kidx = self.mpimanager.KLocal2Global([rank, ik])
+                            kidx = self.mpimanager.KLocal2Global([rank, ik], nodedict['klocal2global'])
+                            # print(f"rank : {rank}, ik : {ik}, kidx : {kidx}")
                             phase = np.exp(-2.0j * np.pi * np.dot(rkvec[kidx], delta))
+                            # phase = np.exp(-2.0j * np.pi * np.dot(np.squeeze(rkvec[kidx]), delta))
                             matk[iorb, jorb, js, ik, iff] = tempmat[iorb, jorb, js, ik, iff] * phase
 
         return matk
@@ -236,8 +545,8 @@ class FLatDyn(object):
         high = np.zeros((norb, norb, ns, nkloc), dtype=np.complex128, order='F')
         
 
-        fflast = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-1)
-        fflast2 = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-2)
+        fflast = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-1, self.nodedict)
+        fflast2 = self.mpimanager.FMPIBCast(self.commw, ff, len(omega)-2, self.nodedict)
 
         moment, high = Fourier.FLatDynM(self.ftgrid.omega, fflast, fflast2, isgreen, highzero)
 
@@ -265,14 +574,16 @@ class FLatDyn(object):
             for js in range(ns):
                 for jorb in range(norb):
                     for iorb in range(norb):
-                        ffglob[iorb, jorb, js, ik] = self.mpimanager.FMPIAllreduce(self.commw, ff[iorb, jorb, js, ik], nomega)
+                        ffglob[iorb, jorb, js, ik] = self.mpimanager.FMPIAllreduce(self.nodedict, ff[iorb, jorb, js, ik])
         
         ftau = Fourier.FLatDynF2T(self.ftgrid.omega, ffglob, moment, tau)
 
         return ftau
     
-    def T2F(self, ftau : np.ndarray) -> np.ndarray:
+    def T2F(self, ftau : np.ndarray, freq : np.ndarray = None, nodedict : dict = None) -> np.ndarray:
 
+        if (nodedict is None):
+            nodedict = self.nodedict
         rank = self.nodedict['commfrank']
         nfloc = self.submatrixw[rank][1]-self.submatrixw[rank][0]
         norb = ftau.shape[0]
@@ -285,7 +596,7 @@ class FLatDyn(object):
         # print(f"commfrank : {rank}, total comm rank : {self.mpimanager.rank}")
 
         ff = np.zeros((norb, norb, ns, nk, nfloc), dtype=np.complex128, order='F')
-        omega = np.zeros((nfloc), dtype=np.float64, order='F')
+        # omega = np.zeros((nfloc), dtype=np.float64, order='F')
 
         ftauglob = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
 
@@ -294,51 +605,106 @@ class FLatDyn(object):
                 for jorb in range(norb):
                     for iorb in range(norb):
                         ftauglob[iorb, jorb, js, ik] = self.mpimanager.TMPIAllreduce(self.commtau, ftau[iorb, jorb, js, ik], ntau)
-
-        for ifloc in range(nfloc):
-            fidx = self.mpimanager.FLocal2Global([rank, ifloc])
-            omega[ifloc] = self.ftgrid.omega[fidx]
+        
+        if (freq is None):
+            freq = self.ftgrid.omega
 
         # ff = QAFort.fourier.flatdyn_t2f(self.ftgrid.tau, self.ftgrid.beta, ftauglob, omega)
-        ffglob = Fourier.FLatDynT2F(self.ftgrid.tau, ftauglob, self.ftgrid.omega)
+        ffglob = Fourier.FLatDynT2F(self.ftgrid.tau, ftauglob, freq)
 
         for ifreq in range(nfloc):
-            fidx = self.mpimanager.FLocal2Global([rank, ifreq])
+            fidx = self.mpimanager.FLocal2Global([rank, ifreq], nodedict)
             ff[...,ifreq] = ffglob[...,fidx]
 
         return ff
     
-    def Kfc2Kff(self, fin : np.ndarray, kvec : np.ndarray) -> np.ndarray:
+    def Kfc2Kff(self, fin : np.ndarray, grid : list) -> np.ndarray:
 
         finv = self.Inverse(fin)
         rankf = self.nodedict['commfrank']
-        rankk = self.nodedict['commkrank']
-        tempmat = self.K2R(finv)
-        norb, _, ns, nk, nfreq = finv.shape
-        tempmat2 = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
+        # rankk = self.nodedict['commkrank']
+        # tempmat = self.K2R(finv)
+        norb, _, ns, nk_loc, nfreq_loc = finv.shape
+        tempmat2 = np.zeros((norb, norb, ns, nk_loc, nfreq_loc), dtype=np.complex128, order='F')
         omega = self.ftgrid.omega * 1j
 
-        for ifreq in range(nfreq):
-            for ik in range(nk):
+        for ifreq in range(nfreq_loc):
+            for ik in range(nk_loc):
                 for js in range(ns):
                     for jorb in range(norb):
                         for iorb in range(norb):
-                            fidx = self.mpimanager.FLocal2Global([rankf, ifreq])
+                            fidx = self.mpimanager.FLocal2Global([rankf, ifreq], self.nodedict)
                             if (iorb == jorb):
                                 tempmat2[iorb, jorb, js, ik, ifreq] = (
-                                    omega[fidx] - finv[iorb, jorb, js, ik, ifreq]
+                                    finv[iorb, jorb, js, ik, ifreq] - omega[fidx]
                                 )
                             else:
                                 tempmat2[iorb, jorb, js, ik, ifreq] = (
-                                    -finv[iorb, jorb, js, ik, ifreq]
+                                    finv[iorb, jorb, js, ik, ifreq]
                                 )
         
-        self.crystal.RVec()
-        tempmat3 = Fourier.FPathDynR2K(self.commk, tempmat2, self.mpimanager, kvec)
+        tempmat3 = self.K2R(tempmat2)
+        self.SaveBin(tempmat3, 'Gfull', 'temp', 0)
+        rvec, _ = self.crystal.RVec(grid)
+        self.crystal.MappingRVec(rvec)
+        kpoint = self.crystal.KPoint(grid)
+        
+        nk = grid[0] * grid[1] * grid[2]
+        nodedict = self.mpimanager.Quary(nk, self.nw, self.ntau, self.nprock, self.nprocw, grid)
+        nrloc = len(nodedict['rlocal'][nodedict['commkrank']])
+        tempmat4 = self.LoadBin('Gfull', 'temp', nodedict)
+        tempmat = np.zeros((norb, norb, ns, nrloc, nfreq_loc), dtype=np.complex128, order='F')
+        
+        for ir in range(nrloc):
+            ridx = self.mpimanager.RLocal2Global([nodedict['commkrank'], ir], nodedict['rlocal2global'])
+            tempmat[..., ir, :] = tempmat4[..., ridx, :]
+        
+        A = self.R2K(tempmat, kpoint, nodedict)
+        nk_loc = A.shape[3]
+    
+            
+        tempmat5 = np.zeros((norb, norb, ns, nk_loc, nfreq_loc), dtype=np.complex128, order='F')
 
-        return tempmat3
+        for ifreq in range(nfreq_loc):
+            for ik in range(nk_loc):
+                for js in range(ns):
+                    for jorb in range(norb):
+                        for iorb in range(norb):
+                            fidx = self.mpimanager.FLocal2Global([rankf, ifreq], nodedict)
+                            if (iorb == jorb):
+                                tempmat5[iorb, jorb, js, ik, ifreq] = (
+                                    A[iorb, jorb, js, ik, ifreq] + omega[fidx]
+                                )
+        fout = self.Inverse(tempmat5)
+        
+        del tempmat2, tempmat3, tempmat4, tempmat5, A
+        # tempmat3 = Fourier.FPathDynR2K(self.commk, tempmat2, self.mpimanager)
 
+        return fout
+    
+    def FFine(self, fin : np.ndarray, beta : float, grid : list = None) -> np.ndarray:
 
+        if grid is None:
+            grid = self.crystal.rkgrid
+        omega = []
+        for i in range(1000000):
+            w = (2.0*float(i)+1.0) * np.pi / beta
+            if (w > self.ftgrid.cutoff):
+                break
+            omega.append(w)
+
+        omega = np.array(omega, dtype=np.float64, order='F')
+
+        nk = fin.shape[3]
+        nfreq = len(omega)
+        ntau = len(self.ftgrid.tau)
+        ftau = self.F2T(fin, True, True)
+        nodedict = self.mpimanager.Quary(nk, nfreq, ntau, self.nprock, self.nprocw, grid)
+        
+
+        fomega = self.T2F(ftau, omega, nodedict)
+
+        return fomega
 
 
 

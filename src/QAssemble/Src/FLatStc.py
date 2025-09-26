@@ -308,46 +308,53 @@ class FLatStc(object):
         print("***** DOS Calculation Finish *****")
         return None
 
-    def Visualization(self, energy: np.ndarray, fn: str = None):
+    def Visualization(self, energy: np.ndarray, grid : list = None, fn: str = None):
 
-        if self.crystal.rkgrid[2] != 1:
-            print("Energy surface for only 2D case")
-            sys.exit()
+        if grid is None:
+            grid = self.crystal.rkgrid
+            kpoint = self.crystal.kpoint
         else:
-            norb = energy.shape[0]
-            ns = energy.shape[2]
-            fig = plt.figure()
-            ax = fig.add_subplot(projection="3d")
-            kx = self.crystal.kpoint[:, 0].reshape(
-                self.crystal.rkgrid[0], self.crystal.rkgrid[1], self.crystal.rkgrid[2]
-            )
-            ky = self.crystal.kpoint[:, 1].reshape(
-                self.crystal.rkgrid[0], self.crystal.rkgrid[1], self.crystal.rkgrid[2]
-            )
-            energy = energy.T
-            energy = energy.reshape(
-                self.crystal.rkgrid[0],
-                self.crystal.rkgrid[1],
-                self.crystal.rkgrid[2],
-                ns,
-                norb,
-                norb,
-            )
+            kpoint = self.crystal.KPoint(grid)
 
-            for js in range(ns):
-                for iorb in range(norb):
-                    ax.plot_surface(
-                        kx[:, :, 0], ky[:, :, 0], energy[:, :, 0, js, iorb, iorb]
-                    )
+        # if grid[2] != 1:
+        #     print("Energy surface for only 2D case")
+        #     sys.exit()
+        # else:
+            
+        norb = energy.shape[0]
+        ns = energy.shape[2]
+        fig = plt.figure()
+        ax = fig.add_subplot(projection="3d")
+        kx = kpoint[:, 0].reshape(
+            grid[0], grid[1], grid[2]
+        )
+        ky = kpoint[:, 1].reshape(
+            grid[0], grid[1], grid[2]
+        )
+        energy = energy.T
+        energy = energy.reshape(
+            grid[0],
+            grid[1],
+            grid[2],
+            ns,
+            norb,
+            norb,
+        )
 
-            ax.view_init(azim=-120, elev=0)
-            ax.set_xlabel("kx")
-            ax.set_ylabel("ky")
-            ax.set_zlabel("Energy eV")
-            if fn is None:
-                plt.show()
-            elif fn is not None:
-                fig.savefig(fn)
+        for js in range(ns):
+            for iorb in range(norb):
+                ax.plot_surface(
+                    kx[:, :, 0], ky[:, :, 0], energy[:, :, 0, js, iorb, iorb]
+                )
+
+        ax.view_init(azim=-120, elev=0)
+        ax.set_xlabel("kx")
+        ax.set_ylabel("ky")
+        ax.set_zlabel("Energy eV")
+        if fn is None:
+            plt.show()
+        elif fn is not None:
+            fig.savefig(fn)
 
         return None
 
