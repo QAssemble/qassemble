@@ -11,7 +11,7 @@ import time
 import h5py
 import numpy as np
 
-from QAssemble.Src_mpi.CorrelationFunction import CorrelationFunction
+from QAssemble.Serial.CorrelationFunction import CorrelationFunction
 
 
 class Run:
@@ -128,22 +128,6 @@ class Run:
         self.CheckKeyinString("Local", ham["TwoBody"])
         self.CheckKeyinString("Parameter", ham["TwoBody"]["Local"])
 
-        # hopplist = []
-        # print(ham["OneBody"]['Hopping'])
-        # for orb,val in ham["OneBody"]['Hopping'].items():
-        #     for t, lat in val.items():
-        #         print(f"orbital : {orb}, hopping : {t}, lattice : {lat}")
-        #         for r in lat:
-        #             hopplist.append([t,list(orb[0]),list(orb[1]),r])
-
-        # for key,val in ham['OneBody'].items():
-        #     for orb, lat in tb['site'][key].items():
-        #         for r in range(len(lat)):
-        #             hopplist.append([val,orb[0],orb[1],lat[r]])
-        # onsitelist = []
-        # for orb, val in ham['OneBody']['Onsite'].items():
-        #     onsitelist.append(val)
-        # print(onsitelist)
         control["ham"]["hoppinglist"] = ham["OneBody"]["Hopping"]
         control["ham"]["onsitelist"] = ham["OneBody"]["Onsite"]
         control["ham"]["spin"] = ham["OneBody"].get("Spin", False)
@@ -231,7 +215,7 @@ class Run:
         ohno = NonLoc.get("Ohno", False)
         jth = NonLoc.get("JTH", False)
         oy = NonLoc.get('OhnoYukawa', False)
-        print(jth)
+        # print(jth)
         if ham["TwoBody"]["NonLocal"] == "None":
             control["ham"]["coulomb"]["nonlocal"] = vnonlocparameter
             control["ham"]["coulomb"]["ohno"] = ohno
@@ -255,21 +239,12 @@ class Run:
             control["ham"]["coulomb"]["nonlocal"] = vnonlocparameter
             control["ham"]["coulomb"]["ohnoyuka"] = oy
         else:
-            # vnonlocparameter = []
-            # for orb,val in ham['TwoBody']['NonLocal'].items():
-            #     for v, lat in val.items():
-            #         for r in lat:
-            #             vnonlocparameter.append([v,list(orb[0]),list(orb[1]),r])
+
             control["ham"]["coulomb"]["nonlocal"] = ham["TwoBody"]["NonLocal"]
             control["ham"]["coulomb"]["ohno"] = ohno
             control["ham"]["coulomb"]["jth"] = jth
             control["ham"]["coulomb"]["ohnoyuka"] = oy
 
-            # for ii in range(len(val)):
-            #     vij = val[ii][0]
-            #     lat = val[ii][1]
-            #     for r in lat:
-            #         vnonlocparameter.append([vij,orb[0],orb[1],r])
 
         ######## Check the method ########
 

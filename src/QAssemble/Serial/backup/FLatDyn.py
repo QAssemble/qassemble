@@ -7,24 +7,32 @@ import numpy as np
 from pylab import cm
 import matplotlib.font_manager as fm
 from collections import OrderedDict
-import os, sys, itertools
+# import json, os, shutil, sys
+import os, sys
+# import itertools
 import scipy.optimize
 from sympy.physics.wigner import gaunt, wigner_3j
 from scipy.fftpack import fftn, ifftn
+# import scipy.linalg
+# from pymatgen.core import Lattice, Structure
+# from pymatgen.transformations.standard_transformations import SupercellTransformation
+# import subprocess
 import copy
 import h5py
 from .Crystal import Crystal
+from .FTGrid import FTGrid
 from .FLatStc import FLatStc
 from utility.DLR import DLR
-from utility.Common import Common
+# from .MPIManager import MPIManager
 qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/QAssemble/modules')
 import QAFort
 
 class FLatDyn(object):
-    def __init__(self,crystal : Crystal, dlr : DLR) -> object:
+    def __init__(self,crystal : Crystal, ft : FTGrid) -> object:
         self.crystal = crystal
-        self.dlr = dlr
+        self.ft = ft
+        # self.dlr = dlr
         self.mappingidx = None
         
     def Inverse(self, mat : np.ndarray) -> np.ndarray:
@@ -51,29 +59,28 @@ class FLatDyn(object):
         norb = ftau.shape[0]
         ns = ftau.shape[2]
         nk = ftau.shape[3]
-        # ntau = ftau.shape[4]
-        nfreq = len(self.dlr.omega)
+        nfreq = len(self.ft.omega)
         ff = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order='F')
 
-        for ik in range(nk):
-            for js in range(ns):
-                ff[:, :, js, ik] = self.dlr.FT2F(ftau[:, :, js, ik])
+        ff = QAFort.fourier.flatdyn_t2f(self.ft.tau,self.ft.beta, ftau,self.ft.omega)
+        
+
+        
 
         return ff
     
-    def F2T(self,ff : np.ndarray) -> np.ndarray:
+    def F2T(self,ff : np.ndarray,isgreen : int, highzero : int) -> np.ndarray:
 
         norb = ff.shape[0]
         ns = ff.shape[2]
         nk = ff.shape[3]
-        # nfreq = ff.shape[4]
-        ntau = len(self.dlr.tau)
+        ntau = len(self.ft.tau)
 
         ftau = np.zeros((norb,norb,ns,nk,ntau),dtype=np.complex128,order='F')
+        tempmat = copy.deepcopy(ff)
+        moment, high = self.Moment(tempmat,isgreen,highzero)
         
-        for ik in range(nk):
-            for js in range(ns):
-                ftau[:, :, js, ik] = self.dlr.FF2T(ff[:, :, js, ik])
+        ftau = QAFort.fourier.flatdyn_f2t(self.ft.omega,tempmat,moment,self.ft.tau)
 
         return ftau
 
@@ -89,7 +96,7 @@ class FLatDyn(object):
 
         tempmat = copy.deepcopy(ff)
 
-        moment, high = QAFort.fourier.flatdyn_m(self.dlr.omega,tempmat,isgreen,highzero)
+        moment, high = QAFort.fourier.flatdyn_m(self.ft.omega,tempmat,isgreen,highzero)
 
         return moment, high
     
@@ -269,12 +276,12 @@ class FLatDyn(object):
 
         return matout
     
-    def ChemEmbedding(self,mu : np.float64) -> np.ndarray:
+    def ChemEmbedding(self,mu : float) -> np.ndarray:
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = len(self.dlr.omega)#self.ft.size
+        nft = len(self.ft.omega)#self.ft.size
 
         chem = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
@@ -295,7 +302,7 @@ class FLatDyn(object):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = len(self.dlr.omega)#self.ft.size
+        nft = len(self.ft.omega)#self.ft.size
 
         matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
@@ -331,7 +338,7 @@ class FLatDyn(object):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nk = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
-        nfreq = len(self.dlr.omega)
+        nfreq = len(self.ft.omega)
 
         akf = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,oder='F')
 
@@ -347,7 +354,7 @@ class FLatDyn(object):
         nk = len(kpoint)
         nft = matr.shape[4]
 
-        self.crystal.RVec()
+        self.crystal.Rvec()
         tempmat = copy.deepcopy(matr)
         matk = np.zeros((norb,norb,ns,nk,nft),dtype=complex,order='F')
 
@@ -379,7 +386,7 @@ class FLatDyn(object):
         matkinv = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
 
         matrinv = self.Inverse(matr)
-        omega = self.dlr.omega
+        omega = self.ft.omega
 
         for ifreq in range(nfreq):
             for ir in range(nr):
@@ -411,9 +418,9 @@ class FLatDyn(object):
     
 class GreenBare(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
+    def __init__(self, crystal: Crystal, ft: FTGrid, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
         
-        super().__init__(crystal, dlr)
+        super().__init__(crystal, ft)
         # print(self.niham.hamtb[...,0,0])
         self.hamtb = hamtb
         self.kt = None
@@ -432,13 +439,13 @@ class GreenBare(FLatDyn):
         
         
         print(self.hamtb[:,:,0,0])
-        gnotkf = QAFort.bare.flatfreq(self.hamtb,self.dlr.omega)
+        gnotkf = QAFort.bare.flatfreq(self.hamtb,self.ft.omega)
         gnotrf = self.K2R(gnotkf)#######
         
         self.kf = gnotkf
         self.rf = gnotrf
 
-        gnotkt = QAFort.bare.flattau(self.hamtb,self.dlr.tau)
+        gnotkt = QAFort.bare.flattau(self.hamtb,self.ft.tau)
         gnotrt = self.K2R(gnotkt)
 
         self.kt = gnotkt
@@ -489,23 +496,21 @@ class GreenBare(FLatDyn):
     
 class GreenInt(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
+    def __init__(self, crystal: Crystal, ft: FTGrid, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
         
         if greenbare is None:
             print("Bare Green's function doesn't exist")
             sys.exit()
-        super().__init__(crystal, dlr)
+        super().__init__(crystal, ft)
         self.flatstc = FLatStc(crystal=crystal)
-        norb, _, ns, nk, nfreq = greenbare.shape
-        ntau = len(self.dlr.tau)
-        self.kf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
-        self.kt = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
-        self.rf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
-        self.rt = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
-        self.gkfmu0 = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
-        self.gktmu0 = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
-        self.grfmu0 = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
-        self.grtmu0 = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
+        self.kf = None
+        self.kt = None
+        self.rf = None
+        self.rt = None
+        self.gkfmu0 = None
+        self.gktmu0 = None
+        self.grfmu0 = None
+        self.grtmu0 = None
         self.gbare = greenbare
         self.sigmah = sigmah
         self.sigmaf = sigmaf
@@ -513,12 +518,12 @@ class GreenInt(FLatDyn):
         self.occ = None
         self.occk = None
         self.occr = None
-        self.mu = np.float64(0.0)
-        self.c = np.float64(0.0)
+        self.mu = 0
+        self.c = 0
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
-        # print(f"Bare Green's function : \n{self.gbare[:,:,0,0,0]}")
+        print(f"Bare Green's function : \n{self.gbare[:,:,0,0,0]}")
         self.CalMu0()
         self.SearchMu()
 
@@ -527,7 +532,7 @@ class GreenInt(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nomega = len(self.dlr.omega)
+        nomega = len(self.ft.omega)
         sigma = np.zeros((norb,norb,ns,nrk,nomega),dtype=np.complex128,order='F')
         print("Initialization start")
         if (self.sigmah is None)and(self.sigmaf is None)and(self.sigmac is None):
@@ -553,7 +558,7 @@ class GreenInt(FLatDyn):
             self.gkfmu0 = self.Dyson(self.gbare,sigma) 
         
 
-        self.gktmu0 = self.F2T(self.gkfmu0)
+        self.gktmu0 = self.F2T(self.gkfmu0,1,1)
         self.grfmu0 = self.K2R(self.gkfmu0)
         self.grtmu0 = self.K2R(self.gktmu0)
         print("Initialization finish")
@@ -590,7 +595,7 @@ class GreenInt(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = len(self.dlr.omega)
+        nft = len(self.ft.omega)
 
         gkfnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
         chem = self.ChemEmbedding(self.mu)
@@ -599,7 +604,7 @@ class GreenInt(FLatDyn):
         gkfnew = self.Dyson(self.gkfmu0,-chem)
         
         self.kf = gkfnew
-        self.kt = self.F2T(gkfnew)
+        self.kt = self.F2T(gkfnew,1,1)
         # self.grf = self.K2R(self.Dyson(self.gkfmu0,-chem))
         # self.grt = self.K2R(self.F2T(self.Dyson(self.gkfmu0,-chem),1,1))
         self.rf = self.K2R(self.kf)
@@ -609,12 +614,12 @@ class GreenInt(FLatDyn):
 
         return None
     
-    def NumOfE(self, mu : np.float64):
+    def NumOfE(self, mu : float):
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = len(self.dlr.omega)#self.ft.size
+        nft = len(self.ft.omega)#self.ft.size
         tempmat = copy.deepcopy(self.gkfmu0)
         chem = self.ChemEmbedding(mu)
         gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
@@ -622,7 +627,7 @@ class GreenInt(FLatDyn):
 
         
         gcalf = self.Dyson(tempmat,-chem)
-        gcalt = self.F2T(gcalf)
+        gcalt = self.F2T(gcalf,1,1)
         
         
         
@@ -642,8 +647,8 @@ class GreenInt(FLatDyn):
     def SearchMu(self):
         
         print("Finding chemical potential start")
-        mumin = -self.dlr.omega[-1]*0.6
-        mumax = self.dlr.omega[-1]*0.6
+        mumin = -self.ft.omega[-1]*0.6
+        mumax = self.ft.omega[-1]*0.6
         print(f"minimum : {mumin}, maximum : {mumax}")
         nmin = self.NumOfE(mumin)
         nmax = self.NumOfE(mumax)
@@ -682,16 +687,15 @@ class GreenInt(FLatDyn):
     
 class SigmaGWC(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, green : np.ndarray = None, wlat : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None) -> object:
-        super().__init__(crystal, dlr)
+    def __init__(self, crystal: Crystal, ft: FTGrid, green : np.ndarray = None, wlat : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None) -> object:
+        super().__init__(crystal, ft)
         self.flatstc = FLatStc(crystal=crystal)
-        norb, _, ns, nk, nfreq = green.shape
-        self.rt = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
-        self.rf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
-        self.kt = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
-        self.kf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
-        self.stck = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
-        self.z = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
+        self.rt = None
+        self.rf = None
+        self.kt = None
+        self.kf = None
+        self.stck = None
+        self.z = None
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
@@ -748,15 +752,13 @@ class SigmaGWC(FLatDyn):
             for ir in range(nr):
                 for ind2 in range(norb*ns):
                     nn2 = [0]*2
-                    ind2, [jorb,ks] = Common.Indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
-                    # ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
+                    ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
                     [b,[m3,m2]] = self.crystal.BAtomOrb(jorb)
                     iorbc3 = self.crystal.FIndex([b,m3])
                     iorbc2 = self.crystal.FIndex([b,m2])
                     for ind1 in range(norb*ns):
                         nn1 = [0]*2
-                        # ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
-                        ind1, [iorb,js] = Common.Indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
+                        ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
                         [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
                         iorbc1 = self.crystal.FIndex([a,m1])
                         iorbc4 = self.crystal.FIndex([a,m4])
@@ -781,7 +783,7 @@ class SigmaGWC(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nk = len(self.crystal.kpoint)
-        nfreq = len(self.dlr.omega)#self.ft.size
+        nfreq = len(self.ft.omega)#self.ft.size
 
         sigmastc = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order="F")
         tempmat = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order="F")
@@ -807,8 +809,8 @@ class SigmaGWC(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nk = len(self.crystal.kpoint)
-        nfreq = len(self.dlr.omega)#self.ft.size
-        beta = self.dlr.beta
+        nfreq = len(self.ft.omega)#self.ft.size
+        beta = self.ft.beta
 
         z = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order='F')
         # identity = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order='F')
@@ -869,8 +871,8 @@ class SigmaGWC(FLatDyn):
 
 class GreenAB(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR) -> object:
-        super().__init__(crystal, dlr)
+    def __init__(self, crystal: Crystal, ft: FTGrid) -> object:
+        super().__init__(crystal, ft)
 
         glob = h5py.File('../../glob_dat/global.dat', 'r')
         self.i_kerf = glob['full_space']['gw']['i_kref'][:]
