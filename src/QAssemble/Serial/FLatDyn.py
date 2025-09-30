@@ -544,12 +544,12 @@ class GreenInt(FLatDyn):
                 print('Hartree')
                 print(sigma[:,:,0,0,0])
             if (self.sigmaf is not None):
-                print(sigma[:,:,0,0,0])
+                # print(sigma[:,:,0,0,0])
                 sigma += self.StcEmbedding(self.sigmaf)
                 print('Fock')
                 print(sigma[:,:,0,0,0])
             if (self.sigmac is not None):
-                print(sigma[:,:,0,0,0])
+                # print(sigma[:,:,0,0,0])
                 sigma += self.sigmac
                 print('GWC')
                 print(sigma[:,:,0,0,0])
@@ -573,8 +573,14 @@ class GreenInt(FLatDyn):
         occ = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
         
         print("Density matrixy calculation start")
-        
-        occk = -self.kt[...,-1]
+        ntau = 5000
+        kt = np.zeros((norb, norb, ns, nrk, ntau), dtype=np.complex128, order='F')
+
+        for irk in range(nrk):
+            for js in range(ns):
+                kt[:, :, js, irk] = self.dlr.TauDLR2Uniform(self.kt, ntau)
+
+        occk = -kt[...,-1]
     
         for irk in range(nrk):
             occ += occk[...,irk]
@@ -620,12 +626,17 @@ class GreenInt(FLatDyn):
         nft = len(self.dlr.omega)#self.ft.size
         tempmat = copy.deepcopy(self.gkfmu0)
         chem = self.ChemEmbedding(mu)
+        ntau = 5000
         gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
-        gcalt = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+        gcalt = np.zeros((norb,norb,ns,nrk,ntau),dtype=np.complex128,order='F')
 
         
         gcalf = self.Dyson(tempmat,-chem)
-        gcalt = self.F2T(gcalf)
+        tempmat = self.F2T(gcalf)
+
+        for irk in range(nrk):
+            for js in range(ns):
+                gcalt[:, :, js, irk] = self.dlr.TauDLR2Uniform(tempmat[:, :, js, irk], ntau)
         
         
         
@@ -638,13 +649,13 @@ class GreenInt(FLatDyn):
         Ne /= nrk
         
         N = self.crystal.nume
-        # print(N,Ne,N-Ne)
-        
+        del gcalf, gcalt, tempmat
         return N - Ne
 
     def SearchMu(self):
         
         print("Finding chemical potential start")
+        # omega = self.dlr.MatsubaraFermionUniform()
         mumin = -self.dlr.omega[-1]*0.6
         mumax = self.dlr.omega[-1]*0.6
         print(f"minimum : {mumin}, maximum : {mumax}")
@@ -760,7 +771,7 @@ class SigmaGWC(FLatDyn):
         for ir in range(nr):
             for js in range(ns):
                 crtau[:, :, js, ir] = self.dlr.TauUniform2DLR(tempmat[:, :, js, ir])
-                
+
         cktau = self.R2K(crtau)
         ckfreq = self.T2F(cktau)
         crfreq = self.T2F(crtau)
