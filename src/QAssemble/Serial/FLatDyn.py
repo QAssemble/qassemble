@@ -718,34 +718,24 @@ class SigmaGWC(FLatDyn):
         return : crtau, crfreq, cktau, ckfreq
         '''
         
-        G = self.green
-        Wc = self.wlat
-        norbc = G.shape[0]
-        ns = G.shape[2]
-        nr = G.shape[3]
-        ntau = G.shape[4]
-        norb = Wc.shape[0]
+        
+        norbc = self.green.shape[0]
+        ns = self.green.shape[2]
+        nr = self.green.shape[3]
+        ntau = 5000
+        norb = self.wlat.shape[0]
+        G = np.zeros((norbc, norbc, ns, nr, ntau), dtype=np.complex128, order='F')
+        Wc = np.zeros((norb, norb, ns, ns, nr, ntau), dtype=np.complex128, order='F')
+        
+        for ir in range(nr):
+            for js in range(ns):
+                G[:, :, js, ir] = self.dlr.TauDLR2Uniform(self.green[:, :, js, ir], ntau)
+                for ks in range(ns):
+                    Wc[:, :, js, ks, ir] = self.dlr.TauDLR2Uniform(self.wlat[:, :, js, ks, ir], ntau)
 
-        crtau = np.zeros((norbc,norbc,ns,nr,ntau),dtype=np.complex128,order='F')
-    
-        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex128,order='F')
-        # for itau in range(ntau):
-        #     for ir in range(nr):
-        #         tempmat = self.crystal.OrbSpin2Composite(Wc[:,:,:,:,ir,itau])
-        #         for ind1 in range(norb*ns):
-        #             nn1= [0]*2
-        #             ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
-        #             [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
-        #             iorbc1 = self.crystal.FIndex([a,m1])
-        #             iorbc4 = self.crystal.FIndex([a,m4])
-        #             for ind2 in range(norb*ns):
-        #                 nn2 = [0]*2
-        #                 ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
-        #                 [b,[m3,m2]] = self.crystal.BAtomOrb(jorb)
-        #                 iorbc3 = self.crystal.FIndex([b,m3])
-        #                 iorbc2 = self.crystal.FIndex([b,m2])
-        #                 if js == ks:
-        #                     crtau[iorbc1,iorbc2,js,ir,itau] += -G[iorbc4,iorbc3,js,ir,itau]*tempmat[ind1,ind2]
+        crtau = np.zeros((norbc,norbc,ns,nr,len(self.dlr.tau)),dtype=np.complex128,order='F')
+        tempmat = np.zeros((norbc,norbc,ns,nr,ntau),dtype=np.complex128,order='F')
+
         
         for itau in range(ntau):
             for ir in range(nr):
@@ -764,10 +754,13 @@ class SigmaGWC(FLatDyn):
                         iorbc1 = self.crystal.FIndex([a,m1])
                         iorbc4 = self.crystal.FIndex([a,m4])
                         if js==ks:
-                            crtau[iorbc1,iorbc2,js,ir,itau] += -G[iorbc4,iorbc3,js,ir,itau]*Wc[iorb,jorb,js,ks,ir,itau]
+                            tempmat[iorbc1,iorbc2,js,ir,itau] += -G[iorbc4,iorbc3,js,ir,itau]*Wc[iorb,jorb,js,ks,ir,itau]
                 
-                                        
-
+                                       
+        for ir in range(nr):
+            for js in range(ns):
+                crtau[:, :, js, ir] = self.dlr.TauUniform2DLR(tempmat[:, :, js, ir])
+                
         cktau = self.R2K(crtau)
         ckfreq = self.T2F(cktau)
         crfreq = self.T2F(crtau)
