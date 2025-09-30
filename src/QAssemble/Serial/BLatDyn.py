@@ -1,0 +1,686 @@
+import string as string
+from typing import Any
+import matplotlib as mat
+import re as re
+import matplotlib.pyplot as plt
+import numpy as np
+from pylab import cm
+import matplotlib.font_manager as fm
+from collections import OrderedDict
+import json, os, shutil, sys
+import itertools
+import scipy.optimize
+from sympy.physics.wigner import gaunt, wigner_3j
+from scipy.fftpack import fftn, ifftn
+import scipy.linalg
+from pymatgen.core import Lattice, Structure
+from pymatgen.transformations.standard_transformations import SupercellTransformation
+import subprocess
+import copy, gc
+import h5py
+# import Crystal, FTGrid
+from .Crystal import Crystal
+from .FTGrid import FTGrid
+from .BLatStc import VBare
+qapath = os.environ.get('QAssemble','')
+sys.path.append(qapath+'/src/QAssemble/modules')
+import QAFort
+
+class BLatDyn(object):
+
+    def __init__(self,crystal : Crystal, ft : FTGrid):
+
+        self.crystal = crystal
+        self.ft = ft
+        # self.flatdyn = flatdyn
+
+    def Inverse(self,matin : np.ndarray)-> np.ndarray:
+
+        norb = matin.shape[0]
+        ns = matin.shape[2]
+        nrk = matin.shape[4]
+        nft = matin.shape[5]
+
+        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+        tempmat = np.zeros((norb*ns,norb*ns),dtype=np.complex128)
+        tempmat2 = np.zeros((norb*ns,norb*ns),dtype=np.complex128)
+
+        # Make composite matrix #
+        for ift in range(nft):
+            for irk in range(nrk):
+                tempmat = self.crystal.OrbSpin2Composite(matin[:,:,:,:,irk,ift])
+                tempmat2 = np.linalg.inv(tempmat)
+                matout[:,:,:,:,irk,ift] = self.crystal.Composite2OrbSpin(tempmat2)
+
+        return matout
+
+    def Moment(self,bf : np.ndarray, oddzero : int, highzero : int) -> np.ndarray:
+
+        norb = bf.shape[0]
+        ns = bf.shape[2]
+        nrk = bf.shape[4]
+
+        moment = np.zeros((norb,norb,ns,ns,nrk,3),dtype=np.complex128,order='F')
+        high = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
+
+        moment, high = QAFort.fourier.blatdyn_m(self.ft.nu,bf,oddzero,highzero)
+
+        return moment, high
+
+    def F2T(self,bf : np.ndarray, oddzero : int, highzero : int) -> np.ndarray:
+
+        norb = bf.shape[0]
+        ns = bf.shape[2]
+        nrk = bf.shape[4]
+        ntau = len(self.ft.tau)
+
+        btau = np.zeros((norb,norb,ns,ns,nrk,ntau),dtype=np.complex128,order='F')
+
+        moment, high = self.Moment(bf,oddzero,highzero)
+
+        btau = QAFort.fourier.blatdyn_f2t(self.ft.nu,bf,moment,self.ft.tau)
+
+        return btau
+
+    def T2F(self,btau : np.ndarray) -> np.ndarray:
+
+        norb = btau.shape[0]
+        ns = btau.shape[2]
+        nrk = btau.shape[4]
+        nfreq = len(self.ft.nu)
+
+        bf = np.zeros((norb,norb,ns,ns,nrk,nfreq),dtype=np.complex128,order='F')
+
+        bf = QAFort.fourier.blatdyn_t2f(self.ft.tau,btau,self.ft.nu)
+
+        return bf
+
+    def K2R(self, matk : np.ndarray)-> np.ndarray:
+
+        norb = matk.shape[0]
+        ns = matk.shape[2]
+        nrk = matk.shape[4]
+        nft = matk.shape[5]
+        rkgrid = self.crystal.rkgrid
+        rkvec = self.crystal.kpoint
+
+        matr = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        tempmat = copy.deepcopy(matk)
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                for js in range(ns):
+                    for ks in range(ns):
+                        for iorb in range(norb):
+                            for jorb in range(norb):
+                                [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
+                                [b,[m2,m3]] = self.crystal.BAtomOrb(jorb)
+
+                                delta = self.crystal.basisf[a,:] - self.crystal.basisf[b,:]
+
+                                phase = np.exp(2.0j*np.pi*np.dot(rkvec[irk],delta))
+                                tempmat[iorb,jorb,js,ks,irk,ift] *= phase
+
+        matr = QAFort.fourier.blatdyn_k2r(rkgrid,tempmat)
+
+        return matr
+
+    def R2K(self, matr : np.ndarray)->np.ndarray:
+
+        norb = matr.shape[0]
+        ns = matr.shape[2]
+        nrk = matr.shape[4]
+        nft = matr.shape[5]
+        rkgrid = self.crystal.rkgrid
+        rkvec = self.crystal.kpoint
+
+        matk = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        matk = QAFort.fourier.blatdyn_r2k(rkgrid,matr)
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                for js in range(ns):
+                    for ks in range(ns):
+                        for iorb in range(norb):
+                            for jorb in range(norb):
+
+                                [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
+                                [b,[m2,m3]] = self.crystal.BAtomOrb(jorb)
+
+                                delta = self.crystal.basisf[a,:] - self.crystal.basisf[b,:]
+                                phase = np.exp(-2.0j*np.pi*np.dot(rkvec[irk],delta))
+
+                                matk[iorb,jorb,js,ks,irk,ift] *= phase
+
+
+        return matk
+
+    def GaussianLinearBroad(self,x, y, w1, temperature, cutoff):
+
+        norb = y.shape[0]
+        ns = y.shape[2]
+        nrk = y.shape[3]
+        nft = y.shape[4]
+
+        ynew = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        w0 = (1.0 - 3.0*w1)*np.pi*temperature
+        widtharray = w0+w1*x
+        cnt = 0
+        for irk in range(nrk):
+            for x0 in x:
+                if (x0>cutoff+(w0+w1*cutoff)*3.0):
+                    ynew[...,irk,cnt] = y[...,irk,cnt]
+                else :
+                    if ((x0>3*widtharray[cnt])and((x[-1]-x0)>3*widtharray[cnt])):
+                        dist = 1.0/np.sqrt(2*np.pi)/widtharray[cnt]*np.exp(-(x-x0)**2/2.0/widtharray[cnt]**2)
+                        for js in range(ns):
+                            for ks in range(ns):
+                                for iorb in range(norb):
+                                    for jorb in range(norb):
+                                        ynew[iorb,jorb,js,ks,irk,cnt] = sum(dist*y[iorb,jorb,js,ks,irk])/sum(dist)
+                    else:
+                        ynew[...,irk,cnt] = y[...,irk,cnt]
+                cnt += 1
+
+        return ynew
+
+    def Mixing(self,iter : int, mix : float, Bb : np.ndarray, Bold : np.ndarray) -> np.ndarray:
+
+        norb = Bb.shape[0]
+        ns = Bb.shape[2]
+        nrk = Bb.shape[4]
+        nft = Bb.shape[5]
+
+        Bnew = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        if iter == 1:
+            mix = 1.0
+            Bold = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        Bnew = mix*Bb + (1-mix)*Bold
+
+        return Bnew
+
+    def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray) -> np.ndarray:
+
+        norb = mat1.shape[0]
+        ns = mat1.shape[2]
+        nrk = mat1.shape[3]
+        nft = mat1.shape[4]
+
+        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        matout = QAFort.dyson.blatdyn(mat1,mat2)
+
+        return matout
+
+    def Projection(self, matin : np.ndarray):
+
+        norbc = self.crystal.bprojector.shape[1]
+        ns = self.crystal.ns
+        nft = len(self.ft.nu)#self.ft.size
+        nspace = self.crystal.bprojector.shape[3]
+
+        matout = np.zeros((norbc,norbc,ns,ns,nft,nspace),dtype=np.complex128,order='F')
+
+        for ispace in range(nspace):
+            matout[...,ispace] = QAFort.projection.blatdyn(matin,self.crystal.bprojector[...,ispace])
+
+        return matout
+
+    def Quad2Double(self,matin : np.ndarray)->np.ndarray:
+
+        norb = len(self.crystal.bind)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
+        nft = len(self.ft.nu)#self.ft.size
+
+        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                for ks in range(ns):
+                    for js in range(ns):
+                        matout[:,:,js,ks,irk,ift] = self.crystal.Quad2Double(matin[:,:,:,:,js,ks,irk,ift])
+
+        return matout
+
+    def Double2Quad(self,matin : np.ndarray)->np.ndarray:
+
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
+        nft = len(self.ft.nu)#self.ft.size
+
+        matout = np.zeros((norb,norb,norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                for ks in range(ns):
+                    for js in range(ns):
+                        matout[:,:,:,:,js,ks,irk,ift] = self.crystal.Double2Quad(matin[:,:,js,ks,irk,ift])
+
+        return matout
+
+    def Double2Full(self,matin : np.ndarray)->np.ndarray:
+
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
+        nft = len(self.ft.nu)#self.ft.size
+
+        matout = np.zeros((norb*norb,norb*norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                for js in range(ns):
+                    for ks in range(ns):
+                        matout[:,:,js,ks,irk,ift] = self.crystal.Double2Full(matin[:,:,js,ks,irk,ift])
+        del matin
+        gc.collect()
+        return matout
+
+    def Full2Double(self, matin : np.ndarray) -> np.ndarray:
+
+        norb = len(self.crystal.bind)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
+        nft = len(self.ft.nu)#self.ft.size
+
+        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                for js in range(ns):
+                    for ks in range(ns):
+                        matout[:,:,js,ks,irk,ift] = self.crystal.Full2Double(matin[:,:,js,ks,irk,ift])
+
+        return matout
+
+    def Quad2Full(self,matin : np.ndarray) -> np.ndarray:
+
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
+        nft = len(self.ft.nu)#self.ft.size
+
+        matout = np.zeros((norb*norb,norb*norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                for js in range(ns):
+                    for ks in range(ns):
+                        matout[:,:,js,ks,irk,ift] = self.crystal.Quad2Full(matin[:,:,:,:,js,ks,irk,ift])
+
+        return matout
+
+    def Full2Quad(self, matin : np.ndarray)->np.ndarray:
+
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
+        nft = len(self.ft.nu)#self.ft.size
+
+        matout = np.zeros((norb,norb,norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                for js in range(ns):
+                    for ks in range(ns):
+                        matout[:,:,:,:,js,ks,irk,ift] = self.crystal.Full2Quad(matin[:,:,js,ks,irk,ift])
+
+        return matout
+
+    def StcEmbedding(self,matin : np.ndarray)->np.ndarray:
+
+        norb = matin.shape[0]
+        ns = matin.shape[2]
+        nrk = matin.shape[4]
+        nft = len(self.ft.nu)#self.ft.size
+
+        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
+
+        for ift in range(nft):
+            matout[...,ift] += matin
+        del matin
+        gc.collect()
+        return matout
+
+    def Save(self,matin : np.ndarray, fn : str):
+
+        norb = matin.shape[0]
+        ns = matin.shape[2]
+        nrk = matin.shape[4]
+        nft = matin.shape[5]
+
+        if os.path.exists('blatdyn'):
+            pass
+        else:
+            os.mkdir("blatdyn")
+        os.chdir('blatdyn')
+
+        with open(fn+'.txt','w') as f:
+            f.write("iorb, jorb, is, js, irk, ift, Re(B(k,w)), Im(B(k,w))\n")
+            for ift in range(nft):
+                for irk in range(nrk):
+                    for ks in range(ns):
+                        for js in range(ns):
+                            for jorb in range(norb):
+                                for iorb in range(norb):
+                                    f.write(f"{iorb} {jorb} {js} {ks} {irk} {ift} {matin[iorb,jorb,js,ks,irk,ift].real} {matin[iorb,jorb,js,ks,irk,ift].imag}\n")
+
+        os.chdir('..')
+
+        return None
+
+    def R2KArb(self,matr : np.ndarray = None,kpoint : np.ndarray = None): # R2KAny
+
+        # if self.crystal.kpath == None:
+        #     print("Error, kpath doesn't generate")
+        #     sys.exit()
+        # kpoint = self.crystal.kpath
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nr = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
+        nk = len(kpoint)
+        nft = matr.shape[4]
+
+        self.crystal.Rvec()
+        tempmat = copy.deepcopy(matr)
+        matk = np.zeros((norb,norb,ns,ns,nk,nft),dtype=complex,order='F')
+
+        for ift in range(nft):
+            for ik in range(nk):
+                for ks in range(ns):
+                    for js in range(ns):
+                        for jorb in range(norb):
+                            for iorb in range(norb):
+                                temp = 0
+                                for ir in range(nr):
+                                    temp += tempmat[iorb,jorb,js,ks,ir,ift]*np.exp(-2.0j*np.pi*(kpoint[ik]@self.crystal.rvec[ir]))
+                                [a,m1] = self.crystal.FAtomOrb(iorb)
+                                [b,m2] = self.crystal.FAtomOrb(jorb)
+                                delta = self.crystal.basisf[a,:]-self.crystal.basisf[b,:]
+                                phase = np.exp(-2.0j*np.pi*(kpoint[ik]@delta))
+                                matk[iorb,jorb,js,ks,ik,ift] = temp*phase
+
+        return matk
+
+    def CheckGroup(self, filepath :str, group : str):
+
+        with h5py.File(filepath,'r') as file:
+            return group in file
+
+class PolLat(BLatDyn):
+
+    def __init__(self, crystal: Crystal, ft: FTGrid, green : np.ndarray = None, hdf5file : str = 'glob.h5', group :str = None):
+        super().__init__(crystal, ft)
+        self.rt = None # rt to kf
+        self.rf = None
+        self.kt = None
+        self.kf = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        if green is None:
+            print("Error, There is no Green's function.")
+            sys.exit()
+        self.green = green
+
+        self.Cal()
+        self.kt = self.R2K(self.rt)
+        self.rf = self.T2F(self.rt)
+        self.kf = self.T2F(self.kt)
+
+    def Cal(self):
+        grt = self.green
+        # norbc = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
+        ntau = len(self.ft.tau)
+        norb = len(self.crystal.bind)
+        polrt = np.zeros((norb,norb,ns,ns,nrk,ntau),dtype=np.complex128,order='F')
+
+        gmrt = self.crystal.RT2mRmT(grt)
+
+        if ns == 2:
+            for itau in range(ntau):
+                for irk in range(nrk):
+                    for js in range(ns):
+                        for ks in range(ns):
+                            for iorb in range(norb):
+                                [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
+                                iorbc = self.crystal.FIndex([a,m1])
+                                lorbc = self.crystal.FIndex([a,m4])
+                                for jorb in range(norb):
+                                    [b,[m2,m3]] = self.crystal.BAtomOrb(jorb)
+                                    jorbc = self.crystal.FIndex([b,m2])
+                                    korbc = self.crystal.FIndex([b,m3])
+                                    if js == ks:
+                                        polrt[iorb,jorb,js,ks,irk,itau] = gmrt[korbc,iorbc,js,irk,itau]*grt[lorbc,jorbc,ks,irk,itau]
+
+        else:
+            if self.crystal.soc == True:
+                C = 1
+                for itau in range(ntau):
+                    for irk in range(nrk):
+                        for iorb in range(norb):
+                            [a,[m1,m3]] = self.crystal.BAtomOrb(iorb)
+                            iorbc = self.crystal.FIndex([a,m1])
+                            korbc = self.crystal.FIndex([a,m3])
+                            for jorb in range(norb):
+                                [b,[m4,m2]] = self.crystal.BAtomOrb(jorb)
+                                lorbc = self.crystal.FIndex([b,m4])
+                                jorbc = self.crystal.FIndex([b,m2])
+                                polrt[iorb,jorb,0,0,irk,itau] = gmrt[jorbc,iorbc,0,irk,itau]*grt[korbc,lorbc,0,irk,itau]*C
+            else:
+                C = 2
+                for itau in range(ntau):
+                    for irk in range(nrk):
+                        for iorb in range(norb):
+                            [a,[m1,m3]] = self.crystal.BAtomOrb(iorb)
+                            iorbc = self.crystal.FIndex([a,m1])
+                            korbc = self.crystal.FIndex([a,m3])
+                            for jorb in range(norb):
+                                [b,[m4,m2]] = self.crystal.BAtomOrb(jorb)
+                                lorbc = self.crystal.FIndex([b,m4])
+                                jorbc = self.crystal.FIndex([b,m2])
+                                # if (iorb==0)and(jorb==0)and(irk==0):
+                                #     print(iorbc,jorbc,korbc,lorbc,irk,itau,gmrt[jorbc,iorbc,0,irk,itau],grt[korbc,lorbc,0,irk,itau])
+                                polrt[iorb,jorb,0,0,irk,itau] = gmrt[jorbc,iorbc,0,irk,itau]*grt[korbc,lorbc,0,irk,itau]*C
+
+
+        self.rt = polrt
+
+        return None
+
+    # def Cal(self):
+    #     grt = self.green
+    #     # norbc = len(self.crystal.find)
+    #     ns = self.crystal.ns
+    #     nrk = len(self.crystal.kpoint)
+    #     ntau = len(self.ft.tau)
+    #     # norb = len(self.crystal.bind)
+    #     norbc = len(self.crystal.find)
+    #     polrt = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nrk,ntau),dtype=np.complex128,order='F')
+
+    #     gmrt = self.crystal.RT2mRmT(grt)
+
+    #     if ns == 2:
+    #         for itau in range(ntau):
+    #             for irk in range(nrk):
+    #                 for ind2 in range(norbc*norbc*ns):
+    #                     nn2 = [0]*2
+    #                     ind2, [jorb,ks] = self.crystal.indexing(norbc**2*ns,2,[norbc*norbc,ns],0,ind2,nn2)
+    #                     [ll,jj] = self.crystal.FullAtomOrb(jorb)
+    #                     lorbc = self.crystal.FIndex(ll)
+    #                     jorbc = self.crystal.FIndex(jj)
+    #                     for ind1 in range(norbc*norbc*ns):
+    #                         nn1 = [0]*2
+    #                         ind1,[iorb,js] = self.crystal.indexing(norbc**2*ns,2,[norbc*norbc,ns],0,ind1,nn1)
+    #                         [ii,kk] = self.crystal.FullAtomOrb(iorb)
+    #                         iorbc = self.crystal.FIndex(ii)
+    #                         korbc = self.crystal.FIndex(kk)
+    #                         if js == ks:
+    #                             polrt[iorb,jorb,js,ks,irk,itau] = gmrt[jorbc,iorbc,js,irk,itau]*grt[korbc,lorbc,ks,irk,itau]
+
+
+
+
+    #     else:
+    #         if self.crystal.soc == True:
+    #             C = 1
+    #             for itau in range(ntau):
+    #                 for irk in range(nrk):
+    #                     for jorbc in range(norbc):
+    #                         for lorbc in range(norbc):
+    #                             for korbc in range(norbc):
+    #                                 for iorbc in range(norbc):
+    #                                     iorb = self.crystal.pbasis[iorbc,korbc]
+    #                                     jorb = self.crystal.pbasis[lorbc,jorbc]
+    #                                     polrt[iorb,jorb,0,0,irk,itau] = gmrt[jorbc,iorbc,0,irk,itau]*grt[korbc,lorbc,0,irk,itau]*C
+    #         else:
+    #             C = 2
+    #             for itau in range(ntau):
+    #                 for irk in range(nrk):
+    #                     for jorbc in range(norbc):
+    #                         for lorbc in range(norbc):
+    #                             for korbc in range(norbc):
+    #                                 for iorbc in range(norbc):
+    #                                     iorb = self.crystal.pbasis[iorbc,korbc]
+    #                                     jorb = self.crystal.pbasis[lorbc,jorbc]
+    #                                     polrt[iorb,jorb,0,0,irk,itau] = gmrt[jorbc,iorbc,0,irk,itau]*grt[korbc,lorbc,0,irk,itau]*C
+    #                     # for iorb in range(norb):
+    #                     #     [a,[m1,m3]] = self.crystal.BAtomOrb(iorb)
+    #                     #     iorbc = self.crystal.FIndex([a,m1])
+    #                     #     korbc = self.crystal.FIndex([a,m3])
+    #                     #     for jorb in range(norb):
+    #                     #         [b,[m4,m2]] = self.crystal.BAtomOrb(jorb)
+    #                     #         lorbc = self.crystal.FIndex([b,m4])
+    #                     #         jorbc = self.crystal.FIndex([b,m2])
+    #                     #         # if (iorb==0)and(jorb==0)and(irk==0):
+    #                     #         #     print(iorbc,jorbc,korbc,lorbc,irk,itau,gmrt[jorbc,iorbc,0,irk,itau],grt[korbc,lorbc,0,irk,itau])
+    #                     #         polrt[iorb,jorb,0,0,irk,itau] = gmrt[jorbc,iorbc,0,irk,itau]*grt[korbc,lorbc,0,irk,itau]*C
+
+
+    #     self.rt = polrt
+
+    #     return None
+
+    def Save(self, fn : str):
+
+        # os.chdir('work')
+
+        # filepath = 'blatdyn.h5'
+        # groupname = 'pollat'
+        # with h5py.File(filepath,'a') as file:
+        #     if self.CheckGroup(filepath,groupname):
+        #         group = file[groupname]
+        #     else:
+        #         group=file.create_group(groupname)
+
+        #     group.create_dataset(fn,dtype=complex,data=self.kf)
+        # os.chdir('..')
+
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    pol = group[self.subgroup]
+                else:
+                    pol = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                pol = group.create_group(self.subgroup)
+            pol.create_dataset(fn,dtype=complex,data=self.kf)
+
+        return None
+
+class WLat(BLatDyn):
+
+    def __init__(self, crystal: Crystal, ft: FTGrid,pol : np.ndarray = None, vbare : VBare = None, c : float = 1.0, hdf5file : str = 'glob.h5', group : str = None):
+        super().__init__(crystal, ft)
+        self.rt = None #rt to kf
+        self.rf = None
+        self.kt = None
+        self.kf = None
+        self.crt = None #rt to kf
+        self.crf = None
+        self.ckt = None
+        self.ckf = None
+        self.c = c
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        if pol is None:
+            print("Error, polarizability doesn't exist")
+            sys.exit()
+        if vbare is None:
+            print("Error, bare coulomb interaction doesn't exist")
+            sys.exit()
+        self.pol = pol
+        self.vbare = vbare
+
+        self.Cal()
+
+        # self.wkt = self.F2T(self.wkf,1,1)
+        # self.wrf = self.K2R(self.wkf)
+        # self.wrt = self.K2R(self.wkt)
+
+        self.ckt = self.F2T(self.ckf,1,1)
+        self.crf = self.K2R(self.ckf)
+        self.crt = self.K2R(self.ckt)
+
+    def Cal(self): # calculate W and Wc
+
+        norb = len(self.crystal.bind)
+        norbc = len(self.crystal.find)
+        ns = self.crystal.ns
+        nk = len(self.crystal.kpoint)
+        nfreq = len(self.ft.nu)
+        ####### Initialization #######
+        tempmat = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        wkf = np.zeros((norb,norb,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        wckf = np.zeros((norb,norb,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        vdyn = np.zeros((norb,norb,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+
+        # for ifreq in range(nfreq):
+        #     vdyn[...,ifreq] = self.vbare.k
+        vdyn = self.StcEmbedding(self.vbare.k)
+        polcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        vcomp = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nk,nfreq),dtype=np.complex128,order='F')
+        ####### Initialization #######
+        polcomp = self.Double2Full(self.pol)*self.c
+        # del self.pol
+        vcomp = self.Double2Full(vdyn)
+
+        tempmat = self.Dyson(vcomp,polcomp)
+        wkf = self.Full2Double(tempmat)
+
+        self.kf = wkf
+
+        wckf = wkf - vdyn
+
+        self.ckf = wckf
+
+        return None
+
+    def Save(self, fn : str):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    w = group[self.subgroup]
+                else:
+                    w = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                w = group.create_group(self.subgroup)
+
+            w.create_dataset(fn,dtype=complex,data=self.kf)
+
+        return None

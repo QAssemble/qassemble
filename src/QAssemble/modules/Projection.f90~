@@ -1,0 +1,165 @@
+Module Projection
+  implicit None
+
+  private
+! public :: Projection
+  public :: &
+! interface Projection
+!    module procedure &
+    LocFStc, &
+    LatFStc, &
+    LocFDyn, &  
+    LatFDyn, &
+    LocBStc, &
+    LatBStc, &
+    LocBDyn, &  
+    LatBDyn    
+
+
+! end interface Projection  
+
+
+contains
+
+  subroutine LocFStc(norb,ns,ff,norbc,projector,ffc)
+    implicit none
+    integer, intent(in) :: norb, ns,norbc
+    complex*16, intent(in) :: ff(norb,norb,ns), projector(norb,norbc,ns)
+    complex*16,intent(out) :: ffc(norbc,norbc,ns)
+    
+    integer :: is
+    complex*16 :: tempmat(norb,norbc)
+
+    ffc=0.0d0
+    do is=1, ns
+      tempmat=0.0d0
+      call zgemm('n','n',norb,norbc,norb,(1.0d0,0.0d0),ff(1,1,is),norb,projector(1,1,is),norb,(0.0d0,0.0d0),tempmat,norb)
+      call zgemm('c','n',norbc,norbc,norb,(1.0d0,0.0d0),projector(1,1,is),norb,tempmat,norb,(0.0d0,0.0d0),ffc(1,1,is),norbc)
+    enddo
+
+  end subroutine LocFStc
+
+  
+  subroutine LatFStc(norb,ns,nk,ff,norbc,projector,ffc)
+    implicit none
+    integer, intent(in) :: norb, nk,ns,norbc
+    complex*16, intent(in) :: ff(norb,norb,ns,nk), projector(norb,norbc,ns,nk)
+    complex*16,intent(out) :: ffc(norbc,norbc,ns)
+
+    integer :: ik
+    complex*16 :: ffc_temp(norbc,norb,ns)
+
+    ffc=0.0d0
+    do ik=1, nk
+      call LocFStc(norb,ns,ff(:,:,:,ik),norbc,projector(:,:,:,ik),ffc_temp)
+      ffc=ffc+ffc_temp/dble(nk)
+    enddo
+
+  end subroutine LatFStc
+
+  
+  subroutine LocFDyn(norb,ns,nf,ff,norbc,projector,ffc)
+    implicit none
+    integer, intent(in) :: norb, nf,ns,norbc
+    complex*16, intent(in) :: ff(norb,norb,ns,0:(nf-1)), projector(norb,norbc,ns)
+    complex*16,intent(out) :: ffc(norbc,norbc,ns,0:(nf-1))
+
+    integer :: ifreq
+
+    ffc=0.0d0
+    do ifreq=0, nf-1
+      call LocFStc(norb,ns,ff(:,:,:,ifreq),norbc,projector,ffc(:,:,:,ifreq))
+    enddo
+
+  end subroutine LocFDyn
+  
+  subroutine LatFDyn(norb,ns,nk,nf,ff,norbc,projector,ffc)
+    implicit none
+    integer, intent(in) :: norb, nk,ns,nf,norbc
+    complex*16, intent(in) :: ff(norb,norb,ns,nk,0:(nf-1)), projector(norb,norbc,ns,nk)
+    complex*16,intent(out) :: ffc(norbc,norbc,ns,0:(nf-1))
+
+    integer :: ifreq
+    
+    do ifreq=0, nf-1
+      call LatFStc(norb,ns,nk,ff(:,:,:,:,ifreq),norbc,projector,ffc(:,:,:,ifreq))      
+    enddo
+
+  end subroutine LatFDyn
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+  subroutine LocBStc(norb,ns,ff,norbc,projector,ffc)
+    implicit none
+    integer, intent(in) :: norb, ns,norbc
+    complex*16, intent(in) :: ff(norb,norb,ns,ns), projector(norb,norbc,ns)
+    complex*16,intent(out) :: ffc(norbc,norbc,ns,ns)
+
+    integer :: is,js
+    complex*16 :: tempmat(norb,norbc)
+
+    ffc=0.0d0
+    do is=1, ns
+      do js=1, ns        
+        tempmat=0.0d0
+        call zgemm('n','n',norb,norbc,norb,(1.0d0,0.0d0),ff(1,1,is,js),norb,projector(1,1,js),norb,(0.0d0,0.0d0),tempmat,norb)
+        call zgemm('c','n',norbc,norbc,norb,(1.0d0,0.0d0),projector(1,1,is),norb,tempmat,norb,(0.0d0,0.0d0),ffc(1,1,is,js),norbc)
+      enddo
+    enddo
+    
+  end subroutine LocBStc
+
+  subroutine LatBStc(norb,ns,nk,ff,norbc,projector,ffc)
+    implicit none
+    integer, intent(in) :: norb, nk,ns,norbc
+    complex*16, intent(in) :: ff(norb,norb,ns,ns,nk), projector(norb,norbc,ns,nk)
+    complex*16,intent(out) :: ffc(norbc,norbc,ns,ns)
+
+    integer :: ik
+    complex*16 :: ffc_temp(norbc,norbc,ns,ns)
+
+    ffc=0.0d0
+    do ik=1, nk
+      call LocBStc(norb,ns,ff(:,:,:,:,ik),norbc,projector(:,:,:,ik),ffc_temp)
+      ffc=ffc+ffc_temp/(dble(nk))
+    enddo
+
+  end subroutine LatBStc
+
+
+  subroutine LocBDyn(norb,ns,nf,ff,norbc,projector,ffc)
+    implicit none
+    integer, intent(in) :: norb, ns,nf,norbc
+    complex*16, intent(in) :: ff(norb,norb,ns,ns,0:(nf-1)), projector(norb,norbc,ns)
+    complex*16,intent(out) :: ffc(norbc,norbc,ns,ns,0:(nf-1))
+
+    integer :: ifreq
+
+    ffc=0.0d0
+    do ifreq=0, nf-1
+      call LocBStc(norb,ns,ff(:,:,:,:,ifreq),norbc,projector,ffc(:,:,:,:,ifreq))
+    enddo
+
+  end subroutine LocBDyn
+  
+
+
+  subroutine LatBDyn(norb,nk,ns,nf,ff,norbc,projector,ffc)
+    implicit none
+    integer, intent(in) :: norb, nk,ns,nf,norbc
+    complex*16, intent(in) :: ff(norb,norb,ns,ns,nk,0:(nf-1)), projector(norb,norbc,ns,nk)
+    complex*16,intent(out) :: ffc(norbc,norbc,ns,ns,0:(nf-1))
+
+    integer :: ifreq
+
+
+    ffc=0.0d0
+    do ifreq=0, nf-1
+      call LatBStc(norb,ns,nk,ff(:,:,:,:,:,ifreq),norbc,projector,ffc(:,:,:,:,ifreq))
+    enddo
+
+  end subroutine LatBDyn
+
+
+
+end Module Projection

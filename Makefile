@@ -2,22 +2,16 @@ include arch.mk
 
 default : all
 
-all : finufft modules com_ctqmc
-clean : clean_finufft clean_diage clean_ctqmc
+all: qa_finufft qa_modules
 
-finufft :
+qa_finufft:
 	cd finufft && $(MAKE) fortran && cd ../
+qa_modules:
+	cd src/qacore/modules && $(MAKE) python && cd ../../..
 
-modules : 
-	cd modules && $(MAKE) python && cd ../
-com_ctqmc:
-	cd ComCTQMC && $(MAKE) cpu && cd ../
+clean: clean_finufft clean_modules
 
 clean_finufft:
 	cd finufft && $(MAKE) clean && cd ../
-
-clean_diage:
-	cd modules && $(MAKE) clean && cd ../
-
-clean_ctqmc:
-	cd ComCTQMC && $(MAKE) clean && cd ../
+clean_modules:
+	cd src/qacore/modules && $(MAKE) clean && cd ../../..

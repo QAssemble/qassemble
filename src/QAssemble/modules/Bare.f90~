@@ -1,0 +1,61 @@
+Module Bare
+  use Common
+  implicit None
+
+  private
+  ! public: G0
+
+  ! interface G0
+!    module procedure &
+  public :: &
+    LatFDyn, &
+    LocFDyn
+
+  ! end interface Dyson
+  
+contains
+
+  subroutine LatFDyn(norb,ns,nk,nomega,hlatt,omega,glatt)
+    implicit none
+    
+    integer, intent(in) :: norb,ns,nk,nomega
+    complex*16, intent(in) :: hlatt(norb,norb,ns,nk), omega(0:(nomega-1))
+    complex*16,intent(out) :: glatt(norb,norb,ns,nk,0:(nomega-1))
+    
+    integer :: ik
+    
+    glatt=0.0d0
+    
+    do ik=1, nk
+      call LocFDyn(norb,ns,nomega,hlatt(:,:,:,ik), omega,glatt(:,:,:,ik,:))
+    enddo
+    
+  end subroutine LatFDyn
+
+  subroutine LocFDyn(norb,ns,nomega,hloc,omega,gloc)
+    implicit none
+    
+    integer, intent(in) :: norb,ns,nomega
+    complex*16, intent(in) :: hloc(norb,norb,ns), omega(0:(nomega-1))
+    complex*16,intent(out) :: gloc(norb,norb,ns,0:(nomega-1))
+    
+    integer :: is,ifreq,iorb
+    complex*16 :: tempmat(norb,norb)
+    
+    
+    gloc=0.0d0
+    
+    do is=1, ns
+      do ifreq=0, nomega-1
+        tempmat=0.0d0
+        tempmat=-hloc(:,:,is)        
+        do iorb=1,norb
+          tempmat(iorb, iorb)=tempmat(iorb, iorb)+omega(ifreq)
+        enddo
+        call dcmplx_matinv(tempmat,gloc(:,:,is,ifreq), norb,norb)
+      enddo
+    enddo
+    
+  end subroutine LocFDyn
+
+end Module Bare

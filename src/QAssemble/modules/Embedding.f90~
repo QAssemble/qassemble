@@ -1,0 +1,152 @@
+Module Embedding
+  implicit None
+
+  private
+! public :: Embedding
+  public :: &
+! interface Embedding
+!    module procedure &
+    LocFStc, &
+    LocFDyn, &
+    LatFStc, &
+    LatFDyn, &
+    LocBStc, &
+    LocBDyn, &
+    LatBStc, &
+    LatBDyn
+! end interface Embedding
+
+contains
+
+  subroutine LocFStc(norb,ns,ffc,norbc,projector,ff)
+    implicit none
+    integer, intent(in) :: norb,ns,norbc
+    complex*16, intent(in) :: projector(norb,norbc,ns), ffc(norbc,norbc,ns)
+    complex*16,intent(out) :: ff(norb,norb,ns)
+
+    integer :: is
+    complex*16 :: tempmat(norb,norbc)
+
+    ff=0.0d0
+    do is=1, ns      
+      tempmat=0.0d0
+      call zgemm('n','n',norb,norbc,norbc,(1.0d0,0.0d0),projector(1,1,is),norb,ffc(1,1,is),norbc,(0.0d0,0.0d0),tempmat,norb)
+      call zgemm('n','c',norb,norb,norbc,(1.0d0,0.0d0),tempmat,norb,projector(1,1,is),norb,(0.0d0,0.0d0),ff(1,1,is),norb)
+    enddo
+
+  end subroutine LocFStc
+
+  subroutine LatFStc(norb,ns,nk,ffc,norbc,projector,ff)
+    implicit none
+    integer, intent(in) :: norb, nk,ns,norbc
+    complex*16, intent(in) :: projector(norb,norbc,ns,nk), ffc(norbc,norbc,ns)
+    complex*16,intent(out) :: ff(norb,norb,ns,nk)
+
+    integer :: ik
+
+    ff=0.0d0
+    do ik=1, nk
+      call LocFStc(norb,ns,ffc,norbc,projector(:,:,:,ik),ff(:,:,:,ik))
+    enddo
+
+  end subroutine LatFStc
+
+
+  subroutine LocFDyn(norb,ns,nf,ffc,norbc,projector,ff)
+    implicit none
+    integer, intent(in) :: norb, ns,norbc,nf
+    complex*16, intent(in) :: projector(norb,norbc,ns), ffc(norbc,norbc,ns,0:(nf-1))
+    complex*16,intent(out) :: ff(norb,norb,ns,nf)
+
+    integer :: ifreq
+
+    ff=0.0d0
+    do ifreq=0, nf-1
+      call LocFStc(norb,ns,ffc(:,:,:,ifreq),norbc,projector,ff(:,:,:,ifreq))
+    enddo
+
+  end subroutine LocFDyn
+
+  subroutine LatFDyn(norb,ns,nk,nf,ffc,norbc,projector,ff)
+    implicit none
+    integer, intent(in) :: norb, nk,nf,ns,norbc
+    complex*16, intent(in) :: projector(norb,norbc,ns,nk), ffc(norbc,norbc,ns,0:(nf-1))
+    complex*16,intent(out) :: ff(norb,norb,ns,nk,0:(nf-1))
+
+    integer :: ifreq
+
+    ff=0.0d0
+    do ifreq=0, nf-1
+      call LatFStc(norb,ns,nk,ffc(:,:,:,ifreq),norbc,projector,ff(:,:,:,:,ifreq))
+    enddo
+
+  end subroutine LatFDyn
+
+
+  subroutine LocBStc(norb,ns,ffc,norbc,projector,ff)
+    implicit none
+    integer, intent(in) :: norb,ns,norbc
+    complex*16, intent(in) :: projector(norb,norbc,ns), ffc(norbc,norbc,ns,ns)
+    complex*16,intent(out) :: ff(norb,norb,ns,ns)
+
+    integer :: is,js
+    complex*16 :: tempmat(norb,norbc)
+
+    ff=0.0d0
+    do is=1, ns
+      do js=1, ns
+        tempmat=0.0d0
+        call zgemm('n','n',norb,norbc,norbc,(1.0d0,0.0d0),projector(1,1,is),norb,ffc(1,1,is,js),norbc,(0.0d0,0.0d0),tempmat,norb)
+        call zgemm('n','c',norb,norb,norbc,(1.0d0,0.0d0),tempmat,norb,projector(1,1,js),norb,(0.0d0,0.0d0),ff(1,1,is,js),norb)
+      enddo
+    enddo
+
+  end subroutine LocBStc
+
+
+  subroutine LatBStc(norb,ns,nk,ffc,norbc,projector,ff)
+    implicit none
+    integer, intent(in) :: norb,ns,nk,norbc
+    complex*16, intent(in) :: projector(norb,norbc,ns,nk), ffc(norbc,norbc,ns,ns)
+    complex*16,intent(out) :: ff(norb,norb,ns,ns,nk)
+
+    integer :: ik
+
+    do ik=1, nk
+      call LocBStc(norb,ns,ffc,norbc,projector(:,:,:,ik),ff(:,:,:,:,ik))
+    enddo
+
+  end subroutine LatBStc
+
+
+  subroutine LocBDyn(norb,ns,nf,ffc,norbc,projector,ff)
+    implicit none
+    integer, intent(in) :: norb,ns,nf,norbc
+    complex*16, intent(in) :: projector(norb,norbc,ns), ffc(norbc,norbc,ns,ns,0:(nf-1))
+    complex*16,intent(out) :: ff(norb,norb,ns,ns,0:(nf-1))
+
+    integer :: ifreq
+
+    do ifreq=0, nf-1
+      call LocBStc(norb,ns,ffc(:,:,:,:,ifreq),norbc,projector,ff(:,:,:,:,ifreq))
+    enddo
+
+  end subroutine LocBDyn
+
+
+  subroutine LatBDyn(norb,ns,nk,nf,ffc,norbc,projector,ff)
+    implicit none
+    integer, intent(in) :: norb,ns,nk,nf,norbc
+    complex*16, intent(in) :: projector(norb,norbc,ns,nk), ffc(norbc,norbc,ns,ns,0:(nf-1))
+    complex*16,intent(out) :: ff(norb,norb,ns,ns,nk,0:(nf-1))
+
+    integer :: ifreq
+
+    do ifreq=0, nf-1
+      call LatBStc(norb,ns,nk,ffc(:,:,:,:,ifreq),norbc,projector,ff(:,:,:,:,:,ifreq))
+    enddo
+
+  end subroutine LatBDyn
+
+
+end Module Embedding
