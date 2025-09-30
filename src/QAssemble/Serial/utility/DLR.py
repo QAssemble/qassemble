@@ -104,7 +104,7 @@ class DLR(object):
         return ftau
     
     def BT2F(self, btau : np.ndarray):
-
+        # print(btau.shape)
         bxx = self.dB.dlr_from_tau(btau.T)
         bf = (self.dB.matsubara_from_dlr(bxx, beta=self.beta, xi=+1)).T
 
@@ -123,6 +123,16 @@ class DLR(object):
         fxx = self.dF.dlr_from_tau(ftau.T)
 
         fout = (self.dF.eval_dlr_tau(fxx, self.TauUniform(ntau), beta=self.beta)).T
+
+        return fout
+    
+    def TauUniform2DLR(self, ftau : np.ndarray):
+        
+        shape = ftau.shape
+        tau = self.TauUniform(shape[-1])
+        fxx = self.dF.lstsq_dlr_from_tau(tau_i=tau, G_iaa=ftau.T, beta=self.beta)
+
+        fout = (self.dF.tau_from_dlr(G_xaa=fxx)).T
 
         return fout
     

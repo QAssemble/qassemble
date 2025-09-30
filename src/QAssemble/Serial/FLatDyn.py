@@ -15,8 +15,8 @@ import copy
 import h5py
 from .Crystal import Crystal
 from .FLatStc import FLatStc
-from utility.DLR import DLR
-from utility.Common import Common
+from .utility.DLR import DLR
+from .utility.Common import Common
 qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/QAssemble/modules')
 import QAFort
@@ -541,14 +541,17 @@ class GreenInt(FLatDyn):
                 print(const)
                 sigma += self.StcEmbedding(self.sigmah)
                 sigma += self.ChemEmbedding(-const)
+                print('Hartree')
                 print(sigma[:,:,0,0,0])
             if (self.sigmaf is not None):
                 print(sigma[:,:,0,0,0])
                 sigma += self.StcEmbedding(self.sigmaf)
+                print('Fock')
                 print(sigma[:,:,0,0,0])
             if (self.sigmac is not None):
                 print(sigma[:,:,0,0,0])
                 sigma += self.sigmac
+                print('GWC')
                 print(sigma[:,:,0,0,0])
             self.gkfmu0 = self.Dyson(self.gbare,sigma) 
         

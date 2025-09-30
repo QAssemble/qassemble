@@ -5,7 +5,7 @@ import gc
 import h5py
 from .Crystal import Crystal
 # from .FTGrid import FTGrid
-from utility.DLR import DLR
+from .utility.DLR import DLR
 from .FLatDyn import *
 from .FLatStc import *
 from .FLocDyn import *
@@ -195,7 +195,7 @@ class CorrelationFunction(object):
                 # niham_temp = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin, valley=valley, hdf5file=hdf5file,group='test') 
                 niham_temp = NIHamiltonian(self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin,aferro=aferro, valley=valley,site=site,hdf5file=hdf5file,group='test_gw')
                 gbare_temp = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham_temp.k,hdf5file=hdf5file,group='test') 
-                gold = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare_temp.kf,hdf5file=hdf5file,group=group)
+                gold = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare_temp.kf,hdf5file=hdf5file,group=group)
                 pkfold = None
                 ckfold = None
                 wold = 0
@@ -205,35 +205,35 @@ class CorrelationFunction(object):
             print(gold.occ)
             print("Hartree calculation start")
             sigmah = SigmaHartree(crystal=self.crystal,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
-            if (iter % 50 == 0):
+            if (iter % 50 == 0)or(iter == 1):
                 sigmah.Save(f'sigmah.{iter}')
             print("Hartree calculation finish")
             print("Fock calculation start")
             sigmaf = SigmaFock(crystal=self.crystal,occr=gold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
-            if (iter % 50 == 0):
+            if (iter % 50 == 0)or(iter == 1):
                 sigmaf.Save(f'sigmaf.{iter}')
             print("Fock calculation finish")
             print("Polarizability calculation start")
             pol = PolLat(crystal=self.crystal,dlr=self.dlr,green=gold.rt,hdf5file=hdf5file,group=group)
             pol.kf = pol.Mixing(iter=iter,mix=mix,Bb=pol.kf,Bold=pkfold)
-            if (iter % 50 == 0):
+            if (iter % 50 == 0)or(iter == 1):
                 pol.Save(f'pkf.{iter}')
             print("Polarizability calculation finish")
             print("Screened coulomb interaction calculation start")
             w = WLat(crystal=self.crystal,dlr=self.dlr,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
-            if (iter % 50 == 0):
+            if (iter % 50 == 0)or(iter == 1):
                 w.Save(f'wkf.{iter}')
             # w.Save(w.ckf,f'wckf.{iter}')
             print("Screened coulomb interaction calculation finish")
             print("GW self-energy calculation start")
-            sigmagwc = SigmaGWC(crystal=self.crystal,fdlr=self.dlr,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group)
+            sigmagwc = SigmaGWC(crystal=self.crystal,dlr=self.dlr,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group)
             sigmagwc.kf = sigmagwc.Mixing(iter=iter,mix=mix,Fb=sigmagwc.kf,Fm=ckfold)
-            if (iter % 50 == 0):
+            if (iter % 50 == 0)or(iter == 1):
                 sigmagwc.Save(f'sigmagwckf.{iter}')
             print("GW self-energy calculation finish")
             print("GW green's function calculation start")
             gnew = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,sigmah=sigmah.k,sigmaf=sigmaf.k,sigmagwc=sigmagwc.kf,hdf5file=hdf5file,group=group)
-            if (iter % 50 == 0):
+            if (iter % 50 == 0)or(iter == 1):
                 gnew.Save(f'gkf.{iter}')
             print("GW green's function calculation start")
 

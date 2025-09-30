@@ -22,8 +22,8 @@ import h5py
 from .Crystal import Crystal
 from .FTGrid import FTGrid
 from .BLatStc import VBare
-from utility.DLR import DLR
-from utility.Common import Common
+from .utility.DLR import DLR
+from .utility.Common import Common
 qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/QAssemble/modules')
 import QAFort
@@ -95,7 +95,8 @@ class BLatDyn(object):
 
         for ik in range(nrk):
             for ks, js in itertools.product(range(ns), repeat=2):
-                bf[:, :, js, ks, ik] = self.dlr.BT2F(btau[:, : js, ks, ik])
+
+                bf[:, :, js, ks, ik, :] = self.dlr.BT2F(btau[:, :, js, ks, ik, :])
 
         return bf
 
@@ -433,16 +434,24 @@ class PolLat(BLatDyn):
 
         self.Cal()
         self.kt = self.R2K(self.rt)
+        
         self.rf = self.T2F(self.rt)
         self.kf = self.T2F(self.kt)
 
     def Cal(self):
-        grt = self.green
+        
         # norbc = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        ntau = len(self.dlr.tau)
+        ntau = 5000
+        # grt = self.green
+        norbf = self.green.shape[0]
+        grt = np.zeros((norbf, norbf, ns, nrk, ntau), dtype=np.complex128, order='F')
+        for irk in range(nrk):
+            for js in range(ns):
+                grt[:, :, js, irk, :] = self.dlr.TauDLR2Uniform(ftau=self.green[:, :, js, irk, :], ntau=ntau)
         norb = len(self.crystal.bind)
+
         polrt = np.zeros((norb,norb,ns,ns,nrk,ntau),dtype=np.complex128,order='F')
 
         gmrt = self.crystal.RT2mRmT(grt)
@@ -494,7 +503,11 @@ class PolLat(BLatDyn):
                                 polrt[iorb,jorb,0,0,irk,itau] = gmrt[jorbc,iorbc,0,irk,itau]*grt[korbc,lorbc,0,irk,itau]*C
 
 
-        self.rt = polrt
+        # self.rt = polrt
+        for irk in range(nrk):
+            for ks in range(ns):
+                for js in range(ns):
+                    self.rt[:, :, js, ks, irk] = self.dlr.TauUniform2DLR(polrt[:, :, js, ks, irk])
 
         return None
 
