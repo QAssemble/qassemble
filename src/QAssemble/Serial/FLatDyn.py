@@ -626,17 +626,17 @@ class GreenInt(FLatDyn):
         nft = len(self.dlr.omega)#self.ft.size
         tempmat = copy.deepcopy(self.gkfmu0)
         chem = self.ChemEmbedding(mu)
-        ntau = 5000
+        ntau = len(self.dlr.tau)
         gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
         gcalt = np.zeros((norb,norb,ns,nrk,ntau),dtype=np.complex128,order='F')
 
         
         gcalf = self.Dyson(tempmat,-chem)
-        tempmat = self.F2T(gcalf)
+        gcalt = self.F2T(gcalf)
 
-        for irk in range(nrk):
-            for js in range(ns):
-                gcalt[:, :, js, irk] = self.dlr.TauDLR2Uniform(tempmat[:, :, js, irk], ntau)
+        # for irk in range(nrk):
+        #     for js in range(ns):
+        #         gcalt[:, :, js, irk] = self.dlr.TauDLR2Uniform(tempmat[:, :, js, irk], ntau)
         
         
         
