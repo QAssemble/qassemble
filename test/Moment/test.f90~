@@ -1,6 +1,0 @@
-program TestMoment
-  use Fourier
-  use Common
-  implicit none
-
-  
