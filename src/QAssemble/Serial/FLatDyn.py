@@ -578,7 +578,7 @@ class GreenInt(FLatDyn):
 
         for irk in range(nrk):
             for js in range(ns):
-                kt[:, :, js, irk] = self.dlr.TauDLR2Uniform(self.kt, ntau)
+                kt[:, :, js, irk] = self.dlr.TauDLR2Uniform(self.kt[:, :, js, irk], ntau)
 
         occk = -kt[...,-1]
     
