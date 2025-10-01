@@ -573,12 +573,13 @@ class GreenInt(FLatDyn):
         occ = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
         
         print("Density matrixy calculation start")
-        ntau = 5000
-        kt = np.zeros((norb, norb, ns, nrk, ntau), dtype=np.complex128, order='F')
+        kt = np.copy(self.kt)
+        # ntau = 5000
+        # kt = np.zeros((norb, norb, ns, nrk, ntau), dtype=np.complex128, order='F')
 
-        for irk in range(nrk):
-            for js in range(ns):
-                kt[:, :, js, irk] = self.dlr.TauDLR2Uniform(self.kt[:, :, js, irk], ntau)
+        # for irk in range(nrk):
+        #     for js in range(ns):
+        #         kt[:, :, js, irk] = self.dlr.TauDLR2Uniform(self.kt[:, :, js, irk], ntau)
 
         occk = -kt[...,-1]
     
@@ -733,16 +734,19 @@ class SigmaGWC(FLatDyn):
         norbc = self.green.shape[0]
         ns = self.green.shape[2]
         nr = self.green.shape[3]
-        ntau = 5000
+        # ntau = 5000
+        ntau = len(self.dlr.tau)
         norb = self.wlat.shape[0]
-        G = np.zeros((norbc, norbc, ns, nr, ntau), dtype=np.complex128, order='F')
-        Wc = np.zeros((norb, norb, ns, ns, nr, ntau), dtype=np.complex128, order='F')
+        # G = np.zeros((norbc, norbc, ns, nr, ntau), dtype=np.complex128, order='F')
+        # Wc = np.zeros((norb, norb, ns, ns, nr, ntau), dtype=np.complex128, order='F')
         
-        for ir in range(nr):
-            for js in range(ns):
-                G[:, :, js, ir] = self.dlr.TauDLR2Uniform(self.green[:, :, js, ir], ntau)
-                for ks in range(ns):
-                    Wc[:, :, js, ks, ir] = self.dlr.TauDLR2Uniform(self.wlat[:, :, js, ks, ir], ntau)
+        # for ir in range(nr):
+        #     for js in range(ns):
+        #         G[:, :, js, ir] = self.dlr.TauDLR2Uniform(self.green[:, :, js, ir], ntau)
+        #         for ks in range(ns):
+        #             Wc[:, :, js, ks, ir] = self.dlr.TauDLR2Uniform(self.wlat[:, :, js, ks, ir], ntau)
+        G = self.green
+        Wc = self.wlat
 
         crtau = np.zeros((norbc,norbc,ns,nr,len(self.dlr.tau)),dtype=np.complex128,order='F')
         tempmat = np.zeros((norbc,norbc,ns,nr,ntau),dtype=np.complex128,order='F')
@@ -768,10 +772,10 @@ class SigmaGWC(FLatDyn):
                             tempmat[iorbc1,iorbc2,js,ir,itau] += -G[iorbc4,iorbc3,js,ir,itau]*Wc[iorb,jorb,js,ks,ir,itau]
                 
                                        
-        for ir in range(nr):
-            for js in range(ns):
-                crtau[:, :, js, ir] = self.dlr.TauUniform2DLR(tempmat[:, :, js, ir])
-
+        # for ir in range(nr):
+        #     for js in range(ns):
+        #         crtau[:, :, js, ir] = self.dlr.TauUniform2DLR(tempmat[:, :, js, ir])
+        crtau = tempmat
         cktau = self.R2K(crtau)
         ckfreq = self.T2F(cktau)
         crfreq = self.T2F(crtau)

@@ -395,7 +395,7 @@ class Crystal(object):
                         matout[ind1,ind2] = mat[iorb,jorb,js,ks]
         return matout
 
-    def Quad2Double(self, mat: np.ndarray) -> np.ndarray:
+    def Quad2Double(self, matin: np.ndarray) -> np.ndarray:
         """Convert a 4-index tensor to 2-index matrix in boson basis.
 
         Args:
@@ -407,24 +407,29 @@ class Crystal(object):
 
         norb = len(self.bind)
         norbc = len(self.find)
-        matret = np.zeros((norb,norb),dtype=np.complex64)
+        matout = np.zeros((norb,norb),dtype=np.complex64)
 
-        for lorbc in range(norbc):
-            for korbc in range(norbc):
-                for jorbc in range(norbc):
-                    for iorbc in range(norbc):
-                        (a,m1) = self.FAtomOrb(iorbc)
-                        (ap,m4) = self.FAtomOrb(lorbc)
-                        (b,m2) = self.FAtomOrb(jorbc)
-                        (bp,m3) = self.FAtomOrb(korbc)
-                        if (a==ap)and(b==bp):
-                            iorb = self.BIndex([a,[m1,m2]])
-                            jorb = self.BIndex([b,[m2,m3]])
-                            matret[iorb,jorb] = mat[iorbc,jorbc,korbc,lorbc]
+        # for lorbc in range(norbc):
+        #     for korbc in range(norbc):
+        #         for jorbc in range(norbc):
+        #             for iorbc in range(norbc):
+        #                 (a,m1) = self.FAtomOrb(iorbc)
+        #                 (ap,m4) = self.FAtomOrb(lorbc)
+        #                 (b,m2) = self.FAtomOrb(jorbc)
+        #                 (bp,m3) = self.FAtomOrb(korbc)
+        #                 if (a==ap)and(b==bp):
+        #                     iorb = self.BIndex([a,[m1,m2]])
+        #                     jorb = self.BIndex([b,[m2,m3]])
+        #                     matret[iorb,jorb] = mat[iorbc,jorbc,korbc,lorbc]
 
-        return matret
+        for l, k, j, i in itertools.product(range(norbc), repeat=4):
+            iorb = self.bbasis[i, l]
+            jorb = self.bbasis[j, k]
+            matout[iorb, jorb] = matin[i, j, k, l]
 
-    def Double2Quad(self, mat: np.ndarray) -> np.ndarray:
+        return matout
+
+    def Double2Quad(self, matin : np.ndarray) -> np.ndarray:
         """Convert a 2-index matrix in boson basis to a 4-index tensor.
 
         Args:
@@ -437,21 +442,26 @@ class Crystal(object):
         norbc = len(self.find)
         norb = len(self.bind)
 
-        matret = np.zeros((norbc,norbc,norbc,norbc),dtype=np.complex64,order='F')
+        matout = np.zeros((norbc,norbc,norbc,norbc),dtype=np.complex64,order='F')
 
-        for jorb in range(norb):
-            for iorb in range(norb):
-                [a,[m1,m4]] = self.BAtomOrb(iorb)
-                [b,[m2,m3]] = self.BAtomOrb(jorb)
-                iorbc = self.FIndex([a,m1])
-                lorbc = self.FIndex([a,m4])
-                jorbc = self.FIndex([b,m2])
-                korbc = self.FIndex([b,m3])
-                matret[iorbc,jorbc,korbc,lorbc] = mat[iorb,jorb]
+        # for jorb in range(norb):
+        #     for iorb in range(norb):
+        #         [a,[m1,m4]] = self.BAtomOrb(iorb)
+        #         [b,[m2,m3]] = self.BAtomOrb(jorb)
+        #         iorbc = self.FIndex([a,m1])
+        #         lorbc = self.FIndex([a,m4])
+        #         jorbc = self.FIndex([b,m2])
+        #         korbc = self.FIndex([b,m3])
+        #         matret[iorbc,jorbc,korbc,lorbc] = mat[iorb,jorb]
 
-        return matret
+        for l, k, j, i in itertools.product(range(norbc), repeat=4):
+            iorb = self.bbasis[i, l]
+            jorb = self.bbasis[j, k]
+            matout[i, j, k, l] = matin[iorb, jorb]
 
-    def Full2Quad(self, mat: np.ndarray) -> np.ndarray:
+        return matout
+
+    def Full2Quad(self, matin : np.ndarray) -> np.ndarray:
         """Convert a full composite matrix to a 4-index tensor.
 
         Args:
@@ -463,18 +473,23 @@ class Crystal(object):
 
         norbc = len(self.find)
 
-        matret = np.zeros((norbc,norbc,norbc,norbc),dtype=np.complex64,order='F')
+        matout = np.zeros((norbc,norbc,norbc,norbc),dtype=np.complex64,order='F')
 
-        for lorbc in range(norbc):
-            for korbc in range(norbc):
-                for jorbc in range(norbc):
-                    for iorbc in range(norbc):
-                        iorb = self.pbasis[iorbc,lorbc]
-                        jorb = self.pbasis[jorbc,korbc]
-                        matret[iorbc,jorbc,korbc,lorbc] = mat[iorb,jorb]
+        # for lorbc in range(norbc):
+        #     for korbc in range(norbc):
+        #         for jorbc in range(norbc):
+        #             for iorbc in range(norbc):
+        #                 iorb = self.pbasis[iorbc,lorbc]
+        #                 jorb = self.pbasis[jorbc,korbc]
+        #                 matret[iorbc,jorbc,korbc,lorbc] = mat[iorb,jorb]
+        
+        for l, k, j, i in itertools.product(range(norbc), repeat=4):
+            iorb = self.pbasis[i, l]
+            jorb = self.pbasis[j, k]
+            matout[i, j, k, l] = matin[iorb, jorb]
 
 
-        return matret
+        return matout
 
     def Quad2Full(self, mat: np.ndarray) -> np.ndarray:
         """Convert a 4-index tensor to a full composite matrix.
