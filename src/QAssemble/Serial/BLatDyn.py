@@ -74,13 +74,22 @@ class BLatDyn(object):
         norb = bf.shape[0]
         ns = bf.shape[2]
         nrk = bf.shape[4]
+        nfreq = bf.shape[5]
         ntau = len(self.dlr.tau)
 
         btau = np.zeros((norb,norb,ns,ns,nrk,ntau),dtype=np.complex128,order='F')
+        tempmat = np.zeros((nfreq), dtype=np.complex128, order='F')
 
         for ik in range(nrk):
             for ks, js in itertools.product(range(ns), repeat=2):
-                btau[:, :, js, ks, ik] = self.dlr.BF2T(bf[:, :, js, ks, ik])
+                # tempmat = np.transpose(bf[:, :, js, ks, ik], (2, 0, 1))
+                # tempmat2 = self.dlr.BF2T(tempmat)
+                for jorb, iorb in itertools.product(range(norb), repeat=2):
+                    tempmat = bf[iorb, jorb, js, ks, ik]
+                    tempmat2 = self.dlr.BF2T(tempmat)
+                    # btau[:, :, js, ks, ik] = np.transpose(tempmat2, (1, 2, 0))
+                # for jorb, iorb in itertools.product(range(norb), repeat=2):
+                    btau[iorb, jorb, js, ks, ik] = tempmat2[:, 0, 0]
 
         return btau
 
@@ -89,14 +98,23 @@ class BLatDyn(object):
         norb = btau.shape[0]
         ns = btau.shape[2]
         nrk = btau.shape[4]
+        ntau = btau.shape[5]
         nfreq = len(self.dlr.nu)
 
         bf = np.zeros((norb,norb,ns,ns,nrk,nfreq),dtype=np.complex128,order='F')
+        tempmat = np.zeros((ntau), dtype=np.complex128, order='F')
 
         for ik in range(nrk):
             for ks, js in itertools.product(range(ns), repeat=2):
-
-                bf[:, :, js, ks, ik, :] = self.dlr.BT2F(btau[:, :, js, ks, ik, :])
+                # tempmat = np.transpose(btau[:, :, js, ks, ik], (2, 0, 1))
+                # tempmat2 = self.dlr.BT2F(tempmat)
+                # bf[:, :, js, ks, ik] = np.transpose(tempmat2, (1, 2, 0))
+                # bf[:, :, js, ks, ik, :] = self.dlr.BT2F(btau[:, :, js, ks, ik, :])
+                for jorb, iorb in itertools.product(range(norb), repeat=2):
+                    tempmat = btau[iorb, jorb, js, ks, ik]
+                    tempmat2 = self.dlr.BT2F(tempmat)
+                # for jorb, iorb in itertools.product(range(norb), repeat=2):
+                    bf[iorb, jorb, js, ks, ik] = tempmat2[:, 0, 0]
 
         return bf
 
@@ -416,6 +434,14 @@ class BLatDyn(object):
 
         with h5py.File(filepath,'r') as file:
             return group in file
+        
+    def RT2mRmT(self, ftau : np.ndarray):
+
+        ftau_mr = self.crystal.R2mR(ftau)
+
+        fmtau_mr = self.dlr.T2mT(ftau_mr)
+
+        return fmtau_mr
 
 class PolLat(BLatDyn):
 
@@ -461,7 +487,8 @@ class PolLat(BLatDyn):
 
         polrt = np.zeros((norb,norb,ns,ns,nrk,ntau),dtype=np.complex128,order='F')
 
-        gmrt = self.crystal.RT2mRmT(grt)
+        # gmrt = self.crystal.RT2mRmT(grt)
+        gmrt = self.RT2mRmT(grt)
 
         if ns == 2:
             for itau in range(ntau):

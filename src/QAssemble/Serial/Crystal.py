@@ -41,9 +41,11 @@ class Crystal(object):
 
         Rvec = cry['RVec']
         Basis = cry['Basis']
-        CorF = cry['CorF']
+        # CorF = cry['CorF']
+        CorF = cry.get('CorF', 'F')
         Nspin = cry['NSpin']
-        SOC = cry['SOC']
+        # SOC = cry['SOC']
+        SOC = cry.get('SOC', False)
         Nelec = cry['NElec']
         KGrid = cry['KGrid']
         self.avec = np.array(Rvec,dtype=float)
@@ -762,7 +764,7 @@ class Crystal(object):
                     positions.append([row_index, col_index])
         return positions
 
-    def R2mR(self) -> None:
+    def R2mRMapping(self) -> None:
         """Compute mapping indices from k-point grid to its complement (1 - k).
 
         Returns:
@@ -786,6 +788,17 @@ class Crystal(object):
 
         self.mappingidx = mappingidx
         return None
+    
+    def R2mR(self, matin : np.ndarray) -> np.ndarray:
+
+        self.R2mRMapping()
+
+        matout = np.zeros_like(matin, dtype=np.complex128, order='F')
+
+        for rp in self.mappingidx:
+            matout[..., rp[0],:] = matin[..., rp[1], :]
+
+        return matout
 
     def RT2mRmT(self, G: np.ndarray) -> np.ndarray:
         """Apply the time-reversed mapping to Green's function tensor.
@@ -796,7 +809,7 @@ class Crystal(object):
         Returns:
             np.ndarray: Transformed Green's function with same shape.
         """
-        self.R2mR()
+        self.R2mRMapping()
 
         norb = G.shape[0]
         ns = G.shape[2]

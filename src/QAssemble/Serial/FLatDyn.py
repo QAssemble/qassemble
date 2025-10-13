@@ -45,19 +45,53 @@ class FLatDyn(object):
         
         return matinv
     
+    def T2DLR(self, ftau : np.ndarray) -> np.ndarray:
+
+        norb = ftau.shape[0]
+        ns = ftau.shape[2]
+        nk = ftau.shape[3]
+        ntau = ftau.shape[4]
+        nx = self.dlr.dF.rank
+
+        fdlr = np.zeros((norb, norb, ns, nk, nx), dtype=np.complex128, order='F')
+        # tempmat = np.zeros((ntau, 1, 1), dtype=np.complex128, order='F')
+        tempmat = np.zeros((ntau, norb, norb), dtype=np.complex128, order='F')
+
+        for ik in range(nk):
+            for js in range(ns):
+                # for jorb, iorb in itertools.product(range(norb), repeat=2):
+                #     tempmat[:, 0, 0] = ftau[iorb, jorb, js, ik]
+                #     tempmat2 = self.dlr.FTau2DLR(tempmat)
+                #     fdlr[iorb, jorb, js, ik] = tempmat2[:, 0, 0]
+                tempmat = ftau[:, :, js, ik].T
+                fdlr[:, :, js, ik] = self.dlr.FTau2DLR(tempmat).T
+                # fdlr[:, :, js, ik] = tempmat2.T
+
+        return fdlr
+
+    
     def T2F(self,ftau : np.ndarray) -> np.ndarray:
         
 
         norb = ftau.shape[0]
         ns = ftau.shape[2]
         nk = ftau.shape[3]
-        # ntau = ftau.shape[4]
+        ntau = ftau.shape[4]
         nfreq = len(self.dlr.omega)
         ff = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order='F')
+        tempmat = np.zeros((ntau), dtype=np.complex128, order='F')
 
         for ik in range(nk):
             for js in range(ns):
-                ff[:, :, js, ik] = self.dlr.FT2F(ftau[:, :, js, ik])
+                # tempmat = np.transpose(ftau[:, :, js, ik], (2, 0, 1))
+                # tempmat2 = self.dlr.FT2F(tempmat)
+                # # ff[:, :, js, ik] = self.dlr.FT2F(ftau[:, :, js, ik])
+                # ff[:, :, js, ik] = np.transpose(tempmat2, (1, 2, 0))
+                for jorb, iorb in itertools.product(range(norb), repeat=2):
+                    tempmat = ftau[iorb, jorb, js, ik]
+                    tempmat2 = self.dlr.FT2F(tempmat)
+                # for jorb, iorb in itertools.product(range(norb), repeat=2):
+                    ff[iorb, jorb, js, ik] = tempmat2[:, 0, 0]
 
         return ff
     
@@ -66,14 +100,83 @@ class FLatDyn(object):
         norb = ff.shape[0]
         ns = ff.shape[2]
         nk = ff.shape[3]
-        # nfreq = ff.shape[4]
+        nfreq = ff.shape[4]
         ntau = len(self.dlr.tau)
 
         ftau = np.zeros((norb,norb,ns,nk,ntau),dtype=np.complex128,order='F')
+        tempmat = np.zeros((nfreq), dtype=np.complex128, order='F')
         
         for ik in range(nk):
             for js in range(ns):
-                ftau[:, :, js, ik] = self.dlr.FF2T(ff[:, :, js, ik])
+                # tempmat = np.transpose(ff[:, :, js, ik], (2, 0, 1))
+                # tempmat2 = self.dlr.FF2T(tempmat)
+                # ftau[:, :, js, ik] = np.transpose(tempmat2, (1, 2, 0))
+                # ftau[:, :, js, ik] = self.dlr.FF2T(ff[:, :, js, ik])
+
+                for jorb, iorb in itertools.product(range(norb), repeat=2):
+                    tempmat = ff[iorb, jorb, js, ik]
+                    tempmat2 = self.dlr.FF2T(tempmat)
+                    ftau[iorb, jorb, js, ik] = tempmat2[:, 0, 0]
+
+        return ftau
+    
+    def F2DLR(self, ff : np.ndarray) -> np.ndarray:
+
+        norb = ff.shape[0]
+        ns = ff.shape[2]
+        nk = ff.shape[3]
+        nfreq = ff.shape[4]
+        nx = self.dlr.dF.rank
+
+        fdlr = np.zeros((norb, norb, ns, nk, nx), dtype=np.complex128, order='F')
+        tempmat = np.zeros((nfreq, 1, 1), dtype=np.complex128, order='F')
+
+        for ik in range(nk):
+            for js in range(ns):
+                for jorb, iorb in itertools.product(range(norb), repeat=2):
+                    tempmat[:, 0, 0] = ff[iorb, jorb, js, ik]
+                    tempmat2 = self.dlr.FMatsubara2DLR(tempmat)
+                    fdlr[iorb, jorb, js, ik] = tempmat2[:, 0, 0]
+
+        return fdlr
+    
+    def DLR2F(self, fdlr : np.ndarray) -> np.ndarray:
+
+        norb = fdlr.shape[0]
+        ns = fdlr.shape[2]
+        nk = fdlr.shape[3]
+        nx = fdlr.shape[4]
+        nfreq = len(self.dlr.omega)
+
+        ff = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
+        tempmat = np.zeros((nx, 1, 1), dtype=np.complex128, order='F')
+
+        for ik in range(nk):
+            for js in range(ns):
+                for jorb, iorb, in itertools.product(range(norb), repeat=2):
+                    tempmat[:, 0, 0] = fdlr[iorb, jorb, js, ik]
+                    tempmat2 = self.dlr.FDLR2Matsubara(tempmat)
+                    ff[iorb, jorb, js, ik] = tempmat2[:, 0, 0]
+
+        return ff
+    
+    def DLR2F(self, fdlr : np.ndarray) -> np.ndarray:
+
+        norb = fdlr.shape[0]
+        ns = fdlr.shape[2]
+        nk = fdlr.shape[3]
+        nx = fdlr.shape[4]
+        ntau = len(self.dlr.tau)
+
+        ftau = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
+        tempmat = np.zeros((nx, 1, 1), dtype=np.complex128, order='F')
+
+        for ik in range(nk):
+            for js in range(ns):
+                for jorb, iorb, in itertools.product(range(norb), repeat=2):
+                    tempmat[:, 0, 0] = fdlr[iorb, jorb, js, ik]
+                    tempmat2 = self.dlr.FDLR2Tau(tempmat)
+                    ftau[iorb, jorb, js, ik] = tempmat2[:, 0, 0]
 
         return ftau
 
@@ -406,7 +509,32 @@ class FLatDyn(object):
         matk = self.Inverse(matkinv)
 
         return matk
-        
+    
+    def R2mR(self, matin : np.ndarray) -> np.ndarray:
+
+        self.crystal.R2mR()
+
+        matout = np.zeros_like(matin, dtype=np.complex128, order='F')
+
+        for rp in self.crystal.mappingidx:
+            matout[..., rp[0],:] = matin[..., rp[1], :]
+
+        return matout
+    
+    def T2mT(self, ftau : np.ndarray) -> np.ndarray:
+
+        taum = self.dlr.beta - self.dlr.tau
+
+        norb, _, ns, nrk, ntau = ftau.shape
+
+        fout = np.zeros((norb, norb, ns, nrk, ntau), dtype=np.complex128, order='F')
+
+        for irk in range(nrk):
+            for js in range(ns):
+                fxx = self.dlr.dF.dlr_from_tau(ftau[:, :, js, irk,:].T)
+                fout[:, :, js, irk, :] = (self.dlr.dF.eval_dlr_tau(fxx, taum, self.dlr.beta)).T
+
+        return fout        
 
     
 class GreenBare(FLatDyn):
@@ -518,9 +646,13 @@ class GreenInt(FLatDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
-        # print(f"Bare Green's function : \n{self.gbare[:,:,0,0,0]}")
+        print(f"Bare Green's function : \n{self.gbare[:,:,0,0,nfreq//2]}")
         self.CalMu0()
+        # if (self.sigmac is None)and(self.sigmah is None)and(self.sigmaf is None):
+        #     self.UpdateMu()
+        # else:
         self.SearchMu()
+        
 
     def CalMu0(self):
 
@@ -573,15 +705,16 @@ class GreenInt(FLatDyn):
         occ = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
         
         print("Density matrixy calculation start")
-        kt = np.copy(self.kt)
+        # kt = np.copy(self.kt)
         # ntau = 5000
-        # kt = np.zeros((norb, norb, ns, nrk, ntau), dtype=np.complex128, order='F')
+        kt = np.zeros((norb, norb, ns, nrk, 6001), dtype=np.complex128, order='F')
 
-        # for irk in range(nrk):
-        #     for js in range(ns):
-        #         kt[:, :, js, irk] = self.dlr.TauDLR2Uniform(self.kt[:, :, js, irk], ntau)
+        for irk in range(nrk):
+            for js in range(ns):
+                tempmat = self.dlr.TauDLR2Uniform(self.kt[:, :, js, irk])
+                occk[..., js, irk] = -tempmat[..., -1]
 
-        occk = -kt[...,-1]
+        # occk = -kt[...,-1]
     
         for irk in range(nrk):
             occ += occk[...,irk]
@@ -627,38 +760,39 @@ class GreenInt(FLatDyn):
         nft = len(self.dlr.omega)#self.ft.size
         tempmat = copy.deepcopy(self.gkfmu0)
         chem = self.ChemEmbedding(mu)
+        # chem = self.ChemEmbedding(mu+self.c)
         ntau = len(self.dlr.tau)
         gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+        ntau = 6001
         gcalt = np.zeros((norb,norb,ns,nrk,ntau),dtype=np.complex128,order='F')
 
         
         gcalf = self.Dyson(tempmat,-chem)
-        gcalt = self.F2T(gcalf)
+        tempmat2 = self.F2T(gcalf)
 
-        # for irk in range(nrk):
-        #     for js in range(ns):
-        #         gcalt[:, :, js, irk] = self.dlr.TauDLR2Uniform(tempmat[:, :, js, irk], ntau)
-        
-        
         
         Ne = 0
         
         for irk in range(nrk):
             for js in range(ns):
+                tempmat3 = self.dlr.TauDLR2Uniform(tempmat2[..., js, irk, :])
                 for iorb in range(norb):
-                    Ne += -np.real(gcalt[iorb,iorb,js,irk,-1])
+                    Ne += -np.real(tempmat3[iorb, iorb, -1])
+                    # Ne += -np.real(gcalt[iorb,iorb,js,irk,-1])
         Ne /= nrk
         
         N = self.crystal.nume
         del gcalf, gcalt, tempmat
-        return N - Ne
+        return (N - Ne)
 
     def SearchMu(self):
         
         print("Finding chemical potential start")
         # omega = self.dlr.MatsubaraFermionUniform()
-        mumin = -self.dlr.omega[-1]*0.6
-        mumax = self.dlr.omega[-1]*0.6
+        # mumin = -self.dlr.omega[-1]*0.6
+        # mumax = self.dlr.omega[-1]*0.6
+        mumin = self.dlr.omega[0]
+        mumax = self.dlr.omega[-1]
         print(f"minimum : {mumin}, maximum : {mumax}")
         nmin = self.NumOfE(mumin)
         nmax = self.NumOfE(mumax)
@@ -701,9 +835,10 @@ class SigmaGWC(FLatDyn):
         super().__init__(crystal, dlr)
         self.flatstc = FLatStc(crystal=crystal)
         norb, _, ns, nk, nfreq = green.shape
-        self.rt = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
+        ntau = len(self.dlr.tau)
+        self.rt = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
         self.rf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
-        self.kt = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
+        self.kt = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
         self.kf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
         self.stck = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
         self.z = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
