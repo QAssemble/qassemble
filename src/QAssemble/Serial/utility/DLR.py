@@ -20,16 +20,14 @@ class DLR(object):
             self.beta = ft['beta']
         self.cutoff = ft.get('cutoff',10.0) 
         self.eps = ft.get('eps',1e-15)
+        self.lamb = self.beta * self.cutoff / (2 * np.pi)
         # nmax = int((self.beta/np.pi * self.cutoff -1)/2)
-        dF = dlr(lamb = self.beta*self.cutoff/ (2* np.pi), eps=self.eps, dense_imfreq=True)
-        dB = dlr(lamb= self.beta*self.cutoff/ (2* np.pi), eps=self.eps, xi=1, dense_imfreq=True)
-        # dF = dlr(lamb = self.beta*self.cutoff, eps=self.eps, dense_imfreq=False)
-        # dB = dlr(lamb= self.beta*self.cutoff, eps=self.eps, xi=1, dense_imfreq=False)
+        dF = dlr(lamb = self.lamb, eps=self.eps, dense_imfreq=True)
+        dB = dlr(lamb= self.lamb, eps=self.eps, xi=1, dense_imfreq=True)
         # nmax_fermion = int((self.cutoff * self.beta / np.pi - 1)/2)
-        # dF = dlr(lamb=self.beta*self.cutoff, xi = -1, dense_imfreq=True)
-        # dF = dlr(lamb=(self.cutoff * self.beta / np.pi - 1)/2, xi = -1)
+        # dF = dlr(lamb = self.lamb , eps=self.eps, xi = -1, dense_imfreq=True, nmax=nmax_fermion)
         # nmax_boson = int((self.cutoff * self.beta) / (2 * np.pi))
-        # dB = dlr(lamb=(self.cutoff * self.beta) / (2 * np.pi), xi = +1)
+        # dB = dlr(lamb = self.lamb, eps=self.eps, xi = +1, dense_imfreq=True, nmax=nmax_boson)
 
         self.dF = dF
         self.dB = dB
@@ -143,9 +141,12 @@ class DLR(object):
     
     def TauDLR2Uniform(self, ftau : np.ndarray):
 
-        fxx = self.dF.dlr_from_tau(ftau.T)
+        ntau = len(ftau)
+        ftau = ftau.reshape(ntau, 1, 1)
         
-        fout = (self.dF.eval_dlr_tau(fxx, self.TauUniform(), beta=self.beta)).T
+        fxx = self.dF.dlr_from_tau(ftau)
+        
+        fout = self.dF.eval_dlr_tau(fxx, self.TauUniform(), beta=self.beta)
 
         return fout
     
@@ -171,14 +172,16 @@ class DLR(object):
     
     def MatsubaraDLR2Uniform(self, ff : np.ndarray, sign : int = -1):
 
+        nfreq = len(ff)
+        ff = ff.reshape(nfreq, 1, 1)
         if (sign == -1):
-            fxx = self.dF.dlr_from_matsubara(ff.T, beta=self.beta, xi=sign)
+            fxx = self.dF.dlr_from_matsubara(ff, beta=self.beta, xi=sign)
             z = self.MatsubaraFermionUniform()*1j
-            fout = (self.dF.eval_dlr_freq(fxx, z, beta=self.beta, xi=sign)).T
+            fout = (self.dF.eval_dlr_freq(fxx, z, beta=self.beta, xi=sign))
         else:
-            fxx = self.dB.dlr_from_matsubara(ff.T, beta=self.beta, xi=sign)
+            fxx = self.dB.dlr_from_matsubara(ff, beta=self.beta, xi=sign)
             z = self.MatsubaraBosonUniform()*1j
-            fout = (self.dB.eval_dlr_freq(fxx, z, beta=self.beta, xi=sign)).T
+            fout = (self.dB.eval_dlr_freq(fxx, z, beta=self.beta, xi=sign))
 
         return fout
     
@@ -216,6 +219,9 @@ class DLR(object):
         return fdlr
     
     def FMatsubara2DLR(self, ff : np.ndarray) -> np.ndarray:
+
+        nfreq = len(ff)
+        ff = ff.reshape(nfreq, 1, 1)
 
         fdlr = self.dF.dlr_from_matsubara(ff, self.beta, xi=-1)
 

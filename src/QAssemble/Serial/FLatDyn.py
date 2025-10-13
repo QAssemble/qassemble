@@ -385,11 +385,7 @@ class FLatDyn(object):
             for irk in range(nrk):
                 for js in range(ns):
                     for iorb in range(norb):
-                        for jorb in range(norb):
-                            if iorb == jorb:
-                                chem[iorb,jorb,js,irk,ift] = mu
-                            else:
-                                chem[iorb,jorb,js,irk,ift] = 0
+                        chem[iorb, iorb, js, irk, ift] = mu
 
         return chem
     
@@ -406,22 +402,7 @@ class FLatDyn(object):
             matout[...,ift] = matin
 
         return matout
-    # def Save(self, matin : np.ndarray, fn : str):
-
-
-    #     os.chdir('work')
-    #     # with open(fn+'.txt','w') as f:
-    #     #     f.write("#iorb, jorb, is, ik, ift, Re(F(k,w)), Im(F(k,w))\n")
-    #     #     for ift in range(nft):
-    #     #         for irk in range(nrk):
-    #     #             for js in range(ns):
-    #     #                 for jorb in range(norb):
-    #     #                     for iorb in range(norb):
-    #     #                         f.write(f"{iorb} {jorb} {js} {irk} {ift} {matin[iorb,jorb,js,irk,ift].real} {matin[iorb,jorb,js,irk,ift].imag}\n")
-    #     with h5py.File('flatdyn.h5','w') as file:
-    #         file.create_dataset('name',data='FLatDyn')
-    #     os.chdir("..")
-    #     return None
+    
     
     def CheckGroup(self, filepath :str, group : str):
         
@@ -707,14 +688,18 @@ class GreenInt(FLatDyn):
         print("Density matrixy calculation start")
         # kt = np.copy(self.kt)
         # ntau = 5000
-        kt = np.zeros((norb, norb, ns, nrk, 6001), dtype=np.complex128, order='F')
+        ntau = int((self.dlr.beta/np.pi * self.dlr.cutoff -1 )/2)*2
+        kt = np.zeros((norb, norb, ns, nrk, ntau), dtype=np.complex128, order='F')
 
         for irk in range(nrk):
             for js in range(ns):
-                tempmat = self.dlr.TauDLR2Uniform(self.kt[:, :, js, irk])
-                occk[..., js, irk] = -tempmat[..., -1]
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        kt[iorb, jorb, js, irk] = self.dlr.TauDLR2Uniform(self.kt[iorb, jorb, js, irk])[:, 0, 0]
+                        # occk[iorb, jorb, js, irk] = -kt[]
+                        # occk[iorb, jorb, js, irk] = -tempmat[-1, 0, 0]
 
-        # occk = -kt[...,-1]
+        occk = -kt[...,-1]
     
         for irk in range(nrk):
             occ += occk[...,irk]
@@ -740,6 +725,7 @@ class GreenInt(FLatDyn):
     
     
         gkfnew = self.Dyson(self.gkfmu0,-chem)
+    
         
         self.kf = gkfnew
         self.kt = self.F2T(gkfnew)
@@ -763,21 +749,26 @@ class GreenInt(FLatDyn):
         # chem = self.ChemEmbedding(mu+self.c)
         ntau = len(self.dlr.tau)
         gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
-        ntau = 6001
+        ntau = int((self.dlr.beta/np.pi * self.dlr.cutoff -1 )/2)*2
         gcalt = np.zeros((norb,norb,ns,nrk,ntau),dtype=np.complex128,order='F')
 
         
         gcalf = self.Dyson(tempmat,-chem)
-        tempmat2 = self.F2T(gcalf)
 
+        tempmat2 = self.F2T(gcalf)
         
         Ne = 0
         
         for irk in range(nrk):
             for js in range(ns):
-                tempmat3 = self.dlr.TauDLR2Uniform(tempmat2[..., js, irk, :])
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        gcalt[iorb, jorb, js, irk] = self.dlr.TauDLR2Uniform(tempmat2[iorb, jorb, js, irk])[:, 0, 0]
                 for iorb in range(norb):
-                    Ne += -np.real(tempmat3[iorb, iorb, -1])
+                    Ne += -np.real(gcalt[iorb, iorb, js, irk,-1])
+                # tempmat3 = self.dlr.TauDLR2Uniform(tempmat2[..., js, irk, :])
+                # for iorb in range(norb):
+                #     Ne += -np.real(tempmat3[iorb, iorb, -1])
                     # Ne += -np.real(gcalt[iorb,iorb,js,irk,-1])
         Ne /= nrk
         
