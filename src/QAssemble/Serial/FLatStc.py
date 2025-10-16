@@ -25,11 +25,13 @@ from scipy.fftpack import fftn, ifftn
 from sympy.physics.wigner import gaunt, wigner_3j
 
 from .Crystal import Crystal
+from .utility.Dyson import Dyson
+from .utility.Fourier import Fourier
 
 # from .FLatDyn import SigmaGWC
-qapath = os.environ.get("QAssemble", "")
-sys.path.append(qapath + "/src/QAssemble/modules")
-import QAFort
+# qapath = os.environ.get("QAssemble", "")
+# sys.path.append(qapath + "/src/QAssemble/modules")
+# import QAFort
 
 
 class FLatStc(object):
@@ -78,7 +80,8 @@ class FLatStc(object):
                         # matk[iorb,jorb,js,irk] *= phase
                         tempmat[iorb, jorb, js, irk] *= phase
 
-        matr = QAFort.fourier.flatstc_k2r(rkgrid, tempmat)
+        # matr = QAFort.fourier.flatstc_k2r(rkgrid, tempmat)
+        matr = Fourier.FLatStcK2R(tempmat, rkgrid)
 
         return matr
 
@@ -94,7 +97,8 @@ class FLatStc(object):
 
         matk = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
         tempmat = copy.deepcopy(matr)
-        matk = QAFort.fourier.flatstc_r2k(rkgrid, tempmat)
+        # matk = QAFort.fourier.flatstc_r2k(rkgrid, tempmat)
+        matk = Fourier.FLatStcR2K(tempmat, rkgrid)
 
         for irk in range(nrk):
             for js in range(ns):
@@ -408,25 +412,26 @@ class FLatStc(object):
 
         matout = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
 
-        matout = QAFort.dyson.flatstc(mat1, mat2)
+        # matout = QAFort.dyson.flatstc(mat1, mat2)
+        matout = Dyson.FLatStc(mat1, mat2)
 
         return matout
 
-    def Projection(self, matin: np.ndarray):
+    # def Projection(self, matin: np.ndarray):
 
-        norb = len(self.crystal.fin)
-        ns = self.crystal.ns
-        norbc = self.crystal.fprojector.shape[1]
-        nspace = self.crystal.fprojector.shape[3]
+    #     norb = len(self.crystal.find)
+    #     ns = self.crystal.ns
+    #     norbc = self.crystal.fprojector.shape[1]
+    #     nspace = self.crystal.fprojector.shape[3]
 
-        matout = np.zeros((norbc, norbc, ns, nspace), dtype=np.complex128, order="F")
+    #     matout = np.zeros((norbc, norbc, ns, nspace), dtype=np.complex128, order="F")
 
-        for ispace in range(nspace):
-            matout[..., ispace] = QAFort.projection.flatstc(
-                matin, self.crystal.fprojector[..., ispace]
-            )
+    #     for ispace in range(nspace):
+    #         matout[..., ispace] = QAFort.projection.flatstc(
+    #             matin, self.crystal.fprojector[..., ispace]
+    #         )
 
-        return matout
+    #     return matout
 
     # def Save(self, matin: np.ndarray, fn: str):
 
@@ -462,7 +467,7 @@ class FLatStc(object):
         nr = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
         nk = len(kpoint)
 
-        self.crystal.Rvec()
+        self.crystal.RVec()
         tempmat = copy.deepcopy(matr)
         matk = np.zeros((norb, norb, ns, nk), dtype=complex, order="F")
 

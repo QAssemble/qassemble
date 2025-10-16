@@ -17,9 +17,11 @@ from .Crystal import Crystal
 from .FLatStc import FLatStc
 from .utility.DLR import DLR
 from .utility.Common import Common
-qapath = os.environ.get('QAssemble','')
-sys.path.append(qapath+'/src/QAssemble/modules')
-import QAFort
+from .utility.Fourier import Fourier
+from .utility.Dyson import Dyson
+# qapath = os.environ.get('QAssemble','')
+# sys.path.append(qapath+'/src/QAssemble/modules')
+# import QAFort
 
 class FLatDyn(object):
     def __init__(self,crystal : Crystal, dlr : DLR) -> object:
@@ -181,7 +183,7 @@ class FLatDyn(object):
         return ftau
 
     
-    def Moment(self,ff : np.ndarray, isgreen : int, highzero : int) -> np.ndarray:
+    def Moment(self,ff : np.ndarray, isgreen : bool, highzero : bool) -> tuple:
 
         norb = ff.shape[0]
         ns = ff.shape[2]
@@ -192,7 +194,8 @@ class FLatDyn(object):
 
         tempmat = copy.deepcopy(ff)
 
-        moment, high = QAFort.fourier.flatdyn_m(self.dlr.omega,tempmat,isgreen,highzero)
+        # moment, high = QAFort.fourier.flatdyn_m(self.dlr.omega,tempmat,isgreen,highzero)
+        moment, high = Fourier.FLatDynM(self.dlr.omega,tempmat[..., -1],tempmat[..., -2],isgreen,highzero)
 
         return moment, high
     
@@ -226,7 +229,8 @@ class FLatDyn(object):
 
                             tempmat[iorb,jorb,js,irk,ift] *= phase
 
-        matr = QAFort.fourier.flatdyn_k2r(rkgrid,tempmat)
+        # matr = QAFort.fourier.flatdyn_k2r(rkgrid,tempmat)
+        matr = Fourier.FLatDynK2R(tempmat, rkgrid)
         
         return matr
     
@@ -240,7 +244,8 @@ class FLatDyn(object):
         nrk = matr.shape[3]
         nft = matr.shape[4]
 
-        matk = QAFort.fourier.flatdyn_r2k(rkgrid,matr)
+        # matk = QAFort.fourier.flatdyn_r2k(rkgrid,matr)
+        matk = Fourier.FLatDynR2K(matr, rkgrid)
 
         for ift in range(nft):
             for irk in range(nrk):
@@ -353,24 +358,25 @@ class FLatDyn(object):
         
         matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
-        matout = QAFort.dyson.flatdyn(mat1,mat2)
+        # matout = QAFort.dyson.flatdyn(mat1,mat2)
+        matout = Dyson.FLatDyn(mat1, mat2)
 
         return matout
 
-    def Projection(self, matin : np.ndarray):
+    # def Projection(self, matin : np.ndarray):
 
         
-        ns = matin.shape[2]
-        nft = matin.shape[4]
-        norbc = self.crystal.fprojector.shape[1]
-        nspace = self.crystal.fprojector.shape[3]
+    #     ns = matin.shape[2]
+    #     nft = matin.shape[4]
+    #     norbc = self.crystal.fprojector.shape[1]
+    #     nspace = self.crystal.fprojector.shape[3]
 
-        matout = np.zeros((norbc,norbc,ns,nft,nspace),dtype=np.complex128,order='F')
+    #     matout = np.zeros((norbc,norbc,ns,nft,nspace),dtype=np.complex128,order='F')
 
-        for ispace in range(nspace):
-            matout[...,ispace] = QAFort.projection.flatdyn(matin,self.crystal.fprojector[...,ispace])
+    #     for ispace in range(nspace):
+    #         matout[...,ispace] = QAFort.projection.flatdyn(matin,self.crystal.fprojector[...,ispace])
 
-        return matout
+    #     return matout
     
     def ChemEmbedding(self,mu : np.float64) -> np.ndarray:
 
@@ -539,15 +545,17 @@ class GreenBare(FLatDyn):
 
     def Cal(self): # freq, tau combine
         
-        
+        from .utility.Bare import Bare
         print(self.hamtb[:,:,0,0])
-        gnotkf = QAFort.bare.flatfreq(self.hamtb,self.dlr.omega)
+        # gnotkf = QAFort.bare.flatfreq(self.hamtb,self.dlr.omega)
+        gnotkf = Bare.FLatFreq(self.dlr.omega, self.hamtb)
         gnotrf = self.K2R(gnotkf)#######
         
         self.kf = gnotkf
         self.rf = gnotrf
 
-        gnotkt = QAFort.bare.flattau(self.hamtb,self.dlr.tau)
+        # gnotkt = QAFort.bare.flattau(self.hamtb,self.dlr.tau)
+        gnotkt = Bare.FLatTau(tau=self.dlr.tau, beta=self.dlr.beta, hlatt=self.hamtb)
         gnotrt = self.K2R(gnotkt)
 
         self.kt = gnotkt

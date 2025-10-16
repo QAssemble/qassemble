@@ -25,10 +25,12 @@ from .FTGrid import FTGrid
 from .BLatStc import VBare
 from .utility.DLR import DLR
 from .utility.Common import Common
+from .utility.Fourier import Fourier 
+from .utility.Dyson import Dyson
+# qapath = os.environ.get("QAssemble", "")
+# sys.path.append(qapath + "/src/QAssemble/modules")
+# import QAFort
 
-qapath = os.environ.get("QAssemble", "")
-sys.path.append(qapath + "/src/QAssemble/modules")
-import QAFort
 
 
 class BLatDyn(object):
@@ -58,7 +60,7 @@ class BLatDyn(object):
 
         return matout
 
-    def Moment(self, bf: np.ndarray, oddzero: int, highzero: int) -> np.ndarray:
+    def Moment(self, bf: np.ndarray, oddzero: bool, highzero: bool) -> tuple:
         norb = bf.shape[0]
         ns = bf.shape[2]
         nrk = bf.shape[4]
@@ -66,7 +68,8 @@ class BLatDyn(object):
         moment = np.zeros((norb, norb, ns, ns, nrk, 3), dtype=np.complex128, order="F")
         high = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
 
-        moment, high = QAFort.fourier.blatdyn_m(self.dlr.nu, bf, oddzero, highzero)
+        # moment, high = QAFort.fourier.blatdyn_m(self.dlr.nu, bf, oddzero, highzero)
+        moment, high = Fourier.BLatDynM(self.dlr.nu, bf, oddzero, highzero)
 
         return moment, high
 
@@ -146,7 +149,8 @@ class BLatDyn(object):
                                 phase = np.exp(2.0j * np.pi * np.dot(rkvec[irk], delta))
                                 tempmat[iorb, jorb, js, ks, irk, ift] *= phase
 
-        matr = QAFort.fourier.blatdyn_k2r(rkgrid, tempmat)
+        # matr = QAFort.fourier.blatdyn_k2r(rkgrid, tempmat)
+        matr = Fourier.BLatDynK2R(tempmat, rkgrid)
 
         return matr
 
@@ -160,7 +164,8 @@ class BLatDyn(object):
 
         matk = np.zeros((norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F")
 
-        matk = QAFort.fourier.blatdyn_r2k(rkgrid, matr)
+        # matk = QAFort.fourier.blatdyn_r2k(rkgrid, matr)
+        matk = Fourier.BLatDynR2K(matr, rkgrid)
 
         for ift in range(nft):
             for irk in range(nrk):
@@ -251,26 +256,27 @@ class BLatDyn(object):
             (norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F"
         )
 
-        matout = QAFort.dyson.blatdyn(mat1, mat2)
+        # matout = QAFort.dyson.blatdyn(mat1, mat2)
+        matout = Dyson.BLatDyn(mat1, mat2)
 
         return matout
 
-    def Projection(self, matin: np.ndarray):
-        norbc = self.crystal.bprojector.shape[1]
-        ns = self.crystal.ns
-        nft = len(self.dlr.nu)  # self.ft.size
-        nspace = self.crystal.bprojector.shape[3]
+    # def Projection(self, matin: np.ndarray):
+    #     norbc = self.crystal.bprojector.shape[1]
+    #     ns = self.crystal.ns
+    #     nft = len(self.dlr.nu)  # self.ft.size
+    #     nspace = self.crystal.bprojector.shape[3]
 
-        matout = np.zeros(
-            (norbc, norbc, ns, ns, nft, nspace), dtype=np.complex128, order="F"
-        )
+    #     matout = np.zeros(
+    #         (norbc, norbc, ns, ns, nft, nspace), dtype=np.complex128, order="F"
+    #     )
 
-        for ispace in range(nspace):
-            matout[..., ispace] = QAFort.projection.blatdyn(
-                matin, self.crystal.bprojector[..., ispace]
-            )
+    #     for ispace in range(nspace):
+    #         matout[..., ispace] = QAFort.projection.blatdyn(
+    #             matin, self.crystal.bprojector[..., ispace]
+    #         )
 
-        return matout
+    #     return matout
 
     def Quad2Double(self, matin: np.ndarray) -> np.ndarray:
         # norb = len(self.crystal.bind)

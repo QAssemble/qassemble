@@ -13,9 +13,9 @@ import itertools
 from sympy.physics.wigner import gaunt, wigner_3j
 from scipy.fftpack import fftn, ifftn
 import copy, gc
-qapath = os.environ.get('QAssemble','')
-sys.path.append(qapath+'/src/QAssemble/modules')
-import QAFort
+# qapath = os.environ.get('QAssemble','')
+# sys.path.append(qapath+'/src/QAssemble/modules')
+# import QAFort
 # from .modules.Common import Common
 
 # Ask to professor for change variables

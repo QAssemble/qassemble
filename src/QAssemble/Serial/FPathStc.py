@@ -103,7 +103,7 @@ class FPathStc(object):
         tempmat = copy.deepcopy(matr)
         # matk = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
         if (rvec is None):
-            self.crystal.Rvec()
+            self.crystal.RVec()
             matk = QAFort.fourier.fpathstc_r2k(self.crystal.rvec, kpoint, tempmat)
         else:
             matk = QAFort.fourier.fpathstc_r2k(rvec, kpoint, tempmat) 
