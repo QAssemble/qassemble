@@ -19,9 +19,8 @@ import subprocess
 import copy
 # import Crystal, FTGrid
 from .Crystal import Crystal
-qapath = os.environ.get('QAssemble','')
-sys.path.append(qapath+'/src/QAssemble/modules')
-import QAFort
+from .utility.Common import Common
+from .utility.Dyson import Dyson
 
 class BLocStc(object):
 
@@ -141,23 +140,23 @@ class BLocStc(object):
 
         matout = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
 
-        matout = QAFort.dyson.blocstc(mat1,mat2)
+        matout = Dyson.BLocStc(mat1,mat2)
 
         return matout
 
-    def Embedding(self, matin : np.ndarray):
+    # def Embedding(self, matin : np.ndarray):
 
-        norb = len(self.crystal.bind)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
-        nspace = self.crystal.bprojector.shape[3]
+    #     norb = len(self.crystal.bind)
+    #     ns = self.crystal.ns
+    #     nrk = len(self.crystal.kpoint)
+    #     nspace = self.crystal.bprojector.shape[3]
 
-        matout = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
+    #     matout = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
 
-        for ispace in range(nspace):
-            matout += QAFort.embedding.blocstc(nrk,matin[...,ispace],self.crystal.bprojector.shape[...,ispace])
+    #     for ispace in range(nspace):
+    #         matout += QAFort.embedding.blocstc(nrk,matin[...,ispace],self.crystal.bprojector.shape[...,ispace])
 
-        return matout
+    #     return matout
     
     def Double2Quad(self, matin):
 
