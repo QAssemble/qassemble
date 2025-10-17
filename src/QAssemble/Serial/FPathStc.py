@@ -21,9 +21,9 @@ from pylab import cm
 from scipy.fftpack import fftn, ifftn
 from sympy.physics.wigner import gaunt, wigner_3j
 
-qapath = os.environ.get("QAssemble", "")
-sys.path.append(qapath + "/src/QAssemble/modules")
-import QAFort
+# qapath = os.environ.get("QAssemble", "")
+# sys.path.append(qapath + "/src/QAssemble/modules")
+# import QAFort
 
 from .Crystal import Crystal
 from .FLatStc import FLatStc

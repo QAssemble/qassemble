@@ -9,9 +9,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import interpolate
 from scipy.ndimage import gaussian_filter1d
-qapath = os.environ.get("QAssemble", "")
-sys.path.append(qapath + "/src/QAssemble/modules")
-import QAFort
+# qapath = os.environ.get("QAssemble", "")
+# sys.path.append(qapath + "/src/QAssemble/modules")
+# import QAFort
 import subprocess
 from .Crystal import Crystal
 from .FLatDyn import FLatDyn
