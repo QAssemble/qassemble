@@ -2,9 +2,10 @@
 This module provides a collection of common utility functions for numerical calculations,
 including matrix operations, interpolation, and special polynomials.
 """
-from __future__ import annotations
 import numpy as np
-from typing import Tuple, Optional
+from scipy.linalg import eigh
+from scipy.linalg import lapack
+
 
 class Common:
     """
@@ -461,46 +462,20 @@ class Common:
         R = 1.0e6
         R1 = np.sqrt(np.sum(d**2))
         
+        for ix in range(-1, 2):
+            for iy in range(-1, 2):
+                for iz in range(-1, 2):
+                    rr = np.zeros((3, 3))
+                    rr[0, :] = ix * S[0, :]
+                    rr[1, :] = iy * S[1, :]
+                    rr[2, :] = iz * S[2, :]
+                    
+                    dtemp = d - rr[0, :] - rr[1, :] - rr[2, :]
+                    R2 = np.sqrt(np.sum(dtemp**2))
+                    
+                    Rtemp = min(R1, R2)
+                    
+                    if Rtemp <= R:
+                        R = Rtemp
         
-        shifts = np.array(np.meshgrid([-1, 0, 1], [-1, 0, 1], [-1, 0, 1])).reshape(3, -1).T  
-        rrs = shifts @ S  # shape (27, 3)
-        dtemps = d - rrs  # shape (27, 3)
-        R2s = np.sqrt(np.sum(dtemps**2, axis=1))
-        Rmin = min(R1, np.min(R2s))
-        if Rmin < R:
-            R = Rmin
         return R
-
-    @staticmethod
-    def fftw3_1d(fftboxx: ArrayLike, sign: int) -> np.ndarray:
-        a = np.asarray(fftboxx, dtype=np.complex128).copy()
-        if sign == -1:
-            return _fft_forward(a, axes=(-1,))
-        elif sign == +1:
-            return _fft_inverse(a, axes=(-1,))
-        else:
-            raise ValueError("sign must be ±1")
-
-    @staticmethod
-    def fftw3_2d(fftboxx: ArrayLike, sign: int) -> np.ndarray:
-        a = np.asarray(fftboxx, dtype=np.complex128).copy()
-        if a.ndim != 2:
-            raise ValueError("expected 2D array")
-        if sign == -1:
-            return _fft_forward(a, axes=(0,1))
-        elif sign == +1:
-            return _fft_inverse(a, axes=(0,1))
-        else:
-            raise ValueError("sign must be ±1")
-
-    @staticmethod
-    def fftw3_3d(fftboxx: ArrayLike, sign: int) -> np.ndarray:
-        a = np.asarray(fftboxx, dtype=np.complex128).copy()
-        if a.ndim != 3:
-            raise ValueError("expected 3D array")
-        if sign == -1:
-            return _fft_forward(a, axes=(0,1,2))
-        elif sign == +1:
-            return _fft_inverse(a, axes=(0,1,2))
-        else:
-            raise ValueError("sign must be ±1")

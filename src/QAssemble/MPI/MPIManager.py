@@ -120,14 +120,14 @@ class MPIManager(object):
             nodedict['tloc'] = self.tloc
             nodedict['klocal2global'] = self.klocal2global
             nodedict['rlocal2global'] = self.rlocal2global
-            nodedict['RLocal2Global'] = self.RLocal2Global
-            nodedict['RGlobal2Local'] = self.RGlobal2Local
-            nodedict['KLocal2Global'] = self.KLocal2Global
-            nodedict['KGlobal2Local'] = self.KGlobal2Local
-            nodedict['FLocal2Global'] = self.FLocal2Global
-            nodedict['FGlobal2Local'] = self.FGlobal2Local
-            nodedict['TLocal2Global'] = self.TLocal2Global
-            nodedict['TGlobal2Local'] = self.TGlobal2Local
+            # nodedict['RLocal2Global'] = self.RLocal2Global
+            # nodedict['RGlobal2Local'] = self.RGlobal2Local
+            # nodedict['KLocal2Global'] = self.KLocal2Global
+            # nodedict['KGlobal2Local'] = self.KGlobal2Local
+            # nodedict['FLocal2Global'] = self.FLocal2Global
+            # nodedict['FGlobal2Local'] = self.FGlobal2Local
+            # nodedict['TLocal2Global'] = self.TLocal2Global
+            # nodedict['TGlobal2Local'] = self.TGlobal2Local
             nodedict['grid'] = shape
 
             self.mpidict[(nk, nf, ntau, nprock, nprocf)] = nodedict

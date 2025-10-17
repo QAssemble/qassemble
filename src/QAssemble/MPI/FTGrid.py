@@ -17,9 +17,10 @@ from pymatgen.core import Lattice, Structure
 from pymatgen.transformations.standard_transformations import SupercellTransformation
 import subprocess
 import copy
-qapath = os.environ.get('QAssemble','')
-sys.path.append(qapath+'/src/QAssemble/modules')
-import QAFort
+from .utility.Common import Common
+# qapath = os.environ.get('QAssemble','')
+# sys.path.append(qapath+'/src/QAssemble/modules')
+# import QAFort
 
 class FTGrid(object):
 
@@ -76,7 +77,7 @@ class FTGrid(object):
         #     self.tau[ntau-1-itau] = self.beta - self.tau[itau]
         tau = np.zeros((ntau),dtype=float,order='F')
         for itau in range(ntau):
-            itheta = QAFort.common.ttind(itau,ntau)
+            itheta = Common.Ttind(itau,ntau)
             tau[itau] = self.beta/2.0*(np.cos(np.pi*(itheta+0.5)/ntau)+1.0)
 
         # self.tau = tau

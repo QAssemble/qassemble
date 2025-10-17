@@ -14,10 +14,10 @@ from .Crystal import Crystal
 from .FTGrid import FTGrid
 from .FLatStc import FLatStc
 from .MPIManager import MPIManager
-from .modules.Dyson import Dyson
-from .modules.Fourier import Fourier
-from .modules.Bare import Bare
-from .modules.Common import Common
+from .utility.Dyson import Dyson
+from .utility.Fourier import Fourier
+from .utility.Bare import Bare
+from .utility.Common import Common
 
 
 class FLatDyn(object):

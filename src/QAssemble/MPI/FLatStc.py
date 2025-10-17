@@ -12,23 +12,25 @@ import copy
 import h5py
 from .Crystal import Crystal
 from .MPIManager import MPIManager
-from .modules.Dyson import Dyson
-from .modules.Fourier import Fourier
-from .modules.Common import Common
+from .utility.Dyson import Dyson
+from .utility.Fourier import Fourier
+from .utility.Common import Common
 
 
 class FLatStc(object):
 
-    def __init__(self, crystal: Crystal, nk : int, nw : int, ntau : int, nprock : int, nprocw : int, mpimanager : MPIManager):
+    # def __init__(self, crystal: Crystal, mpimanager : MPIManager, nk : int, nw : int, ntau : int, nprock : int, nprocw : int):
+    def __init__(self, crystal: Crystal, mpimanager : MPIManager, **kwargs):
 
         self.crystal = crystal
 
-        self.nk = nk
-        self.nw = nw
-        self.nprock = nprock
-        self.nprocw = nprocw
+        self.nk = kwargs.get('nk', 0)
+        self.nw = kwargs.get('nw', 0)
+        self.ntau = kwargs.get('ntau', 0)
+        self.nprock = kwargs.get('nprock', 0)
+        self.nprocw = kwargs.get('nprocw', 0)
         self.mpimanager = mpimanager
-        self.nodedict = mpimanager.Quary(nk, nw, ntau, nprock, nprocw, self.crystal)
+        self.nodedict = mpimanager.Quary(self.nk, self.nw, self.ntau, self.nprock, self.nprocw, self.crystal.rkgrid)
 
         self.commk = self.nodedict['commk']
         self.commw = self.nodedict['commf']
@@ -530,20 +532,40 @@ class FLatStc(object):
 
 class NIHamiltonian(FLatStc):
 
-    def __init__(
-        self, crystal: Crystal = None, hopping: dict = None, onsite: dict = None, spin : bool = False, 
-        ferro : bool = False, aferro : bool = False, valley: bool = False, avalley : bool = False, site : bool = False, 
-        asite : bool = False, hdf5file: h5py.File = None, group: str = None,
-    ):
+    # def __init__(
+    #     self, crystal: Crystal = None, hopping: dict = None, onsite: dict = None, spin : bool = False, 
+    #     ferro : bool = False, aferro : bool = False, valley: bool = False, avalley : bool = False, site : bool = False, 
+    #     asite : bool = False, hdf5file: h5py.File = None, group: str = None,
+    # ):
+    def __init__(self, crystal : Crystal = None, mpimanager : MPIManager = None, **kwargs):
 
-        super().__init__(crystal)
+        hopping = kwargs.get('hopping', None)
+        onsite = kwargs.get('onsite', None)
+        spin = kwargs.get('spin', False)
+        ferro = kwargs.get('ferro', False)
+        aferro = kwargs.get('aferro', False)
+        valley = kwargs.get('valley', False)
+        avalley = kwargs.get('avalley', False)
+        site = kwargs.get('site', False)
+        asite = kwargs.get('asite', False)
+        hdf5file = kwargs.get('hdf5file', None)
+        group = kwargs.get('group', None)
+
+        nk = kwargs.get('nk', 0)
+        nw = kwargs.get('nw', 0)
+        ntau = kwargs.get('ntau', 0)
+        nprock = kwargs.get('nprock', 0)
+        nprocw = kwargs.get('nprocw', 0)
+        super().__init__(crystal=crystal, mpimanager=mpimanager, nk=nk, nw=nw, ntau=ntau, nprock=nprock, nprocw=nprocw)
+
+
         hopplist = []
         for orb, val in hopping.items():
             for t, lat in val.items():
                 for r in lat:
                     hopplist.append([t, list(orb[0]), list(orb[1]), r])
 
-        # print(hopplist)
+        
         self.hopping = hopplist
         self.onsite = onsite
         self.hdf5file = hdf5file
@@ -554,11 +576,10 @@ class NIHamiltonian(FLatStc):
         self.aferro = aferro
         self.group = group
         self.subgroup = self.__class__.__name__
-        # print(self.onsite)
+        
         self.k = None
         self.r = None
-        # self.Hopping()
-        # self.Onsite()
+        
 
         self.Cal()
         if valley:
@@ -642,15 +663,8 @@ class NIHamiltonian(FLatStc):
                 for orb, val in value.items():
                     iorb = self.crystal.FIndex(list(orb))
                     tempmat[iorb, iorb, js, 0, 0, 0] += val
-        #           for js in range(ns):
-        #               for orb, val in self.onsite.items():
-        #                   iorb = self.crystal.FIndex(list(orb))
-        #                   # jorb = self.crystal.FIndex(list(orb[1]))
-        #                   tempmat[iorb,iorb,js,0,0,0] += val
-        # print(tempmat[iorb,iorb,js,0,0,0],val)
-        # for iorb in range(norb):
-        #     tempmat[iorb,iorb,js,0,0,0] = +self.onsitelist[iorb]
-        # Hermitian check
+        
+        
         tempmat = tempmat.reshape((norb, norb, ns, nk), order="F")
         self.r = tempmat
         hamtb = self.R2K(tempmat)

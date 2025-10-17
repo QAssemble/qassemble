@@ -808,7 +808,7 @@ class Crystal(object):
             grid = self.rkgrid
         r = np.zeros((grid[0]*grid[1]*grid[2], 3), dtype=float)
         rind = np.zeros((grid[0]*grid[1]*grid[2],3),dtype=float) 
-        from .modules.Common import Common
+        from .utility.Common import Common
 
         for iz in range(grid[2]):
             for iy in range(grid[1]):
