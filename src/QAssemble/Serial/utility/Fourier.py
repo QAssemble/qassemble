@@ -4,7 +4,7 @@ Serial implementation without MPI dependencies.
 """
 import numpy as np
 from scipy.linalg import solve
-from numba import jit
+# from numba import jit
 from typing import Tuple, Optional
 
 ArrayLike = np.ndarray
