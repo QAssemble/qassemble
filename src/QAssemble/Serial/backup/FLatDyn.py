@@ -22,7 +22,7 @@ import h5py
 from .Crystal import Crystal
 from .FTGrid import FTGrid
 from .FLatStc import FLatStc
-from utility.DLR import DLR
+# from utility.DLR import DLR
 # from .MPIManager import MPIManager
 qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/QAssemble/modules')
