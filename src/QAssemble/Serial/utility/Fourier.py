@@ -566,3 +566,42 @@ class Fourier:
                     fout[iorb, jorb, js, :] = phase @ fin[iorb, jorb, js, :]
         
         return fout
+    
+    @staticmethod
+    def FPathDynR2K(fin: np.ndarray, kvec: np.ndarray, rvec: np.ndarray) -> np.ndarray:
+        """
+        Transform fermionic static quantity from real-space to arbitrary k-path.
+        
+        Direct evaluation: f(k) = Σ_R f(R) e^{-2πik·R}
+        
+        Parameters
+        ----------
+        fin : ndarray[norb, norb, ns, nr], dtype=complex
+            Real-space fermionic function
+        kvec : ndarray[nk_path, 3], dtype=float
+            k-points along path (fractional coordinates)
+        rvec : ndarray[nr, 3], dtype=float
+            Real-space lattice vectors (fractional coordinates)
+            
+        Returns
+        -------
+        fout : ndarray[norb, norb, ns, nk_path], dtype=complex
+            k-space fermionic function along path
+        """
+        norb, _, ns, nr, nft = fin.shape
+        nk_path = len(kvec)
+        
+        fout = np.zeros((norb, norb, ns, nk_path, nft), dtype=np.complex128, order='F')
+        
+        # Precompute phase factors
+        # phase = np.exp(-2.0j * np.pi * kvec @ rvec.T)  # [nk_path, nr]
+        
+        # for js in range(ns):
+        #     for jorb in range(norb):
+        #         for iorb in range(norb):
+        #             # Direct summation over R
+        #             fout[iorb, jorb, js, :] = phase @ fin[iorb, jorb, js, :]
+        for ift in range(nft):
+            fout[..., ift] = Fourier.FPathStcR2K(fin[..., ift], kvec, rvec)
+        
+        return fout

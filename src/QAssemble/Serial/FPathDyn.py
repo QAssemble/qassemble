@@ -16,6 +16,7 @@ import subprocess
 from .Crystal import Crystal
 from .FLatDyn import FLatDyn
 from .FTGrid import FTGrid
+from .utility.Fourier import Fourier
 
 
 class FPathDyn(object):
@@ -121,9 +122,10 @@ class FPathDyn(object):
         nk = len(kpoint)
         nft = matr.shape[4]
 
-        self.crystal.Rvec()
+        self.crystal.RVec()
         tempmat = copy.deepcopy(matr)
-        matk = QAFort.fourier.fpathdyn_r2k(self.crystal.rvec, kpoint, tempmat)
+        matk = Fourier.FPathDynR2K(tempmat, kpoint, self.crystal.rvec)
+        # matk = QAFort.fourier.fpathdyn_r2k(self.crystal.rvec, kpoint, tempmat)
 
         for ift in range(nft):
             for ik in range(nk):

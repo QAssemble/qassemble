@@ -401,7 +401,7 @@ class Run:
             site = control["ham"]["site"]
             # func.TightBinding(hoppinglist=hoppinglist,onsitelist=onsitelist)
             func.TightBinding(
-                hopping=hopping, onsite=onsite, spin=spin, valley=valley, site = site, fn=fn + ".h5"
+                hopping=hopping, onsite=onsite, spin=spin, valley=valley, site = site, hdf5file=fn + ".h5"
             )
             print("Tight-Binding calculation finish")
             # flatstc = FLatStc(crystal=func.cry)

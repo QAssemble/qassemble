@@ -27,6 +27,7 @@ from sympy.physics.wigner import gaunt, wigner_3j
 
 from .Crystal import Crystal
 from .FLatStc import FLatStc
+from .utility.Fourier import Fourier
 
 
 class FPathStc(object):
@@ -104,9 +105,11 @@ class FPathStc(object):
         # matk = np.zeros((norb,norb,ns,nk),dtype=complex,order='F')
         if (rvec is None):
             self.crystal.RVec()
-            matk = QAFort.fourier.fpathstc_r2k(self.crystal.rvec, kpoint, tempmat)
+            # matk = QAFort.fourier.fpathstc_r2k(self.crystal.rvec, kpoint, tempmat)
+            matk = Fourier.FPathStcR2K(tempmat, kpoint, self.crystal.rvec)
         else:
-            matk = QAFort.fourier.fpathstc_r2k(rvec, kpoint, tempmat) 
+            # matk = QAFort.fourier.fpathstc_r2k(rvec, kpoint, tempmat) 
+            matk = Fourier.FPathStcR2K(tempmat, kpoint, rvec)
 
         for ik in range(nk):
             for js in range(ns):
