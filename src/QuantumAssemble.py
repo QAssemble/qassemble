@@ -444,7 +444,7 @@ class Run:
                 ohno=ohno,
                 jth=jth,
                 ohnoyuka = oy,
-                fn=fn + ".h5",
+                hdf5file=fn + ".h5",
             )
             end = time.time()
             print("Hartree-Fock calculation finish")
