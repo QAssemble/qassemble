@@ -1299,8 +1299,9 @@ class Hamiltonian(FLatStc):
         occknew = self.Mixing(iter=iter, mix=mix, Fb=occkb, Fm=occkm)
 
         for ik in range(nk):
-            occnew[..., ik] += occknew[..., ik]
+            occnew += occknew[..., ik]
 
+        occnew = occknew/nk
         occrnew = self.K2R(occknew)
 
         self.occ = occnew
