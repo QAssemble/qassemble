@@ -127,11 +127,11 @@ class CorrelationFunction(object):
 
             print(hold.occ)
             sigmah = SigmaHartree(crystal=self.crystal,occ=hold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
-            # sigmah.k = sigmah.Mixing(iter=iter,mix=mix,Fb=sigmah.k,Fm=hartreeold)
+            sigmah.k = sigmah.Mixing(iter=iter,mix=mix,Fb=sigmah.k,Fm=hartreeold)
             if (iter % 50 == 0):
                 sigmah.Save(f'sigh.{iter}')
             sigmaf = SigmaFock(crystal=self.crystal,occr=hold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
-            # sigmaf.k = sigmaf.Mixing(iter=iter,mix=mix,Fb=sigmaf.k,Fm=fockold)
+            sigmaf.k = sigmaf.Mixing(iter=iter,mix=mix,Fb=sigmaf.k,Fm=fockold)
             if (iter % 50 == 0):
                 sigmaf.Save(f'sigf.{iter}')
             hnew = Hamiltonian(crystal=self.crystal,ham=niham.k,beta=self.dlr.beta,sigmah=sigmah.k,sigmaf=sigmaf.k,hdf5file=hdf5file,group=group)
@@ -166,7 +166,7 @@ class CorrelationFunction(object):
                 # del hnew, sigmaf, hold
                 gc.collect()
             else:
-                hnew.OccMixing(iter=iter, mix=mix, occkb = hnew.occk, occkm=hold.occk)
+                # hnew.OccMixing(iter=iter, mix=mix, occkb = hnew.occk, occkm=hold.occk)
                 hold=hnew
                 hartreeold = sigmah.k
                 fockold = sigmaf.k
