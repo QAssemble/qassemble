@@ -1,3 +1,4 @@
+from tempfile import tempdir
 import numpy as np
 from pydlr import dlr
 from .Common import Common
@@ -19,11 +20,11 @@ class DLR(object):
             self.beta = ft["beta"]
         self.cutoff = ft.get("cutoff", 10.0)
         self.eps = ft.get("eps", 1e-15)
-        # self.lambF = (self.bata * self.cu)
-        self.lamb = self.beta * self.cutoff / (2 * np.pi)
+        self.lambF = (self.beta / np.pi * self.cutoff - 1) / 2
+        self.lambB = self.beta * self.cutoff / (2 * np.pi)
         # nmax = int((self.beta/np.pi * self.cutoff -1)/2)
-        dF = dlr(lamb=self.lamb, eps=self.eps, dense_imfreq=True)
-        dB = dlr(lamb=self.lamb, eps=self.eps, xi=1, dense_imfreq=True)
+        dF = dlr(lamb=self.lambF, eps=self.eps, dense_imfreq=True)
+        dB = dlr(lamb=self.lambB, eps=self.eps, xi=1, dense_imfreq=True)
         # nmax_fermion = int((self.cutoff * self.beta / np.pi - 1)/2)
         # dF = dlr(lamb = self.lamb , eps=self.eps, xi = -1, dense_imfreq=True, nmax=nmax_fermion)
         # nmax_boson = int((self.cutoff * self.beta) / (2 * np.pi))
@@ -31,7 +32,8 @@ class DLR(object):
 
         self.dF = dF
         self.dB = dB
-        self.tau = dF.get_tau(self.beta)
+        self.tauF = dF.get_tau(self.beta)
+        self.tauB = dB.get_tau(self.beta)
         self.omega = dF.get_matsubara_frequencies(self.beta).imag
         self.nu = dB.get_matsubara_frequencies(self.beta).imag
 
@@ -90,9 +92,8 @@ class DLR(object):
         ntau = len(ftau)
         ftau = ftau.reshape(ntau, 1, 1)
         fxx = self.dF.dlr_from_tau(ftau)
-        ff = self.dF.matsubara_from_dlr(fxx, beta=self.beta, xi=-1)
-        # fxx = self.FTau2DLR(ftau)
-        # ff = self.dF.matsubara_from_dlr(fxx, beta=self.beta, xi=-1)
+        tempmat = self.dF.matsubara_from_dlr(fxx, beta=self.beta, xi=-1)
+        ff = tempmat[:, 0, 0]
 
         return ff
 
@@ -107,7 +108,8 @@ class DLR(object):
         nfreq = len(ff)
         ff = ff.reshape(nfreq, 1, 1)
         fxx = self.dF.dlr_from_matsubara(ff, beta=self.beta, xi=-1)
-        ftau = self.dF.tau_from_dlr(fxx)
+        tempmat = self.dF.tau_from_dlr(fxx)
+        ftau = tempmat[:, 0, 0]
 
         return ftau
 
@@ -116,7 +118,8 @@ class DLR(object):
         ntau = len(btau)
         btau = btau.reshape(ntau, 1, 1)
         bxx = self.dB.dlr_from_tau(btau)
-        bf = self.dB.matsubara_from_dlr(bxx, beta=self.beta, xi=+1)
+        tempmat = self.dB.matsubara_from_dlr(bxx, beta=self.beta, xi=+1)
+        bf = tempmat[:, 0, 0]
 
         return bf
 
@@ -131,7 +134,8 @@ class DLR(object):
         bf = bf.reshape(nfreq, 1, 1)
         bxx = self.dB.dlr_from_matsubara(bf, beta=self.beta, xi=+1)
 
-        btau = self.dB.tau_from_dlr(bxx)
+        tempmat = self.dB.tau_from_dlr(bxx)
+        btau = tempmat[:, 0, 0]
 
         return btau
 
@@ -177,59 +181,84 @@ class DLR(object):
 
         return fout
 
-    def T2mT(self, ftau: np.ndarray) -> np.ndarray:
-        taum = self.beta - self.tau
+    def T2mT(self, ftau: np.ndarray, tau: np.ndarray = None) -> np.ndarray:
+        if tau is None:
+            tau = self.tauB
+        taum = self.beta - tau
 
-        norb, _, ns, nrk, ntau = ftau.shape
+        ntau = len(ftau)
+        ftau = ftau.reshape((ntau, 1, 1))
+        fout = np.zeros((ntau), dtype=np.complex128, order="F")
 
-        fout = np.zeros((norb, norb, ns, nrk, ntau), dtype=np.complex128, order="F")
+        fxx = self.dB.dlr_from_tau(ftau)
+        tempmat = self.dB.eval_dlr_tau(fxx, taum, beta=self.beta)
+        fout = -tempmat[:, 0, 0]
+        # fxx = self.dF.dlr_from_tau(ftau[:, :, js, irk, :].T)
+        # fout[:, :, js, irk, :] = -(self.dF.eval_dlr_tau(fxx, taum, self.beta)).T
 
-        for irk in range(nrk):
-            for js in range(ns):
-                fxx = self.dF.dlr_from_tau(ftau[:, :, js, irk, :].T)
-                fout[:, :, js, irk, :] = -(self.dF.eval_dlr_tau(fxx, taum, self.beta)).T
+        return fout
+    
+    def TauF2TauB(self, ftau : np.ndarray) -> np.ndarray:
+
+        ntau = len(ftau)
+        tempmat = np.zeros((ntau, 1, 1), dtype=np.complex128, order='F')
+        tempmat[:, 0, 0] = ftau
+        fxx = self.dF.dlr_from_tau(tempmat)
+        tempmat2 = self.dF.eval_dlr_tau(fxx, self.tauB, self.beta)
+        fout = tempmat2[:, 0, 0]
+
+        return fout
+    
+    def TauB2TauF(self, ftau : np.ndarray) -> np.ndarray:
+
+        ntau = len(ftau)
+        tempmat = np.zeros((ntau, 1, 1), dtype=np.complex128, order='F')
+        tempmat[:, 0, 0] = ftau
+        fxx = self.dB.dlr_from_tau(tempmat)
+        tempmat2 = self.dB.eval_dlr_tau(fxx, self.tauF, self.beta)
+        fout = tempmat2[:, 0, 0]
 
         return fout
 
-    def FDLR2Tau(self, fdlr: np.ndarray) -> np.ndarray:
-        ftau = self.dF.tau_from_dlr(fdlr)
+    # def FDLR2Tau(self, fdlr: np.ndarray) -> np.ndarray:
+    #     ftau = self.dF.tau_from_dlr(fdlr)
 
-        return ftau
+    #     return ftau
 
-    def FDLR2Matsubara(self, fdlr: np.ndarray) -> np.ndarray:
-        ff = self.dF.matsubara_from_dlr(fdlr, beta=self.beta, xi=-1)
+    # def FDLR2Matsubara(self, fdlr: np.ndarray) -> np.ndarray:
+    #     ff = self.dF.matsubara_from_dlr(fdlr, beta=self.beta, xi=-1)
 
-        return ff
+    #     return ff
 
-    def FTau2DLR(self, ftau: np.ndarray) -> np.ndarray:
-        fdlr = self.dF.dlr_from_tau(ftau)
+    # def FTau2DLR(self, ftau: np.ndarray) -> np.ndarray:
+    #     fdlr = self.dF.dlr_from_tau(ftau)
 
-        return fdlr
+    #     return fdlr
 
-    def FMatsubara2DLR(self, ff: np.ndarray) -> np.ndarray:
-        nfreq = len(ff)
-        ff = ff.reshape(nfreq, 1, 1)
+    # def FMatsubara2DLR(self, ff: np.ndarray) -> np.ndarray:
+    #     nfreq = len(ff)
+    #     ff = ff.reshape(nfreq, 1, 1)
 
-        fdlr = self.dF.dlr_from_matsubara(ff, self.beta, xi=-1)
+    #     fdlr = self.dF.dlr_from_matsubara(ff, self.beta, xi=-1)
 
-        return fdlr
+    #     return fdlr
 
-    def BDLR2Tau(self, fdlr: np.ndarray) -> np.ndarray:
-        ftau = self.dB.tau_from_dlr(fdlr)
+    # def BDLR2Tau(self, fdlr: np.ndarray) -> np.ndarray:
+    #     ftau = self.dB.tau_from_dlr(fdlr)
 
-        return ftau
+    #     return ftau
 
-    def BDLR2Matsubara(self, fdlr: np.ndarray) -> np.ndarray:
-        ff = self.dB.matsubara_from_dlr(fdlr, beta=self.beta, xi=-1)
+    # def BDLR2Matsubara(self, fdlr: np.ndarray) -> np.ndarray:
+    #     ff = self.dB.matsubara_from_dlr(fdlr, beta=self.beta, xi=-1)
 
-        return ff
+    #     return ff
 
-    def BTau2DLR(self, ftau: np.ndarray) -> np.ndarray:
-        fdlr = self.dB.dlr_from_tau(ftau)
+    # def BTau2DLR(self, ftau: np.ndarray) -> np.ndarray:
+    #     fdlr = self.dB.dlr_from_tau(ftau)
 
-        return fdlr
+    #     return fdlr
 
-    def BMatsubara2DLR(self, ff: np.ndarray) -> np.ndarray:
-        fdlr = self.dB.dlr_from_matsubara(ff, self.beta, xi=-1)
+    # def BMatsubara2DLR(self, ff: np.ndarray) -> np.ndarray:
+    #     fdlr = self.dB.dlr_from_matsubara(ff, self.beta, xi=-1)
 
-        return fdlr
+    #     return fdlr
