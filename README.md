@@ -1,12 +1,12 @@
 # QuantumAssemble_DEMO
 
-QuantumAssemble couples Python drivers with Fortran kernels to perform tight-binding, Hartree–Fock, and GW calculations on crystalline systems. The project ships both serial and MPI execution paths alongside a Julia-based maximum-entropy post-processing toolkit.
+QuantumAssemble couples Python drivers with Fortran kernels to perform tight-binding, Hartree–Fock, and GW calculations on crystalline systems. This distribution documents the serial workflow that runs on a single process.
 
 ## Quick Start
 
 1. Create and activate a Python 3.9 environment, then install the required packages:
    ```bash
-   pip install numpy scipy h5py matplotlib numba finufft mpi4py mpi4py-fft
+   pip install numpy scipy h5py matplotlib numba finufft
    ```
 2. Export the project root and rebuild the Fortran extension:
    ```bash
@@ -18,4 +18,4 @@ QuantumAssemble couples Python drivers with Fortran kernels to perform tight-bin
    python src/QuantumAssemble.py
    ```
 
-See [`docs/USAGE.md`](docs/USAGE.md) for detailed setup instructions, configuration examples, and testing guidance.
+See [`docs/USAGE.md`](docs/USAGE.md) for detailed setup instructions, configuration examples, and testing guidance focused on the serial driver.

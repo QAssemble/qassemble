@@ -2,30 +2,30 @@
 
 ## 1. Overview
 
-QuantumAssemble couples Python drivers with Fortran kernels to perform tight-binding (TB), Hartree–Fock (HF), and GW electronic structure calculations. The main entry point is `src/QuantumAssemble.py`, which reads a Python-style `input.ini`, stores all inputs and results in an HDF5 file, and dispatches either serial or MPI-enabled workflows under `src/QAssemble`.
+QuantumAssemble couples Python drivers with Fortran kernels to perform tight-binding (TB), Hartree–Fock (HF), and GW electronic structure calculations. The main entry point is `src/QuantumAssemble.py`, which reads a Python-style `input.ini`, stores all inputs and results in an HDF5 file, and runs the single-process workflow under `src/QAssemble/Serial`.
 
 ## 2. Repository Layout
 
 - `src/QuantumAssemble.py` – serial driver that parses `input.ini`, prepares an HDF5 checkpoint (`<Prefix>.h5`), and runs TB / HF / GW loops.
-- `src/QAssemble/Serial` and `src/QAssemble/MPI` – domain logic for single-process and distributed executions. Mirror updates across both trees.
+- `src/QAssemble/Serial` – domain logic for the single-process execution path described in this guide.
+- `src/QAssemble/MPI` – distributed kernels kept for completeness; they are out of scope for the serial documentation.
 - `src/QAssemble/modules` – Fortran sources compiled into the `QAFort` Python extension (rebuilt with `make new`).
 - `MQEM.jl` – Julia maximum-entropy package used for analytic continuation of spectral data.
 - `arch.mk*` – compiler, library, and toolchain configuration templates. Copy or edit the version that matches your platform.
 
 ## 3. Prerequisites
 
-1. **Python 3.9** with packages: `numpy`, `scipy`, `h5py`, `matplotlib`, `numba`, `finufft`, `mpi4py`, `mpi4py-fft`.
+1. **Python 3.9** with packages: `numpy`, `scipy`, `h5py`, `matplotlib`, `numba`, `finufft`.
 2. **Fortran toolchain**: `gfortran` (default) or Intel `ifort`, plus BLAS/LAPACK and FFTW development headers.
 3. **Finite NUFFT library**: place a FINUFFT build under `${QAssemble}/finufft` or adjust `arch.mk` to point to your installation.
-4. **MPI stack** (OpenMPI, MPICH, Intel MPI, etc.) for distributed runs.
-5. **Julia ≥ 1.8** (optional) for `MQEM`.
+4. **Julia ≥ 1.8** (optional) for `MQEM`.
 
 Python dependencies can be installed with:
 
 ```bash
 python3.9 -m venv .venv
 source .venv/bin/activate
-pip install numpy scipy h5py matplotlib numba finufft mpi4py mpi4py-fft
+pip install numpy scipy h5py matplotlib numba finufft
 ```
 
 ## 4. Environment Setup
@@ -151,26 +151,7 @@ from QuantumAssemble import Run
 run = Run(test=True)  # loads control dictionaries without executing TB/HF/GW loops
 ```
 
-## 7. MPI Workflows
-
-Distributed kernels live under `src/QAssemble/MPI`. They rely on `mpi4py`, `mpi4py-fft`, and the `MPIManager` helper class.
-
-To build a parallel driver:
-
-```python
-from mpi4py import MPI
-from QAssemble.MPI.CorrelationFunction import CorrelationFunction
-
-comm = MPI.COMM_WORLD
-# Load control dicts the same way QuantumAssemble.py does
-func = CorrelationFunction(cry=control["crystal"], ft=control["ft"], comm=comm)
-```
-
-Launch with `mpiexec -n <ranks> python your_driver.py`. Ensure `nprock * nprocf` matches the MPI world size when calling `MPIManager.Quary`.
-
-The serial `QuantumAssemble.py` script can still be used alongside MPI-specific routines by importing `QAssemble.MPI` modules where needed.
-
-## 8. Testing and Validation
+## 7. Testing and Validation
 
 - Export `QAssemble` so tests can locate compiled modules:
   ```bash
@@ -178,11 +159,11 @@ The serial `QuantumAssemble.py` script can still be used alongside MPI-specific 
   ```
 - Spot-check Fourier transforms with:
   ```bash
-  python src/QAssemble/MPI/utility/test/TestFourierFT.py
+  python src/QAssemble/Serial/utility/test/TestFourierFT.py
   ```
-- Follow the existing `1e-6` absolute error tolerance when adding new regression tests under `src/QAssemble/*/utility/test/`.
+- Follow the existing `1e-6` absolute error tolerance when adding new regression tests under `src/QAssemble/Serial/utility/test/`.
 
-## 9. Julia Maximum Entropy (`MQEM.jl`)
+## 8. Julia Maximum Entropy (`MQEM.jl`)
 
 1. Instantiate dependencies:
    ```bash
@@ -191,12 +172,9 @@ The serial `QuantumAssemble.py` script can still be used alongside MPI-specific 
 2. Run Julia scripts inside `MQEM.jl/src` to post-process spectral data exported from the HDF5 files.
 3. Plotting helpers and sample gnuplot scripts live under `MQEM.jl/gnuplot_and_input`.
 
-## 10. Troubleshooting
+## 9. Troubleshooting
 
 - **Compilation errors**: double-check `arch.mk` paths for FFTW, LAPACK, and FINUFFT libraries. Use absolute paths or environment variables to avoid hard-coded, host-specific directories.
 - **Missing `QAFort`**: rebuild with `make -C src/QAssemble/modules new` after editing any Fortran sources.
-- **MPI deadlocks**: ensure `MPIManager.Quary` receives consistent `(nk, nf, ntau, nprock, nprocf)` on every rank and that `nprock * nprocf` equals the total number of ranks.
 - **Input mismatches**: if the driver aborts because `<Prefix>.h5` contains different inputs, rename the file or update `"Prefix"` in `Control`.
 - **Environment detection**: scripts read `${QAssemble}` to locate compiled modules, so export it in every new shell session or add it to your shell profile.
-
-
