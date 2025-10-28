@@ -9,7 +9,7 @@ import string
 import subprocess
 import sys
 import time
-
+import h5py
 
 # def ensure_module(module_name, package_name=None):
 #     package = package_name or module_name
