@@ -602,19 +602,18 @@ class GreenInt(FLatDyn):
         print("Density matrixy calculation start")
         # kt = np.copy(self.kt)
         # ntau = 5000
-        ntau = int((self.dlr.beta/np.pi * self.dlr.cutoff -1 )/2)*2
-        kt = np.zeros((norb, norb, ns, nrk, ntau), dtype=np.complex128, order='F')
+        
+        tau_uniform = self.dlr.TauUniform()
+        tau_beta = np.array([tau_uniform[-1]], dtype=np.float64)
 
         for irk in range(nrk):
             for js in range(ns):
                 for jorb in range(norb):
                     for iorb in range(norb):
-                        kt[iorb, jorb, js, irk] = self.dlr.TauDLR2Uniform(self.kt[iorb, jorb, js, irk])[:, 0, 0]
-                        # occk[iorb, jorb, js, irk] = -kt[]
+                        value_beta = self.dlr.TauDLR2Points(self.kt[iorb, jorb, js, irk], tau_beta)[0]
+                        occk[iorb, jorb, js, irk] = -value_beta
                         # occk[iorb, jorb, js, irk] = -tempmat[-1, 0, 0]
 
-        occk = -kt[...,-1]
-    
         for irk in range(nrk):
             occ += occk[...,irk]
             
@@ -661,10 +660,7 @@ class GreenInt(FLatDyn):
         tempmat = copy.deepcopy(self.gkfmu0)
         chem = self.ChemEmbedding(mu)
         # chem = self.ChemEmbedding(mu+self.c)
-        ntau = len(self.dlr.tauF)
         gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
-        ntau = int((self.dlr.beta/np.pi * self.dlr.cutoff -1 )/2)*2
-        gcalt = np.zeros((norb,norb,ns,nrk,ntau),dtype=np.complex128,order='F')
 
         
         gcalf = self.Dyson(tempmat,-chem)
@@ -672,14 +668,14 @@ class GreenInt(FLatDyn):
         tempmat2 = self.F2T(gcalf)
         
         Ne = 0
+        tau_uniform = self.dlr.TauUniform()
+        tau_beta = np.array([tau_uniform[-1]], dtype=np.float64)
         
         for irk in range(nrk):
             for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        gcalt[iorb, jorb, js, irk] = self.dlr.TauDLR2Uniform(tempmat2[iorb, jorb, js, irk])[:, 0, 0]
                 for iorb in range(norb):
-                    Ne += -np.real(gcalt[iorb, iorb, js, irk,-1])
+                    value_beta = self.dlr.TauDLR2Points(tempmat2[iorb, iorb, js, irk], tau_beta)[0]
+                    Ne += -np.real(value_beta)
                 # tempmat3 = self.dlr.TauDLR2Uniform(tempmat2[..., js, irk, :])
                 # for iorb in range(norb):
                 #     Ne += -np.real(tempmat3[iorb, iorb, -1])
@@ -687,7 +683,7 @@ class GreenInt(FLatDyn):
         Ne /= nrk
         
         N = self.crystal.nume
-        del gcalf, gcalt, tempmat
+        del gcalf, tempmat
         return (N - Ne)
 
     def SearchMu(self):
@@ -955,4 +951,3 @@ class GreenAB(FLatDyn):
 
         return None
     
-

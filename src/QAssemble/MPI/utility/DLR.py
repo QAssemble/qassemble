@@ -145,6 +145,25 @@ class DLR(object):
 
         return fout
 
+    def TauDLR2Points(self, ftau: np.ndarray, tau) -> np.ndarray:
+        """
+        Evaluate a DLR-sampled imaginary-time function at specific tau values.
+
+        Args:
+            ftau: Array sampled on the DLR tau grid.
+            tau: Target tau value(s) as a float or array-like.
+
+        Returns:
+            np.ndarray: Function values at the requested tau points.
+        """
+        tau = np.atleast_1d(tau)
+        ntau = len(ftau)
+        ftau = ftau.reshape(ntau, 1, 1)
+        fxx = self.dF.dlr_from_tau(ftau)
+        fout = self.dF.eval_dlr_tau(fxx, tau, beta=self.beta)
+
+        return fout[:, 0, 0]
+
     def TauDLR2Uniform_v2(self, ftau: np.ndarray):
         fxx = self.dF.dlr_from_tau(ftau.T)
 

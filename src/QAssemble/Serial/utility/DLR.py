@@ -22,13 +22,10 @@ class DLR(object):
         self.eps = ft.get("eps", 1e-15)
         self.lambF = (self.beta / np.pi * self.cutoff - 1) / 2
         self.lambB = self.beta * self.cutoff / (2 * np.pi)  
-        # nmax = int((self.beta/np.pi * self.cutoff -1)/2)
-        dF = dlr(lamb=self.lambF, eps=self.eps, dense_imfreq=True)
-        dB = dlr(lamb=self.lambB, eps=self.eps, xi=1, dense_imfreq=True)
-        # nmax_fermion = int((self.cutoff * self.beta / np.pi - 1)/2)
-        # dF = dlr(lamb = self.lamb , eps=self.eps, xi = -1, dense_imfreq=True, nmax=nmax_fermion)
-        # nmax_boson = int((self.cutoff * self.beta) / (2 * np.pi))
-        # dB = dlr(lamb = self.lamb, eps=self.eps, xi = +1, dense_imfreq=True, nmax=nmax_boson)
+        
+        dF = dlr(lamb=self.lambF, eps=self.eps, dense_imfreq=False)
+        dB = dlr(lamb=self.lambB, eps=self.eps, xi=1, dense_imfreq=False)
+        
 
         self.dF = dF
         self.dB = dB
@@ -146,8 +143,28 @@ class DLR(object):
         fxx = self.dF.dlr_from_tau(ftau)
 
         fout = self.dF.eval_dlr_tau(fxx, self.TauUniform(), beta=self.beta)
+        # print(fout.shape)
 
         return fout
+
+    def TauDLR2Points(self, ftau: np.ndarray, tau) -> np.ndarray:
+        """
+        Evaluate a DLR-sampled imaginary-time function at specific tau values.
+
+        Args:
+            ftau: Array sampled on the DLR tau grid.
+            tau: Target tau value(s) as a float or array-like.
+
+        Returns:
+            np.ndarray: Function values at the requested tau points.
+        """
+        tau = np.atleast_1d(tau)
+        ntau = len(ftau)
+        ftau = ftau.reshape(ntau, 1, 1)
+        fxx = self.dF.dlr_from_tau(ftau)
+        fout = self.dF.eval_dlr_tau(fxx, tau, beta=self.beta)
+
+        return fout[:, 0, 0]
 
     def TauDLR2Uniform_v2(self, ftau: np.ndarray):
         fxx = self.dF.dlr_from_tau(ftau.T)
