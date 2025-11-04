@@ -542,11 +542,13 @@ class PolLat(BLatDyn):
             sys.exit()
         self.green = green
 
+        print("Polarizability Calculation Start")
         self.Cal()
         self.kt = self.R2K(self.rt)
 
         self.rf = self.T2F(self.rt)
         self.kf = self.T2F(self.kt)
+        print("Polarizability Calculation Done")
 
     def Cal(self):
         # norbc = len(self.crystal.find)
@@ -710,6 +712,7 @@ class WLat(BLatDyn):
         self.pol = pol
         self.vbare = vbare
 
+        print("Screened Coulomb Interaction Calculation Start")
         self.Cal()
 
         # self.wkt = self.F2T(self.wkf,1,1)
@@ -721,6 +724,7 @@ class WLat(BLatDyn):
         self.crf = self.K2R(self.ckf)
         self.crt = self.K2R(self.ckt)
         print(f"Fourier transform in {self.__class__.__name__} finish")
+        print("Screened Coulomb Interaction Calculation Finish")
 
     def Cal(self):  # calculate W and Wc
         norb = len(self.crystal.bind)

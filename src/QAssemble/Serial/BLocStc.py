@@ -435,7 +435,7 @@ class VLoc(BLocStc):
     def SlaterParameter(self, l : int = None,norbc : int=None, val : list=None, sc : str = 'c') -> np.ndarray:
         
         # error message
-        print("Only calculate the odd number of orbitals")
+        # print("Only calculate the odd number of orbitals")    
         ns = self.crystal.ns
         norb = 2*l+1
         vtemp = np.zeros((norb,norb,norb,norb,ns,ns),dtype=float,order='F')
@@ -486,7 +486,7 @@ class VLoc(BLocStc):
         J = val[2]
         ratio = 0.625
         ns = self.crystal.ns
-        print(norb)
+        # print(norb)
 
         v = np.zeros((norb,norb,norb,norb,ns,ns),dtype=float,order='F')
 

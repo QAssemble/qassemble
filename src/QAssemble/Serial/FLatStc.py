@@ -551,6 +551,8 @@ class NIHamiltonian(FLatStc):
     ):
 
         super().__init__(crystal)
+
+        print("Non-interacting Hamiltonian Calculation Start")
         hopplist = []
         for orb, val in hopping.items():
             for t, lat in val.items():
@@ -583,6 +585,8 @@ class NIHamiltonian(FLatStc):
 
         if hdf5file != None:
             self.Save()
+
+        print("Non-interacting Hamiltonian Calculation Finish")
 
     def Cal(self):  # GenHam
 
@@ -813,8 +817,10 @@ class SigmaHartree(FLatStc):
         self.subgroup = self.__class__.__name__
         self.occ = occ
 
+        print("Hartree Self-energy Calculation Start")
         self.Cal()
         # self.MakeDyn()
+        print("Hartree Self-energy Calculation Finish")
 
     def Cal(self):
         # vbare = self.vbare.k
@@ -990,7 +996,9 @@ class SigmaFock(FLatStc):
         self.occr = occr
         self.vbare = vbare
 
+        print("Fock Self-energy Calculation Start")
         self.Cal()
+        print("Fock Self-energy Calculation Finish")
         # self.MakeDyn()
 
     def Cal(self):
@@ -1108,8 +1116,10 @@ class Hamiltonian(FLatStc):
         self.group = group
         self.subgroup = self.__class__.__name__
         # self.muold = mu
+        print("Hamiltonian with Self-energy Calculation Start")
         self.CalMu0()
         self.SearchMu()
+        print("Hamiltonian with Self-energy Calculation Finish")
 
     def CalMu0(self) -> np.ndarray:
 

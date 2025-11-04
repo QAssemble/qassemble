@@ -444,9 +444,12 @@ class GreenBare(FLatDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+
+        print("Bare Green's function Calculation Start")
         self.Cal()
         if hdf5file != None:
             self.Save()
+        print("Bare Green's function Calculation Finish")
         
 
     def Cal(self): # freq, tau combine
@@ -542,11 +545,13 @@ class GreenInt(FLatDyn):
         self.group = group
         self.subgroup = self.__class__.__name__
         # print(f"Bare Green's function : \n{self.gbare[:,:,0,0,nfreq//2]}")
+        print("Interacting Green's function Calculation Start")
         self.CalMu0()
         # if (self.sigmac is None)and(self.sigmah is None)and(self.sigmaf is None):
         #     self.UpdateMu()
         # else:
         self.SearchMu()
+        print("Interacting Green's function Calculation Finish")
         
 
     def CalMu0(self):
@@ -756,7 +761,10 @@ class SigmaGWC(FLatDyn):
             sys.exit()
         self.green = green
         self.wlat = wlat
+
+        print("GWC self-energy Calculation Start")
         self.Cal()
+        print("GWC self-energy Calculation Finish")
 
     def Cal(self)->np.ndarray: #SigmaGWC
         '''

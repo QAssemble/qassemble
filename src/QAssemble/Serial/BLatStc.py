@@ -380,6 +380,8 @@ class VBare(BLatStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+
+        print("Bare Coulomb Interaction Calculation Start")
         if (ohno == False) and (intamp == None) and (jth == False):
             print("Only calculate the local coulomb interaction")
         if vloc == None:
@@ -409,6 +411,7 @@ class VBare(BLatStc):
         if hdf5file != None:
             self.Save()
         # self.GetOnsiteEnergy()
+        print("Bare Coulomb Interaction Calculation Finish")
 
     def Cal(self):
 
@@ -463,7 +466,7 @@ class VBare(BLatStc):
     def LocPlusNonLoc(self):
 
         vloc = self.vloc.vloc
-        print(vloc[:, :, 0, 0])
+        # print(vloc[:, :, 0, 0])
         #       vnlk = self.nonlock
 
         norb = len(self.crystal.bind)

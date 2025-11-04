@@ -184,7 +184,7 @@ class CorrelationFunction(object):
         elif (loccoulomb==None):
             print(errmessage)
             sys.exit()
-
+        
         niham = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,hdf5file=hdf5file,group=group)
         gbare = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham.k,hdf5file=hdf5file,group=group)
         vbare = VBare(crystal=self.crystal,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,ohnoyuka=ohnoyuka,hdf5file=hdf5file,group=group)
@@ -205,46 +205,46 @@ class CorrelationFunction(object):
 
             print("Density Matrix :")
             print(gold.occ)
-            print("Hartree calculation start")
+            # print("Hartree calculation start")
             sigmah = SigmaHartree(crystal=self.crystal,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
             # if (iter % 50 == 0)or(iter == 1):
             sigmah.Save(f'sigmah.{iter}')
-            print("Hartree calculation finish")
-            print("Fock calculation start")
+            # print("Hartree calculation finish")
+            # print("Fock calculation start")
             sigmaf = SigmaFock(crystal=self.crystal,occr=gold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
             # if (iter % 50 == 0)or(iter == 1):
             sigmaf.Save(f'sigmaf.{iter}')
-            print("Fock calculation finish")
-            print("Polarizability calculation start")
+            # print("Fock calculation finish")
+            # print("Polarizability calculation start")
             pol = PolLat(crystal=self.crystal,dlr=self.dlr,green=gold.rt,hdf5file=hdf5file,group=group)
             # pol.kf = pol.Mixing(iter=iter,mix=mix,Bb=pol.kf,Bold=pkfold)
             # if (iter % 50 == 0)or(iter == 1):
             pol.Save(f'pkf.{iter}')
-            print("Polarizability calculation finish")
-            print("Screened coulomb interaction calculation start")
+            # print("Polarizability calculation finish")
+            # print("Screened coulomb interaction calculation start")
             w = WLat(crystal=self.crystal,dlr=self.dlr,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
             # if (iter % 50 == 0)or(iter == 1):
             w.Save(f'wkf.{iter}')
             # w.Save(w.ckf,f'wckf.{iter}')
-            print("Screened coulomb interaction calculation finish")
-            print("GW self-energy calculation start")
+            # print("Screened coulomb interaction calculation finish")
+            # print("GW self-energy calculation start")
             sigmagwc = SigmaGWC(crystal=self.crystal,dlr=self.dlr,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group)
             # sigmagwc.kf = sigmagwc.Mixing(iter=iter,mix=mix,Fb=sigmagwc.kf,Fm=ckfold)
             # if (iter % 50 == 0)or(iter == 1):
             sigmagwc.Save(f'sigmagwckf.{iter}')
-            print("GW self-energy calculation finish")
-            print("GW green's function calculation start")
+            # print("GW self-energy calculation finish")
+            # print("GW green's function calculation start")
             gnew = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,sigmah=sigmah.k,sigmaf=sigmaf.k,sigmagwc=sigmagwc.kf,hdf5file=hdf5file,group=group)
             # if (iter % 50 == 0)or(iter == 1):
             gnew.Save(f'gkf.{iter}')
-            print("GW green's function calculation start")
+            # print("GW green's function calculation start")
 
             fcheck = self.SCFCheck(gnew.kf,gold.kf)
             
             bcheck = self.SCFCheck(w.kf,wold)
             mucheck = abs(gnew.mu-gold.mu)
 
-            print(f"iteration : {iter} \nfcriteria : {fcheck} \nchemicalpotential : {gnew.mu+gnew.c}")
+            print(f"iteration : {iter} \nfcriteria : {fcheck} \nbcriteria : {bcheck} \nchemicalpotential : {gnew.mu+gnew.c}")
             # print(f"iteration : {iter} \nfcriteria : {fcheck} \nchemicalpotential : {gnew.mu}")
 
             if (fcheck <=1.0e-6)and(mucheck<=0.01)and(bcheck<=1.0e-4):
