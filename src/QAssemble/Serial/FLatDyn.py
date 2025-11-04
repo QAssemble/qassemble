@@ -452,7 +452,7 @@ class GreenBare(FLatDyn):
     def Cal(self): # freq, tau combine
         
         from .utility.Bare import Bare
-        print(self.hamtb[:,:,0,0])
+        # print(self.hamtb[:,:,0,0])
         # gnotkf = QAFort.bare.flatfreq(self.hamtb,self.dlr.omega)
         gnotkf = Bare.FLatFreq(self.dlr.omega, self.hamtb)
         gnotrf = self.K2R(gnotkf)#######
@@ -541,7 +541,7 @@ class GreenInt(FLatDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
-        print(f"Bare Green's function : \n{self.gbare[:,:,0,0,nfreq//2]}")
+        # print(f"Bare Green's function : \n{self.gbare[:,:,0,0,nfreq//2]}")
         self.CalMu0()
         # if (self.sigmac is None)and(self.sigmah is None)and(self.sigmaf is None):
         #     self.UpdateMu()
@@ -561,11 +561,11 @@ class GreenInt(FLatDyn):
             self.gkfmu0 = self.gbare
         else:
             if (self.sigmah is not None):
-                print(sigma[:,:,0,0,0])
+                # print(sigma[:,:,0,0,0])
                 diag = np.diagonal(self.sigmah[:,:,0,0])
                 const = np.mean(diag)
                 self.c = np.real(const)
-                print(const)
+                # print(const)
                 sigma += self.StcEmbedding(self.sigmah)
                 sigma += self.ChemEmbedding(-const)
                 print('Hartree')

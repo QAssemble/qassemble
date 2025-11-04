@@ -240,13 +240,14 @@ class CorrelationFunction(object):
             print("GW green's function calculation start")
 
             fcheck = self.SCFCheck(gnew.kf,gold.kf)
-            # bcheck = self.SCFCheck(w.kf,wold)
+            
+            bcheck = self.SCFCheck(w.kf,wold)
             mucheck = abs(gnew.mu-gold.mu)
 
             print(f"iteration : {iter} \nfcriteria : {fcheck} \nchemicalpotential : {gnew.mu+gnew.c}")
             # print(f"iteration : {iter} \nfcriteria : {fcheck} \nchemicalpotential : {gnew.mu}")
 
-            if (fcheck <=1.0e-6)and(mucheck<=0.01):
+            if (fcheck <=1.0e-6)and(mucheck<=0.01)and(bcheck<=1.0e-4):
                 print(f"Self-consistency is achived with {iter}-th")
                 self.green = gnew
                 self.pol = pol
