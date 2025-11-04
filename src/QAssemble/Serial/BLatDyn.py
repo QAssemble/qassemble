@@ -716,9 +716,11 @@ class WLat(BLatDyn):
         # self.wrf = self.K2R(self.wkf)
         # self.wrt = self.K2R(self.wkt)
 
+        print(f"Fourier transform in {self.__class__.__name__} start")
         self.ckt = self.F2T(self.ckf)
         self.crf = self.K2R(self.ckf)
         self.crt = self.K2R(self.ckt)
+        print(f"Fourier transform in {self.__class__.__name__} finish")
 
     def Cal(self):  # calculate W and Wc
         norb = len(self.crystal.bind)
@@ -738,7 +740,9 @@ class WLat(BLatDyn):
 
         # for ifreq in range(nfreq):
         #     vdyn[...,ifreq] = self.vbare.k
+        print("Make dynamic bare Coulomb interaction start")
         vdyn = self.StcEmbedding(self.vbare.k)
+        print("Make dynamic bare Coulomb interaction finish")
         polcomp = np.zeros(
             (norbc * norbc, norbc * norbc, ns, ns, nk, nfreq),
             dtype=np.complex128,
@@ -754,8 +758,10 @@ class WLat(BLatDyn):
         # del self.pol
         vcomp = self.Double2Full(vdyn)
 
+        print("Dyson equation solving start")
         tempmat = self.Dyson(vcomp, polcomp)
         wkf = self.Full2Double(tempmat)
+        print("Dyson equation solving finish")
 
         self.kf = wkf
 
