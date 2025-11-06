@@ -18,6 +18,26 @@ class BLatStc(object):
 
     def __init__(self, crystal: Crystal):
         self.crystal = crystal
+        self._phase_cache = None
+
+    def _get_phase(self) -> np.ndarray:
+        if self._phase_cache is not None:
+            return self._phase_cache
+
+        norb = len(self.crystal.bind)
+        nk = len(self.crystal.kpoint)
+        phase = np.empty((norb, norb, nk), dtype=np.complex128)
+
+        for irk, kvec in enumerate(self.crystal.kpoint):
+            for iorb in range(norb):
+                a, _ = self.crystal.BAtomOrb(iorb)
+                for jorb in range(norb):
+                    b, _ = self.crystal.BAtomOrb(jorb)
+                    delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+                    phase[iorb, jorb, irk] = np.exp(2.0j * np.pi * np.dot(kvec, delta))
+
+        self._phase_cache = phase
+        return phase
 
     def Inverse(self, matin: np.ndarray) -> np.ndarray:
 
@@ -39,29 +59,15 @@ class BLatStc(object):
     def K2R(self, matk: np.ndarray) -> np.ndarray:
 
         rkgrid = self.crystal.rkgrid
-        rkvec = self.crystal.kpoint
-
         norb = matk.shape[0]
         ns = self.crystal.ns
         nrk = len(rkvec)
 
+        phases = self._get_phase()
         matr = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
-        tempmat = copy.deepcopy(matk)
-
-        for irk in range(nrk):
-            for js in range(ns):
-                for ks in range(ns):
-                    for iorb in range(norb):
-                        for jorb in range(norb):
-                            [a, [m1, m4]] = self.crystal.BAtomOrb(iorb)
-                            [b, [m2, m3]] = self.crystal.BAtomOrb(jorb)
-
-                            delta = (
-                                self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
-                            )
-                            phase = np.exp(2.0j * np.pi * np.dot(rkvec[irk], delta))
-
-                            tempmat[iorb, jorb, js, ks, irk] *= phase
+        tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
+        phase_view = phases[:, :, np.newaxis, np.newaxis, :]
+        np.multiply(matk, phase_view, out=tempmat)
 
         # matr = QAFort.fourier.blatstc_k2r(rkgrid, tempmat)
         matr = Fourier.BLatStcK2R(tempmat, rkgrid)
@@ -71,31 +77,18 @@ class BLatStc(object):
     def R2K(self, matr: np.ndarray) -> np.ndarray:
 
         rkgrid = self.crystal.rkgrid
-        rkvec = self.crystal.kpoint
-
         norb = matr.shape[0]
         ns = self.crystal.ns
-        nrk = len(rkvec)
+        nrk = len(self.crystal.kpoint)
 
-        matk = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
+        phases = self._get_phase()
+        phase_conj = np.conjugate(phases)[:, :, np.newaxis, np.newaxis, :]
+        tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
 
         # matk = QAFort.fourier.blatstc_r2k(rkgrid, matr)
-        matk = Fourier.BLatStcR2K(matr, rkgrid)
-
-        for irk in range(nrk):
-            for js in range(ns):
-                for ks in range(ns):
-                    for iorb in range(norb):
-                        for jorb in range(norb):
-                            [a, [m1, m4]] = self.crystal.BAtomOrb(iorb)
-                            [b, [m2, m3]] = self.crystal.BAtomOrb(jorb)
-
-                            delta = (
-                                self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
-                            )
-                            phase = np.exp(-2.0j * np.pi * np.dot(rkvec[irk], delta))
-
-                            matk[iorb, jorb, js, ks, irk] *= phase
+        tempk = Fourier.BLatStcR2K(matr, rkgrid)
+        np.multiply(tempk, phase_conj, out=tempmat)
+        matk = tempmat
 
         return matk
 
@@ -117,17 +110,8 @@ class BLatStc(object):
         return Bnew
 
     def Dyson(self, mat1: np.ndarray, mat2: np.ndarray):
-
-        norb = mat1.shape[0]
-        ns = mat1.shape[2]
-        nrk = mat1.shape[4]
-
-        matout = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
-
         # matout = QAFort.dyson.blatstc(mat1, mat2)
-        matout = Dyson.BLatDyn(mat1, mat2)
-
-        return matout
+        return Dyson.BLatDyn(mat1, mat2)
 
     # def Projection(self, matin: np.ndarray):
 

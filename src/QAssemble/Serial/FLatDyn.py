@@ -28,6 +28,26 @@ class FLatDyn(object):
         self.crystal = crystal
         self.dlr = dlr
         self.mappingidx = None
+        self._fermion_phase_cache = None
+    
+    def _get_fermion_phase(self) -> np.ndarray:
+        if self._fermion_phase_cache is not None:
+            return self._fermion_phase_cache
+
+        norb = len(self.crystal.find)
+        nk = len(self.crystal.kpoint)
+        phase = np.empty((norb, norb, nk), dtype=np.complex128)
+
+        for irk, kvec in enumerate(self.crystal.kpoint):
+            for iorb in range(norb):
+                a, _ = self.crystal.FAtomOrb(iorb)
+                for jorb in range(norb):
+                    b, _ = self.crystal.FAtomOrb(jorb)
+                    delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+                    phase[iorb, jorb, irk] = np.exp(2.0j * np.pi * np.dot(kvec, delta))
+
+        self._fermion_phase_cache = phase
+        return phase
         
     def Inverse(self, mat : np.ndarray) -> np.ndarray:
 
@@ -99,10 +119,14 @@ class FLatDyn(object):
         moment = np.zeros((norb,norb,ns,nk,3),dtype=np.complex128,order='F')
         high = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order='F')
 
-        tempmat = copy.deepcopy(ff)
+        if ff.shape[4] < 2:
+            raise ValueError("Need at least two frequency points to build high-frequency moments.")
+
+        high_freq_slice = ff[..., -1]
+        prev_freq_slice = ff[..., -2]
 
         # moment, high = QAFort.fourier.flatdyn_m(self.dlr.omega,tempmat,isgreen,highzero)
-        moment, high = Fourier.FLatDynM(self.dlr.omega,tempmat[..., -1],tempmat[..., -2],isgreen,highzero)
+        moment, high = Fourier.FLatDynM(self.dlr.omega, high_freq_slice, prev_freq_slice, isgreen, highzero)
 
         return moment, high
     
@@ -112,38 +136,25 @@ class FLatDyn(object):
         rkvec = self.crystal.kpoint
         if rkgrid == None:
             rkgrid = self.crystal.rkgrid
-        
-        
+
+        phases = self._get_fermion_phase()
         norb = matk.shape[0]
         ns = matk.shape[2]
         nrk = matk.shape[3]
         nft = matk.shape[4]
-        matr = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
-        tempmat = copy.deepcopy(matk)
-        
+
+        matr = np.zeros((norb, norb, ns, nrk, nft), dtype=np.complex128, order='F')
+        tempmat = np.empty((norb, norb, ns, nrk), dtype=np.complex128, order='F')
+        phase_view = phases[:, :, np.newaxis, :]
 
         for ift in range(nft):
-            for irk in range(nrk):
-                for js in range(ns):
-                    for iorb in range(norb):
-                        for jorb in range(norb):
+            np.multiply(matk[..., ift], phase_view, out=tempmat)
+            matr[..., ift] = Fourier.FLatStcK2R(tempmat, rkgrid)
 
-                            [a,m1] = self.crystal.FAtomOrb(iorb)
-                            [b,m2] = self.crystal.FAtomOrb(jorb)
-
-                            delta = self.crystal.basisf[a,:] - self.crystal.basisf[b,:]
-                            phase = np.exp(2.0j*np.pi*np.dot(rkvec[irk],delta))
-
-                            tempmat[iorb,jorb,js,irk,ift] *= phase
-
-        # matr = QAFort.fourier.flatdyn_k2r(rkgrid,tempmat)
-        matr = Fourier.FLatDynK2R(tempmat, rkgrid)
-        
         return matr
     
     def R2K(self, matr : np.ndarray) -> np.ndarray:
 
-        rkvec = self.crystal.kpoint
         rkgrid = self.crystal.rkgrid
 
         norb = matr.shape[0]
@@ -151,22 +162,15 @@ class FLatDyn(object):
         nrk = matr.shape[3]
         nft = matr.shape[4]
 
-        # matk = QAFort.fourier.flatdyn_r2k(rkgrid,matr)
-        matk = Fourier.FLatDynR2K(matr, rkgrid)
+        phases = self._get_fermion_phase()
+        phase_conj = np.conjugate(phases)[:, :, np.newaxis, :]
+        matk = np.zeros((norb, norb, ns, nrk, nft), dtype=np.complex128, order='F')
+        tempmat = np.empty((norb, norb, ns, nrk), dtype=np.complex128, order='F')
 
         for ift in range(nft):
-            for irk in range(nrk):
-                for js in range(ns):
-                    for iorb in range(norb):
-                        for jorb in range(norb):
-
-                            [a,m1] = self.crystal.FAtomOrb(iorb)
-                            [b,m2] = self.crystal.FAtomOrb(jorb)
-
-                            delta = self.crystal.basisf[a,:]- self.crystal.basisf[b,:]
-
-                            phase = np.exp(-2.0j*np.pi*np.dot(rkvec[irk],delta))
-                            matk[iorb,jorb,js,irk,ift] *= phase
+            temp_k = Fourier.FLatStcR2K(matr[..., ift], rkgrid)
+            np.multiply(temp_k, phase_conj, out=tempmat)
+            matk[..., ift] = tempmat
         return matk
     
     def R2mR(self) -> list: # move to crystal
@@ -258,17 +262,8 @@ class FLatDyn(object):
     
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
 
-        norb = mat1.shape[0]
-        ns = mat1.shape[2]
-        nrk = mat1.shape[3]
-        nft = mat1.shape[4]
-        
-        matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
-
         # matout = QAFort.dyson.flatdyn(mat1,mat2)
-        matout = Dyson.FLatDyn(mat1, mat2)
-
-        return matout
+        return Dyson.FLatDyn(mat1, mat2)
     
     def ChemEmbedding(self,mu : np.float64) -> np.ndarray:
 
@@ -610,6 +605,7 @@ class GreenInt(FLatDyn):
         
         tau_uniform = self.dlr.TauUniform()
         tau_beta = np.array([tau_uniform[-1]], dtype=np.float64)
+        # tau_beta = np.array([self.dlr.beta], dtype=np.float64)
 
         for irk in range(nrk):
             for js in range(ns):
@@ -661,20 +657,16 @@ class GreenInt(FLatDyn):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = len(self.dlr.omega)#self.ft.size
-        tempmat = copy.deepcopy(self.gkfmu0)
         chem = self.ChemEmbedding(mu)
         # chem = self.ChemEmbedding(mu+self.c)
-        gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
-
-        
-        gcalf = self.Dyson(tempmat,-chem)
+        gcalf = self.Dyson(self.gkfmu0, -chem)
 
         tempmat2 = self.F2T(gcalf)
         
         Ne = 0
         tau_uniform = self.dlr.TauUniform()
         tau_beta = np.array([tau_uniform[-1]], dtype=np.float64)
+        # tau_beta = np.array([self.dlr.beta], dtype=np.float64)
         
         for irk in range(nrk):
             for js in range(ns):
@@ -688,7 +680,7 @@ class GreenInt(FLatDyn):
         Ne /= nrk
         
         N = self.crystal.nume
-        del gcalf, tempmat
+        del gcalf
         return (N - Ne)
 
     def SearchMu(self):
@@ -839,21 +831,11 @@ class SigmaGWC(FLatDyn):
         nk = len(self.crystal.kpoint)
         nfreq = len(self.dlr.omega)#self.ft.size
 
-        sigmastc = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order="F")
-        tempmat = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order="F")
-        sigma = copy.deepcopy(self.kf)
-        for ifreq in range(nfreq):
-            for ik in range(nk):
-                for js in range(ns):
-                    tempmat[:,:,js,ik,ifreq] = np.transpose(np.conjugate(sigma[:,:,js,ik,ifreq]))
+        sigma0 = self.kf[..., 0]
+        sigma0_dag = np.transpose(np.conjugate(sigma0), (1, 0, 2, 3))
+        sigmastc = 0.5 * (sigma0 + sigma0_dag)
 
-        for ik in range(nk):
-            for js in range(ns):
-                for iorb in range(norb):
-                    for jorb in range(norb):
-                        sigmastc[iorb,jorb,js,ik] = (self.kf[iorb,jorb,js,ik,0]+tempmat[iorb,jorb,js,ik,0])/2
-
-        self.stck = sigmastc
+        self.stck = np.asfortranarray(sigmastc, dtype=np.complex128)
         # self.Save('sigmastc',obj=sigmastc)
 
         return None
@@ -866,36 +848,14 @@ class SigmaGWC(FLatDyn):
         nfreq = len(self.dlr.omega)#self.ft.size
         beta = self.dlr.beta
 
-        z = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order='F')
-        # identity = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order='F')
-        tempmat = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order='F')
-        tempmat2 = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order='F')
-        sigma = copy.deepcopy(self.kf)
-        # for ifreq in range(nfreq):
-        #     for ik in range(nk):
-        #         for js in range(ns):
-        #             identity[:,:,js,ik,ifreq] = np.eye(norb,norb,dtype=np.complex128,order='F')
-        #             tempmat[:,:,js,ik,ifreq] = np.transpose(np.conjugate(self.kf[:,:,js,ik,ifreq]))
+        sigma0 = self.kf[..., 0]
+        sigma0_dag = np.transpose(np.conjugate(sigma0), (1, 0, 2, 3))
+        iw = 1j * beta / (2.0 * np.pi)
+        tempmat = np.asfortranarray(iw * (sigma0 - sigma0_dag), dtype=np.complex128)
 
-        # for ifreq in range(nfreq):
-        #     for ik in range(nk):
-        #         for js in range(ns):
-        #             for iorb in range(norb):
-        #                 for jorb in range(norb):
-        #                     tempmat2[iorb,jorb,js,ik] = (identity[iorb,jorb,js,ik,ifreq]+beta*(self.kf[iorb,jorb,js,ik,ifreq]-tempmat[iorb,jorb,js,ik,ifreq])/(2*np.pi))
-        for ik in range(nk):
-            for js in range(ns):
-                tempmat2[:,:,js,ik] = np.transpose(np.conjugate(sigma[:,:,js,ik,0]))
-        iw = beta/(2.0*np.pi)*1j
-        for ik in range(nk):
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        if (iorb==jorb):
-                            tempmat[iorb,jorb,js,ik] = 1.0+iw*(sigma[iorb,jorb,js,ik,0]-tempmat2[iorb,jorb,js,ik])
-                        else:
-                            tempmat[iorb,jorb,js,ik] = iw*(sigma[iorb,jorb,js,ik,0]-tempmat2[iorb,jorb,js,ik])
-        
+        diag_idx = np.arange(norb)
+        tempmat[diag_idx, diag_idx, :, :] += 1.0
+
         z = self.flatstc.Inverse(tempmat)
 
         self.z = z

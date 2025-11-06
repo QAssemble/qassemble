@@ -8,7 +8,7 @@ import sys, os
 import itertools
 from sympy.physics.wigner import gaunt, wigner_3j
 from scipy.fftpack import fftn, ifftn
-import copy, gc
+import copy, gc, time, datetime
 import h5py
 
 # import Crystal, FTGrid
@@ -28,6 +28,26 @@ class BLatDyn(object):
         self.crystal = crystal
         self.dlr = dlr
         # self.flatdyn = flatdyn
+        self._boson_phase_cache = None
+
+    def _get_boson_phase(self) -> np.ndarray:
+        if self._boson_phase_cache is not None:
+            return self._boson_phase_cache
+
+        norb = len(self.crystal.bind)
+        nk = len(self.crystal.kpoint)
+        phase = np.empty((norb, norb, nk), dtype=np.complex128)
+
+        for irk, kvec in enumerate(self.crystal.kpoint):
+            for iorb in range(norb):
+                a, _ = self.crystal.BAtomOrb(iorb)
+                for jorb in range(norb):
+                    b, _ = self.crystal.BAtomOrb(jorb)
+                    delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+                    phase[iorb, jorb, irk] = np.exp(2.0j * np.pi * np.dot(kvec, delta))
+
+        self._boson_phase_cache = phase
+        return phase
 
     def Inverse(self, matin: np.ndarray) -> np.ndarray:
         norb = matin.shape[0]
@@ -116,31 +136,15 @@ class BLatDyn(object):
         nrk = matk.shape[4]
         nft = matk.shape[5]
         rkgrid = self.crystal.rkgrid
-        rkvec = self.crystal.kpoint
 
+        phases = self._get_boson_phase()
         matr = np.zeros((norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F")
-
-        tempmat = copy.deepcopy(matk)
+        tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
+        phase_view = phases[:, :, np.newaxis, np.newaxis, :]
 
         for ift in range(nft):
-            for irk in range(nrk):
-                for js in range(ns):
-                    for ks in range(ns):
-                        for iorb in range(norb):
-                            for jorb in range(norb):
-                                [a, [m1, m4]] = self.crystal.BAtomOrb(iorb)
-                                [b, [m2, m3]] = self.crystal.BAtomOrb(jorb)
-
-                                delta = (
-                                    self.crystal.basisf[a, :]
-                                    - self.crystal.basisf[b, :]
-                                )
-
-                                phase = np.exp(2.0j * np.pi * np.dot(rkvec[irk], delta))
-                                tempmat[iorb, jorb, js, ks, irk, ift] *= phase
-
-        # matr = QAFort.fourier.blatdyn_k2r(rkgrid, tempmat)
-        matr = Fourier.BLatDynK2R(tempmat, rkgrid)
+            np.multiply(matk[..., ift], phase_view, out=tempmat)
+            matr[..., ift] = Fourier.BLatStcK2R(tempmat, rkgrid)
 
         return matr
 
@@ -150,31 +154,16 @@ class BLatDyn(object):
         nrk = matr.shape[4]
         nft = matr.shape[5]
         rkgrid = self.crystal.rkgrid
-        rkvec = self.crystal.kpoint
 
+        phases = self._get_boson_phase()
+        phase_conj = np.conjugate(phases)[:, :, np.newaxis, np.newaxis, :]
         matk = np.zeros((norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F")
-
-        # matk = QAFort.fourier.blatdyn_r2k(rkgrid, matr)
-        matk = Fourier.BLatDynR2K(matr, rkgrid)
+        tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
 
         for ift in range(nft):
-            for irk in range(nrk):
-                for js in range(ns):
-                    for ks in range(ns):
-                        for iorb in range(norb):
-                            for jorb in range(norb):
-                                [a, [m1, m4]] = self.crystal.BAtomOrb(iorb)
-                                [b, [m2, m3]] = self.crystal.BAtomOrb(jorb)
-
-                                delta = (
-                                    self.crystal.basisf[a, :]
-                                    - self.crystal.basisf[b, :]
-                                )
-                                phase = np.exp(
-                                    -2.0j * np.pi * np.dot(rkvec[irk], delta)
-                                )
-
-                                matk[iorb, jorb, js, ks, irk, ift] *= phase
+            temp_k = Fourier.BLatStcR2K(matr[..., ift], rkgrid)
+            np.multiply(temp_k, phase_conj, out=tempmat)
+            matk[..., ift] = tempmat
 
         return matk
 
@@ -237,19 +226,8 @@ class BLatDyn(object):
         return Bnew
 
     def Dyson(self, mat1: np.ndarray, mat2: np.ndarray) -> np.ndarray:
-        norb = mat1.shape[0]
-        ns = mat1.shape[2]
-        nrk = mat1.shape[3]
-        nft = mat1.shape[4]
-
-        matout = np.zeros(
-            (norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F"
-        )
-
         # matout = QAFort.dyson.blatdyn(mat1, mat2)
-        matout = Dyson.BLatDyn(mat1, mat2)
-
-        return matout
+        return Dyson.BLatDyn(mat1, mat2)
 
     # def Projection(self, matin: np.ndarray):
     #     norbc = self.crystal.bprojector.shape[1]
@@ -713,6 +691,7 @@ class WLat(BLatDyn):
         self.vbare = vbare
 
         print("Screened Coulomb Interaction Calculation Start")
+        start = time.time()
         self.Cal()
 
         # self.wkt = self.F2T(self.wkf,1,1)
@@ -723,8 +702,10 @@ class WLat(BLatDyn):
         self.ckt = self.F2T(self.ckf)
         self.crf = self.K2R(self.ckf)
         self.crt = self.K2R(self.ckt)
+        end= time.time()
         print(f"Fourier transform in {self.__class__.__name__} finish")
         print("Screened Coulomb Interaction Calculation Finish")
+        print(f"Screened Coulomb interaction use time : {datetime.timedelta(seconds=end - start)} s")
 
     def Cal(self):  # calculate W and Wc
         norb = len(self.crystal.bind)
@@ -763,9 +744,13 @@ class WLat(BLatDyn):
         vcomp = self.Double2Full(vdyn)
 
         print("Dyson equation solving start")
+        start = time.time()
         tempmat = self.Dyson(vcomp, polcomp)
         wkf = self.Full2Double(tempmat)
+        end = time.time()
+        # print(f"Dyson equation solving use time: {end - start} s")
         print("Dyson equation solving finish")
+        print(f"Dyson equation solving use time : {datetime.timedelta(seconds=end - start)} s")
 
         self.kf = wkf
 

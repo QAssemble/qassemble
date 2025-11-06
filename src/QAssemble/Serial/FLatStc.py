@@ -406,16 +406,8 @@ class FLatStc(object):
 
     def Dyson(self, mat1: np.ndarray, mat2: np.ndarray):
 
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
-
-        matout = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
-
         # matout = QAFort.dyson.flatstc(mat1, mat2)
-        matout = Dyson.FLatStc(mat1, mat2)
-
-        return matout
+        return Dyson.FLatStc(mat1, mat2)
 
     # def Projection(self, matin: np.ndarray):
 
@@ -1102,7 +1094,7 @@ class Hamiltonian(FLatStc):
         self.occ = None
         self.occk = None
         self.occr = None
-        self.ham = copy.deepcopy(ham)
+        self.ham = np.array(ham, dtype=np.complex128, order="F", copy=True)
         self.sigmah = sigmah
         self.sigmaf = sigmaf
         self.sigmac = sigmac
@@ -1127,56 +1119,38 @@ class Hamiltonian(FLatStc):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
 
-        tempmat = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
+        tempmat = np.array(self.ham, dtype=np.complex128, order="F", copy=True)
 
-        tempmat = copy.deepcopy(self.ham)
+        if self.sigmah is not None:
+            tempmat += self.sigmah
 
-        if (self.sigmah is not None):
-            tempmat += self.sigmah#.k
+        if self.sigmaf is not None:
+            tempmat += self.sigmaf
 
-        if (self.sigmaf is not None):
-            tempmat += self.sigmaf#.k
+        if self.sigmac is not None:
+            if self.z is None:
+                raise ValueError("Dynamic self-energy provided without corresponding z-factor.")
 
-        if (self.sigmac is not None):
-            z = self.z
             sigma = self.sigmac
-            # chem = np.zeros((norb,norb,ns,nk),dtype=np.complex64,order='F')
-            tempmat2 = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
-            tempmat3 = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
-            tempmat4 = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
-            tempmat4 = copy.deepcopy(tempmat)
-            eigval, eigvec = self.Diagonalize(z, True)
-            for ik in range(nrk):
-                for js in range(ns):
-                    for iorb in range(norb):
-                        # chem[iorb,iorb,js,ik] = -self.mu
-                        if 0 <= (eigval[iorb, iorb, js, ik]) <= 1:
-                            continue
-                        else:
-                            print(
-                                "Error : The z-factor was calculated incorrectly. Please rerun the code."
-                            )
-                            print(eigval[iorb, iorb, js, ik])
-                            sys.exit()
-                    tempmat2[:, :, js, ik] = np.dot(
-                        np.dot(eigvec[:, :, js, ik], np.sqrt(eigval[:, :, js, ik])),
-                        np.linalg.inv(eigvec[:, :, js, ik]),
-                    )
-
-            tempmat4 = tempmat4 + sigma
+            eigval, eigvec = self.Diagonalize(self.z, True)
+            tempmat += sigma
 
             for ik in range(nrk):
                 for js in range(ns):
-                    tempmat3[:, :, js, ik] = np.dot(
-                        np.dot(tempmat2[:, :, js, ik], tempmat4[:, :, js, ik]),
-                        tempmat2[:, :, js, ik],
-                    )
+                    diag_vals = np.diag(eigval[:, :, js, ik])
+                    if np.any((diag_vals < 0.0) | (diag_vals > 1.0)):
+                        print("Error : The z-factor was calculated incorrectly. Please rerun the code.")
+                        print(diag_vals)
+                        sys.exit()
 
-            tempmat = copy.deepcopy(tempmat3)
-            del tempmat2, tempmat3, tempmat4
+                    sqrt_diag = np.sqrt(diag_vals)
+                    transform = eigvec[:, :, js, ik]
+                    inv_transform = np.linalg.inv(transform)
+                    dressing = transform @ (np.diag(sqrt_diag) @ inv_transform)
+                    block = tempmat[:, :, js, ik]
+                    tempmat[:, :, js, ik] = dressing @ block @ dressing
 
-        self.hkmu0 = copy.deepcopy(tempmat)
-        del tempmat
+        self.hkmu0 = np.array(tempmat, dtype=np.complex128, order="F", copy=True)
         return None
 
     def NumOfE(self, mu: float) -> np.ndarray:
