@@ -326,7 +326,7 @@ class FPathStc(object):
                         line = " ".join(map(str, linedata))
                         f.write(line + "\n")
 
-        return None
+        return (E, dos)
 
     def Band(
         self,
