@@ -13,6 +13,7 @@ from sympy.physics.wigner import gaunt, wigner_3j
 from scipy.fftpack import fftn, ifftn
 import copy
 import h5py
+import time, datetime
 from .Crystal import Crystal
 from .FLatStc import FLatStc
 from .utility.DLR import DLR
@@ -441,10 +442,13 @@ class GreenBare(FLatDyn):
         self.subgroup = self.__class__.__name__
 
         print("Bare Green's function Calculation Start")
+        start = time.time()
         self.Cal()
         if hdf5file != None:
             self.Save()
+        end = time.time()    
         print("Bare Green's function Calculation Finish")
+        print(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
         
 
     def Cal(self): # freq, tau combine
@@ -541,13 +545,15 @@ class GreenInt(FLatDyn):
         self.subgroup = self.__class__.__name__
         # print(f"Bare Green's function : \n{self.gbare[:,:,0,0,nfreq//2]}")
         print("Interacting Green's function Calculation Start")
+        start = time.time()
         self.CalMu0()
         # if (self.sigmac is None)and(self.sigmah is None)and(self.sigmaf is None):
         #     self.UpdateMu()
         # else:
         self.SearchMu()
+        end = time.time()
         print("Interacting Green's function Calculation Finish")
-        
+        print(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
 
     def CalMu0(self):
 
@@ -755,8 +761,11 @@ class SigmaGWC(FLatDyn):
         self.wlat = wlat
 
         print("GWC self-energy Calculation Start")
+        start = time.time()
         self.Cal()
+        end = time.time()
         print("GWC self-energy Calculation Finish")
+        print(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
 
     def Cal(self)->np.ndarray: #SigmaGWC
         '''

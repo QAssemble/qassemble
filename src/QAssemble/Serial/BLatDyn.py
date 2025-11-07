@@ -10,7 +10,7 @@ from sympy.physics.wigner import gaunt, wigner_3j
 from scipy.fftpack import fftn, ifftn
 import copy, gc, time, datetime
 import h5py
-
+import time,datetime
 # import Crystal, FTGrid
 from .Crystal import Crystal
 from .BLatStc import VBare
@@ -521,13 +521,15 @@ class PolLat(BLatDyn):
         self.green = green
 
         print("Polarizability Calculation Start")
+        start = time.time()
         self.Cal()
         self.kt = self.R2K(self.rt)
 
         self.rf = self.T2F(self.rt)
         self.kf = self.T2F(self.kt)
+        end = time.time()
         print("Polarizability Calculation Done")
-
+        print(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
     def Cal(self):
         # norbc = len(self.crystal.find)
         ns = self.crystal.ns
