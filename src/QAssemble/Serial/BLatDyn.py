@@ -543,10 +543,10 @@ class PolLat(BLatDyn):
         # for irk in range(nrk):
         #     for js in range(ns):
         #         grt[:, :, js, irk, :] = self.dlr.TauDLR2Uniform(ftau=self.green[:, :, js, irk, :], ntau=ntau)
-        norb = len(self.crystal.find)
+        norb = len(self.crystal.bind)
 
         polrt = np.zeros(
-            (norb*norb, norb*norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F"
+            (norb, norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F"
         )
 
         # gmrt = self.crystal.RT2mRmT(grt)
