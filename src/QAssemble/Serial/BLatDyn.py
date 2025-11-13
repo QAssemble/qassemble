@@ -495,22 +495,22 @@ class PolLat(BLatDyn):
         group: str = None,
     ):
         super().__init__(crystal, dlr)
-        norb = len(self.crystal.bind)
+        norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = self.crystal.nk
         nfreq = len(self.dlr.nu)
         ntau = len(self.dlr.tauB)
         self.rt = np.zeros(
-            (norb, norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F"
+            (norb*norb, norb*norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F"
         )
         self.kt = np.zeros(
-            (norb, norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F"
+            (norb*norb, norb*norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F"
         )
         self.rf = np.zeros(
-            (norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F"
+            (norb*norb, norb*norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F"
         )
         self.kf = np.zeros(
-            (norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F"
+            (norb*norb, norb*norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F"
         )
         self.hdf5file = hdf5file
         self.group = group
@@ -543,10 +543,10 @@ class PolLat(BLatDyn):
         # for irk in range(nrk):
         #     for js in range(ns):
         #         grt[:, :, js, irk, :] = self.dlr.TauDLR2Uniform(ftau=self.green[:, :, js, irk, :], ntau=ntau)
-        norb = len(self.crystal.bind)
+        norb = len(self.crystal.find)
 
         polrt = np.zeros(
-            (norb, norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F"
+            (norb*norb, norb*norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F"
         )
 
         # gmrt = self.crystal.RT2mRmT(grt)
