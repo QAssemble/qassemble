@@ -3,3 +3,5 @@
 .DS_Store
 test/Dongming
 AGENTS.md
+__pycache__/
+*.pyc
