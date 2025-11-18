@@ -15,7 +15,8 @@ from scipy.ndimage import gaussian_filter1d
 import subprocess
 from .Crystal import Crystal
 from .FLatDyn import FLatDyn
-from .FTGrid import FTGrid
+# from .FTGrid import FTGrid
+from .utility.DLR import DLR
 from .utility.Fourier import Fourier
 
 
@@ -24,14 +25,14 @@ class FPathDyn(object):
     def __init__(
         self,
         crystal: Crystal = None,
-        ft: FTGrid = None,
+        dlr: DLR = None,
         obj: object = None,
         kpath: list = None,
         nk: int = None,
         hdf5file: str = "glob.h5",
     ):
 
-        if (crystal is not None) and (ft is not None) and (obj is not None):
+        if (crystal is not None) and (dlr is not None) and (obj is not None):
             pass
         else:
             if os.path.exists(hdf5file):
@@ -68,14 +69,14 @@ class FPathDyn(object):
                 ft_input["T"] = T
                 ft_input["beta"] = beta
                 ft_input["cutoff"] = cutoff
-                ft = FTGrid(ft=ft_input)
+                dlr = DLR(ft = ft_input)
                 glob.close()
             else:
                 print(f"Error : Check the {self.__class__.__name__} input again")
                 sys.exit()
         self.crystal = crystal
-        self.ft = ft
-        self.flatdyn = FLatDyn(self.crystal, self.ft)
+        self.dlr = dlr
+        self.flatdyn = FLatDyn(self.crystal, self.dlr)
         if (kpath is not None) and (nk is not None):
             self.kpath = self.crystal.Kpath(kpath=kpath, nk=nk)
         self.k = None
@@ -159,7 +160,7 @@ class FPathDyn(object):
         matkinv = np.zeros((norb, norb, ns, nk, nfreq), dtype=complex, order="F")
 
         matrinv = self.Inverse(matr)
-        omega = self.ft.omega
+        omega = self.dlr.omega
 
         for ifreq in range(nfreq):
             for ir in range(nr):
@@ -205,15 +206,15 @@ class FPathDyn(object):
         blur = float(option["smearing"])
         interpolation = option["interpolation"]
         gaussian_broadening = float(option["gaussian_broadening"])
-        omega = self.ft.omega
+        omega = self.dlr.MatsubaraFermionUniform()
         (norb, norb, ns, nk, nomega) = gmat.shape
         gauxmat = np.zeros((norb, norb, ns, nk, nomega), dtype=np.complex128, order="F")
 
         if gauxmode == "asitis":
             gauxmat = gmat
-            (moment, high) = self.flatdyn.Moment(gauxmat, 1, 1)
+            (moment, high) = self.flatdyn.Moment(gauxmat, True, True)
         elif gauxmode == "auxg":
-            (moment_temp, high_temp) = self.flatdyn.Moment(gmat, 0, 1)
+            (moment_temp, high_temp) = self.flatdyn.Moment(gmat, False, True)
 
             for ik in range(nk):
                 for js in range(ns):
@@ -223,7 +224,7 @@ class FPathDyn(object):
                             - (gmat[iorb, iorb, js, ik] - high_temp[iorb, iorb, js, ik])
                         )
 
-            (moment, high) = self.flatdyn.Moment(gauxmat, 1, 1)
+            (moment, high) = self.flatdyn.Moment(gauxmat, True, True)
         #       if (target == 'sig'): #We need gaux moment
         #           (moment, high) = self.flatdyn.Moment(gmat,0,1)
         #       elif (target == 'g'):
