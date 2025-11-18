@@ -71,6 +71,8 @@ class FPathDyn(object):
                 ft_input["cutoff"] = cutoff
                 dlr = DLR(ft = ft_input)
                 glob.close()
+            elif (crystal is not None) and (dlr is not None):
+                pass                
             else:
                 print(f"Error : Check the {self.__class__.__name__} input again")
                 sys.exit()
@@ -383,7 +385,7 @@ class FPathDyn(object):
 
         print("Analytic continuation has finished:)")
 
-        return sig_real
+        return xnew, sig_real
 
     def Spectral(self, option: dict = None):
 
