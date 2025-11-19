@@ -68,8 +68,9 @@ class FPathDyn(object):
                 ft_input = {}
                 ft_input["T"] = T
                 ft_input["beta"] = beta
-                ft_input["cutoff"] = cutoff
-                dlr = DLR(ft = ft_input)
+                ft_input["cutoff"] = cutoff[()]
+                # print(cutoff[()])
+                dlr = DLR(ft_input)
                 glob.close()
             elif (crystal is not None) and (dlr is not None):
                 pass                
@@ -214,7 +215,8 @@ class FPathDyn(object):
 
         if gauxmode == "asitis":
             gauxmat = gmat
-            (moment, high) = self.flatdyn.Moment(gauxmat, True, True)
+            # (moment, high) = self.flatdyn.Moment(gauxmat, True, True)
+            (moment, high) = self.flatdyn.Moment(gauxmat, False, False)
         elif gauxmode == "auxg":
             (moment_temp, high_temp) = self.flatdyn.Moment(gmat, False, True)
 
@@ -226,7 +228,8 @@ class FPathDyn(object):
                             - (gmat[iorb, iorb, js, ik] - high_temp[iorb, iorb, js, ik])
                         )
 
-            (moment, high) = self.flatdyn.Moment(gauxmat, True, True)
+            # (moment, high) = self.flatdyn.Moment(gauxmat, True, True)
+            (moment, high) = self.flatdyn.Moment(gauxmat, False, False)
         #       if (target == 'sig'): #We need gaux moment
         #           (moment, high) = self.flatdyn.Moment(gmat,0,1)
         #       elif (target == 'g'):
