@@ -163,6 +163,8 @@ class FPathDyn(object):
         # matkinv = np.zeros((norb, norb, ns, nk, nfreq), dtype=complex, order="F")
 
         matkinv = self.Inverse(matk)
+
+        # moments, high = self.flatdyn.Moment(matk, False, False)
         
         if (omega is None):
             omega = self.dlr.omega
@@ -174,13 +176,13 @@ class FPathDyn(object):
                         for iorb in range(norb):
                             if iorb == jorb:
                                 tempmat[iorb, jorb, js, ir, ifreq] = (
-                                    1j * omega[ifreq]
+                                    1j * omega[ifreq] 
                                     - matkinv[iorb, jorb, js, ir, ifreq]
                                 )
                             else:
-                                tempmat[iorb, jorb, js, ir, ifreq] = -matkinv[
-                                    iorb, jorb, js, ir, ifreq
-                                ]
+                                tempmat[iorb, jorb, js, ir, ifreq] = (
+                                    -matkinv[iorb, jorb, js, ir, ifreq]
+                                )
 
         # tempmat2 = self.R2K(tempmat, kpoint)
         tempmat2 = self.flatdyn.K2R(tempmat)
@@ -207,17 +209,40 @@ class FPathDyn(object):
         return matk
 
     def  MQEMWrapper(self, option: dict = None, gmat: np.ndarray = None):
+        '''
+        MQEM Wrapper for Analytic Continuation
+        Options:
+            gauxmode : 'asitis' or 'auxg' (default: 'asitis')
+            defaultmodel : 'g_mat' or 'g' (default: 'g_mat')
+            smearing : float (default: 0.01)
+            interpolation : True or False (default: True)
+            gaussian_broadening : float (default: 0.2)
+        Returns:
+            xnew : real frequency grid
+            sig_real : analytically continued self-energy on real frequency grid
+        '''
 
         #       target = option['target']
-        gauxmode = option["gauxmode"]
-        defaultmodel = option["defaultmodel"]
-        blur = float(option["smearing"])
-        interpolation = option["interpolation"]
-        gaussian_broadening = float(option["gaussian_broadening"])
+        # gauxmode = option["gauxmode"]
+        gauxmode = option.get("gauxmode", "asitis")
+        defaultmodel = option.get("defaultmodel", "g_mat")
+        # defaultmodel = option["defaultmodel"]
+        blur = float(option.get("smearing", 0.01))
+        # blur = float(option["smearing"])
+        interpolation = option.get("interpolation", True)
+        # interpolation = option["interpolation"]
+        gaussian_broadening = float(option.get("gaussian_broadening", 0.2))
+        # gaussian_broadening = float(option["gaussian_broadening"])
         omega = self.dlr.MatsubaraFermionUniform()
         (norb, norb, ns, nk, nomega) = gmat.shape
         gauxmat = np.zeros((norb, norb, ns, nk, nomega), dtype=np.complex128, order="F")
-
+#         mqem = {
+#     'gauxmode' : 'asitis',
+#     'defaultmodel' : 'g_mat',
+#     'smearing' : 0.01,
+#     'interpolation' : True,
+#     'gaussian_broadening' : 0.2
+# }
         if gauxmode == "asitis":
             gauxmat = gmat
             # (moment, high) = self.flatdyn.Moment(gauxmat, True, True)
