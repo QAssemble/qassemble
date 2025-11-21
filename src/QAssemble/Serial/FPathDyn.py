@@ -151,51 +151,54 @@ class FPathDyn(object):
 
         return matk
 
-    def KArb(self, matr: np.ndarray = None, kpoint: np.ndarray = None, omega : np.ndarray = None):  ## naming
+    def KArb(self, matk: np.ndarray = None, kpoint: np.ndarray = None, omega : np.ndarray = None):  ## naming
 
-        norb = matr.shape[0]
-        ns = matr.shape[2]
-        nr = matr.shape[3]
-        nfreq = matr.shape[4]
-        nk = len(kpoint)
+        norb = matk.shape[0]
+        ns = matk.shape[2]
+        nk = matk.shape[3]
+        nfreq = matk.shape[4]
+        nkpath = len(kpoint)
 
-        tempmat = np.zeros((norb, norb, ns, nr, nfreq), dtype=complex, order="F")
-        matkinv = np.zeros((norb, norb, ns, nk, nfreq), dtype=complex, order="F")
+        tempmat = np.zeros((norb, norb, ns, nk, nfreq), dtype=complex, order="F")
+        # matkinv = np.zeros((norb, norb, ns, nk, nfreq), dtype=complex, order="F")
 
-        matrinv = self.Inverse(matr)
+        matkinv = self.Inverse(matk)
         
         if (omega is None):
             omega = self.dlr.omega
 
         for ifreq in range(nfreq):
-            for ir in range(nr):
+            for ir in range(nk):
                 for js in range(ns):
                     for jorb in range(norb):
                         for iorb in range(norb):
                             if iorb == jorb:
                                 tempmat[iorb, jorb, js, ir, ifreq] = (
                                     1j * omega[ifreq]
-                                    - matrinv[iorb, jorb, js, ir, ifreq]
+                                    - matkinv[iorb, jorb, js, ir, ifreq]
                                 )
                             else:
-                                tempmat[iorb, jorb, js, ir, ifreq] = -matrinv[
+                                tempmat[iorb, jorb, js, ir, ifreq] = -matkinv[
                                     iorb, jorb, js, ir, ifreq
                                 ]
 
-        tempmat2 = self.R2K(tempmat, kpoint)
+        # tempmat2 = self.R2K(tempmat, kpoint)
+        tempmat2 = self.flatdyn.K2R(tempmat)
+        tempmat3 = self.R2K(tempmat2, kpoint)
 
+        matkinv = np.zeros((norb, norb, ns, nkpath, nfreq), dtype=complex, order="F")
         for ifreq in range(nfreq):
-            for ik in range(nk):
+            for ik in range(nkpath):
                 for js in range(ns):
                     for jorb in range(norb):
                         for iorb in range(norb):
                             if iorb == jorb:
                                 matkinv[iorb, jorb, js, ik, ifreq] = (
                                     1j * omega[ifreq]
-                                    - tempmat2[iorb, jorb, js, ik, ifreq]
+                                    - tempmat3[iorb, jorb, js, ik, ifreq]
                                 )
                             else:
-                                matkinv[iorb, jorb, js, ik, ifreq] = -tempmat2[
+                                matkinv[iorb, jorb, js, ik, ifreq] = -tempmat3[
                                     iorb, jorb, js, ik, ifreq
                                 ]
 
