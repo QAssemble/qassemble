@@ -151,7 +151,7 @@ class FPathDyn(object):
 
         return matk
 
-    def KArb(self, matr: np.ndarray = None, kpoint: np.ndarray = None):  ## naming
+    def KArb(self, matr: np.ndarray = None, kpoint: np.ndarray = None, omega : np.ndarray = None):  ## naming
 
         norb = matr.shape[0]
         ns = matr.shape[2]
@@ -163,7 +163,9 @@ class FPathDyn(object):
         matkinv = np.zeros((norb, norb, ns, nk, nfreq), dtype=complex, order="F")
 
         matrinv = self.Inverse(matr)
-        omega = self.dlr.omega
+        
+        if (omega is None):
+            omega = self.dlr.omega
 
         for ifreq in range(nfreq):
             for ir in range(nr):
