@@ -735,7 +735,7 @@ class VBare(BLatStc):
 
         a0 = 0.592
         au = 27.2114
-        q0 = 0.1
+        q0 = 0.001
 
         for ks in range(ns):
             for js in range(ns):
