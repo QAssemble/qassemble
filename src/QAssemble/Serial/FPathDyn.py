@@ -166,6 +166,7 @@ class FPathDyn(object):
 
         # moments, high = self.flatdyn.Moment(matk, False, False)
         
+        
         if (omega is None):
             omega = self.dlr.omega
 
@@ -208,7 +209,7 @@ class FPathDyn(object):
 
         return matk
 
-    def  MQEMWrapper(self, option: dict = None, gmat: np.ndarray = None):
+    def  MQEMWrapper(self, option: dict = None):
         '''
         MQEM Wrapper for Analytic Continuation
         Options:
@@ -234,15 +235,24 @@ class FPathDyn(object):
         gaussian_broadening = float(option.get("gaussian_broadening", 0.2))
         # gaussian_broadening = float(option["gaussian_broadening"])
         omega = self.dlr.MatsubaraFermionUniform()
-        (norb, norb, ns, nk, nomega) = gmat.shape
-        gauxmat = np.zeros((norb, norb, ns, nk, nomega), dtype=np.complex128, order="F")
-#         mqem = {
-#     'gauxmode' : 'asitis',
-#     'defaultmodel' : 'g_mat',
-#     'smearing' : 0.01,
-#     'interpolation' : True,
-#     'gaussian_broadening' : 0.2
-# }
+
+        info = np.loadtxt("info.dat")
+        norb = int(info[0])
+        ns = int(info[1])
+        nomega = int(info[2])
+
+        raw_greem = np.loadtxt("green.dat")
+
+        gmat = np.zeros((norb, norb, ns, 1, nomega), dtype=np.complex128, order="F")
+        gauxmat = np.zeros((norb, norb, ns, 1, nomega), dtype=np.complex128, order="F")
+
+        for line in raw_greem:
+            iorb = int(line[0])
+            jorb = int(line[1])
+            js = int(line[2])
+            iomega = int(line[3])
+            gmat[iorb, jorb, js, 0, iomega] = line[4] + 1j * line[5]
+
         if gauxmode == "asitis":
             gauxmat = gmat
             # (moment, high) = self.flatdyn.Moment(gauxmat, True, True)
@@ -250,7 +260,7 @@ class FPathDyn(object):
         elif gauxmode == "auxg":
             (moment_temp, high_temp) = self.flatdyn.Moment(gmat, False, True)
 
-            for ik in range(nk):
+            for ik in range(1):
                 for js in range(ns):
                     for iorb in range(norb):
                         gauxmat[iorb, iorb, js, ik] = 1.0 / (
@@ -270,7 +280,7 @@ class FPathDyn(object):
 
         emax = 0
 
-        for ik in range(nk):
+        for ik in range(1):
             for js in range(ns):
                 for iorb in range(norb):
                     m1 = moment[iorb, iorb, js, ik, 0]
@@ -286,7 +296,7 @@ class FPathDyn(object):
         print("emax:", emax)
         print("\n")
 
-        for ik in range(nk):
+        for ik in range(1):
             for js in range(ns):
                 for iorb in range(norb):
                     print("--------------------------")
@@ -348,11 +358,11 @@ class FPathDyn(object):
 
                     if iorb == 0:
                         sig_real = np.zeros(
-                            (norb, norb, ns, nk, nf), dtype=np.complex128, order="F"
+                            (norb, norb, ns, 1, nf), dtype=np.complex128, order="F"
                         )
                     if gauxmode == "asitis":
                         omega_real = gaux_real[n1:n2, 0]
-                        sig_real[iorb, iorb, js, ik, :] = (
+                        sig_real[iorb, iorb, js, 0, :] = (
                             gaux_real[n1:n2, 1] + gaux_real[n1:n2, 2] * 1j
                         )
                     elif gauxmode == "auxg":
@@ -397,11 +407,11 @@ class FPathDyn(object):
             deltae = min(blur, 0.01)
             nn = int(min(ecutoff, 12) / deltae)
             sig_real = np.zeros(
-                (norb, norb, ns, nk, 2 * nn + 1), dtype=np.complex128, order="F"
+                (norb, norb, ns, 1, 2 * nn + 1), dtype=np.complex128, order="F"
             )
             xnew = (np.arange(2 * nn + 1) - nn) * deltae
 
-            for ik in range(nk):
+            for ik in range(1):
                 for js in range(ns):
                     for iorb in range(norb):
                         x = omega_real
@@ -465,4 +475,40 @@ class FPathDyn(object):
         self.sigout = sigout
         self.gout = gout
 
+        return None
+
+    def MQEMPrepare(self, gmat : np.ndarray = None):
+
+        norb, _, ns, nk, nomega = gmat.shape
+
+        for ik in range(nk):
+            if os.path.isdir("mqem_run_" + str(ik + 1)):
+                pass
+            else:
+                os.mkdir("mqem_run_" + str(ik + 1))
+
+            os.chdir("mqem_run_" + str(ik + 1))
+            f = open("green.dat", "w")
+            h = open("info.dat", "w")
+            h.write("# norb ns nomega\n")
+            h.write("%3s %3s %5s\n" % (norb, ns, nomega))
+            h.close()            
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):   
+                        for iomega in range(nomega):
+                            f.write(
+                                "%3s %3s %3s %5s %20.10f %20.10f \n"
+                                % (
+                                    iorb,
+                                    jorb,
+                                    js,
+                                    iomega,
+                                    np.real(gmat[iorb, jorb, js, ik, iomega]),
+                                    np.imag(gmat[iorb, jorb, js, ik, iomega]),
+                                )
+                            )
+            f.close()
+            os.chdir("..")
+        
         return None
