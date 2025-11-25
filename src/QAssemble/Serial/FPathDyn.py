@@ -384,7 +384,7 @@ class FPathDyn(object):
                     )
                     shutil.move(
                         "information.out",
-                        "info_" + str(iorb + 1) + "_" + str(js + 1) + "-" + str(ik + 1),
+                        "info_" + str(iorb + 1) + "_" + str(js + 1) + "_" + str(ik + 1),
                     )
                     shutil.move(
                         "reproduce_0_0.out",
