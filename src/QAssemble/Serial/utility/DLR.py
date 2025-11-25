@@ -46,11 +46,12 @@ class DLR(object):
 
         return tau
 
-    def MatsubaraFermionUniform(self) -> np.ndarray:
+    def MatsubaraFermionUniform(self, Emax : np.float64 = None) -> np.ndarray:
         Emax = self.omega[-1]
         Emin = self.omega[0]
         # nomega = int((self.beta/np.pi*Emax - 1)/2)
-        Emax = self.cutoff
+        if Emax is None:
+            Emax = self.cutoff
         nstart = int((self.beta / np.pi * Emin - 1) / 2) * 0
         nend = int((self.beta / np.pi * Emax - 1) / 2)
         # omega = np.zeros((2*nomega+1), dtype=np.float64, order='F')
