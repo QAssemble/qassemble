@@ -462,9 +462,9 @@ class Common:
         R = 1.0e6
         R1 = np.sqrt(np.sum(d**2))
         
-        for ix in range(-1, 2):
-            for iy in range(-1, 2):
-                for iz in range(-1, 2):
+        for ix in range(-1, 2, 2):
+            for iy in range(-1, 2, 2):
+                for iz in range(-1, 2, 2):
                     rr = np.zeros((3, 3))
                     rr[0, :] = ix * S[0, :]
                     rr[1, :] = iy * S[1, :]
