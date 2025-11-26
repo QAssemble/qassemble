@@ -197,6 +197,11 @@ cf.GWApproximation(
 
 
 
+##########################################################################
+############### Local Double-Counting part ###############################
+##########################################################################
+
+
 print("\n")
 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 print("Start computing Local Double-CounGreenLocting GW")
@@ -216,56 +221,20 @@ print(cf.crystal.bimpdict['1'][0])
 print(len(cf.crystal.bimpdict['1'][0]))
 
 
-# vloc = cf.vbare.vloc
 
+##############
+#### Gloc ####
+##############
 print("**GreenLoc start")
 gloc = GreenLoc(crystal=cf.crystal, ft=cf.ft, green=gint)
 print("**GreenLoc finish\n")
 
-(norb, norb, ns, nk, nf) = gint.kf.shape
-g_average = np.zeros((norb, norb, ns, nk, nf), dtype=np.complex128, order="F")
-
-for ik in range(nk):
-    for i in range(len(cf.crystal.kpoint)):
-        g_average[..., ik, :] += 1 / nk * gint.kf[..., i, :]
-
-g_average2 = cf.green.F2T(g_average, 1, 1)
-
-
-for iff in range(nf):
-    for js in range(ns):
-        for jorb in range(1):
-            for iorb in range(1):
-                err = (
-                    g_average[iorb, jorb, js, 0, iff] - gloc.gf[iorb, jorb, js, iff, 0]
-                )
-                if abs(err) > 1.0e-6:
-                    print(
-                        iorb,
-                        jorb,
-                        js,
-                        iff,
-                        abs(err),
-                        g_average[iorb, jorb, js, 0, iff],
-                        gloc.gf[iorb, jorb, js, iff, 0],
-                    )
-
-plot = plt.figure(1)
-plt.scatter(cf.ft.omega[:], g_average[0, 0, 0, 0, :], color="blue")
-plt.scatter(cf.ft.omega[:], gloc.gf[0, 0, 0, :, 0], color="red")
-plt.title("Green_Loc")
-plt.xlabel("freq")
-plt.ylabel("G")
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
-
-
 gloc.Occ()
 gint.Occ()
 
-
-
+##############
+#### Vloc ####
+##############
 print("**Vloc start")
 # vloc = cf.vbare.Projection(cf.vbare.k)
 vloc2 = np.zeros_like(cf.vbare.k)
@@ -279,32 +248,28 @@ vloc[..., 0] = vloc2[..., 0]
 print("**Vloc finish\n")
 
 
-(norb, norb, ns, ns, nk) = cf.vbare.k.shape
-vbare_k_average = np.zeros((norb, norb, ns, ns, nk), dtype=np.complex128, order="F")
+# (norb, norb, ns, ns, nk) = cf.vbare.k.shape
+# vbare_k_average = np.zeros((norb, norb, ns, ns, nk), dtype=np.complex128, order="F")
 
-for ikk in range(nk):
-    for ik in range(nk):
-        vbare_k_average[..., ikk] += 1 / nk * cf.vbare.k[..., ik]
+# for ikk in range(nk):
+#     for ik in range(nk):
+#         vbare_k_average[..., ikk] += 1 / nk * cf.vbare.k[..., ik]
 
 
 
+################
+#### Polloc ####
+################
 print("**PolLoc start")
 polloc_dc = PolLGW(crystal=cf.crystal, ft=cf.ft, green=gloc)
 # pollat = PolLat(crystal=cf.crystal, ft=cf.ft, green=g_average2)
 print("**PolLoc finish\n")
 
-plot = plt.figure(1)
-plt.scatter(cf.ft.nu[:], polloc_dc.rf[0, 0, 0, 0, :, 0], color="red")
-# plt.scatter(cf.ft.nu[:], pollat.rf[0, 0, 0, 0, 0, :], color="blue"))
-plt.title("Polarizability_Loc")
-plt.xlabel("freq")
-plt.ylabel("P")
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
 
 
-
+##############
+#### Wloc ####
+##############
 print("**WLoc start")
 start = time.time()
 wloc = WLoc_temp(crystal=cf.crystal, ft=cf.ft, pol=polloc_dc.rf, vLoc=vloc)
@@ -312,28 +277,17 @@ wloc = WLoc_temp(crystal=cf.crystal, ft=cf.ft, pol=polloc_dc.rf, vLoc=vloc)
 end = time.time()
 tiem_delta = end-start
 print(round(tiem_delta,5))
-
-# start = time.time()
-# kf = np.zeros_like(pollat.kf, dtype=np.complex128, order='F')
-# for ik in range(nk):
-#     kf[..., ik, :] = pollat.rf[..., 0, :]
-# wlat = WLat_k(crystal=cf.crystal, ft=cf.ft, pol=kf, vbare=vloc2)
-# end = time.time()
-# tiem_delta = end-start
-# print(round(tiem_delta,5))
 print("**WLoc finish\n")
 
-plot = plt.figure(1)
-plt.scatter(cf.ft.nu[:], wloc.crf[0, 0, 0, 0, :, 0], color="red")
-# plt.scatter(cf.ft.nu[:], wlat.crf[0, 0, 0, 0, 0, :], color="blue")
-plt.title("Wc_Loc")
-plt.xlabel("freq")
-plt.ylabel("Wc_Loc")
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
 
 
+
+
+
+
+##########################################################################
+###############         EDMFT part         ###############################
+##########################################################################
 
 print("\n")
 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
@@ -351,40 +305,21 @@ from qacore.FLocStc import EImp
 from qacore.FLocDyn import Hybridisation,FWeiss
 from qacore.BLocDyn import BWeiss
 
-print(vloc.shape)
+# print(vloc.shape)
 
+
+
+##############
+#### Uimp ####
+##############
 print("**Uimp start")
 norb,_,ns,_,nft,nprob=wloc.crf.shape
 wloc_rf_temp = np.zeros((norb,norb,ns,ns,nft,nprob))
-# ploc_rf_temp = np.zeros((norb,norb,ns,ns,nft,nprob), dtype=np.complex128,order='F')
 for ift in range(nft):
     wloc_rf_temp[:,:,:,:,ift,:] = wloc.crf[:,:,:,:,ift,:] + vloc[...]
 
-# ploc_rf_temp = cf.pol.Projection(cf.pol.rf)
 uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc_rf_temp,ploc=polloc_dc.rf,vloc=vloc)
-# uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc_rf_temp,ploc=ploc_rf_temp,vloc=vloc)
 print("**Uimp finish\n")
-
-
-plot = plt.figure(1)
-plt.scatter(cf.ft.nu[1:], uimp.utilde_rf[0, 0, 0, 0, 1:, 0].real, color="blue")
-plt.title("ubar -- real part")
-plt.xlabel("freq")
-plt.ylabel("Delta")
-# plt.ylim(-5, 5)
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
-
-plot = plt.figure(1)
-plt.scatter(cf.ft.nu[1:], uimp.ubar_rf[0, 0, 0, 0, 1:, 0].real, color="blue")
-plt.title("ubar -- real part")
-plt.xlabel("freq")
-plt.ylabel("Delta")
-# plt.ylim(-5, 5)
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
 
 
 
@@ -392,77 +327,11 @@ print("**SigmaLGWC start")
 sigma_loc_dc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
 print("**SigmaLGWC finish\n")
 
-plot = plt.figure(1)
-# plt.scatter(cf.ft.omega[:], sigma_lat_gwc.rf[0, 0, 0, 0, :], color="blue")
-# # plt.scatter(cf.ft.omega[:],sigmagwc_lat_average[0,0,0,:],color='blue')
-plt.scatter(cf.ft.omega[:], sigma_loc_dc.rf[0, 0, 0, :, 0], color="red")
-plt.title("Sigma")
-plt.xlabel("freq")
-plt.ylabel("Sigma")
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
-
-
-
-# exit()
-
-
-
-
 
 print("**SigmaHLoc start")
 hloc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=uimp.utilde_rf)
 # hloc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=vloc)
 print("**SigmaHLoc finish\n")
-
-# print(hloc.r)
-# exit()
-
-
-# print("**SigmaHLoc start")
-# hloc = SigmaHLoc(crystal=cf.crystal, ft=cf.ft, occ=gloc.occ, vloc=vloc)
-hlat = SigmaHartree(crystal=cf.crystal, occ=-g_average2[..., 0, -1], vbare=vloc2)
-# hlat = SigmaHartree(crystal=cf.crystal,occ=gint.occ,vbare=vbare_k_average)
-# print("**SigmaHLoc finish\n")
-
-print(hlat.r.shape)
-
-(norb, norb, ns, nk) = hlat.k.shape
-hartree_average = np.zeros((norb, norb, ns, nf), dtype=np.complex128, order="F")
-for iff in range(nf):
-    # for ik in range(nk):
-    #     hartree_average[...,iff] += 1/nk*hlat.r[...,0]
-    hartree_average[..., iff] = hlat.r[..., 0]
-
-# print(hartree_average[0,0,0,0])
-# print(hloc.r[0,0,0,0,0])
-# print(hartree_average[0,0,0,0]-hloc.r[0,0,0,0,0])
-    
-hloc_constant = np.zeros(nf)
-hloc_constant[:] = hloc.r[0,0,0,0]
-
-plot = plt.figure(1)
-plt.scatter(cf.ft.omega[:], hartree_average[0, 0, 0, :], color="blue")
-plt.scatter(cf.ft.omega[:], hloc_constant[:], color="red")
-plt.title("Hartree_Loc")
-plt.xlabel("freq")
-plt.ylabel("H_Loc")
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 print("**SigmaFLoc start")
@@ -471,35 +340,6 @@ print("**SigmaFLoc finish\n")
 
 
 
-
-# print("**SigmaFLoc start")
-# floc = SigmaFLoc(crystal=cf.crystal, ft=cf.ft, occr=gloc.occ, vloc=vloc)
-flat = SigmaFock(crystal=cf.crystal, occr=gint.occr, vbare=cf.vbare.r)
-# print("**SigmaFLoc finish\n")
-
-# print(flat.r.shape)
-# print(floc.r.shape)
-
-(norb, norb, ns, nr) = flat.r.shape
-flat_average = np.zeros((norb, norb, ns, nf), dtype=np.complex128, order="F")
-for iff in range(nf):
-    # for ir in range(nr):
-    #     flat_average[...,iff] += 1/nr * flat.r[...,ir]
-    flat_average[..., iff] = flat.r[..., 0]
-
-
-floc_constant = np.zeros(nf)
-floc_constant[:] = floc.r[0,0,0,0]
-
-plot = plt.figure(1)
-plt.scatter(cf.ft.omega[:], flat_average[0, 0, 0, :], color="blue")
-plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
-plt.title("Fock_Loc")
-plt.xlabel("freq")
-plt.ylabel("F_Loc")
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
 
 
 
@@ -541,97 +381,11 @@ print("***Weiss Green's function start")
 weiss_green = FWeiss(crystal=cf.crystal,ft=cf.ft,niham=cf.niham.k,mu=cf.green.mu,hamh=cf.sigmah.k,hamf=cf.sigmaf.k,hloc=hloc.r,floc=floc.r,gloc=gloc.gf,sigmahimp=hloc.r,sigmafimp=floc.r,sigmacimp=sigma_loc_dc.rf)
 print("***Weiss Green's function finish")
 
-# exit()
-
-
-###### Eimp and Hybridization
-
-# # print("\n**Eimp start")
-# # eimp = EImp(crystal=cf.crystal,niham=cf.niham,mu=cf.green.mu,hamh=cf.sigmah,hamf=cf.sigmaf,hloc=hloc,floc=floc)
-# # print("**Eimp finish")
-
-# print('*** Eimp B2F start ***')
-# # eimp_F = weiss_green.imp_B2F(imp,weiss_green.Eimp_r[...,0,0])
-# eimp_F = cf.imp_B2F(imp,weiss_green.Eimp_r[...,0,0])
-# print('*** Eimp B2F finish ***')
-
-# print('*** Eimp F2B start ***')
-# eimp_B = cf.imp_F2B(imp,eimp_F)
-# print('*** Eimp F2B finish ***')
-
-# print('*** Eimp_final_input start ***')
-# cf.Eimp_final_input(weiss_green.Eimp_r)
-# print('*** Eimp_final_input finish ***')
-
-
-
-# # print("\n**Hybridisation start")
-# # delta = Hybridisation(crystal=cf.crystal,ft=cf.ft,gloc=gloc,eimp=eimp,sigmahimp=hloc.r,sigmafimp=floc.r,sigmacimp=sigma_loc_dc.rf)
-# # print("**Hybridisation finish")
-
-# print('*** Hybridisation B2F start ***')
-# (norbc,norbc,ns,nft,nprob)=weiss_green.delta_rf.shape
-# # print(delta.rf.shape)
-# rf_temp = np.zeros((norbc,norbc,nft,nprob),dtype=np.complex128,order='F')
-# for iprob in range(nprob):
-#     for ifreq in range(nft):
-#         rf_temp[...,ifreq,iprob] = weiss_green.delta_rf[...,0,ifreq,iprob]
-# delta_F = cf.imp_B2F_freq(imp,rf_temp[...,0])
-# print('*** Hybridisation B2F finish ***')
-
-# print('*** Hybridisation F2B start ***')
-# delta_B = cf.imp_F2B_freq(imp,delta_F)
-# print('*** Hybridisation F2B finish ***')
-
-
-
-
-
-
-
-# print('\n*** write_Hybridisation_json start ***')
-# hyb_dict = cf.write_hyb_dict(equiv,weiss_green.delta_rf[...,0])
-# cf.write_hyb_json(1,1,hyb_dict)
-# print('*** write_Hybridisation_json finish ***')
-
-
-
-
-# print("\n*** write_Dyn_json start ***")
-# # print("*** compute F0 start ***")
-# # norb,_,ns,_,nft,_ = uimp.utilde_rf.shape
-# # norbc = len(cf.crystal.find)
-
-# # utilde_rf_4 = np.zeros((norbc,norbc,norbc,norbc,ns,ns,nft),dtype=np.complex64,order='F')
-
-# # for iis in range(ns):
-# #     for jjs in range(ns):
-# #         for ift in range(nft):
-# #             utilde_rf_4[...,iis,jjs,ift] = cf.crystal.Double2Quad(uimp.utilde_rf[...,iis,jjs,ift,0])
-
-# # F0_val = np.zeros(nft,dtype=np.float64, order='F')
-# # for ift in range(nft):
-# #     F0_val[ift] = 1.0/ns**2/norbc**2*np.einsum('ijjimn->',utilde_rf_4[...,ift]).real
-# # print("*** compute F0 finish ***")
-# # F0_dict = {}
-# # F0_dict["F0"] = F0_val.tolist()
-
-# F0_dict = cf.write_dyn_dict(1,1,uimp.utilde_rf)
-
-# cf.write_dyn_json(1,1,F0_dict)
-
-# print("*** write_Dyn_json finish ***")
-
-
-
-
 
 print('\n*** write_ctqmc_params start ***')
 # delta.write_ctqmc_params(1,1,eimp,equiv,vloc)
 cf.CTQMCPreProcessing(iter=iter, key=key, E_imp=weiss_green.Eimp_r, imp=imp, equiv=equiv, vloc=vloc, Hyb=weiss_green.delta_rf, bweiss=uimp.utilde_rf)
 print('*** write_ctqmc_params finish ***')
-
-
 
 print('\n*** run and measure CTQMC start ***')
 # cf.CTQMCRun()
@@ -738,34 +492,33 @@ Chi_edmft_2 = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nft),dtype=np.complex64,or
 for ift in range(nft):
     Chi_edmft_2[...,0,0,ift] = 1.0/2.0*(Chi_edmft_temp[...,0,0,ift]+Chi_edmft_temp[...,0,1,ift]+Chi_edmft_temp[...,1,0,ift]+Chi_edmft_temp[...,1,1,ift])
 
-# print('Pi_edmft_2 done')
 
 
 
-def compute_Pi(X, u):
-    """
-    Compute Pi(ω) = (I + X(ω) u(ω))^(-1) X(ω) for each frequency.
+# def compute_Pi(X, u):
+#     """
+#     Compute Pi(ω) = (I + X(ω) u(ω))^(-1) X(ω) for each frequency.
 
-    Parameters
-    ----------
-    X : (n, n, nfreq) ndarray
-    u : (n, n, nfreq) ndarray
+#     Parameters
+#     ----------
+#     X : (n, n, nfreq) ndarray
+#     u : (n, n, nfreq) ndarray
 
-    Returns
-    -------
-    Pi : (n, n, nfreq) ndarray
-    """
-    n, _, ns, _, nfreq = X.shape
-    Pi = np.zeros_like(X, dtype=complex)
-    I = np.eye(n, dtype=X.dtype)
+#     Returns
+#     -------
+#     Pi : (n, n, nfreq) ndarray
+#     """
+#     n, _, ns, _, nfreq = X.shape
+#     Pi = np.zeros_like(X, dtype=complex)
+#     I = np.eye(n, dtype=X.dtype)
 
-    for iis in range(ns):
-        for jjs in range(ns):
-            for iw in range(nfreq):
-                A = I + X[:, :, iis, jjs, iw] @ u[:, :, iis, jjs, iw, 0]
-                Pi[:, :, iis, jjs, iw] = np.linalg.solve(A, X[:, :, iis, jjs, iw])
+#     for iis in range(ns):
+#         for jjs in range(ns):
+#             for iw in range(nfreq):
+#                 A = I + X[:, :, iis, jjs, iw] @ u[:, :, iis, jjs, iw, 0]
+#                 Pi[:, :, iis, jjs, iw] = np.linalg.solve(A, X[:, :, iis, jjs, iw])
 
-    return Pi
+#     return Pi
 
 
 # print(green_edmft_freq.shape)
@@ -793,137 +546,5 @@ print("*** Pi_edmft finish ***")
 
 
 
-# # exit()
-
-# # print(cf.crystal.ft.omega)
-# # print(cf.crystal.ft.nu)
-# # print(cf.crystal.ft.tau)
-
-# # print(green_edmft_freq.shape)
-# # print(sigmac_edmft_freq.shape)
-# # print(sigmahf_edmft.shape)
-
-# norbc = cf.crystal.fprojector.shape[1]
-# ns = cf.crystal.ns
-# nft = len(cf.ft.omega)
-# ntau = len(cf.ft.tau)
-
-# # print(norbc,ns,nft,ntau)
-
-
-# green_edmft_tau = np.zeros((norbc,norbc,ns,ntau), dtype=np.complex128, order='F')
-# green_edmft_tau = gloc.F2T(green_edmft_freq,1,1) ### ?
-
-# # print('toto')
-
-# rho = (-1) * green_edmft_tau[:, :, :, -1].copy()         # (i,j,s)
-# # Enforce Hermiticity per spin
-# rho = 0.5 * (rho + rho.swapaxes(0, 1).conj())
-
-# # print('toto')
-
-# def hartree_Sigma_diag_density_density(rho, V):
-#     """
-#     Diagonal Hartree Σ_H for density–density v:
-#       v[i,j,k,l,s,sp] = δ_{ij} δ_{kl} V[i,l,s,sp]
-
-#     Inputs
-#       G: (norbs, norbs, nspin, ntau)
-#       V: (norbs, norbs, nspin, nspin)   # V[i,l,s,sp] couples n_i^s to n_l^sp
-#       t0: int
-#       sign: +1 if rho =  G(0), -1 if rho = -G(0^-)
-
-#     Returns
-#       Sigma_H: (norbs, norbs, nspin)  # diagonal in orbital space
-#     """
-#     norb, _, nspin = rho.shape
-#     # rho = _rho_from_G_equal_time(G, t0, sign=sign)         # (i,j,s)
-#     # occupations per spin: n[l,sp]
-#     n_occ = np.real(np.stack([np.diag(rho[:, :, sp]) for sp in range(nspin)], axis=1))
-
-#     # Σ_diag[i,s] = sum_{l,sp} V[i,l,s,sp] * n_occ[l,sp]
-#     Sigma_diag = np.einsum('ilsp,lp->is', V, n_occ, optimize=True)
-
-#     Sigma_H = np.zeros((norb, norb, nspin), dtype=Sigma_diag.dtype)
-#     idx = np.arange(norb)
-#     Sigma_H[idx, idx, :] = Sigma_diag
-#     return Sigma_H
-
-# def hartree_Sigma_diag_general(rho, v):
-#     """
-#     Diagonal Hartree Σ_H from general spin-resolved 4-index v.
-
-#     Inputs
-#       G: (norbs, norbs, nspin, ntau)             # G[i,j,s,t]
-#       v: (norbs, norbs, norbs, norbs, nspin, nspin)  # v[i,j,k,l,s,sp]
-#       t0: int  # time index for t -> 0
-#       sign: +1 if rho =  G(0), -1 if rho = -G(0^-)
-
-#     Returns
-#       Sigma_H: (norbs, norbs, nspin)  # diagonal in orbital space
-#     """
-#     norb, _, nspin = rho.shape
-#     # rho = _rho_from_G_equal_time(G, t0, sign=sign)   # (i,j,s)
-#     I = np.eye(norb)
-
-#     # Σ_diag[i,s] = sum_{j,k,l,sp} v[i,j,k,l,s,sp] * rho[l,k,sp] * δ_{ij}
-#     # Sigma_diag = np.einsum('ijklsp,lkp,ij->is', v, rho, I, optimize=True)
-#     Sigma_diag = np.einsum('ijklmn,jkn,il->im', v, rho, I, optimize=True)
-
-#     # Pack into diagonal matrices for each spin
-#     Sigma_H = np.zeros((norb, norb, nspin), dtype=Sigma_diag.dtype)
-#     idx = np.arange(norb)
-#     Sigma_H[idx, idx, :] = Sigma_diag
-#     return Sigma_H
-
-# # sigmah_edmft = hartree_Sigma_diag_density_density(rho, uimp.utilde_rf[...,0,0])
-
-
-# print("\n*** sigmah_edmft start ***")
-
-# v_temp = np.zeros((norbc,norbc,norbc,norbc,ns,ns), dtype=np.complex128, order='F')
-# for iis in range(ns):
-#     for jjs in range(ns):
-#         v_temp[...,iis,jjs] = cf.crystal.Double2Quad(uimp.utilde_rf[...,iis,jjs,0,0])
-
-# sigmah_edmft = hartree_Sigma_diag_general(rho, v_temp)
-
-# # print("sigmahf_edmft")
-# # print(sigmahf_edmft)
-# print("*** sigmah_edmft finish ***")
-# # print(sigmah_edmft)
-
-
-# print("*** sigmaf_edmft start ***")
-# sigmaf_edmft = np.zeros((norbc,norbc,ns), dtype=np.complex128, order='F')
-# for i in range(ns):
-#     sigmaf_edmft[...,i] = sigmahf_edmft[...,i] - sigmah_edmft[...,i]
-
-# print("*** sigmaf_edmft finish ***")
-# # print(sigmaf_edmft)
-
-# # print('toto')
-
-exit()
-
-plot = plt.figure(1)
-plt.scatter(cf.ft.omega[1:], delta.rf[0, 0, 0, 1:, 0].real, color="blue")
-plt.title("Hybridisation -- real part")
-plt.xlabel("freq")
-plt.ylabel("Delta")
-# plt.ylim(-5, 5)
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
-
-plot = plt.figure(1)
-plt.scatter(cf.ft.omega[:], delta.rf[0, 0, 0, :, 0].imag, color="blue")
-plt.title("Hybridisation -- imag part")
-plt.xlabel("freq")
-plt.ylabel("Delta")
-# plt.ylim(-5, 5)
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
 
 

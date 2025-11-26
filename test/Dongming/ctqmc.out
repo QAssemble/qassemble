@@ -1,4 +1,4 @@
-Start task at Sun Nov 16 20:34:23 2025
+Start task at Tue Nov 25 21:16:13 2025
 
 
 Number of invariant subspaces: 16
@@ -14,21 +14,29 @@ End setting up partition observables
 Begin setting updates
 Setting expansion updates for partition space ... Ok
 End setting updates
-partition eta = 1
-Begin evaluating partition measurements
-Calculating quantum number observables ... Ok
-Calculating observables ... Ok
-Calculating energy ... Ok
-Reading hybridisation function ... Ok
-Reading green function ... Ok
-Calculating self-energy with dyson ... OK
-Calculating self-energy with bulla ... Ok
-Reading N susceptibility ... Ok
-Adding N susceptibility high frequency tail ... Ok
-Reading Sz susceptibility ... Ok
-Adding Sz susceptibility high frequency tail ... Ok
-Reading impurity probabilities ... Ok
-describing eigenstates ... Ok
-End evaluating partition measurements
-Task of worker finished at Sun Nov 16 20:38:23 2025
+[mpiexec@linux-vm] Sending Ctrl-C to processes as requested
+[mpiexec@linux-vm] Press Ctrl-C again to force abort
 
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   RANK 0 PID 8626 RUNNING AT linux-vm
+=   KILLED BY SIGNAL: 11 (Segmentation fault)
+===================================================================================
+
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   RANK 1 PID 8627 RUNNING AT linux-vm
+=   KILLED BY SIGNAL: 11 (Segmentation fault)
+===================================================================================
+
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   RANK 2 PID 8628 RUNNING AT linux-vm
+=   KILLED BY SIGNAL: 11 (Segmentation fault)
+===================================================================================
+
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   RANK 3 PID 8629 RUNNING AT linux-vm
+=   KILLED BY SIGNAL: 11 (Segmentation fault)
+===================================================================================
