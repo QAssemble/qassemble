@@ -97,33 +97,33 @@ class CorrelationFunction(object):
         
         return B
     
-    # def Eimp_final_input(self, Eimp): ## move to EImp
+    def Eimp_final_input(self, Eimp): ## move to EImp
 
-    #     # nprob = len(self.crystal.probspace)
-    #     ns = self.crystal.ns
-    #     norbc = self.crystal.fprojector.shape[1]
+        # nprob = len(self.crystal.probspace)
+        ns = self.crystal.ns
+        norbc = self.crystal.fprojector.shape[1]
 
-    #     if ns==1:
-    #         # ctqmc_mu = np.zeros(nprob, dtype=np.complex128, order='F')
-    #         # for i in range(nprob):
-    #         #     mu[i] = -B[0,0,i]  ### is the mu the same along the omega space?
-    #         I = np.identity(len(Eimp))
-    #         A = np.zeros((norbc,norbc), dtype=np.complex128, order='F')
-    #         A_final = np.zeros((norbc*2,norbc*2), dtype=np.complex128, order='F')
+        if ns==1:
+            # ctqmc_mu = np.zeros(nprob, dtype=np.complex128, order='F')
+            # for i in range(nprob):
+            #     mu[i] = -B[0,0,i]  ### is the mu the same along the omega space?
+            I = np.identity(len(Eimp))
+            A = np.zeros((norbc,norbc), dtype=np.complex128, order='F')
+            A_final = np.zeros((norbc*2,norbc*2), dtype=np.complex128, order='F')
 
-    #         # for i in range(nprob):
-    #         ctqmc_mu = -Eimp[0,0]
-    #         A = Eimp[...,0] + ctqmc_mu*I
-    #         A_final[...] = np.kron(np.eye(2),A)
+            # for i in range(nprob):
+            ctqmc_mu = -Eimp[0,0]
+            A = Eimp[...,0] + ctqmc_mu*I
+            A_final[...] = np.kron(np.eye(2),A)
 
-    #         # self.A_final = np.copy(A_final)
-    #         # self.ctqmc_mu = np.copy(mu)
+            # self.A_final = np.copy(A_final)
+            # self.ctqmc_mu = np.copy(mu)
         
-    #     elif ns==2:
-    #         print("Nspin is not 1")
-    #         sys.exit()
+        elif ns==2:
+            print("Nspin is not 1")
+            sys.exit()
         
-    #     return A_final,ctqmc_mu
+        return A_final,ctqmc_mu
     
     def imp_B2F_freq(self,imp,B,key):
 
@@ -648,6 +648,7 @@ class CorrelationFunction(object):
         flocdyn = FLocDyn(self.crystal,self.ft)
         Green_tau = flocdyn.F2T(Green,1,1)
         rho = (-1) * Green_tau[:, :, :, -1].copy()
+        print(rho)
         # rho = (rho + rho.swapaxes(0, 1).conj()) * 0.5
         # norbc, _, ns = rho.shape
         # I = np.eye(norbc)

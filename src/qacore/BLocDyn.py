@@ -920,9 +920,9 @@ class BWeiss(BLocDyn):
         
         for iprob in range(nprob):
             for ifreq in range(nfreq):
-                for iis in range(ns):
-                    for jjs in range(ns):
-                        self.ubar_rf[...,iis,jjs,ifreq,iprob] = self.utilde_rf[...,iis,jjs,ifreq,iprob] - self.vloc[...,iis,jjs,iprob]
+        #         for iis in range(ns):
+        #             for jjs in range(ns):
+                self.ubar_rf[...,ifreq,iprob] = self.utilde_rf[...,ifreq,iprob] - self.vloc[...,iprob]
 
 
 

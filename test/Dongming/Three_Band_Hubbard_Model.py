@@ -40,7 +40,7 @@ NSpin = 1
 SOC = False
 # KGrid = [7, 7, 7]
 KGrid = [3, 3, 3]
-NElec = 3 # 1
+NElec = 3 # 1 ## should be 1 for validation
 beta = 100
 T = 2000
 cutoff = 30 #100 #30
@@ -356,9 +356,13 @@ print(vloc.shape)
 print("**Uimp start")
 norb,_,ns,_,nft,nprob=wloc.crf.shape
 wloc_rf_temp = np.zeros((norb,norb,ns,ns,nft,nprob))
+# ploc_rf_temp = np.zeros((norb,norb,ns,ns,nft,nprob), dtype=np.complex128,order='F')
 for ift in range(nft):
     wloc_rf_temp[:,:,:,:,ift,:] = wloc.crf[:,:,:,:,ift,:] + vloc[...]
+
+# ploc_rf_temp = cf.pol.Projection(cf.pol.rf)
 uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc_rf_temp,ploc=polloc_dc.rf,vloc=vloc)
+# uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc_rf_temp,ploc=ploc_rf_temp,vloc=vloc)
 print("**Uimp finish\n")
 
 
@@ -630,8 +634,8 @@ print('*** write_ctqmc_params finish ***')
 
 
 print('\n*** run and measure CTQMC start ***')
-cf.CTQMCRun()
-cf.CTQMCMeasure()
+# cf.CTQMCRun()
+# cf.CTQMCMeasure()
 print('*** run and measure CTQMC finish ***')
 
 
