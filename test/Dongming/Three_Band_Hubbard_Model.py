@@ -232,6 +232,7 @@ print("**GreenLoc finish\n")
 gloc.Occ()
 gint.Occ()
 
+
 ##############
 #### Vloc ####
 ##############
@@ -248,15 +249,6 @@ vloc[..., 0] = vloc2[..., 0]
 print("**Vloc finish\n")
 
 
-# (norb, norb, ns, ns, nk) = cf.vbare.k.shape
-# vbare_k_average = np.zeros((norb, norb, ns, ns, nk), dtype=np.complex128, order="F")
-
-# for ikk in range(nk):
-#     for ik in range(nk):
-#         vbare_k_average[..., ikk] += 1 / nk * cf.vbare.k[..., ik]
-
-
-
 ################
 #### Polloc ####
 ################
@@ -264,7 +256,6 @@ print("**PolLoc start")
 polloc_dc = PolLGW(crystal=cf.crystal, ft=cf.ft, green=gloc)
 # pollat = PolLat(crystal=cf.crystal, ft=cf.ft, green=g_average2)
 print("**PolLoc finish\n")
-
 
 
 ##############
@@ -305,7 +296,30 @@ from qacore.FLocStc import EImp
 from qacore.FLocDyn import Hybridisation,FWeiss
 from qacore.BLocDyn import BWeiss
 
-# print(vloc.shape)
+
+
+imp={'temperature'            : 300, # temperature (in K)
+     '1':
+     {
+      'impurity_matrix': [ # equivalent orbital index matrix. starting from 1.
+         [1,0,0],
+         [0,1,0],
+         [0,0,1]
+         ],       
+     'thermalization_time': 3,
+     'measurement_time': 20,
+     'green_cutoff':  40,  
+     'coulomb': 'full',
+     }}
+
+# equiv = np.array([[1,2,0],
+#                   [2,1,0],
+#                   [0,0,1]])
+
+equiv = cf.crystal.read_imp_equi_mat(imp)
+
+iter = 1
+key = 1
 
 
 
@@ -344,44 +358,20 @@ print("**SigmaFLoc finish\n")
 
 
 
-
-imp={'temperature'            : 300, # temperature (in K)
-     '1':
-     {
-      'impurity_matrix': [ # equivalent orbital index matrix. starting from 1.
-         [1,0,0],
-         [0,1,0],
-         [0,0,1]
-         ],       
-     'thermalization_time': 3,
-     'measurement_time': 20,
-     'green_cutoff':  40,  
-     'coulomb': 'full',
-     }}
-
-
-
-equiv = cf.crystal.read_imp_equi_mat(imp)
-
-# equiv = np.array([[1,2,0],
-#                   [2,1,0],
-#                   [0,0,1]])
-
-
-print('hloc')
-print(hloc.r[...,0])
-print('floc')
-print(floc.r[...,0])
-
-
-iter = 1
-key = 1
-
+##############
+#### Gimp ####
+##############
 print("***Weiss Green's function start")
 weiss_green = FWeiss(crystal=cf.crystal,ft=cf.ft,niham=cf.niham.k,mu=cf.green.mu,hamh=cf.sigmah.k,hamf=cf.sigmaf.k,hloc=hloc.r,floc=floc.r,gloc=gloc.gf,sigmahimp=hloc.r,sigmafimp=floc.r,sigmacimp=sigma_loc_dc.rf)
 print("***Weiss Green's function finish")
 
 
+
+
+
+#####################
+#### CTQMC start ####
+#####################
 print('\n*** write_ctqmc_params start ***')
 # delta.write_ctqmc_params(1,1,eimp,equiv,vloc)
 cf.CTQMCPreProcessing(iter=iter, key=key, E_imp=weiss_green.Eimp_r, imp=imp, equiv=equiv, vloc=vloc, Hyb=weiss_green.delta_rf, bweiss=uimp.utilde_rf)
@@ -402,80 +392,68 @@ print('\n*** impurity postprocessing start ***')
  Chi_edmft_4) = cf.CTQMCPostProcessing(iter=iter,key=key,equiv=equiv,utilde_rf=uimp.utilde_rf)
 print('*** impurity postprocessing finish ***')
 
-print(green_edmft_freq.shape)
-print(sigmac_edmft_freq.shape)
-print(sigmah_edmft.shape)
-print(sigmaf_edmft.shape)
-print(Chi_edmft_4.shape)
-
-print(sigmahf_edmft)
-print(sigmah_edmft)
-print(sigmaf_edmft)
-
-# exit()
+#################################################
+##### a class for Sigma_hfc_edmft is needed #####
+#################################################
 
 
 
 
+# print(green_edmft_freq.shape)
+# print(sigmac_edmft_freq.shape)
+# print(sigmah_edmft.shape)
+# print(sigmaf_edmft.shape)
+# print(Chi_edmft_4.shape)
 
-plot = plt.figure(1)
-plt.scatter(cf.ft.omega[:], green_edmft_freq[0, 0, 0, :], color="blue")
-# plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
-plt.title("Green's function")
-# plt.xlabel("freq")
-# plt.ylabel("F_Loc")
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
+# print(sigmahf_edmft)
+# print(sigmah_edmft)
+# print(sigmaf_edmft)
 
-
-plot = plt.figure(1)
-plt.scatter(cf.ft.omega[:], sigmac_edmft_freq[0, 0, 0, :], color="blue")
-# plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
-plt.title("Sigma_C")
-# plt.xlabel("freq")
-# plt.ylabel("F_Loc")
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
-
-
-
-plot = plt.figure(1)
-plt.scatter(cf.ft.nu[:], Chi_edmft_4[0, 0, 0, 0, 0, 0, :], color="blue")
-# plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
-plt.title("Chi")
-# plt.xlabel("freq")
-# plt.ylabel("F_Loc")
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
+# # exit()
 
 
 
 
 
+# plot = plt.figure(1)
+# plt.scatter(cf.ft.omega[:], green_edmft_freq[0, 0, 0, :], color="blue")
+# # plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
+# plt.title("Green's function")
+# # plt.xlabel("freq")
+# # plt.ylabel("F_Loc")
+# plt.legend()
+# plt.grid(which="both", linestyle="--", linewidth=0.3)
+# plt.show()
+
+
+# plot = plt.figure(1)
+# plt.scatter(cf.ft.omega[:], sigmac_edmft_freq[0, 0, 0, :], color="blue")
+# # plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
+# plt.title("Sigma_C")
+# # plt.xlabel("freq")
+# # plt.ylabel("F_Loc")
+# plt.legend()
+# plt.grid(which="both", linestyle="--", linewidth=0.3)
+# plt.show()
+
+
+
+# plot = plt.figure(1)
+# plt.scatter(cf.ft.nu[:], Chi_edmft_4[0, 0, 0, 0, 0, 0, :], color="blue")
+# # plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
+# plt.title("Chi")
+# # plt.xlabel("freq")
+# # plt.ylabel("F_Loc")
+# plt.legend()
+# plt.grid(which="both", linestyle="--", linewidth=0.3)
+# plt.show()
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+##########################################
+##### a class for Pi_edmft is needed #####
+##########################################
 
 print("\n*** Pi_edmft start ***")
 
@@ -493,41 +471,6 @@ for ift in range(nft):
     Chi_edmft_2[...,0,0,ift] = 1.0/2.0*(Chi_edmft_temp[...,0,0,ift]+Chi_edmft_temp[...,0,1,ift]+Chi_edmft_temp[...,1,0,ift]+Chi_edmft_temp[...,1,1,ift])
 
 
-
-
-# def compute_Pi(X, u):
-#     """
-#     Compute Pi(ω) = (I + X(ω) u(ω))^(-1) X(ω) for each frequency.
-
-#     Parameters
-#     ----------
-#     X : (n, n, nfreq) ndarray
-#     u : (n, n, nfreq) ndarray
-
-#     Returns
-#     -------
-#     Pi : (n, n, nfreq) ndarray
-#     """
-#     n, _, ns, _, nfreq = X.shape
-#     Pi = np.zeros_like(X, dtype=complex)
-#     I = np.eye(n, dtype=X.dtype)
-
-#     for iis in range(ns):
-#         for jjs in range(ns):
-#             for iw in range(nfreq):
-#                 A = I + X[:, :, iis, jjs, iw] @ u[:, :, iis, jjs, iw, 0]
-#                 Pi[:, :, iis, jjs, iw] = np.linalg.solve(A, X[:, :, iis, jjs, iw])
-
-#     return Pi
-
-
-# print(green_edmft_freq.shape)
-print(uimp.utilde_rf.shape)
-print(Chi_edmft_2.shape)
-
-# Pi_edmft = compute_Pi(Chi_edmft_2,uimp.utilde_rf)
-
-
 Pi_test = uimp.Dyson(Chi_edmft_2, -uimp.utilde_rf[...,0])
 
 
@@ -543,7 +486,9 @@ plt.show()
 
 print("*** Pi_edmft finish ***")
 
-
+######################
+#### CTQMC finish ####
+######################
 
 
 
