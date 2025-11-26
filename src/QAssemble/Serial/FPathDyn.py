@@ -233,8 +233,10 @@ class FPathDyn(object):
         interpolation = option.get("interpolation", True)
         # interpolation = option["interpolation"]
         gaussian_broadening = float(option.get("gaussian_broadening", 0.2))
+        cutoff = option.get("cutoff", self.dlr.cutoff)
+        beta = option.get("beta", self.dlr.beta)
         # gaussian_broadening = float(option["gaussian_broadening"])
-        omega = self.dlr.MatsubaraFermionUniform()
+        omega = self.dlr.MatsubaraFermionUniform(Emax=cutoff, beta=beta)
 
         info = np.loadtxt("info.dat")
         norb = int(info[0])
