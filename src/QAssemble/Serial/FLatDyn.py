@@ -424,6 +424,22 @@ class FLatDyn(object):
                     fout[iorb, jorb, js, ks, ik] = self.dlr.TauB2TauF(tempmat)
 
         return fout
+    
+    def Diagonalize(self, matk : np.ndarray):
+
+        norb, _, ns, nk, nfreq = matk.shape
+
+        eigval = np.zeros((norb, norb, ns, nk, nfreq), dtype=float)
+        eigvec = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128)
+
+        for ifreq in range(nfreq):
+                for ik in range(nk):
+                    for js in range(ns):
+                        e, v, info = scipy.linalg.lapack.zheev(matk[:, :, js, ik])
+                        eigval[:, :, js, ik, ifreq] = np.diag(e)
+                        eigvec[:, :, js, ik, ifreq] = v
+
+        return eigval, eigvec
 
     
 class GreenBare(FLatDyn):

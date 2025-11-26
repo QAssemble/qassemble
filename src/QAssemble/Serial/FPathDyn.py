@@ -254,7 +254,9 @@ class FPathDyn(object):
             gmat[iorb, jorb, js, 0, iomega] = line[4] + 1j * line[5]
 
         if gauxmode == "asitis":
-            gauxmat = gmat
+            # gauxmat = gmat
+            gauxmat, _ = self.flatdyn.Diagonalize(gmat)
+
             # (moment, high) = self.flatdyn.Moment(gauxmat, True, True)
             (moment, high) = self.flatdyn.Moment(gauxmat, False, False)
         elif gauxmode == "auxg":
