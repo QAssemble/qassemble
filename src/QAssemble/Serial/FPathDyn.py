@@ -349,6 +349,7 @@ class FPathDyn(object):
                     print("run MQEM")
                     subprocess.call("julia  $QAssemble/MQEM.jl/src/mem.jl", shell=True)
                     print("run MQEM")
+                    shutil.copy("mqem.input.toml", "mqem_input_" + str(iorb + 1) + "_" + str(js + 1)+ "_" + str(ik + 1)+ ".toml")
                     if os.path.exists("realFreq_Sw.dat_1_1"):
                         gaux_real = np.loadtxt("realFreq_Sw.dat_1_1")
                     else:
