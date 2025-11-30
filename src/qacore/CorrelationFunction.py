@@ -644,27 +644,29 @@ class CorrelationFunction(object):
         # Sigma_bare = self.FmixLocDyn(iter,0.05,Sigma_bare,self.Sigma_temp)
 
 
-        #### separate Sigma_h and Sigma_f ####
+
+        #############################################################
+        #### separate Sigma_h and Sigma_f using Green's function ####
+        #### and build classes for Sigma_H_Imp and Sigma_F_Imp   ####
+        #############################################################
+        ### build classes for Sigma_h, Sigma_f, Sigma_c and initialize them
+        if int(key)-1 == 0:
+            Sigma_h = SigmaHImp(self.crystal)
+            Sigma_f = SigmaFImp(self.crystal)
+            Sigma_c = SigmaIGWC(self.crystal,self.ft)
+
+        ### compute rho 
         flocdyn = FLocDyn(self.crystal,self.ft)
         Green_tau = flocdyn.F2T(Green,1,1)
         rho = (-1) * Green_tau[:, :, :, -1].copy()
         print(rho)
-        # rho = (rho + rho.swapaxes(0, 1).conj()) * 0.5
-        # norbc, _, ns = rho.shape
-        # I = np.eye(norbc)
-        # v_temp = np.zeros((norbc,norbc,norbc,norbc,ns,ns), dtype=np.complex128, order='F')
-        # for iis in range(ns):
-        #     for jjs in range(ns):
-        #         v_temp[...,iis,jjs] = self.crystal.Double2Quad(utilde_rf[...,iis,jjs,0,int(key)-1])
-        # sigma_diag = np.einsum('ijklmn,jkn,il->im', v_temp, rho, I, optimize=True)
-        # Sigma_h = np.zeros((norbc, norbc, ns), dtype=sigma_diag.dtype)
-        # idx = np.arange(norbc)
-        # Sigma_h[idx, idx, :] = sigma_diag
-        Sigma_h = SigmaHLoc(self.crystal,rho,utilde_rf)
-        norbc,norbc,ns,_ = Sigma_h.r.shape
-        Sigma_f = np.zeros((norbc,norbc,ns), dtype=np.complex128, order='F')
-        for i in range(ns):
-            Sigma_f[...,i] = Sigma_hf[...,i] - Sigma_h.r[...,i,int(key)-1]
+
+        ### add Simga_h, Sigma_f and Sigma_c to each key (problem space) index
+        Sigma_h.add_key(rho,utilde_rf,int(key)-1) ## int(key)-1 convert 1-based to 0-based indexing
+        Sigma_f.add_key(Sigma_hf,Sigma_h.r,int(key)-1) ## Sigma_f = Sigma_hf - Sigma_h
+        Sigma_c.add_key(Sigma_bare,int(key)-1)
+
+        
 
         
      
@@ -712,7 +714,8 @@ class CorrelationFunction(object):
 
         #### convert them to objectives
 
-        return Green, Sigma_bare, Sigma_hf, Sigma_h.r, Sigma_f, susceptibility
+        # return Green, Sigma_c.rf, Sigma_h.r, Sigma_f.r, susceptibility
+        return Sigma_h, Sigma_f, Sigma_c, susceptibility
 
 
 

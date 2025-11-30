@@ -438,10 +438,152 @@ class SigmaHImp(FLocStc):
 
     def __init__(self, crystal: Crystal):
         super().__init__(crystal)
+        
+
+        self.r = None
+        # self.k = None
+        self.vloc = None ## frequency dependent V, utilde_rf
+        self.occ = None
+        self.key = None
+
+        self.h = None
+
         self.Cal()
+        # self.MakeDyn()
 
     def Cal(self):
-        pass
+        
+        occ = self.occ
+        norbc = self.crystal.fprojector.shape[1]  # occk.shape[0]
+        ns = self.crystal.ns  # occk.shape[2]
+        norb = self.crystal.bprojector.shape[1]  # vbare.shape[0]  ### ???
+        nspace = self.crystal.fprojector.shape[3]
+        nprob = len(self.crystal.probspace)
+
+        # nf = len(self.ft.omega)
+
+        # onsite = self.R2K(self.onsiter)
+
+        # if self.key == 0 :
+        self.h = np.zeros((norbc, norbc, ns, nprob), dtype=np.complex128, order="F")
+    
+    def add_key(self, occ, vloc : object, key):
+
+        self.vloc = vloc ## frequency dependent V, utilde_rf
+        self.occ = occ
+        self.key = key
+
+        occ = self.occ
+        norbc = self.crystal.fprojector.shape[1]  # occk.shape[0]
+        ns = self.crystal.ns  # occk.shape[2]
+        norb = self.crystal.bprojector.shape[1]  # vbare.shape[0]  ### ???
+        nspace = self.crystal.fprojector.shape[3]
+        nprob = len(self.crystal.probspace)
+        
+
+        if self.crystal.ns != 1:
+            # for iprob in range(nprob):
+                # for iff in range(nf):
+            # for ind1 in range(norb * ns):
+            for ind1 in range(ns):
+                nn1 = [0] * 2
+                ind1, [iorb, js] = self.crystal.indexing(
+                    norb * ns, 2, [norb, ns], 0, ind1, nn1
+                )
+                [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
+                iorbc1 = self.crystal.FIndex([a, m1])
+                iorbc2 = self.crystal.FIndex([a, m2])
+                # for ind2 in range(norb * ns):
+                for ind2 in range(ns):
+                    nn2 = [0] * 2
+                    ind2, [jorb, ks] = self.crystal.indexing(
+                        norb * ns, 2, [norb, ns], 0, ind2, nn2
+                    )
+                    [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
+                    iorbc3 = self.crystal.FIndex([b, m3])
+                    iorbc4 = self.crystal.FIndex([b, m4])
+                    # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]
+                    self.h[iorbc1, iorbc2, js, self.key] += (
+                        self.vloc[iorb, jorb, js, ks, 0, self.key] * occ[iorbc4, iorbc3, ks] ### vloc take only iomega = 0
+                )
+
+        else:
+            if self.crystal.soc == True:
+                C = 1
+                # for iprob in range(nprob):
+                # for ind1 in range(norb * ns):
+                for ind1 in range(ns):
+                    nn1 = [0] * 2
+                    ind1, [iorb, js] = self.crystal.indexing(
+                        norb * ns, 2, [norb, ns], 0, ind1, nn1
+                    )
+                    [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
+                    iorbc1 = self.crystal.FIndex([a, m1])
+                    iorbc2 = self.crystal.FIndex([a, m2])
+                    # for ind2 in range(norb * ns):
+                    for ind2 in range(ns):
+                        nn2 = [0] * 2
+                        ind2, [jorb, ks] = self.crystal.indexing(
+                            norb * ns, 2, [norb, ns], 0, ind2, nn2
+                        )
+                        [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
+                        iorbc3 = self.crystal.FIndex([b, m3])
+                        iorbc4 = self.crystal.FIndex([b, m4])
+                        self.h[iorbc1, iorbc2, js, self.key] = (
+                            self.vloc[iorb, jorb, js, ks, 0, self.key]
+                            * occ[iorbc4, iorbc3, ks]
+                            * C
+                        )
+
+            else:
+                C = 2
+                # for iprob in range(nprob):
+                    # for iff in range(nf):
+                # for ind1 in range(norb * ns):
+                for ind1 in range(ns):
+                    nn1 = [0] * 2
+                    ind1, [iorb, js] = self.crystal.indexing(
+                        norb * ns, 2, [norb, ns], 0, ind1, nn1
+                    )
+                    [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
+                    iorbc1 = self.crystal.FIndex([a, m1])
+                    iorbc2 = self.crystal.FIndex([a, m2])
+                    # for ind2 in range(norb * ns):
+                    for ind2 in range(ns):
+                        nn2 = [0] * 2
+                        ind2, [jorb, ks] = self.crystal.indexing(
+                            norb * ns, 2, [norb, ns], 0, ind2, nn2
+                        )
+                        [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
+                        iorbc3 = self.crystal.FIndex([b, m3])
+                        iorbc4 = self.crystal.FIndex([b, m4])
+                        # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]*C
+                        self.h[iorbc1, iorbc2, js, self.key] += (
+                            self.vloc[iorb, jorb, js, ks, 0, self.key]
+                            * occ[iorbc4, iorbc3, ks]
+                            * C
+                        )
+
+        self.r = self.h  # +onsite
+        # self.r = self.K2R(h)
+
+        return None
+    
+    # def MakeDyn(self): ### ??
+
+    #     norb = self.crystal.fprojector.shape[1]
+    #     ns = self.crystal.ns
+    #     nft = self.gloc.gf.shape[3]
+    #     nspace = self.crystal.fprojector.shape[3]
+
+    #     hdyn = np.zeros((norb,norb,ns,nft,nspace),dtype=np.complex128,order='F')
+        
+    #     for ift in range(nft):
+    #         hdyn[...,ift,:] = self.hloc
+        
+    #     self.hdyn = hdyn
+
+    #     return None
 
 # class SigmaFLoc(FLocStc):
 
@@ -603,14 +745,42 @@ class SigmaFLoc(FLocStc):
 
 
 
-# class SigmaFImp(FLocStc):
+class SigmaFImp(FLocStc):
 
-#     def __init__(self, crystal: Crystal):
-#         super().__init__(crystal)
-#         self.Cal()
+    def __init__(self, crystal: Crystal):
+        super().__init__(crystal)
 
-#     def Cal(self):
-#         pass
+        self.r = None
+        self.sigma_hf_imp = None
+        self.sigma_h_imp = None
+        self.key = None
+        self.Cal()
+
+    def Cal(self):
+
+        norbc = self.crystal.fprojector.shape[1]
+        ns = self.crystal.ns
+        norb = self.crystal.bprojector.shape[1]
+        nspace = self.crystal.fprojector.shape[3]
+        nprob = len(self.crystal.probspace)
+
+        # if self.key==0:
+        # norbc,norbc,ns,nprob = self.sigma_h_imp.shape
+        self.r = np.zeros((norbc,norbc,ns,nprob), dtype=np.complex128, order='F')
+
+        return None
+    
+    def add_key(self, sigma_hf_imp_r, sigma_h_imp_r, key):
+        self.sigma_hf_imp = sigma_hf_imp_r
+        self.sigma_h_imp = sigma_h_imp_r
+        self.key = key
+
+        ns = self.crystal.ns
+
+        for i in range(ns):
+            self.r[...,i,self.key] = self.sigma_hf_imp[...,i] - self.sigma_h_imp[...,i,self.key]
+
+        return None
 
 
 

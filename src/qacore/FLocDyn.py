@@ -731,7 +731,11 @@ class GreenLoc(FLocDyn):
 #         super().Dict2Arr()
 #         pass
 
-class SigmaLGWC(FLocDyn):
+
+
+
+
+class SigmaLGWC(FLocDyn): ### Sigma_GWC_Loc
     def __init__(self, crystal: Crystal, ft: FTGrid
     ,green : np.ndarray = None, wloc : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None):
         super().__init__(crystal, ft)
@@ -761,7 +765,7 @@ class SigmaLGWC(FLocDyn):
         Generate correlated self-energy
         input : Wc(R,t), G(R,t)
 
-        return : crtau, crfreq, cktau, ckfreq
+        return : crtau, crfreq
         '''
 
         G = self.green
@@ -801,6 +805,44 @@ class SigmaLGWC(FLocDyn):
 
         self.rt = crtau
         self.rf = crfreq
+
+        return None
+
+
+
+class SigmaIGWC(FLocDyn): ### Sigma_GWC_Imp
+    def __init__(self, crystal: Crystal, ft: FTGrid):
+        super().__init__(crystal, ft)
+
+        self.flpcstc = FLocStc(crystal=crystal)
+        self.rt = None
+        self.rf = None 
+        self.sigma_bare = None
+        self.key = None
+        self.Cal()
+
+    def Cal(self)->np.ndarray:
+
+        norbc = self.crystal.fprojector.shape[1]
+        ns = self.crystal.ns
+        nomega = len(self.ft.omega)
+        ntau = len(self.ft.tau)
+        # nspace = self.crystal.fprojector.shape[3]
+        nprob = len(self.crystal.probspace)
+        # norb = self.crystal.bprojector.shape[1]
+
+        # if self.key == 0:
+        self.rf = np.zeros((norbc,norbc,ns,nomega,nprob),dtype=np.complex128,order='F')
+        self.rt = np.zeros((norbc,norbc,ns,ntau,nprob),dtype=np.complex128,order='F')
+
+        return None
+    
+    def add_key(self, sigma_bare : np.ndarray = None, key = None)->np.ndarray:
+        self.sigma_bare = sigma_bare
+        self.key = key
+
+        self.rf[...,self.key] = self.sigma_bare
+        self.rt[...,self.key] = self.F2T(self.rf[...,self.key],1,1) ### are isgreen and highzero arguments here correct?
 
         return None
 

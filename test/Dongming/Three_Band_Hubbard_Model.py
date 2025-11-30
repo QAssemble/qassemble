@@ -321,7 +321,9 @@ equiv = cf.crystal.read_imp_equi_mat(imp)
 iter = 1
 key = 1
 
+print('number of problems -- ',len(cf.crystal.probspace))
 
+# exit()
 
 ##############
 #### Uimp ####
@@ -369,6 +371,8 @@ print("***Weiss Green's function finish")
 
 
 
+
+
 #####################
 #### CTQMC start ####
 #####################
@@ -384,11 +388,9 @@ print('*** run and measure CTQMC finish ***')
 
 
 print('\n*** impurity postprocessing start ***')
-(green_edmft_freq, 
- sigmac_edmft_freq, 
- sigmahf_edmft, 
- sigmah_edmft, 
+(sigmah_edmft, 
  sigmaf_edmft, 
+ sigmac_edmft, 
  Chi_edmft_4) = cf.CTQMCPostProcessing(iter=iter,key=key,equiv=equiv,utilde_rf=uimp.utilde_rf)
 print('*** impurity postprocessing finish ***')
 
@@ -398,18 +400,17 @@ print('*** impurity postprocessing finish ***')
 
 
 
+print(sigmah_edmft.r.shape)
+print(sigmaf_edmft.r.shape)
+print(sigmac_edmft.rf.shape)
+print(Chi_edmft_4.shape)
 
-# print(green_edmft_freq.shape)
-# print(sigmac_edmft_freq.shape)
-# print(sigmah_edmft.shape)
-# print(sigmaf_edmft.shape)
-# print(Chi_edmft_4.shape)
+print('===')
 
-# print(sigmahf_edmft)
-# print(sigmah_edmft)
-# print(sigmaf_edmft)
+print(sigmah_edmft.r)
+print(sigmaf_edmft.r)
 
-# # exit()
+# exit()
 
 
 
