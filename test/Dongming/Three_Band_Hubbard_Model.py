@@ -196,9 +196,10 @@ cf.GWApproximation(
 
 
 
-
 ##########################################################################
-############### Local Double-Counting part ###############################
+###############                                       ####################
+###############       Local Double-Counting part      ####################
+###############                                       ####################
 ##########################################################################
 
 
@@ -276,8 +277,12 @@ print("**WLoc finish\n")
 
 
 
+
+
 ##########################################################################
-###############         EDMFT part         ###############################
+###############                                    #######################
+###############             EDMFT part             #######################
+###############                                    #######################
 ##########################################################################
 
 print("\n")
@@ -377,7 +382,6 @@ print("***Weiss Green's function finish")
 #### CTQMC start ####
 #####################
 print('\n*** write_ctqmc_params start ***')
-# delta.write_ctqmc_params(1,1,eimp,equiv,vloc)
 cf.CTQMCPreProcessing(iter=iter, key=key, E_imp=weiss_green.Eimp_r, imp=imp, equiv=equiv, vloc=vloc, Hyb=weiss_green.delta_rf, bweiss=uimp.utilde_rf)
 print('*** write_ctqmc_params finish ***')
 
@@ -391,105 +395,19 @@ print('\n*** impurity postprocessing start ***')
 (sigmah_edmft, 
  sigmaf_edmft, 
  sigmac_edmft, 
- Chi_edmft_4) = cf.CTQMCPostProcessing(iter=iter,key=key,equiv=equiv,utilde_rf=uimp.utilde_rf)
+ Pi_edmft) = cf.CTQMCPostProcessing(iter=iter,key=key,equiv=equiv,utilde_rf=uimp.utilde_rf)
 print('*** impurity postprocessing finish ***')
 
-#################################################
-##### a class for Sigma_hfc_edmft is needed #####
-#################################################
+
+print('Sigma_h_edmft shape:',sigmah_edmft.r.shape)
+print('Sigma_f_edmft shape:',sigmaf_edmft.r.shape)
+print('Sigma_c_edmft shape:',sigmac_edmft.rf.shape)
+print('Pi_edmft      shape:',Pi_edmft.rf.shape)
 
 
-
-print(sigmah_edmft.r.shape)
-print(sigmaf_edmft.r.shape)
-print(sigmac_edmft.rf.shape)
-print(Chi_edmft_4.shape)
-
-print('===')
-
-print(sigmah_edmft.r)
-print(sigmaf_edmft.r)
-
-# exit()
+exit()
 
 
-
-
-
-# plot = plt.figure(1)
-# plt.scatter(cf.ft.omega[:], green_edmft_freq[0, 0, 0, :], color="blue")
-# # plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
-# plt.title("Green's function")
-# # plt.xlabel("freq")
-# # plt.ylabel("F_Loc")
-# plt.legend()
-# plt.grid(which="both", linestyle="--", linewidth=0.3)
-# plt.show()
-
-
-# plot = plt.figure(1)
-# plt.scatter(cf.ft.omega[:], sigmac_edmft_freq[0, 0, 0, :], color="blue")
-# # plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
-# plt.title("Sigma_C")
-# # plt.xlabel("freq")
-# # plt.ylabel("F_Loc")
-# plt.legend()
-# plt.grid(which="both", linestyle="--", linewidth=0.3)
-# plt.show()
-
-
-
-# plot = plt.figure(1)
-# plt.scatter(cf.ft.nu[:], Chi_edmft_4[0, 0, 0, 0, 0, 0, :], color="blue")
-# # plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
-# plt.title("Chi")
-# # plt.xlabel("freq")
-# # plt.ylabel("F_Loc")
-# plt.legend()
-# plt.grid(which="both", linestyle="--", linewidth=0.3)
-# plt.show()
-
-
-
-
-##########################################
-##### a class for Pi_edmft is needed #####
-##########################################
-
-print("\n*** Pi_edmft start ***")
-
-norbc,_,_,_,nspin,_,nft = Chi_edmft_4.shape
-Chi_edmft_temp = np.zeros((norbc*norbc,norbc*norbc,nspin,nspin,nft),dtype=np.complex64,order='F')
-
-for iis in range(ns):
-    for jjs in range(ns):
-        for ift in range(nft):
-            Chi_edmft_temp[:,:,iis,jjs,ift] = cf.crystal.Quad2Double(Chi_edmft_4[:,:,:,:,iis,jjs,ift])
-
-Chi_edmft_2 = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nft),dtype=np.complex64,order='F')
-
-for ift in range(nft):
-    Chi_edmft_2[...,0,0,ift] = 1.0/2.0*(Chi_edmft_temp[...,0,0,ift]+Chi_edmft_temp[...,0,1,ift]+Chi_edmft_temp[...,1,0,ift]+Chi_edmft_temp[...,1,1,ift])
-
-
-Pi_test = uimp.Dyson(Chi_edmft_2, -uimp.utilde_rf[...,0])
-
-
-plot = plt.figure(1)
-plt.scatter(cf.ft.nu[:], Pi_test[0, 0, 0, 0, :], color="blue")
-# plt.scatter(cf.ft.omega[:], floc_constant[:], color="red")
-plt.title("Chi")
-# plt.xlabel("freq")
-# plt.ylabel("F_Loc")
-plt.legend()
-plt.grid(which="both", linestyle="--", linewidth=0.3)
-plt.show()
-
-print("*** Pi_edmft finish ***")
-
-######################
-#### CTQMC finish ####
-######################
 
 
 

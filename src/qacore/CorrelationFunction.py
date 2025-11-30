@@ -699,23 +699,17 @@ class CorrelationFunction(object):
                 name = str(ind1)+'_'+str(ind2)
                 tempmat[iorb,jorb,jorb,iorb,ispin,jspin,:] = obsjson["occupation-susceptibility-bulla"][name]["function"]
 
-
         susceptibility = np.copy(tempmat)
 
-
-        ### compute Pi part ###
+        Pi = PolIGW(self.crystal,self.ft)
+        Pi.add_key(susceptibility, utilde_rf, int(key)-1)
 
         print("******************************")
         print("Impurity Postprocessing Finish")
         print("******************************")
 
-        # self.Green.gf = Green
-
-
-        #### convert them to objectives
-
         # return Green, Sigma_c.rf, Sigma_h.r, Sigma_f.r, susceptibility
-        return Sigma_h, Sigma_f, Sigma_c, susceptibility
+        return Sigma_h, Sigma_f, Sigma_c, Pi ## return classes
 
 
 

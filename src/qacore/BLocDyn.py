@@ -591,12 +591,63 @@ class PolLGW(BLocDyn):
 		                    
 		                    
 
-# class PolImp(BLocDyn): # read Polarizability from CTQMC
+class PolIGW(BLocDyn): # read Polarizability from CTQMC
 
-#     def __init__(self, crystal: Crystal, ft: FTGrid):
-#         super().__init__(crystal, ft)
+    def __init__(self, crystal: Crystal, ft: FTGrid):
+        super().__init__(crystal, ft)
 
-#         pass
+        self.rt = None # rt to kf
+        self.rf = None
+        # self.kt = None
+        # self.kf = None
+        nprob = len(self.crystal.probspace)
+
+        self.Cal()
+
+    def Cal(self):
+
+        ##########################################
+        ##### taken from class GreenLoc(FlocDyn)
+        norb = self.crystal.bprojector.shape[1]
+        ns = self.crystal.ns
+        # nft = self.ft.size
+        ntau = len(self.ft.tau)
+        nft=len(self.ft.nu)
+        nspace = self.crystal.fprojector.shape[3]
+        nprob = len(self.crystal.probspace)
+        ##########################################
+
+        self.rf = np.zeros((norb,norb,ns,ns,nft,nprob),dtype=np.complex128,order='F')
+        self.rt = np.zeros((norb,norb,ns,ns,ntau,nprob),dtype=np.complex128,order='F')
+
+        return None
+    
+    def add_key(self, susceptibility, utilde_rf, key)->np.ndarray:
+
+        ns = self.crystal.ns
+
+        norbc,_,_,_,nspin,_,nft = susceptibility.shape
+        Chi_edmft_temp = np.zeros((norbc*norbc,norbc*norbc,nspin,nspin,nft),dtype=np.complex64,order='F')
+
+        for iis in range(ns):
+            for jjs in range(ns):
+                for ift in range(nft):
+                    Chi_edmft_temp[:,:,iis,jjs,ift] = self.crystal.Quad2Double(susceptibility[:,:,:,:,iis,jjs,ift])
+
+        Chi_edmft_2 = np.zeros((norbc*norbc,norbc*norbc,ns,ns,nft),dtype=np.complex64,order='F')
+
+        for ift in range(nft):
+            Chi_edmft_2[...,0,0,ift] = 1.0/2.0*(Chi_edmft_temp[...,0,0,ift]+Chi_edmft_temp[...,0,1,ift]+Chi_edmft_temp[...,1,0,ift]+Chi_edmft_temp[...,1,1,ift])
+
+        self.rf[...,key] = self.Dyson(Chi_edmft_2, -utilde_rf[...,key])
+        self.rt[...,key] = self.F2T(self.rf[...,key], 1, 1)
+
+        return None
+
+        
+
+
+
 
 class WLoc(BLocDyn): #### contains WLoc and WcLoc
 
