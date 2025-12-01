@@ -644,32 +644,6 @@ class CorrelationFunction(object):
         # Sigma_bare = self.FmixLocDyn(iter,0.05,Sigma_bare,self.Sigma_temp)
 
 
-
-        #############################################################
-        #### separate Sigma_h and Sigma_f using Green's function ####
-        #### and build classes for Sigma_H_Imp and Sigma_F_Imp   ####
-        #############################################################
-        ### build classes for Sigma_h, Sigma_f, Sigma_c and initialize them
-        if int(key)-1 == 0:
-            Sigma_h = SigmaHImp(self.crystal)
-            Sigma_f = SigmaFImp(self.crystal)
-            Sigma_c = SigmaIGWC(self.crystal,self.ft)
-
-        ### compute rho 
-        flocdyn = FLocDyn(self.crystal,self.ft)
-        Green_tau = flocdyn.F2T(Green,1,1)
-        rho = (-1) * Green_tau[:, :, :, -1].copy()
-        print(rho)
-
-        ### add Simga_h, Sigma_f and Sigma_c to each key (problem space) index
-        Sigma_h.add_key(rho,utilde_rf,int(key)-1) ## int(key)-1 convert 1-based to 0-based indexing
-        Sigma_f.add_key(Sigma_hf,Sigma_h.r,int(key)-1) ## Sigma_f = Sigma_hf - Sigma_h
-        Sigma_c.add_key(Sigma_bare,int(key)-1)
-
-        
-
-        
-     
         params = json.load(open('./params.json'))
         cutoff = params["partition"]["green matsubara cutoff"]
         
@@ -679,12 +653,43 @@ class CorrelationFunction(object):
 
 
 
+
+
+
+
+
+
+        #############################################################
+        #### separate Sigma_h and Sigma_f using Green's function ####
+        #### & build classes for SigmaHImp, SigmaFImp, SigmaIGWC ####
+        #############################################################
+        ### build classes for Sigma_h, Sigma_f, Sigma_c and initialize them
+        if int(key)-1 == 0:
+            Sigma_h = SigmaHImp(self.crystal)
+            Sigma_f = SigmaFImp(self.crystal)
+            Sigma_c = SigmaIGWC(self.crystal,self.ft)
+
+        ### compute rho using Green's function
+        flocdyn = FLocDyn(self.crystal,self.ft)
+        Green_tau = flocdyn.F2T(Green,1,1)
+        occ = (-1) * Green_tau[:, :, :, -1].copy()
+        print('density - Occ')
+        print(occ)   ### check density
+
+        ### add Simga_h, Sigma_f and Sigma_c to each key (problem space) index
+        Sigma_h.add_key(occ,utilde_rf,int(key)-1)         ## int(key)-1 convert 1-based to 0-based indexing
+        Sigma_f.add_key(Sigma_hf,Sigma_h.r,int(key)-1)    ## Sigma_f = Sigma_hf - Sigma_h
+        Sigma_c.add_key(Sigma_bare,int(key)-1)
+
+
+        #############################################################
+        #######    read susceptibility and compute Pi_emft    #######
+        #############################################################
+        ### read susceptibility
         ndim = int(np.sqrt(len(obsjson["occupation-susceptibility-bulla"])))
         norbc = self.crystal.fprojector.shape[1]
         ns = self.crystal.ns
-        nspin = 2
-
-        # print(norbc,ns)
+        nspin = 2             ### nspin could be different from ns in CTQMC
 
         nft = len(obsjson["occupation-susceptibility-bulla"]['0_0']['function'])
 
@@ -701,15 +706,21 @@ class CorrelationFunction(object):
 
         susceptibility = np.copy(tempmat)
 
+        ### compute Pi_edmft using susceptibility and utilde
         Pi = PolIGW(self.crystal,self.ft)
         Pi.add_key(susceptibility, utilde_rf, int(key)-1)
+
+
+
+
+
 
         print("******************************")
         print("Impurity Postprocessing Finish")
         print("******************************")
 
-        # return Green, Sigma_c.rf, Sigma_h.r, Sigma_f.r, susceptibility
-        return Sigma_h, Sigma_f, Sigma_c, Pi ## return classes
+
+        return Sigma_h, Sigma_f, Sigma_c, Pi   ## return classes - (SigmaHImp, SigmaFImp, SigmaIGWC, PolIGW)
 
 
 

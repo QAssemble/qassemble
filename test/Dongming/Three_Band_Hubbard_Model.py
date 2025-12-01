@@ -204,9 +204,11 @@ cf.GWApproximation(
 
 
 print("\n")
+print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-print("Start computing Local Double-CounGreenLocting GW")
-print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
+print("Start computing Local Double-Counting GW")
+print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
 
 from qacore.BLocDyn import BLocDyn, PolLGW, WLoc,WLoc_temp
 from qacore.FLocDyn import FLocDyn, GreenLoc, SigmaLGWC
@@ -230,8 +232,11 @@ print("**GreenLoc start")
 gloc = GreenLoc(crystal=cf.crystal, ft=cf.ft, green=gint)
 print("**GreenLoc finish\n")
 
+
+print("**Density matrix start")
 gloc.Occ()
 gint.Occ()
+print("**Density matrix finish\n")
 
 
 ##############
@@ -288,7 +293,7 @@ print("**WLoc finish\n")
 print("\n")
 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-print("\nStart computing Local DMFT CTQMC input -- Eimp, Delta, Ubar\n")
+print("Start computing EDMFT CTQMC input -- Eimp, Delta, Ubar")
 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
 
@@ -335,7 +340,7 @@ print('number of problems -- ',len(cf.crystal.probspace))
 ##############
 print("**Uimp start")
 norb,_,ns,_,nft,nprob=wloc.crf.shape
-wloc_rf_temp = np.zeros((norb,norb,ns,ns,nft,nprob))
+wloc_rf_temp = np.zeros((norb,norb,ns,ns,nft,nprob), dtype=np.complex128, order='F')
 for ift in range(nft):
     wloc_rf_temp[:,:,:,:,ift,:] = wloc.crf[:,:,:,:,ift,:] + vloc[...]
 
@@ -396,9 +401,10 @@ print('\n*** impurity postprocessing start ***')
  sigmaf_edmft, 
  sigmac_edmft, 
  Pi_edmft) = cf.CTQMCPostProcessing(iter=iter,key=key,equiv=equiv,utilde_rf=uimp.utilde_rf)
-print('*** impurity postprocessing finish ***')
+print('*** impurity postprocessing finish ***\n')
 
 
+print('*** CTQMCPostProcessing check')
 print('Sigma_h_edmft shape:',sigmah_edmft.r.shape)
 print('Sigma_f_edmft shape:',sigmaf_edmft.r.shape)
 print('Sigma_c_edmft shape:',sigmac_edmft.rf.shape)
