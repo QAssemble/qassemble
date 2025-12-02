@@ -138,7 +138,7 @@ class BLocDyn(object):
 
         norb = matimp.shape[0]
         ns = matimp.shape[2]
-        nft = matimp.shape[3]
+        nft = matimp.shape[4]
 
         nspace = 0
         for val in self.crystal.probspace.values():
@@ -226,13 +226,14 @@ class BLocDyn(object):
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = len(self.ft.nu)
+        nft = matin.shape[4] # len(self.ft.nu)
         nspace = self.crystal.bprojector.shape[3]
 
         matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
 
         for ispace in range(nspace):
-            matout += QAFort.embedding.blocdyn(nrk,matin[...,ispace],self.crystal.bprojector[...,ispace])
+            # matout += QAFort.embedding.blocdyn(nrk,matin[...,ispace],self.crystal.bprojector[...,ispace])
+            matout += QAFort.embedding.blatdyn(nrk,matin[...,ispace],self.crystal.bprojector[...,ispace])
 
         return matout
     
@@ -319,6 +320,8 @@ class PolLGW(BLocDyn):
         
         self.rt = None # rt to kf
         self.rf = None
+        self.rt_embedded = None # rt to kf
+        self.rf_embedded = None
         # self.kt = None
         # self.kf = None
         nprob = len(self.crystal.probspace)
@@ -588,6 +591,17 @@ class PolLGW(BLocDyn):
         end = time.time()
         tiem_delta = end-start
         print(round(tiem_delta,5),'seconds')
+
+        return None
+    
+    def embedding(self):
+        imp2loc_rf = self.Imp2Loc(self.rf)
+        imp2loc_rt = self.Imp2Loc(self.rt)
+
+        self.rf_embedded = self.Embedding(imp2loc_rf)
+        self.rt_embedded = self.Embedding(imp2loc_rt)
+
+        return None
 		                    
 		                    
 
@@ -598,6 +612,8 @@ class PolIGW(BLocDyn): # read Polarizability from CTQMC
 
         self.rt = None # rt to kf
         self.rf = None
+        self.rt_embedded = None # rt to kf
+        self.rf_embedded = None
         # self.kt = None
         # self.kf = None
         nprob = len(self.crystal.probspace)
@@ -643,6 +659,16 @@ class PolIGW(BLocDyn): # read Polarizability from CTQMC
         self.rt[...,key] = self.F2T(self.rf[...,key], 1, 1)
 
         return None
+    
+    def embedding(self):
+        imp2loc_rf = self.Imp2Loc(self.rf)
+        imp2loc_rt = self.Imp2Loc(self.rt)
+
+        self.rf_embedded = self.Embedding(imp2loc_rf)
+        self.rt_embedded = self.Embedding(imp2loc_rt)
+
+        return None
+
 
         
 

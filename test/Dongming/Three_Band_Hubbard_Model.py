@@ -189,8 +189,12 @@ cf.GWApproximation(
 
 
 
+# print(cf.green.rf.shape)
+# print(cf.green.kf.shape)
+# print(cf.w.rf.shape)
+# print(cf.w.kf.shape)
 
-
+# exit()
 
 
 
@@ -222,6 +226,7 @@ import pprint
 pprint.pprint(cf.crystal.bimpdict)
 print(cf.crystal.bimpdict['1'][0])
 print(len(cf.crystal.bimpdict['1'][0]))
+print('\n')
 
 
 
@@ -259,7 +264,7 @@ print("**Vloc finish\n")
 #### Polloc ####
 ################
 print("**PolLoc start")
-polloc_dc = PolLGW(crystal=cf.crystal, ft=cf.ft, green=gloc)
+pi_dc = PolLGW(crystal=cf.crystal, ft=cf.ft, green=gloc)
 # pollat = PolLat(crystal=cf.crystal, ft=cf.ft, green=g_average2)
 print("**PolLoc finish\n")
 
@@ -269,7 +274,7 @@ print("**PolLoc finish\n")
 ##############
 print("**WLoc start")
 start = time.time()
-wloc = WLoc_temp(crystal=cf.crystal, ft=cf.ft, pol=polloc_dc.rf, vLoc=vloc)
+wloc = WLoc_temp(crystal=cf.crystal, ft=cf.ft, pol=pi_dc.rf, vLoc=vloc)
 # wloc = WLoc(crystal=cf.crystal, ft=cf.ft, wlat=cf.w)
 end = time.time()
 tiem_delta = end-start
@@ -332,6 +337,7 @@ iter = 1
 key = 1
 
 print('number of problems -- ',len(cf.crystal.probspace))
+print('\n')
 
 # exit()
 
@@ -344,24 +350,24 @@ wloc_rf_temp = np.zeros((norb,norb,ns,ns,nft,nprob), dtype=np.complex128, order=
 for ift in range(nft):
     wloc_rf_temp[:,:,:,:,ift,:] = wloc.crf[:,:,:,:,ift,:] + vloc[...]
 
-uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc_rf_temp,ploc=polloc_dc.rf,vloc=vloc)
+uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc_rf_temp,ploc=pi_dc.rf,vloc=vloc)
 print("**Uimp finish\n")
 
 
 
 print("**SigmaLGWC start")
-sigma_loc_dc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
+sigmac_dc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
 print("**SigmaLGWC finish\n")
 
 
 print("**SigmaHLoc start")
-hloc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=uimp.utilde_rf)
+sigmah_dc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=uimp.utilde_rf)
 # hloc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=vloc)
 print("**SigmaHLoc finish\n")
 
 
 print("**SigmaFLoc start")
-floc = SigmaFLoc(crystal=cf.crystal, ft=cf.ft, occr=gloc.occ, vloc=vloc)
+sigmaf_dc = SigmaFLoc(crystal=cf.crystal, ft=cf.ft, occr=gloc.occ, vloc=vloc)
 print("**SigmaFLoc finish\n")
 
 
@@ -374,7 +380,7 @@ print("**SigmaFLoc finish\n")
 #### Gimp ####
 ##############
 print("***Weiss Green's function start")
-weiss_green = FWeiss(crystal=cf.crystal,ft=cf.ft,niham=cf.niham.k,mu=cf.green.mu,hamh=cf.sigmah.k,hamf=cf.sigmaf.k,hloc=hloc.r,floc=floc.r,gloc=gloc.gf,sigmahimp=hloc.r,sigmafimp=floc.r,sigmacimp=sigma_loc_dc.rf)
+weiss_green = FWeiss(crystal=cf.crystal,ft=cf.ft,niham=cf.niham.k,mu=cf.green.mu,hamh=cf.sigmah.k,hamf=cf.sigmaf.k,hloc=sigmah_dc.r,floc=sigmaf_dc.r,gloc=gloc.gf,sigmahimp=sigmah_dc.r,sigmafimp=sigmaf_dc.r,sigmacimp=sigmac_dc.rf)
 print("***Weiss Green's function finish")
 
 
@@ -400,7 +406,7 @@ print('\n*** impurity postprocessing start ***')
 (sigmah_edmft, 
  sigmaf_edmft, 
  sigmac_edmft, 
- Pi_edmft) = cf.CTQMCPostProcessing(iter=iter,key=key,equiv=equiv,utilde_rf=uimp.utilde_rf)
+ pi_edmft) = cf.CTQMCPostProcessing(iter=iter,key=key,equiv=equiv,utilde_rf=uimp.utilde_rf)
 print('*** impurity postprocessing finish ***\n')
 
 
@@ -408,7 +414,41 @@ print('*** CTQMCPostProcessing check')
 print('Sigma_h_edmft shape:',sigmah_edmft.r.shape)
 print('Sigma_f_edmft shape:',sigmaf_edmft.r.shape)
 print('Sigma_c_edmft shape:',sigmac_edmft.rf.shape)
-print('Pi_edmft      shape:',Pi_edmft.rf.shape)
+print('pi_edmft      shape:',pi_edmft.rf.shape)
+
+
+# sigmah_edmft_
+
+
+
+print('\n*** Embedding part check')
+print('** double counting part')
+sigmah_dc.embedding()
+sigmaf_dc.embedding()
+sigmac_dc.embedding()
+pi_dc.embedding()
+print(sigmah_dc.r_embedded.shape)
+print(sigmaf_dc.r_embedded.shape)
+print(sigmac_dc.rf_embedded.shape)
+print(sigmac_dc.rt_embedded.shape)
+print(pi_dc.rf_embedded.shape)
+print(pi_dc.rt_embedded.shape)
+
+print('** edmft part')
+sigmah_edmft.embedding()
+sigmaf_edmft.embedding()
+sigmac_edmft.embedding()
+pi_edmft.embedding()
+
+print(sigmah_edmft.r_embedded.shape)
+print(sigmaf_edmft.r_embedded.shape)
+print(sigmac_edmft.rf_embedded.shape)
+print(sigmac_edmft.rt_embedded.shape)
+print(pi_edmft.rf_embedded.shape)
+print(pi_edmft.rt_embedded.shape)
+
+
+
 
 
 exit()

@@ -146,13 +146,14 @@ class FLocStc(object):
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        nrk = len(self.crystal.kpoint) # same as the number of rpoint?
         nspace = self.crystal.fprojector.shape[3]
         
         matout = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
         
         for ispace in range(nspace):
-            matout += QAFort.embedding.flocstc(nrk,matin[...,ispace],self.crystal.fprojector[...,ispace])
+            # matout += QAFort.embedding.flocstc(nrk,matin[...,ispace],self.crystal.fprojector[...,ispace])
+            matout += QAFort.embedding.flatstc(nrk,matin[...,ispace],self.crystal.fprojector[...,ispace])
 
         return matout
 
@@ -275,6 +276,7 @@ class SigmaHLoc(FLocStc):
         
     #     
         self.r = None
+        self.r_embedded = None
         # self.ft = ft
         # self.k = None
         self.vloc = vloc ## frequency dependent V, utilde_rf
@@ -418,6 +420,13 @@ class SigmaHLoc(FLocStc):
 
         return None
     
+    def embedding(self):
+
+        imp2loc = self.Imp2Loc(self.r)
+        self.r_embedded = self.Embedding(imp2loc)
+
+        return None
+    
     def MakeDyn(self): ### ??
 
         norb = self.crystal.fprojector.shape[1]
@@ -441,6 +450,7 @@ class SigmaHImp(FLocStc):
         
 
         self.r = None
+        self.r_embedded = None
         # self.k = None
         self.vloc = None ## frequency dependent V, utilde_rf
         self.occ = None
@@ -465,6 +475,7 @@ class SigmaHImp(FLocStc):
         # onsite = self.R2K(self.onsiter)
 
         # if self.key == 0 :
+        self.h = np.zeros((norbc, norbc, ns, nprob), dtype=np.complex128, order="F")
         self.h = np.zeros((norbc, norbc, ns, nprob), dtype=np.complex128, order="F")
     
     def add_key(self, occ, vloc : object, key):
@@ -569,6 +580,13 @@ class SigmaHImp(FLocStc):
 
         return None
     
+    def embedding(self):
+
+        imp2loc = self.Imp2Loc(self.r)
+        self.r_embedded = self.Embedding(imp2loc)
+
+        return None
+    
     # def MakeDyn(self): ### ??
 
     #     norb = self.crystal.fprojector.shape[1]
@@ -640,6 +658,7 @@ class SigmaFLoc(FLocStc):
     ):  # green -> occ
         super().__init__(crystal)
         self.r = None
+        self.r_embedded = None
         # self.k = None
         self.ft = ft
 
@@ -714,6 +733,13 @@ class SigmaFLoc(FLocStc):
         # self.k = fk
         # del fr, occr
         return None
+    
+    def embedding(self):
+
+        imp2loc = self.Imp2Loc(self.r)
+        self.r_embedded = self.Embedding(imp2loc)
+
+        return None
 
     def Save(self, fn: str):
 
@@ -751,6 +777,7 @@ class SigmaFImp(FLocStc):
         super().__init__(crystal)
 
         self.r = None
+        self.r_embedded = None
         self.sigma_hf_imp = None
         self.sigma_h_imp = None
         self.key = None
@@ -779,6 +806,13 @@ class SigmaFImp(FLocStc):
 
         for i in range(ns):
             self.r[...,i,self.key] = self.sigma_hf_imp[...,i] - self.sigma_h_imp[...,i,self.key]
+
+        return None
+    
+    def embedding(self):
+
+        imp2loc = self.Imp2Loc(self.r)
+        self.r_embedded = self.Embedding(imp2loc)
 
         return None
 

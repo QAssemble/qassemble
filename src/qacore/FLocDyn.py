@@ -244,13 +244,14 @@ class FLocDyn(object):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = self.ft.size
+        nft = matin.shape[3] # self.ft.size
         nspace = self.crystal.fprojector.shape[3]
 
         matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
 
         for ispace in range(nspace):
-            matout += QAFort.embedding.flocdyn(nrk,matin[...,ispace],self.crystal.fprojector[...,ispace])
+            # matout += QAFort.embedding.flocdyn(nrk,matin[...,ispace],self.crystal.fprojector[...,ispace])
+            matout += QAFort.embedding.flatdyn(nrk,matin[...,ispace],self.crystal.fprojector[...,ispace])
 
         return matout
     
@@ -743,6 +744,9 @@ class SigmaLGWC(FLocDyn): ### Sigma_GWC_Loc
         self.flpcstc = FLocStc(crystal=crystal)
         self.rt = None
         self.rf = None
+        self.rt_embedded = None
+        self.rf_embedded = None 
+        
         self.stck = None
         self.z = None
         self.hdf5file = hdf5file
@@ -807,6 +811,15 @@ class SigmaLGWC(FLocDyn): ### Sigma_GWC_Loc
         self.rf = crfreq
 
         return None
+    
+    def embedding(self):
+        imp2loc_rf = self.Imp2Loc(self.rf)
+        imp2loc_rt = self.Imp2Loc(self.rt)
+
+        self.rf_embedded = self.Embedding(imp2loc_rf)
+        self.rt_embedded = self.Embedding(imp2loc_rt)
+
+        return None
 
 
 
@@ -817,6 +830,8 @@ class SigmaIGWC(FLocDyn): ### Sigma_GWC_Imp
         self.flpcstc = FLocStc(crystal=crystal)
         self.rt = None
         self.rf = None 
+        self.rt_embedded = None
+        self.rf_embedded = None 
         self.sigma_bare = None
         self.key = None
         self.Cal()
@@ -843,6 +858,15 @@ class SigmaIGWC(FLocDyn): ### Sigma_GWC_Imp
 
         self.rf[...,self.key] = self.sigma_bare
         self.rt[...,self.key] = self.F2T(self.rf[...,self.key],1,1) ### are isgreen and highzero arguments here correct?
+
+        return None
+    
+    def embedding(self):
+        imp2loc_rf = self.Imp2Loc(self.rf)
+        imp2loc_rt = self.Imp2Loc(self.rt)
+
+        self.rf_embedded = self.Embedding(imp2loc_rf)
+        self.rt_embedded = self.Embedding(imp2loc_rt)
 
         return None
 
