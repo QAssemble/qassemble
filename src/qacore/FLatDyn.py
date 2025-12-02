@@ -867,3 +867,137 @@ class SigmaGWC(FLatDyn):
                 sigmac.create_dataset(fn,dtype=complex,data=self.kf)
 
         return None
+    
+
+class GreenInt_EDMFT(FLatDyn):
+
+    def __init__(self, crystal: Crystal, ft: FTGrid, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None) -> object:
+        
+        if greenbare is None:
+            print("Bare Green's function doesn't exist")
+            sys.exit()
+        super().__init__(crystal, ft)
+        self.flatstc = FLatStc(crystal=crystal)
+        self.kf = None
+        self.kt = None
+        self.rf = None
+        self.rt = None
+        self.gkfmu0 = None
+        self.gktmu0 = None
+        self.grfmu0 = None
+        self.grtmu0 = None
+        self.gbare = greenbare
+        self.sigmah = sigmah
+        self.sigmaf = sigmaf
+        self.sigmac = sigmagwc
+        self.occ = None
+        self.occk = None
+        self.occr = None
+        self.mu = 0
+
+        self.mu_old = 0
+
+        self.c = 0
+        # self.hdf5file = hdf5file
+        # self.group = group
+        # self.subgroup = self.__class__.__name__
+        print(f"Bare Green's function : \n{self.gbare[:,:,0,0,0]}")
+        self.CalMu0()
+        # self.SearchMu()
+
+    def CalMu0(self):
+
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
+        nomega = len(self.ft.omega)
+        sigma = np.zeros((norb,norb,ns,nrk,nomega),dtype=np.complex128,order='F')
+        print("Initialization start")
+        if (self.sigmah is None)and(self.sigmaf is None)and(self.sigmac is None):
+            self.gkfmu0 = self.gbare
+        else:
+            if (self.sigmah is not None):
+                # print(sigma[:,:,0,0,0])
+                diag = np.diagonal(self.sigmah[:,:,0,0])
+                const = np.mean(diag)
+                self.c = np.real(const)
+                # print(const)
+                sigma += self.StcEmbedding(self.sigmah)
+                sigma += self.ChemEmbedding(-const)
+                # print(sigma[:,:,0,0,0])
+            if (self.sigmaf is not None):
+                # print(sigma[:,:,0,0,0])
+                sigma += self.StcEmbedding(self.sigmaf)
+                # print(sigma[:,:,0,0,0])
+            if (self.sigmac is not None):
+                # print(sigma[:,:,0,0,0])
+                sigma += self.sigmac
+                # print(sigma[:,:,0,0,0])
+            self.gkfmu0 = self.Dyson(self.gbare,sigma) 
+        
+
+        self.gktmu0 = self.F2T(self.gkfmu0,1,1)
+        self.grfmu0 = self.K2R(self.gkfmu0)
+        self.grtmu0 = self.K2R(self.gktmu0)
+        print("Initialization finish")
+
+        self.kf = self.gkfmu0
+        self.kt = self.gktmu0
+        self.rf = self.grfmu0
+        self.rt = self.grtmu0
+
+        return None
+    
+    def Occ(self):
+
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
+        
+        
+        occk = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
+        occ = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
+        
+        print("Density matrixy calculation start")
+        
+        occk = -self.kt[...,-1]
+    
+        for irk in range(nrk):
+            occ += occk[...,irk]
+            
+        occ /= nrk
+        self.occ = occ
+        self.occk = occk
+        
+        self.occr = self.flatstc.K2R(occk)
+        self.mu = self.mu_old + self.c
+        print("Density matrixy calculation finish")
+        return None
+    
+    def NumOfE(self, mu : float):
+
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
+        nft = len(self.ft.omega)#self.ft.size
+        tempmat = copy.deepcopy(self.gkfmu0)
+        chem = self.ChemEmbedding(mu)
+        gcalf = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+        gcalt = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+        
+        gcalf = self.Dyson(tempmat,-chem)
+        gcalt = self.F2T(gcalf,1,1)
+        
+        Ne = 0
+        
+        for irk in range(nrk):
+            for js in range(ns):
+                for iorb in range(norb):
+                    Ne += -np.real(gcalt[iorb,iorb,js,irk,-1])
+        Ne /= nrk
+        
+        N = self.crystal.nume
+        # print(N,Ne,N-Ne)
+        
+        return N - Ne
+

@@ -410,29 +410,26 @@ print('\n*** impurity postprocessing start ***')
 print('*** impurity postprocessing finish ***\n')
 
 
-print('*** CTQMCPostProcessing check')
-print('Sigma_h_edmft shape:',sigmah_edmft.r.shape)
-print('Sigma_f_edmft shape:',sigmaf_edmft.r.shape)
-print('Sigma_c_edmft shape:',sigmac_edmft.rf.shape)
-print('pi_edmft      shape:',pi_edmft.rf.shape)
-
-
-# sigmah_edmft_
+# print('*** CTQMCPostProcessing check')
+# print('Sigma_h_edmft shape:',sigmah_edmft.r.shape)
+# print('Sigma_f_edmft shape:',sigmaf_edmft.r.shape)
+# print('Sigma_c_edmft shape:',sigmac_edmft.rf.shape)
+# print('pi_edmft      shape:',pi_edmft.rf.shape)
 
 
 
-print('\n*** Embedding part check')
+print('\n*** compute Embedding part')
 print('** double counting part')
 sigmah_dc.embedding()
 sigmaf_dc.embedding()
 sigmac_dc.embedding()
 pi_dc.embedding()
-print(sigmah_dc.r_embedded.shape)
-print(sigmaf_dc.r_embedded.shape)
-print(sigmac_dc.rf_embedded.shape)
-print(sigmac_dc.rt_embedded.shape)
-print(pi_dc.rf_embedded.shape)
-print(pi_dc.rt_embedded.shape)
+# print(sigmah_dc.r_embedded.shape)
+# print(sigmaf_dc.r_embedded.shape)
+# print(sigmac_dc.rf_embedded.shape)
+# print(sigmac_dc.rt_embedded.shape)
+# print(pi_dc.rf_embedded.shape)
+# print(pi_dc.rt_embedded.shape)
 
 print('** edmft part')
 sigmah_edmft.embedding()
@@ -440,12 +437,22 @@ sigmaf_edmft.embedding()
 sigmac_edmft.embedding()
 pi_edmft.embedding()
 
-print(sigmah_edmft.r_embedded.shape)
-print(sigmaf_edmft.r_embedded.shape)
-print(sigmac_edmft.rf_embedded.shape)
-print(sigmac_edmft.rt_embedded.shape)
-print(pi_edmft.rf_embedded.shape)
-print(pi_edmft.rt_embedded.shape)
+# print(sigmah_edmft.r_embedded.shape)
+# print(sigmaf_edmft.r_embedded.shape)
+# print(sigmac_edmft.rf_embedded.shape)
+# print(sigmac_edmft.rt_embedded.shape)
+# print(pi_edmft.rf_embedded.shape)
+# print(pi_edmft.rt_embedded.shape)
+
+
+print("\n*** Compute the total Screened Coulomb Interaction -- W_EDMFT")
+w_edmft = cf.W_EDMFT(cf.vbare, cf.pol, pi_edmft.rf_embedded, pi_dc.rf_embedded)
+
+print("\n*** Compute the total Interacting Green's function -- GreenInt_EDMFT")
+gint_edmft = cf.GreenInt_EDMFT(cf.greenbare,cf.sigmah,cf.sigmaf,cf.sigmagwc
+                          ,sigmah_edmft.r_embedded,sigmaf_edmft.r_embedded,sigmac_edmft.rf_embedded
+                          ,sigmah_dc.r_embedded,sigmaf_dc.r_embedded,sigmac_dc.rf_embedded)
+
 
 
 

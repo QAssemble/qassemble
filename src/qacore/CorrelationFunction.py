@@ -729,6 +729,42 @@ class CorrelationFunction(object):
 
 
 
+    def GreenInt_EDMFT(self, gbare : GreenBare, sigmah_gw : SigmaHartree, sigmaf_gw : SigmaFock, sigmac_gw : SigmaGWC
+                               ,sigmah_edmft : np.ndarray, sigmaf_edmft : np.ndarray, sigmac_edmft : np.ndarray
+                               ,sigmah_dc : np.ndarray, sigmaf_dc : np.ndarray, sigmac_dc : np.ndarray):
+
+        sigmah_r_total = sigmah_gw.r + sigmah_edmft - sigmah_dc
+        sigmaf_r_total = sigmaf_gw.r + sigmaf_edmft - sigmaf_dc
+        sigmac_rf_total = sigmac_gw.rf + sigmac_edmft - sigmac_dc  ## should the sigmac_gw.rf needs to be converted from sigmac_gw.kf ?
+
+        sigmah_k = sigmah_gw.R2K(sigmah_r_total)
+        sigmaf_k = sigmaf_gw.R2K(sigmaf_r_total)
+        sigmagwc_kf = sigmac_gw.R2K(sigmac_rf_total)
+
+        green_edmft = GreenInt_EDMFT(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_k,sigmaf=sigmaf_k,sigmagwc=sigmagwc_kf)
+
+        green_edmft.Occ()
+        N = green_edmft.NumOfE(self.green.mu)
+        print(N)
+
+        # green_edmft = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_k,sigmaf=sigmaf_k,sigmagwc=sigmagwc_kf)
+
+        return green_edmft
+    
+
+    def W_EDMFT(self, vbare : VBare, pol_gw : PolLat, pol_edmft : np.ndarray, pol_dc : np.ndarray):
+
+        pol_rf_total = pol_gw.rf + pol_edmft - pol_dc
+
+        pol_kf_total = pol_gw.R2K(pol_rf_total)
+
+        # w_edmft = pol_gw.Dyson(mat1, mat2)
+        w_edmft = WLat(crystal=self.crystal,ft=self.ft,pol=pol_kf_total,vbare=vbare,c=self.c)
+
+        return w_edmft
+
+
+
 
 
 
@@ -949,6 +985,7 @@ class CorrelationFunction(object):
 
             if (fcheck <=1.0e-6)and(mucheck<=0.01):
                 print(f"Self-consistency is achived with {iter}-th")
+                self.greenbare = gbare
                 self.green = gnew
                 self.pol = pol
                 self.w = w
@@ -968,6 +1005,7 @@ class CorrelationFunction(object):
                 break
             elif (iter==itermax):
                 print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
+                self.greenbare = gbare
                 self.green = gnew
                 self.pol = pol
                 self.w = w

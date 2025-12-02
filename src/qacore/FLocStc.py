@@ -277,6 +277,7 @@ class SigmaHLoc(FLocStc):
     #     
         self.r = None
         self.r_embedded = None
+        self.k_embedded = None
         # self.ft = ft
         # self.k = None
         self.vloc = vloc ## frequency dependent V, utilde_rf
