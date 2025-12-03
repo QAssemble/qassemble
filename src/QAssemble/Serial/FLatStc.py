@@ -1209,6 +1209,7 @@ class Hamiltonian(FLatStc):
         occ = np.zeros((norb, norb, ns), dtype=np.complex128, order="F")
         tempmat = np.zeros((norb, norb), dtype=float, order="F")
 
+        print("Density Matrix Calculation Start")
         energy, eigvec = self.Diagonalize(self.k, True)
         for irk in range(nrk):
             for js in range(ns):
@@ -1229,6 +1230,12 @@ class Hamiltonian(FLatStc):
         self.occ = occ
         self.occk = occk
         self.occr = self.K2R(occk)
+
+        print("Density Matrix Calculation Finish")
+        for js in range(ns):
+            for iorb in range(norb):
+                print(f"Density of orbital {iorb + 1} and spin {js + 1} is : {occ[iorb, iorb, js]}")
+
 
         return None
 

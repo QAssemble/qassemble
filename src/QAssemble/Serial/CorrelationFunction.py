@@ -125,7 +125,7 @@ class CorrelationFunction(object):
                 hartreeold = None
                 fockold = None
 
-            print(hold.occ)
+            # print(hold.occ)
             sigmah = SigmaHartree(crystal=self.crystal,occ=hold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
             sigmah.k = sigmah.Mixing(iter=iter,mix=mix,Fb=sigmah.k,Fm=hartreeold)
             if (iter % 50 == 0):
