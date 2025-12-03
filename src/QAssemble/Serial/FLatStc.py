@@ -1325,3 +1325,130 @@ class HamiltonianAB(FLatStc):
         self.r = self.K2R(self.k)
 
         return None
+    
+class ZFactor(FLatStc):
+
+    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
+
+        super().__init__(crystal)
+
+        self.sigmac = sigmac
+        self.beta = beta
+        self.r = None
+        self.k = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+
+        print("Z-factor Calculation Start")
+        self.Cal()
+        print("Z-factor Calculation Finish")
+
+    def Cal(self):
+
+        norb, _, ns, nk, nomega = self.sigmac.shape
+
+        iw = 1j * self.beta / (2.0 * np.pi)
+
+        tempmat = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
+
+        for jorb in range(norb):
+            for iorb in range(norb):
+                if (iorb == jorb):
+                    tempmat[iorb, jorb, :, :] = 1.0 - iw * (
+                        self.sigmac[iorb, jorb, ..., 0] 
+                        - np.conjugate(self.sigmac[jorb, iorb, ..., 0])
+                    )
+                else:
+                    tempmat[iorb, jorb, :, :] = - iw * (
+                        self.sigmac[iorb, jorb, ..., 0] 
+                        - np.conjugate(self.sigmac[jorb, iorb, ..., 0])
+                    )
+
+        z = self.Inverse(tempmat)
+        self.k = z
+        self.r = self.K2R(z)
+        del z, tempmat
+
+        return None
+    
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    sigmac = group[self.subgroup]
+                else:
+                    sigmac = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                sigmac = group.create_group(self.subgroup)
+            
+
+            if obj != None:
+                sigmac.create_dataset(fn,dtype=complex,data=obj)
+            else:
+                sigmac.create_dataset(fn,dtype=complex,data=self.k)
+
+        return None
+
+
+class SigmaStc(FLatStc):
+
+    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
+
+        super().__init__(crystal)
+
+        self.sigmac = sigmac
+        self.beta = beta
+        self.r = None
+        self.k = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+
+        print("Static Self-energy Calculation Start")
+        self.Cal()
+        print("Static Self-energy Calculation Finish")
+    
+    def Cal(self):
+
+        norb, _, ns, nk, nomega = self.sigmac.shape
+
+        tempmat = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
+
+        for jorb in range(norb):
+            for iorb in range(norb):
+                tempmat[iorb, jorb] = 1/2 * (
+                    self.sigmac[iorb, jorb, ..., 0]
+                    + np.conjugate(self.sigmac[jorb, iorb, ..., 0])
+                )
+        
+        self.k = tempmat
+        self.r = self.K2R(tempmat)
+
+        del tempmat
+        
+        return None
+    
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    sigmac = group[self.subgroup]
+                else:
+                    sigmac = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                sigmac = group.create_group(self.subgroup)
+            
+
+            if obj != None:
+                sigmac.create_dataset(fn,dtype=complex,data=obj)
+            else:
+                sigmac.create_dataset(fn,dtype=complex,data=self.k)
+
+        return None
