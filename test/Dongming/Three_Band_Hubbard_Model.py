@@ -171,6 +171,30 @@ mix = 0.1
 
 
 
+from qacore.BLocDyn import BLocDyn, PolLGW, WLoc,WLoc_temp
+from qacore.FLocDyn import FLocDyn, GreenLoc, SigmaLGWC
+from qacore.FLocStc import FLocStc, SigmaFLoc, SigmaHLoc
+import pprint
+
+
+from qacore.BLocDyn import BLocDyn, PolLGW, WLoc
+from qacore.FLocDyn import FLocDyn, GreenLoc, SigmaLGWC
+from qacore.FLocStc import FLocStc, SigmaFLoc, SigmaHLoc
+
+from qacore.FLocStc import EImp
+from qacore.FLocDyn import Hybridisation,FWeiss
+from qacore.BLocDyn import BWeiss
+
+
+
+
+
+
+
+
+# for iloop in range(100):
+
+
 cf.GWApproximation(
     itermax=itermax,
     mix=mix,
@@ -181,24 +205,6 @@ cf.GWApproximation(
 
 
 # fpathstc.Band(hmat = cf.niham.r+cf.sigmah.r+cf.sigmaf.r, plotoption=True)
-
-# exit()
-
-
-
-
-
-
-# print(cf.green.rf.shape)
-# print(cf.green.kf.shape)
-# print(cf.w.rf.shape)
-# print(cf.w.kf.shape)
-
-# exit()
-
-
-
-
 
 ##########################################################################
 ###############                                       ####################
@@ -214,14 +220,12 @@ print("Start computing Local Double-Counting GW")
 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
 
-from qacore.BLocDyn import BLocDyn, PolLGW, WLoc,WLoc_temp
-from qacore.FLocDyn import FLocDyn, GreenLoc, SigmaLGWC
-from qacore.FLocStc import FLocStc, SigmaFLoc, SigmaHLoc
+
 
 gint = cf.green
 cf.crystal.Projector(impdict={"1": [[[0, 0],[0, 1],[0, 2]]]})
 
-import pprint
+
 
 pprint.pprint(cf.crystal.bimpdict)
 print(cf.crystal.bimpdict['1'][0])
@@ -236,7 +240,6 @@ print('\n')
 print("**GreenLoc start")
 gloc = GreenLoc(crystal=cf.crystal, ft=cf.ft, green=gint)
 print("**GreenLoc finish\n")
-
 
 print("**Density matrix start")
 gloc.Occ()
@@ -260,6 +263,11 @@ vloc[..., 0] = vloc2[..., 0]
 print("**Vloc finish\n")
 
 
+
+
+
+
+
 ################
 #### Polloc ####
 ################
@@ -267,7 +275,6 @@ print("**PolLoc start")
 pi_dc = PolLGW(crystal=cf.crystal, ft=cf.ft, green=gloc)
 # pollat = PolLat(crystal=cf.crystal, ft=cf.ft, green=g_average2)
 print("**PolLoc finish\n")
-
 
 ##############
 #### Wloc ####
@@ -282,7 +289,19 @@ print(round(tiem_delta,5))
 print("**WLoc finish\n")
 
 
+###################
+#### SigmaFLoc ####
+###################
+print("**SigmaFLoc start")
+sigmaf_dc = SigmaFLoc(crystal=cf.crystal, ft=cf.ft, occr=gloc.occ, vloc=vloc)
+print("**SigmaFLoc finish\n")
 
+###################
+#### SigmaLGWC ####
+###################
+print("**SigmaLGWC start")
+sigmac_dc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
+print("**SigmaLGWC finish\n")
 
 
 
@@ -303,13 +322,6 @@ print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
 
 
-from qacore.BLocDyn import BLocDyn, PolLGW, WLoc
-from qacore.FLocDyn import FLocDyn, GreenLoc, SigmaLGWC
-from qacore.FLocStc import FLocStc, SigmaFLoc, SigmaHLoc
-
-from qacore.FLocStc import EImp
-from qacore.FLocDyn import Hybridisation,FWeiss
-from qacore.BLocDyn import BWeiss
 
 
 
@@ -344,36 +356,20 @@ print('\n')
 ##############
 #### Uimp ####
 ##############
-print("**Uimp start")
+print("**BWeiss start")
 norb,_,ns,_,nft,nprob=wloc.crf.shape
 wloc_rf_temp = np.zeros((norb,norb,ns,ns,nft,nprob), dtype=np.complex128, order='F')
 for ift in range(nft):
     wloc_rf_temp[:,:,:,:,ift,:] = wloc.crf[:,:,:,:,ift,:] + vloc[...]
 
 uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc_rf_temp,ploc=pi_dc.rf,vloc=vloc)
-print("**Uimp finish\n")
-
-
-
-print("**SigmaLGWC start")
-sigmac_dc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
-print("**SigmaLGWC finish\n")
-
+# uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc.rf,ploc=pi_dc.rf,vloc=vloc)
+print("**BWeiss finish\n")
 
 print("**SigmaHLoc start")
 sigmah_dc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=uimp.utilde_rf)
 # hloc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=vloc)
 print("**SigmaHLoc finish\n")
-
-
-print("**SigmaFLoc start")
-sigmaf_dc = SigmaFLoc(crystal=cf.crystal, ft=cf.ft, occr=gloc.occ, vloc=vloc)
-print("**SigmaFLoc finish\n")
-
-
-
-
-
 
 
 ##############
@@ -382,10 +378,6 @@ print("**SigmaFLoc finish\n")
 print("***Weiss Green's function start")
 weiss_green = FWeiss(crystal=cf.crystal,ft=cf.ft,niham=cf.niham.k,mu=cf.green.mu,hamh=cf.sigmah.k,hamf=cf.sigmaf.k,hloc=sigmah_dc.r,floc=sigmaf_dc.r,gloc=gloc.gf,sigmahimp=sigmah_dc.r,sigmafimp=sigmaf_dc.r,sigmacimp=sigmac_dc.rf)
 print("***Weiss Green's function finish")
-
-
-
-
 
 
 
@@ -400,7 +392,6 @@ print('\n*** run and measure CTQMC start ***')
 # cf.CTQMCRun()
 # cf.CTQMCMeasure()
 print('*** run and measure CTQMC finish ***')
-
 
 print('\n*** impurity postprocessing start ***')
 (sigmah_edmft, 
@@ -420,7 +411,7 @@ print('*** impurity postprocessing finish ***\n')
 
 print('\n*** compute Embedding part')
 print('** double counting part')
-sigmah_dc.embedding()
+# sigmah_dc.embedding()
 sigmaf_dc.embedding()
 sigmac_dc.embedding()
 pi_dc.embedding()
