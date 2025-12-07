@@ -276,7 +276,7 @@ class SigmaHLoc(FLocStc):
         
     #     
         self.r = None
-        self.r_embedded = None
+        # self.r_embedded = None
         self.k_embedded = None
         # self.ft = ft
         # self.k = None
@@ -424,7 +424,7 @@ class SigmaHLoc(FLocStc):
     def embedding(self):
 
         imp2loc = self.Imp2Loc(self.r)
-        self.r_embedded = self.Embedding(imp2loc)
+        self.k_embedded = self.Embedding(imp2loc)
 
         return None
     
@@ -451,7 +451,7 @@ class SigmaHImp(FLocStc):
         
 
         self.r = None
-        self.r_embedded = None
+        self.k_embedded = None
         # self.k = None
         self.vloc = None ## frequency dependent V, utilde_rf
         self.occ = None
@@ -584,7 +584,7 @@ class SigmaHImp(FLocStc):
     def embedding(self):
 
         imp2loc = self.Imp2Loc(self.r)
-        self.r_embedded = self.Embedding(imp2loc)
+        self.k_embedded = self.Embedding(imp2loc)
 
         return None
     
@@ -659,7 +659,7 @@ class SigmaFLoc(FLocStc):
     ):  # green -> occ
         super().__init__(crystal)
         self.r = None
-        self.r_embedded = None
+        self.k_embedded = None
         # self.k = None
         self.ft = ft
 
@@ -738,7 +738,7 @@ class SigmaFLoc(FLocStc):
     def embedding(self):
 
         imp2loc = self.Imp2Loc(self.r)
-        self.r_embedded = self.Embedding(imp2loc)
+        self.k_embedded = self.Embedding(imp2loc)
 
         return None
 
@@ -778,7 +778,7 @@ class SigmaFImp(FLocStc):
         super().__init__(crystal)
 
         self.r = None
-        self.r_embedded = None
+        self.k_embedded = None
         self.sigma_hf_imp = None
         self.sigma_h_imp = None
         self.key = None
@@ -813,7 +813,7 @@ class SigmaFImp(FLocStc):
     def embedding(self):
 
         imp2loc = self.Imp2Loc(self.r)
-        self.r_embedded = self.Embedding(imp2loc)
+        self.k_embedded = self.Embedding(imp2loc)
 
         return None
 

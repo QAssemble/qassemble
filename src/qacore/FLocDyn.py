@@ -744,8 +744,8 @@ class SigmaLGWC(FLocDyn): ### Sigma_GWC_Loc
         self.flpcstc = FLocStc(crystal=crystal)
         self.rt = None
         self.rf = None
-        self.rt_embedded = None
-        self.rf_embedded = None 
+        self.kt_embedded = None
+        self.kf_embedded = None 
         
         self.stck = None
         self.z = None
@@ -816,22 +816,22 @@ class SigmaLGWC(FLocDyn): ### Sigma_GWC_Loc
         imp2loc_rf = self.Imp2Loc(self.rf)
         imp2loc_rt = self.Imp2Loc(self.rt)
 
-        self.rf_embedded = self.Embedding(imp2loc_rf)
-        self.rt_embedded = self.Embedding(imp2loc_rt)
+        self.kf_embedded = self.Embedding(imp2loc_rf)
+        self.kt_embedded = self.Embedding(imp2loc_rt)
 
         return None
 
 
 
-class SigmaIGWC(FLocDyn): ### Sigma_GWC_Imp
+class SigmaCImp(FLocDyn): ### Sigma_GWC_Imp
     def __init__(self, crystal: Crystal, ft: FTGrid):
         super().__init__(crystal, ft)
 
         self.flpcstc = FLocStc(crystal=crystal)
         self.rt = None
         self.rf = None 
-        self.rt_embedded = None
-        self.rf_embedded = None 
+        self.kt_embedded = None
+        self.kf_embedded = None 
         self.sigma_bare = None
         self.key = None
         self.Cal()
@@ -865,8 +865,8 @@ class SigmaIGWC(FLocDyn): ### Sigma_GWC_Imp
         imp2loc_rf = self.Imp2Loc(self.rf)
         imp2loc_rt = self.Imp2Loc(self.rt)
 
-        self.rf_embedded = self.Embedding(imp2loc_rf)
-        self.rt_embedded = self.Embedding(imp2loc_rt)
+        self.kf_embedded = self.Embedding(imp2loc_rf)
+        self.kt_embedded = self.Embedding(imp2loc_rt)
 
         return None
 

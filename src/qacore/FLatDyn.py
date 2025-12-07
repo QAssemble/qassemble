@@ -609,8 +609,6 @@ class GreenInt(FLatDyn):
         print("Chemical potential shift finish")
         self.Occ()
 
-        print('toto00')
-
         return None
     
     def NumOfE(self, mu : float):
@@ -903,7 +901,7 @@ class GreenInt_EDMFT(FLatDyn):
         # self.subgroup = self.__class__.__name__
         print(f"Bare Green's function : \n{self.gbare[:,:,0,0,0]}")
         self.CalMu0()
-        # self.SearchMu()
+        self.SearchMu()
 
     def CalMu0(self):
 
@@ -1000,4 +998,51 @@ class GreenInt_EDMFT(FLatDyn):
         # print(N,Ne,N-Ne)
         
         return N - Ne
+    
+    def SearchMu(self):
+        
+        print("Finding chemical potential start")
+        mumin = -self.ft.omega[-1]#*0.6
+        mumax = self.ft.omega[-1]#*0.6
+        # mumin = -self.ft.omega[-1]*0.2
+        # mumax =  self.ft.omega[-1]*0.2
+        print(f"minimum : {mumin}, maximum : {mumax}")
+        nmin = self.NumOfE(mumin)
+        nmax = self.NumOfE(mumax)
+        if (nmin < 0) or (nmax>0):
+            print("Chemical potential is out of the bisection range")
+            print(f"nmin : {nmin}, nmax : {nmax}")
+            sys.exit()
+        sol = scipy.optimize.brentq(self.NumOfE,mumin,mumax,xtol=1.0e-6)
+        self.mu_old = sol
+        # self.mu = sol
+        print("Finding chemical potential finish")
+
+        self.UpdateMu()
+        return None
+    
+
+    def UpdateMu(self) -> np.ndarray:
+
+        print("Chemical potential shift start")
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
+        nft = len(self.ft.omega)
+
+        gkfnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+        
+        chem = self.ChemEmbedding(self.mu_old)
+        gkfnew = self.Dyson(self.gkfmu0,-chem)
+        
+        self.kf = gkfnew
+        self.kt = self.F2T(gkfnew,1,1)
+        # self.grf = self.K2R(self.Dyson(self.gkfmu0,-chem))
+        # self.grt = self.K2R(self.F2T(self.Dyson(self.gkfmu0,-chem),1,1))
+        self.rf = self.K2R(self.kf)
+        self.rt = self.K2R(self.kt)
+        print("Chemical potential shift finish")
+        self.Occ()
+
+        return None
 

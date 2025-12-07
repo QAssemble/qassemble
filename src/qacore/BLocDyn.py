@@ -320,8 +320,8 @@ class PolLGW(BLocDyn):
         
         self.rt = None # rt to kf
         self.rf = None
-        self.rt_embedded = None # rt to kf
-        self.rf_embedded = None
+        self.kt_embedded = None # rt to kf
+        self.kf_embedded = None
         # self.kt = None
         # self.kf = None
         nprob = len(self.crystal.probspace)
@@ -598,22 +598,22 @@ class PolLGW(BLocDyn):
         imp2loc_rf = self.Imp2Loc(self.rf)
         imp2loc_rt = self.Imp2Loc(self.rt)
 
-        self.rf_embedded = self.Embedding(imp2loc_rf)
-        self.rt_embedded = self.Embedding(imp2loc_rt)
+        self.kf_embedded = self.Embedding(imp2loc_rf)
+        self.kt_embedded = self.Embedding(imp2loc_rt)
 
         return None
 		                    
 		                    
 
-class PolIGW(BLocDyn): # read Polarizability from CTQMC
+class PolImp(BLocDyn): # read Polarizability from CTQMC
 
     def __init__(self, crystal: Crystal, ft: FTGrid):
         super().__init__(crystal, ft)
 
         self.rt = None # rt to kf
         self.rf = None
-        self.rt_embedded = None # rt to kf
-        self.rf_embedded = None
+        self.kt_embedded = None # rt to kf
+        self.kf_embedded = None
         # self.kt = None
         # self.kf = None
         nprob = len(self.crystal.probspace)
@@ -664,8 +664,8 @@ class PolIGW(BLocDyn): # read Polarizability from CTQMC
         imp2loc_rf = self.Imp2Loc(self.rf)
         imp2loc_rt = self.Imp2Loc(self.rt)
 
-        self.rf_embedded = self.Embedding(imp2loc_rf)
-        self.rt_embedded = self.Embedding(imp2loc_rt)
+        self.kf_embedded = self.Embedding(imp2loc_rf)
+        self.kt_embedded = self.Embedding(imp2loc_rt)
 
         return None
 

@@ -667,7 +667,7 @@ class CorrelationFunction(object):
         if int(key)-1 == 0:
             Sigma_h = SigmaHImp(self.crystal)
             Sigma_f = SigmaFImp(self.crystal)
-            Sigma_c = SigmaIGWC(self.crystal,self.ft)
+            Sigma_c = SigmaCImp(self.crystal,self.ft)
 
         ### compute rho using Green's function
         flocdyn = FLocDyn(self.crystal,self.ft)
@@ -707,7 +707,7 @@ class CorrelationFunction(object):
         susceptibility = np.copy(tempmat)
 
         ### compute Pi_edmft using susceptibility and utilde
-        Pi = PolIGW(self.crystal,self.ft)
+        Pi = PolImp(self.crystal,self.ft)
         Pi.add_key(susceptibility, utilde_rf, int(key)-1)
 
 
@@ -733,33 +733,30 @@ class CorrelationFunction(object):
                                ,sigmah_edmft : np.ndarray, sigmaf_edmft : np.ndarray, sigmac_edmft : np.ndarray
                                ,sigmah_dc : np.ndarray, sigmaf_dc : np.ndarray, sigmac_dc : np.ndarray):
 
-        sigmah_r_total = sigmah_gw.r + sigmah_edmft - sigmah_dc
-        sigmaf_r_total = sigmaf_gw.r + sigmaf_edmft - sigmaf_dc
-        sigmac_rf_total = sigmac_gw.rf + sigmac_edmft - sigmac_dc  ## should the sigmac_gw.rf needs to be converted from sigmac_gw.kf ?
+        sigmah_k = sigmah_gw.k + sigmah_edmft - sigmah_dc
+        sigmaf_k = sigmaf_gw.k + sigmaf_edmft - sigmaf_dc
+        sigmac_kf = sigmac_gw.kf + sigmac_edmft - sigmac_dc  ## should the sigmac_gw.rf needs to be converted from sigmac_gw.kf ?
 
-        sigmah_k = sigmah_gw.R2K(sigmah_r_total)
-        sigmaf_k = sigmaf_gw.R2K(sigmaf_r_total)
-        sigmagwc_kf = sigmac_gw.R2K(sigmac_rf_total)
+        green_edmft = GreenInt_EDMFT(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_k,sigmaf=sigmaf_k,sigmagwc=sigmac_kf)
+        # green_edmft = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_k,sigmaf=sigmaf_k,sigmagwc=sigmac_kf)
 
-        green_edmft = GreenInt_EDMFT(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_k,sigmaf=sigmaf_k,sigmagwc=sigmagwc_kf)
-
-        green_edmft.Occ()
-        N = green_edmft.NumOfE(self.green.mu)
-        print(N)
-
-        # green_edmft = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_k,sigmaf=sigmaf_k,sigmagwc=sigmagwc_kf)
+        N = self.green.NumOfE(self.green.mu)
+        print("NumofE -- GW             :",N)
+        N = green_edmft.NumOfE(green_edmft.mu)
+        print("NumofE -- after embedding:",N)
+        print("Chemical potential -- GW             :",self.green.mu)
+        print("Chemical potential -- after embedding:",green_edmft.mu)
+        
 
         return green_edmft
     
 
     def W_EDMFT(self, vbare : VBare, pol_gw : PolLat, pol_edmft : np.ndarray, pol_dc : np.ndarray):
 
-        pol_rf_total = pol_gw.rf + pol_edmft - pol_dc
-
-        pol_kf_total = pol_gw.R2K(pol_rf_total)
+        pol_kf = pol_gw.kf + pol_edmft - pol_dc
 
         # w_edmft = pol_gw.Dyson(mat1, mat2)
-        w_edmft = WLat(crystal=self.crystal,ft=self.ft,pol=pol_kf_total,vbare=vbare,c=self.c)
+        w_edmft = WLat(crystal=self.crystal,ft=self.ft,pol=pol_kf,vbare=vbare,c=self.c)
 
         return w_edmft
 
