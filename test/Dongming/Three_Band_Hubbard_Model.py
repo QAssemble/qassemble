@@ -40,6 +40,7 @@ NSpin = 1
 SOC = False
 # KGrid = [7, 7, 7]
 KGrid = [3, 3, 3]
+# KGrid = [10, 10, 10]
 NElec = 3 # 1 ## should be 1 for validation
 beta = 100
 T = 2000
@@ -90,7 +91,7 @@ fpathstc.crystal.Kpath(kpath, nkpath)
 
 
 
-U = 5 #1
+U = 1 #5 #1
 J = 0.1
 Up = U - 2* J
 V = 0.2 # 1.0
