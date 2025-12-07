@@ -43,7 +43,7 @@ KGrid = [3, 3, 3]
 NElec = 3 # 1 ## should be 1 for validation
 beta = 100
 T = 2000
-cutoff = 30 #100 #30
+cutoff = 30#40#30 #100 #30
 cry = {
     "RVec": RVec,
     "Basis": Basis,
@@ -140,6 +140,9 @@ itermax = 1
 mix = 0.1
 
 # print(cf.crystal.ns)
+
+# print(len(cf.ft.omega))
+# print(cf.ft.omega[-1])
 
 # exit()
 
@@ -246,10 +249,10 @@ print("**GreenLoc start")
 gloc = GreenLoc(crystal=cf.crystal, ft=cf.ft, green=gint)
 print("**GreenLoc finish\n")
 
-print("**Density matrix start")
-gloc.Occ()
-# gint.Occ()
-print("**Density matrix finish\n")
+# print("**Density matrix start")
+# # gloc.Occ()
+# # gint.Occ()
+# print("**Density matrix finish\n")
 
 
 ##############
@@ -394,8 +397,8 @@ cf.CTQMCPreProcessing(iter=iter, key=key, E_imp=weiss_green.Eimp_r, imp=imp, equ
 print('*** write_ctqmc_params finish ***')
 
 print('\n*** run and measure CTQMC start ***')
-# cf.CTQMCRun()
-# cf.CTQMCMeasure()
+cf.CTQMCRun()
+cf.CTQMCMeasure()
 print('*** run and measure CTQMC finish ***')
 
 print('\n*** impurity postprocessing start ***')
@@ -434,6 +437,113 @@ gint_edmft = cf.GreenInt_EDMFT(cf.greenbare,cf.sigmah,cf.sigmaf,cf.sigmagwc
 
 
 
+
+
+
+################################################
+################    New Loop    ################
+################################################
+
+#### GW part ####
+sigmah_gw,sigmaf_gw,sigmac_gw,pol_gw = cf.GW_update(gint_edmft,cf.vbare)
+
+
+#### DC part ####
+gloc = GreenLoc(crystal=cf.crystal, ft=cf.ft, green=gint_edmft)
+
+print("**PolLoc start")
+pi_dc = PolLGW(crystal=cf.crystal, ft=cf.ft, green=gloc)
+# pollat = PolLat(crystal=cf.crystal, ft=cf.ft, green=g_average2)
+print("**PolLoc finish\n")
+
+
+print("**WLoc start")
+start = time.time()
+wloc = WLoc_temp(crystal=cf.crystal, ft=cf.ft, pol=pi_dc.rf, vLoc=vloc)
+# wloc = WLoc(crystal=cf.crystal, ft=cf.ft, wlat=cf.w)
+end = time.time()
+tiem_delta = end-start
+print(round(tiem_delta,5))
+print("**WLoc finish\n")
+
+
+print("**SigmaFLoc start")
+sigmaf_dc = SigmaFLoc(crystal=cf.crystal, ft=cf.ft, occr=gloc.occ, vloc=vloc)
+print("**SigmaFLoc finish\n")
+
+
+print("**SigmaLGWC start")
+sigmac_dc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
+print("**SigmaLGWC finish\n")
+
+
+#### EDMFT part ####
+print("**BWeiss start")
+norb,_,ns,_,nft,nprob=wloc.crf.shape
+wloc_rf_temp = np.zeros((norb,norb,ns,ns,nft,nprob), dtype=np.complex128, order='F')
+for ift in range(nft):
+    wloc_rf_temp[:,:,:,:,ift,:] = wloc.crf[:,:,:,:,ift,:] + vloc[...]
+uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc_rf_temp,ploc=pi_dc.rf,vloc=vloc)
+# uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc.rf,ploc=pi_dc.rf,vloc=vloc)
+print("**BWeiss finish\n")
+
+
+print("**SigmaHLoc start")
+sigmah_dc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=uimp.utilde_rf)
+# hloc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=vloc)
+print("**SigmaHLoc finish\n")
+
+
+print("***Weiss Green's function start")
+weiss_green = FWeiss(crystal=cf.crystal,ft=cf.ft,niham=cf.niham.k,mu=gint_edmft.mu,hamh=sigmah_gw.k,hamf=sigmaf_gw.k,hloc=sigmah_dc.r,floc=sigmaf_dc.r,gloc=gloc.gf,sigmahimp=sigmah_edmft.r,sigmafimp=sigmaf_edmft.r,sigmacimp=sigmac_edmft.rf)
+print("***Weiss Green's function finish")
+
+
+iter = 2
+
+#####################
+#### CTQMC start ####
+#####################
+print('\n*** write_ctqmc_params start ***')
+cf.CTQMCPreProcessing(iter=iter, key=key, E_imp=weiss_green.Eimp_r, imp=imp, equiv=equiv, vloc=vloc, Hyb=weiss_green.delta_rf, bweiss=uimp.utilde_rf)
+print('*** write_ctqmc_params finish ***')
+
+print('\n*** run and measure CTQMC start ***')
+cf.CTQMCRun()
+cf.CTQMCMeasure()
+print('*** run and measure CTQMC finish ***')
+
+print('\n*** impurity postprocessing start ***')
+(sigmah_edmft, 
+ sigmaf_edmft, 
+ sigmac_edmft, 
+ pi_edmft) = cf.CTQMCPostProcessing(iter=iter,key=key,equiv=equiv,utilde_rf=uimp.utilde_rf)
+print('*** impurity postprocessing finish ***\n')
+
+
+
+print('\n*** compute Embedding part')
+print('** double counting part')
+sigmah_dc.embedding()
+sigmaf_dc.embedding()
+sigmac_dc.embedding()
+pi_dc.embedding()
+
+print('** edmft part')
+sigmah_edmft.embedding()
+sigmaf_edmft.embedding()
+sigmac_edmft.embedding()
+pi_edmft.embedding()
+
+
+print("\n*** Compute the total Screened Coulomb Interaction -- W_EDMFT")
+w_edmft = cf.W_EDMFT(cf.vbare, cf.pol, pi_edmft.kf_embedded, pi_dc.kf_embedded)
+
+
+print("\n*** Compute the total Interacting Green's function -- GreenInt_EDMFT")
+gint_edmft = cf.GreenInt_EDMFT(cf.greenbare,sigmah_gw,sigmaf_gw,sigmac_gw
+                          ,sigmah_edmft.k_embedded,sigmaf_edmft.k_embedded,sigmac_edmft.kf_embedded
+                          ,sigmah_dc.k_embedded,sigmaf_dc.k_embedded,sigmac_dc.kf_embedded)
 
 exit()
 

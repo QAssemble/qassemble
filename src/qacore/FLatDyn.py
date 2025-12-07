@@ -1002,8 +1002,8 @@ class GreenInt_EDMFT(FLatDyn):
     def SearchMu(self):
         
         print("Finding chemical potential start")
-        mumin = -self.ft.omega[-1]#*0.6
-        mumax = self.ft.omega[-1]#*0.6
+        mumin = -self.ft.omega[-1]*1.5#*0.6
+        mumax = self.ft.omega[-1]*1.5#*0.6
         # mumin = -self.ft.omega[-1]*0.2
         # mumax =  self.ft.omega[-1]*0.2
         print(f"minimum : {mumin}, maximum : {mumax}")

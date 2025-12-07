@@ -740,12 +740,17 @@ class CorrelationFunction(object):
         green_edmft = GreenInt_EDMFT(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_k,sigmaf=sigmaf_k,sigmagwc=sigmac_kf)
         # green_edmft = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_k,sigmaf=sigmaf_k,sigmagwc=sigmac_kf)
 
-        N = self.green.NumOfE(self.green.mu)
-        print("NumofE -- GW             :",N)
+        # N = self.green.NumOfE(self.green.mu)
+        # print("NumofE -- GW             :",N)
         N = green_edmft.NumOfE(green_edmft.mu)
         print("NumofE -- after embedding:",N)
-        print("Chemical potential -- GW             :",self.green.mu)
+        # print("Chemical potential -- GW             :",self.green.mu)
         print("Chemical potential -- after embedding:",green_edmft.mu)
+        print("====")
+        # print(self.green.kf[:,:,0,0,0])
+        print(green_edmft.kf[:,:,0,0,0])
+        # print(self.green.rf[:,:,0,0,0])
+        print(green_edmft.rf[:,:,0,0,0])
         
 
         return green_edmft
@@ -759,6 +764,18 @@ class CorrelationFunction(object):
         w_edmft = WLat(crystal=self.crystal,ft=self.ft,pol=pol_kf,vbare=vbare,c=self.c)
 
         return w_edmft
+    
+    def GW_update(self,g_edmft,vbare):
+
+        sigmah = SigmaHartree(crystal=self.crystal,occ=g_edmft.occ,vbare=vbare.k)
+        sigmaf = SigmaFock(crystal=self.crystal,occr=g_edmft.occr,vbare=vbare.r)
+        pol = PolLat(crystal=self.crystal,ft=self.ft,green=g_edmft.rt)
+        # pol.kf = pol.Mixing(iter=iter,mix=mix,Bb=pol.kf,Bold=pkfold)
+        w = WLat(crystal=self.crystal,ft=self.ft,pol=pol.kf,vbare=vbare,c=self.c)
+        sigmagwc = SigmaGWC(crystal=self.crystal,ft=self.ft,green=g_edmft.rt,wlat=w.crt)
+        # sigmagwc.kf = sigmagwc.Mixing(iter=iter,mix=mix,Fb=sigmagwc.kf,Fm=ckfold)
+
+        return sigmah,sigmaf,sigmagwc,pol
 
 
 
