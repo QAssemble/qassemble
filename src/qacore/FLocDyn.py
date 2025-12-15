@@ -257,6 +257,56 @@ class FLocDyn(object):
     
 
 
+    def write_hyb_dict(self,equiv : np.ndarray, mat_in : np.ndarray)->dict:
+        
+        ns = mat_in.shape[2]
+        Nind = int(np.amax(equiv))
+        # print(Nind)
+        # exit()
+        mat_dict = {}    
+
+        for ind in range(Nind):
+            mat_dict[ind+1]=[]
+            # pos = find_positions(equiv,ind+1)
+            pos_row, pos_col = np.where(equiv==ind+1)
+            for js in range(ns):
+                e = 0
+                # for ii, jj in pos:
+                for i in range(len(pos_row)):
+                    
+                    e+=mat_in[pos_row[i],pos_col[i],js]
+                e/=len(pos_row)
+                mat_dict[ind+1].append(e.tolist())
+
+        return mat_dict
+    
+    def write_hyb_json(self,iter,key,hyb : dict):
+
+        if self.crystal.soc is False:
+            if self.crystal.ns == 1:
+                json_dict = {}
+                for ikey,val in hyb.items():
+                    json_dict[ikey] = {}
+                    json_dict[ikey]['beta'] = self.ft.beta
+                    json_dict[ikey]['real'] = np.real(val[0]).tolist()
+                    json_dict[ikey]['imag'] = np.imag(val[0]).tolist()
+
+                with open(f'hyb.{iter}.{key}.json','w') as outfile:
+                    json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
+                with open('hyb.json','w') as outfile:
+                    json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
+                    # json.dump(json_dict,outfile,sort_keys=True, separators=(']'))
+            
+            elif self.crystal.ns == 2:
+                print("Nspin is not 1")
+                sys.exit()
+        elif self.crystal.soc is True:
+            print("SOC must be False")
+            sys.exit()
+        return None
+    
+
+
 
 
     # def imp_B2F_freq(self,imp,B):

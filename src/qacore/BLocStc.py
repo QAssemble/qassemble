@@ -280,6 +280,10 @@ class VLoc(BLocStc):
         self.SetLocalInteracting(voption)
         # self.GenOnsite()
 
+        self.zvloc = None
+
+        
+
     def SetLocalInteracting(self,voption : dict):
         
         ns = self.crystal.ns
@@ -328,6 +332,15 @@ class VLoc(BLocStc):
                         if (iorb is not None)and(jorb is not None):
                             self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
 
+    
+    def compute_vloc_projection_on_space(self):
+        norb = len(self.crystal.bind)
+        ns = self.crystal.ns
+        nspace = self.crystal.fprojector.shape[3]
+        self.zvloc = np.zeros((norb, norb, ns, ns, nspace), dtype=np.complex128, order="F")
+        for ispace in range(nspace):
+            self.zvloc[...,ispace] = self.vloc
+        
             
         # for val in orboption.values():
         #     norbc = len(val["orbitals"])
@@ -621,6 +634,74 @@ class VLoc(BLocStc):
         for ks in range(ns):
             for js in range(ns):
                 tempmat = self.crystal.Double2Quad(self.vloc[...,js,ks])
+                # print(tempmat.shape)
+                for ii, iorb in enumerate(orb):
+                    for jj, jorb in enumerate(orb):
+                        for kk, korb in enumerate(orb):
+                            for ll, lorb in enumerate(orb):
+                                # print(ii,jj,kk,ll,iorb,jorb,korb,lorb)
+                                vloc_temp[ii, jj, kk, ll, js, ks] = tempmat[iorb, jorb, korb, lorb]
+
+        if (self.crystal.soc == False):
+            U = np.zeros((norbc**4*2**4), dtype=np.float64, order='F')
+            idx = 0
+            if (ns == 1):
+                for sl in range(2):
+                    for l in range(norbc):
+                        for sk in range(2):
+                            for k in range(norbc):
+                                for sj in range(2):
+                                    for j in range(norbc):
+                                        for si in range(2):
+                                            for i in range(norbc):
+                                                    
+                                                    
+                                                if(sj==sk and si==sl):
+                                                    val = vloc_temp[i, j, k, l, 0, 0].real
+                                                    val = abs(val)
+                                                    if (val > 0.001):
+                                                        U[idx] = val
+                                                idx += 1
+            else:
+                for sl in range(2):
+                    for l in range(norbc):
+                        for sk in range(2):
+                            for k in range(norbc):
+                                for sj in range(2):
+                                    for j in range(norbc):
+                                        for si in range(2):
+                                            for i in range(norbc):
+                                                    
+                                                    
+                                                if(sj==sk and si==sl):
+                                                    val = vloc_temp[i, j, k, l, si, sj].real
+                                                    val = abs(val)
+                                                    if (val > 0.001):
+                                                        U[idx] = val
+                                                idx += 1
+        else:
+            print("SOC is not False")
+            sys.exit()
+        self.u_ctqmc = U
+
+        return U
+    
+
+    def GetUijklComCTQMC_x(self, key, VLOC):
+
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+
+        # print(self.crystal.fimpdict)
+        
+        orb = self.crystal.fimpdict[str(key)][0]
+        norbc = len(orb)
+        # print(norbc)
+        tempmat = np.zeros((norb, norb, norb, norb), dtype=np.complex128, order='F')
+        vloc_temp = np.zeros((norbc, norbc, norbc, norbc, ns, ns), dtype=np.complex128, order='F')
+        for ks in range(ns):
+            for js in range(ns):
+                tempmat = self.crystal.Double2Quad(VLOC[...,js,ks])
                 # print(tempmat.shape)
                 for ii, iorb in enumerate(orb):
                     for jj, jorb in enumerate(orb):

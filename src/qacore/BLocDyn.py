@@ -309,6 +309,51 @@ class BLocDyn(object):
                     matout[:,:,js,ks,ift] = self.crystal.Full2Double(matin[:,:,js,ks,ift])
 
         return matout
+    
+
+    def write_dyn_dict(self,iter,key,utilde_rf_2):
+        norb,_,ns,_,nft,_ = utilde_rf_2.shape
+        norbc = len(self.crystal.find)
+        utilde_rf_4 = np.zeros((norbc,norbc,norbc,norbc,ns,ns,nft),dtype=np.complex64,order='F')
+
+        for iis in range(ns):
+            for jjs in range(ns):
+                for ift in range(nft):
+                    utilde_rf_4[...,iis,jjs,ift] = self.crystal.Double2Quad(utilde_rf_2[...,iis,jjs,ift,0])
+        
+        F0_val = np.zeros(nft,dtype=np.float64, order='F')
+        for ift in range(nft):
+            F0_val[ift] = 1.0/ns**2/norbc**2*np.einsum('ijjimn->',utilde_rf_4[...,ift]).real
+        
+        F0_dict = {}
+        F0_dict["F0"] = F0_val.tolist()
+
+        return F0_dict
+    
+
+    def write_dyn_json(self,iter,key,dyn : dict):
+
+        if self.crystal.soc is False:
+            if self.crystal.ns == 1:
+                json_dict = dyn
+                # for ikey,val in dyn.items():
+                #     json_dict[ikey] = {}
+                #     # json_dict[ikey]['beta'] = self.ft.beta
+                #     json_dict[ikey]['real'] = np.real(val[0]).tolist()
+                #     json_dict[ikey]['imag'] = np.imag(val[0]).tolist()
+
+                # with open(f'hyb.{iter}.{key}.json','w') as outfile:
+                    # json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
+                with open('dyn.json','w') as outfile:
+                    json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
+            
+            elif self.crystal.ns == 2:
+                print("Nspin is not 1")
+                sys.exit()
+        elif self.crystal.soc is True:
+            print("SOC must be False")
+            sys.exit()
+        return None
 
 
 

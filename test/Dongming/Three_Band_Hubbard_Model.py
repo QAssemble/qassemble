@@ -24,6 +24,8 @@ from qacore.FLatStc import (
     SigmaHartree_k,
 )
 
+from qacore.FPathStc import FPathStc
+
 filename = "glob.h5"
 if os.path.exists(filename):
     os.remove(filename)
@@ -41,10 +43,10 @@ SOC = False
 # KGrid = [7, 7, 7]
 KGrid = [3, 3, 3]
 # KGrid = [10, 10, 10]
-NElec = 3 # 1 ## should be 1 for validation
+NElec = 2 # 3 # 1 ## should be 1 for validation
 beta = 100
-T = 2000
-cutoff = 30#40#30 #100 #30
+# T = 2000
+cutoff =  30 #50 #30#40#30 #100 #30
 cry = {
     "RVec": RVec,
     "Basis": Basis,
@@ -54,12 +56,11 @@ cry = {
     "NElec": NElec,
     "KGrid": KGrid,
 }
+
 ft = {"beta": beta, "cutoff": cutoff}
-# ft = {"T": T, "cutoff": cutoff}
 cf = CorrelationFunction(cry=cry, ft=ft)
-# print(cf.crystal.bbasis)
-# print(cf.crystal.pbasis)
-# exit()
+
+
 t = 1.0
 hopping = {
     ((0, 0), (0, 0)): {
@@ -75,8 +76,6 @@ hopping = {
 cf.TightBinding(hopping=hopping, fn=None)
 
 
-from qacore.FPathStc import FPathStc
-
 fpathstc = FPathStc(crystal=cf.crystal, obj=cf.niham)
 
 
@@ -86,8 +85,6 @@ fpathstc = FPathStc(crystal=cf.crystal, obj=cf.niham)
 kpath = [[0, 0, 0], [1 / 2, 0, 0], [1 / 2, 1 / 2, 0], [0, 0, 0]]
 nkpath = 101
 fpathstc.crystal.Kpath(kpath, nkpath)
-
-
 
 
 
@@ -137,41 +134,30 @@ vbare = VBare(
 )
 
 
+
+
 itermax = 1
 mix = 0.1
 
-# print(cf.crystal.ns)
+cf.GWApproximation(
+    itermax=itermax,
+    mix=mix,
+    hoppinglist=hopping,
+    loccoulomb=locoption,
+    nonloccoulomb=nonlocoption,
+)
 
-# print(len(cf.ft.omega))
-# print(cf.ft.omega[-1])
+# fpathstc.Band(hmat = cf.niham.r+cf.sigmah.r+cf.sigmaf.r, plotoption=True)
 
-# exit()
 
-# ndim = 6
-# norbc = 3 # self.crystal.fprojector.shape[1]
-# ns = 1 # self.crystal.ns
-# nspin = 2
 
-# print(norbc,ns)
 
-# nft = len(obsjson["occupation-susceptibility-bulla"]['0_0']['function'])
 
-# tempmat = np.zeros((norbc,norbc,norbc,norbc,ns,ns,nft), dtype=np.complex128, order='F')
 
-# for ind1 in range(ndim):
-#     nn1 = [0]*2
-#     ind1, [iorb, ispin] = cf.crystal.indexing(ndim,2,[norbc,nspin],0,ind1,nn1)
-#     for ind2 in range(ndim):
-#         nn2 = [0]*2
-#         ind2, [jorb, jspin] = cf.crystal.indexing(ndim,2,[norbc,nspin],0,ind2,nn2)
-#         name = str(ind1)+'_'+str(ind2)
-#         print(ind1,ind2,'------',iorb,ispin,jorb,jspin)
 
-# exit()
 
-# print(len(cf.ft.omega),len(cf.ft.nu),len(cf.ft.tau))
 
-# exit()
+
 
 
 
@@ -188,6 +174,9 @@ from qacore.FLocStc import FLocStc, SigmaFLoc, SigmaHLoc
 from qacore.FLocStc import EImp
 from qacore.FLocDyn import Hybridisation,FWeiss
 from qacore.BLocDyn import BWeiss
+from qacore.BLocStc import VLoc
+
+from qacore.CTQMC import CTQMC
 
 
 
@@ -196,143 +185,7 @@ from qacore.BLocDyn import BWeiss
 
 
 
-# for iloop in range(100):
-
-
-cf.GWApproximation(
-    itermax=itermax,
-    mix=mix,
-    hoppinglist=hopping,
-    loccoulomb=locoption,
-    nonloccoulomb=nonlocoption,
-)
-
-
-# N = cf.green.NumOfE(cf.green.mu)
-# print(N)
-
-# exit()
-
-# fpathstc.Band(hmat = cf.niham.r+cf.sigmah.r+cf.sigmaf.r, plotoption=True)
-
-##########################################################################
-###############                                       ####################
-###############       Local Double-Counting part      ####################
-###############                                       ####################
-##########################################################################
-
-
-print("\n")
-print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-print("Start computing Local Double-Counting GW")
-print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
-
-
-
-gint = cf.green
 cf.crystal.Projector(impdict={"1": [[[0, 0],[0, 1],[0, 2]]]})
-
-
-
-pprint.pprint(cf.crystal.bimpdict)
-print(cf.crystal.bimpdict['1'][0])
-print(len(cf.crystal.bimpdict['1'][0]))
-print('\n')
-
-
-
-##############
-#### Gloc ####
-##############
-print("**GreenLoc start")
-gloc = GreenLoc(crystal=cf.crystal, ft=cf.ft, green=gint)
-print("**GreenLoc finish\n")
-
-# print("**Density matrix start")
-# # gloc.Occ()
-# # gint.Occ()
-# print("**Density matrix finish\n")
-
-
-##############
-#### Vloc ####
-##############
-print("**Vloc start")
-# vloc = cf.vbare.Projection(cf.vbare.k)
-vloc2 = np.zeros_like(cf.vbare.k)
-(norb, norb, ns, ns, nk) = cf.vbare.k.shape
-nspace = cf.crystal.fprojector.shape[3]
-vloc = np.zeros((norb, norb, ns, ns, nspace), dtype=np.complex128, order="F")
-for ik in range(nk):
-    vloc2[..., ik] = cf.vbare.vloc.vloc
-# vloc2[...,0] = cf.vbare.vloc.vloc
-vloc[..., 0] = vloc2[..., 0]
-print("**Vloc finish\n")
-
-
-
-
-
-
-
-################
-#### Polloc ####
-################
-print("**PolLoc start")
-pi_dc = PolLGW(crystal=cf.crystal, ft=cf.ft, green=gloc)
-# pollat = PolLat(crystal=cf.crystal, ft=cf.ft, green=g_average2)
-print("**PolLoc finish\n")
-
-##############
-#### Wloc ####
-##############
-print("**WLoc start")
-start = time.time()
-wloc = WLoc_temp(crystal=cf.crystal, ft=cf.ft, pol=pi_dc.rf, vLoc=vloc)
-# wloc = WLoc(crystal=cf.crystal, ft=cf.ft, wlat=cf.w)
-end = time.time()
-tiem_delta = end-start
-print(round(tiem_delta,5))
-print("**WLoc finish\n")
-
-
-###################
-#### SigmaFLoc ####
-###################
-print("**SigmaFLoc start")
-sigmaf_dc = SigmaFLoc(crystal=cf.crystal, ft=cf.ft, occr=gloc.occ, vloc=vloc)
-print("**SigmaFLoc finish\n")
-
-###################
-#### SigmaLGWC ####
-###################
-print("**SigmaLGWC start")
-sigmac_dc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
-print("**SigmaLGWC finish\n")
-
-
-
-
-
-
-##########################################################################
-###############                                    #######################
-###############             EDMFT part             #######################
-###############                                    #######################
-##########################################################################
-
-print("\n")
-print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-print("Start computing EDMFT CTQMC input -- Eimp, Delta, Ubar")
-print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
-
-
-
-
 
 imp={'temperature'            : 300, # temperature (in K)
      '1':
@@ -348,205 +201,15 @@ imp={'temperature'            : 300, # temperature (in K)
      'coulomb': 'full',
      }}
 
-# equiv = np.array([[1,2,0],
-#                   [2,1,0],
-#                   [0,0,1]])
-
 equiv = cf.crystal.read_imp_equi_mat(imp)
 
-iter = 1
-key = 1
-
-print('number of problems -- ',len(cf.crystal.probspace))
-print('\n')
-
-# exit()
-
-##############
-#### Uimp ####
-##############
-print("**BWeiss start")
-norb,_,ns,_,nft,nprob=wloc.crf.shape
-wloc_rf_temp = np.zeros((norb,norb,ns,ns,nft,nprob), dtype=np.complex128, order='F')
-for ift in range(nft):
-    wloc_rf_temp[:,:,:,:,ift,:] = wloc.crf[:,:,:,:,ift,:] + vloc[...]
-
-uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc_rf_temp,ploc=pi_dc.rf,vloc=vloc)
-# uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc.rf,ploc=pi_dc.rf,vloc=vloc)
-print("**BWeiss finish\n")
-
-print("**SigmaHLoc start")
-sigmah_dc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=uimp.utilde_rf)
-# hloc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=vloc)
-print("**SigmaHLoc finish\n")
-
-
-##############
-#### Gimp ####
-##############
-print("***Weiss Green's function start")
-weiss_green = FWeiss(crystal=cf.crystal,ft=cf.ft,niham=cf.niham.k,mu=cf.green.mu,hamh=cf.sigmah.k,hamf=cf.sigmaf.k,hloc=sigmah_dc.r,floc=sigmaf_dc.r,gloc=gloc.gf,sigmahimp=sigmah_dc.r,sigmafimp=sigmaf_dc.r,sigmacimp=sigmac_dc.rf)
-print("***Weiss Green's function finish")
 
 
 
-#####################
-#### CTQMC start ####
-#####################
-print('\n*** write_ctqmc_params start ***')
-cf.CTQMCPreProcessing(iter=iter, key=key, E_imp=weiss_green.Eimp_r, imp=imp, equiv=equiv, vloc=vloc, Hyb=weiss_green.delta_rf, bweiss=uimp.utilde_rf)
-print('*** write_ctqmc_params finish ***')
-
-print('\n*** run and measure CTQMC start ***')
-cf.CTQMCRun()
-cf.CTQMCMeasure()
-print('*** run and measure CTQMC finish ***')
-
-print('\n*** impurity postprocessing start ***')
-(sigmah_edmft, 
- sigmaf_edmft, 
- sigmac_edmft, 
- pi_edmft) = cf.CTQMCPostProcessing(iter=iter,key=key,equiv=equiv,utilde_rf=uimp.utilde_rf)
-print('*** impurity postprocessing finish ***\n')
+cf.GW_EDMFT(itermax=2,imp=imp,equiv=equiv)
 
 
 
-print('\n*** compute Embedding part')
-print('** double counting part')
-sigmah_dc.embedding()
-sigmaf_dc.embedding()
-sigmac_dc.embedding()
-pi_dc.embedding()
-
-print('** edmft part')
-sigmah_edmft.embedding()
-sigmaf_edmft.embedding()
-sigmac_edmft.embedding()
-pi_edmft.embedding()
-
-
-print("\n*** Compute the total Screened Coulomb Interaction -- W_EDMFT")
-w_edmft = cf.W_EDMFT(cf.vbare, cf.pol, pi_edmft.kf_embedded, pi_dc.kf_embedded)
-
-
-print("\n*** Compute the total Interacting Green's function -- GreenInt_EDMFT")
-gint_edmft = cf.GreenInt_EDMFT(cf.greenbare,cf.sigmah,cf.sigmaf,cf.sigmagwc
-                          ,sigmah_edmft.k_embedded,sigmaf_edmft.k_embedded,sigmac_edmft.kf_embedded
-                          ,sigmah_dc.k_embedded,sigmaf_dc.k_embedded,sigmac_dc.kf_embedded)
-
-
-
-
-
-
-
-
-################################################
-################    New Loop    ################
-################################################
-
-#### GW part ####
-sigmah_gw,sigmaf_gw,sigmac_gw,pol_gw = cf.GW_update(gint_edmft,cf.vbare)
-
-
-#### DC part ####
-gloc = GreenLoc(crystal=cf.crystal, ft=cf.ft, green=gint_edmft)
-
-print("**PolLoc start")
-pi_dc = PolLGW(crystal=cf.crystal, ft=cf.ft, green=gloc)
-# pollat = PolLat(crystal=cf.crystal, ft=cf.ft, green=g_average2)
-print("**PolLoc finish\n")
-
-
-print("**WLoc start")
-start = time.time()
-wloc = WLoc_temp(crystal=cf.crystal, ft=cf.ft, pol=pi_dc.rf, vLoc=vloc)
-# wloc = WLoc(crystal=cf.crystal, ft=cf.ft, wlat=cf.w)
-end = time.time()
-tiem_delta = end-start
-print(round(tiem_delta,5))
-print("**WLoc finish\n")
-
-
-print("**SigmaFLoc start")
-sigmaf_dc = SigmaFLoc(crystal=cf.crystal, ft=cf.ft, occr=gloc.occ, vloc=vloc)
-print("**SigmaFLoc finish\n")
-
-
-print("**SigmaLGWC start")
-sigmac_dc = SigmaLGWC(crystal=cf.crystal, ft=cf.ft, green=gloc.gt, wloc=wloc.crt)
-print("**SigmaLGWC finish\n")
-
-
-#### EDMFT part ####
-print("**BWeiss start")
-norb,_,ns,_,nft,nprob=wloc.crf.shape
-wloc_rf_temp = np.zeros((norb,norb,ns,ns,nft,nprob), dtype=np.complex128, order='F')
-for ift in range(nft):
-    wloc_rf_temp[:,:,:,:,ift,:] = wloc.crf[:,:,:,:,ift,:] + vloc[...]
-uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc_rf_temp,ploc=pi_dc.rf,vloc=vloc)
-# uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc.rf,ploc=pi_dc.rf,vloc=vloc)
-print("**BWeiss finish\n")
-
-
-print("**SigmaHLoc start")
-sigmah_dc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=uimp.utilde_rf)
-# hloc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=vloc)
-print("**SigmaHLoc finish\n")
-
-
-print("***Weiss Green's function start")
-weiss_green = FWeiss(crystal=cf.crystal,ft=cf.ft,niham=cf.niham.k,mu=gint_edmft.mu,hamh=sigmah_gw.k,hamf=sigmaf_gw.k,hloc=sigmah_dc.r,floc=sigmaf_dc.r,gloc=gloc.gf,sigmahimp=sigmah_edmft.r,sigmafimp=sigmaf_edmft.r,sigmacimp=sigmac_edmft.rf)
-print("***Weiss Green's function finish")
-
-
-iter = 2
-
-#####################
-#### CTQMC start ####
-#####################
-print('\n*** write_ctqmc_params start ***')
-cf.CTQMCPreProcessing(iter=iter, key=key, E_imp=weiss_green.Eimp_r, imp=imp, equiv=equiv, vloc=vloc, Hyb=weiss_green.delta_rf, bweiss=uimp.utilde_rf)
-print('*** write_ctqmc_params finish ***')
-
-print('\n*** run and measure CTQMC start ***')
-cf.CTQMCRun()
-cf.CTQMCMeasure()
-print('*** run and measure CTQMC finish ***')
-
-print('\n*** impurity postprocessing start ***')
-(sigmah_edmft, 
- sigmaf_edmft, 
- sigmac_edmft, 
- pi_edmft) = cf.CTQMCPostProcessing(iter=iter,key=key,equiv=equiv,utilde_rf=uimp.utilde_rf)
-print('*** impurity postprocessing finish ***\n')
-
-
-
-print('\n*** compute Embedding part')
-print('** double counting part')
-sigmah_dc.embedding()
-sigmaf_dc.embedding()
-sigmac_dc.embedding()
-pi_dc.embedding()
-
-print('** edmft part')
-sigmah_edmft.embedding()
-sigmaf_edmft.embedding()
-sigmac_edmft.embedding()
-pi_edmft.embedding()
-
-
-print("\n*** Compute the total Screened Coulomb Interaction -- W_EDMFT")
-w_edmft = cf.W_EDMFT(cf.vbare, cf.pol, pi_edmft.kf_embedded, pi_dc.kf_embedded)
-
-
-print("\n*** Compute the total Interacting Green's function -- GreenInt_EDMFT")
-gint_edmft = cf.GreenInt_EDMFT(cf.greenbare,sigmah_gw,sigmaf_gw,sigmac_gw
-                          ,sigmah_edmft.k_embedded,sigmaf_edmft.k_embedded,sigmac_edmft.kf_embedded
-                          ,sigmah_dc.k_embedded,sigmaf_dc.k_embedded,sigmac_dc.kf_embedded)
-
-exit()
 
 
 
