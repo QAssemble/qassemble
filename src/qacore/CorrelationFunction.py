@@ -354,8 +354,10 @@ class CorrelationFunction(object):
         ### iteration start from 0 -- 0-based (note that inside the calculation it will be converted to 1-based)
         iter = 0
 
-        #### DC (Double Counting) part ####
-        sigmaf_dc,sigmac_dc,pi_dc,wloc,gloc = self.compute_DC_part(gint,vloc) ## passing VLoc class to the argument
+        ### Loc (Projection) part first
+
+        #### DC (Double Counting) part #### input: vloc/gloc/wloc, output: Sigmaf_dc, sigmac_dc, pi_dc
+        sigmaf_dc,sigmac_dc,pi_dc,wloc,gloc = self.compute_DC_part(gint,cf.w,vloc) ## passing VLoc class to the argument
 
         #### EDMFT part ####
         for key in range(1,nprob+1):
@@ -364,7 +366,7 @@ class CorrelationFunction(object):
             sigmac_edmft,
             pi_edmft,
             sigmah_dc) = self.compute_IMP_part(iter,key,imp,equiv,gint,gloc,vloc,wloc,pi_dc,sigmaf_dc,sigmac_dc,ctqmc) ## passing VLoc class to the argument
-
+            ### remove gint, instead input gint.mu, niham as input
 
         #### merge GW+EDMFT+DC to compute the total G and W (namely update total G and W)
         print("\n*** Compute the total Screened Coulomb Interaction -- W_EDMFT")
@@ -390,7 +392,9 @@ class CorrelationFunction(object):
                 sigmaf_edmft,
                 sigmac_edmft,
                 pi_edmft,
-                sigmah_dc) = self.compute_IMP_part(iter,key,imp,equiv,gint_edmft,gloc,vloc,wloc,pi_dc,sigmaf_dc,sigmac_dc,ctqmc)
+                sigmah_dc) = self.compute_IMP_part(iter,key,imp,equiv,gint_edmft,gloc,vloc,wloc,pi_edmft,sigmaf_edmft,sigmac_edmft,ctqmc)
+
+                ## remove gint instead gint.mu
 
             #### merge GW+EDMFT+DC to compute the total G and W (namely update total G and W)
             print("\n*** Compute the total Screened Coulomb Interaction -- W_EDMFT")
@@ -429,8 +433,8 @@ class CorrelationFunction(object):
 
         print("**WLoc start")
         start = time.time()
-        wloc = WLoc_temp(crystal=self.crystal, ft=self.ft, pol=pi_dc.rf, vLoc=vloc.zvloc)
-        # wloc = WLoc(crystal=cf.crystal, ft=cf.ft, wlat=cf.w)
+        # wloc = WLoc_temp(crystal=self.crystal, ft=self.ft, pol=pi_dc.rf, vLoc=vloc.zvloc)
+        wloc = WLoc(crystal=cf.crystal, ft=cf.ft, wlat=cf.w)
         end = time.time()
         tiem_delta = end-start
         print(round(tiem_delta,5))
@@ -479,7 +483,6 @@ class CorrelationFunction(object):
         ctqmc.PreProcessing(iter=iter, key=key, Eimp=weiss_green.Eimp_r, imp=imp, equiv=equiv, vloc=vloc, hyb=weiss_green.delta_rf, bweiss=uimp.utilde_rf)
         print('*** write_ctqmc_params finish ***')
 
-        # exit()
 
         print('\n*** run and measure CTQMC start ***')
         ctqmc.Run()
@@ -489,10 +492,18 @@ class CorrelationFunction(object):
         
 
         print('\n*** impurity postprocessing start ***')
+        # (sigmah_edmft, 
+        # sigmaf_edmft, 
+        # sigmac_edmft, 
+        # pi_edmft) = ctqmc.PostProcessing(iter=iter,key=key,equiv=equiv,utilde_rf=uimp.utilde_rf)
+        (Green,
+         Sigma_hf,
+         Sigma_bare,
+         susceptibility) = ctqmc.PostProcessing(iter=iter,key=key,equiv=equiv,utilde_rf=uimp.utilde_rf)
         (sigmah_edmft, 
         sigmaf_edmft, 
         sigmac_edmft, 
-        pi_edmft) = ctqmc.PostProcessing(iter=iter,key=key,equiv=equiv,utilde_rf=uimp.utilde_rf)
+        pi_edmft) = ctqmc.PostProcessing2(iter=iter,key=key,Green=Green,Sigma_hf=Sigma_hf,Sigma_bare=Sigma_bare,susceptibility=susceptibility,utilde_rf=uimp.utilde_rf)
         print('*** impurity postprocessing finish ***\n')
 
 
@@ -522,8 +533,8 @@ class CorrelationFunction(object):
         sigmaf_k = sigmaf_gw.k + sigmaf_edmft - sigmaf_dc
         sigmac_kf = sigmac_gw.kf + sigmac_edmft - sigmac_dc  ## should the sigmac_gw.rf needs to be converted from sigmac_gw.kf ?
 
-        green_edmft = GreenInt_EDMFT(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_k,sigmaf=sigmaf_k,sigmagwc=sigmac_kf)
-        # green_edmft = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_k,sigmaf=sigmaf_k,sigmagwc=sigmac_kf)
+        # green_edmft = GreenInt_EDMFT(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_k,sigmaf=sigmaf_k,sigmagwc=sigmac_kf)
+        green_edmft = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_k,sigmaf=sigmaf_k,sigmagwc=sigmac_kf)
 
         # N = self.green.NumOfE(self.green.mu)
         # print("NumofE -- GW             :",N)
@@ -543,6 +554,8 @@ class CorrelationFunction(object):
     ### used for GW_EDMFT
     def W_EDMFT(self, vbare : VBare, pol_gw : PolLat, pol_edmft : np.ndarray, pol_dc : np.ndarray):
 
+        #### put embedding part to here
+
         pol_kf = pol_gw.kf + pol_edmft - pol_dc
 
         # w_edmft = pol_gw.Dyson(mat1, mat2)
@@ -552,6 +565,8 @@ class CorrelationFunction(object):
     
     ### used for GW_EDMFT
     def GW_update(self,g_edmft,vbare):
+
+        #### put embedding part to here
 
         sigmah = SigmaHartree(crystal=self.crystal,occ=g_edmft.occ,vbare=vbare.k)
         sigmaf = SigmaFock(crystal=self.crystal,occr=g_edmft.occr,vbare=vbare.r)

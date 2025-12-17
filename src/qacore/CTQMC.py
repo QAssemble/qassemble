@@ -40,21 +40,26 @@ class CTQMC(object):
         if equiv is None:
             equiv = self.crystal.read_imp_equi_mat(imp)
 
+        flocdyn = FLocDyn(self.crystal,self.ft)
+        blocdyn = BLocDyn(self.crystal,self.ft)
+
         ###########################
         ### Write hyb.json file ###
         ###########################
         print('*** write hyb.json file ***')
         # delta_F = self.imp_B2F_freq(imp,Hyb[...,key-1],key)  ### use this
         # delta_B = self.imp_F2B_freq(imp,delta_F,key)
-        hyb_dict = self.write_hyb_dict(equiv,hyb[...,key-1])
-        self.write_hyb_json(iter,key,hyb_dict)
+        # hyb_dict = self.write_hyb_dict(equiv,hyb[...,key-1])
+        # self.write_hyb_json(iter,key,hyb_dict)
+        hyb_dict = flocdyn.write_hyb_dict(equiv,hyb[...,key-1])
+        flocdyn.write_hyb_json(iter,key,hyb_dict)
 
         ###########################
         ### Write dyn.json file ###
         ###########################
         print('*** write dyn.json file ***')
-        F0_dict = self.write_dyn_dict(1,1,bweiss)
-        self.write_dyn_json(iter,key,F0_dict)
+        F0_dict = blocdyn.write_dyn_dict(1,1,bweiss)
+        blocdyn.write_dyn_json(iter,key,F0_dict)
 
         ##############################
         ### Write params.json file ###
@@ -157,6 +162,9 @@ class CTQMC(object):
     def Run(self):
 
         run_cmd = 'mpirun -np 4 ~/DiagE/ComCTQMC/bin/CTQMC params'
+        # run_cmd = 'mpirun -np '+str()+'~/DiagE/ComCTQMC/bin/CTQMC params'
+
+        ## input nb of processors
 
         with open('./ctqmc.out', 'w') as logfile, open('./ctqmc.err', 'w') as errfile:
             ret = subprocess.call(run_cmd, shell=True,stdout = logfile, stderr = errfile)
@@ -176,7 +184,7 @@ class CTQMC(object):
             if ret != 0:
                 print("Error in EVALSIM. Check evalsim.err for error message.")
                 sys.exit()
-        print("measure self-energy done")
+        # print("measure self-energy done")
 
         return None
     
@@ -185,7 +193,7 @@ class CTQMC(object):
         iter = iter + 1 ### convert index from 0-based to 1-based
 
         equiv = kwargs['equiv']
-        utilde_rf = kwargs['utilde_rf']
+        # utilde_rf = kwargs['utilde_rf']
         
         print("*****************************")
         print("Impurity Postprocessing Strat")
@@ -242,38 +250,20 @@ class CTQMC(object):
     
         # Green = self.FgaussianLocDyn(self.ft.omega,Green,0.05,1/self.ft.beta,cutoff)
 
+        susceptibility = self.read_susceptibility_LocDyn(equiv, obsjson)
 
-
-
-    #     ndim = int(np.sqrt(len(obsjson["occupation-susceptibility-bulla"])))
-    #     norbc = self.crystal.fprojector.shape[1]
-    #     ns = self.crystal.ns
-    #     nspin = 2
-
-    #     # print(norbc,ns)
-
-    #     nft = len(obsjson["occupation-susceptibility-bulla"]['0_0']['function'])
-
-    #     tempmat = np.zeros((norbc,norbc,norbc,norbc,nspin,nspin,nft), dtype=np.complex128, order='F')
-
-    #     for ind1 in range(ndim):
-    #         nn1 = [0]*2
-    #         ind1, [iorb, ispin] = self.crystal.indexing(ndim,2,[norbc,nspin],0,ind1,nn1)
-    #         for ind2 in range(ndim):
-    #             nn2 = [0]*2
-    #             ind2, [jorb, jspin] = self.crystal.indexing(ndim,2,[norbc,nspin],0,ind2,nn2)
-    #             name = str(ind1)+'_'+str(ind2)
-    #             tempmat[iorb,jorb,jorb,iorb,ispin,jspin,:] = obsjson["occupation-susceptibility-bulla"][name]["function"]
-
-
-    #     susceptibility = np.copy(tempmat)
-
-    #     return Green,Sigma_hf,Sigma_bare,susceptibility
+        return Green,Sigma_hf,Sigma_bare,susceptibility
 
 
 
 
-    # def PostProcessing2(self,iter,key,Green,Sigma_hf,Sigma_bare,susceptibility):
+    def PostProcessing2(self,iter,key,**kwargs):
+
+        Green = kwargs['Green']
+        Sigma_hf = kwargs['Sigma_hf']
+        Sigma_bare = kwargs['Sigma_bare']
+        susceptibility = kwargs['susceptibility']
+        utilde_rf = kwargs['utilde_rf']
 
 
         #############################################################
@@ -303,28 +293,11 @@ class CTQMC(object):
         #######    read susceptibility and compute Pi_emft    #######
         #############################################################
         ### read susceptibility
-        ndim = int(np.sqrt(len(obsjson["occupation-susceptibility-bulla"])))
-        norbc = self.crystal.fprojector.shape[1]
-        ns = self.crystal.ns
-        nspin = 2             ### nspin could be different from ns in CTQMC
-
-        nft = len(obsjson["occupation-susceptibility-bulla"]['0_0']['function'])
-
-        tempmat = np.zeros((norbc,norbc,norbc,norbc,nspin,nspin,nft), dtype=np.complex128, order='F')
-
-        for ind1 in range(ndim):
-            nn1 = [0]*2
-            ind1, [iorb, ispin] = self.crystal.indexing(ndim,2,[norbc,nspin],0,ind1,nn1)
-            for ind2 in range(ndim):
-                nn2 = [0]*2
-                ind2, [jorb, jspin] = self.crystal.indexing(ndim,2,[norbc,nspin],0,ind2,nn2)
-                name = str(ind1)+'_'+str(ind2)
-                tempmat[iorb,jorb,jorb,iorb,ispin,jspin,:] = obsjson["occupation-susceptibility-bulla"][name]["function"]
-
-        susceptibility = np.copy(tempmat)
+        # susceptibility = self.read_susceptibility_LocDyn(equiv, obsjson)
 
         ### compute Pi_edmft using susceptibility and utilde
-        Pi = PolImp(self.crystal,self.ft)
+        if int(key)-1 == 0:
+            Pi = PolImp(self.crystal,self.ft)
         Pi.add_key(susceptibility, utilde_rf, int(key)-1)
 
         print("******************************")
@@ -486,99 +459,6 @@ class CTQMC(object):
 
         return B
     
-
-    def write_hyb_dict(self,equiv : np.ndarray, mat_in : np.ndarray)->dict:
-        
-        ns = mat_in.shape[2]
-        Nind = int(np.amax(equiv))
-        # print(Nind)
-        # exit()
-        mat_dict = {}    
-
-        for ind in range(Nind):
-            mat_dict[ind+1]=[]
-            # pos = find_positions(equiv,ind+1)
-            pos_row, pos_col = np.where(equiv==ind+1)
-            for js in range(ns):
-                e = 0
-                # for ii, jj in pos:
-                for i in range(len(pos_row)):
-                    
-                    e+=mat_in[pos_row[i],pos_col[i],js]
-                e/=len(pos_row)
-                mat_dict[ind+1].append(e.tolist())
-
-        return mat_dict
-    
-    def write_hyb_json(self,iter,key,hyb : dict):
-
-        if self.crystal.soc is False:
-            if self.crystal.ns == 1:
-                json_dict = {}
-                for ikey,val in hyb.items():
-                    json_dict[ikey] = {}
-                    json_dict[ikey]['beta'] = self.ft.beta
-                    json_dict[ikey]['real'] = np.real(val[0]).tolist()
-                    json_dict[ikey]['imag'] = np.imag(val[0]).tolist()
-
-                with open(f'hyb.{iter}.{key}.json','w') as outfile:
-                    json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
-                with open('hyb.json','w') as outfile:
-                    json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
-                    # json.dump(json_dict,outfile,sort_keys=True, separators=(']'))
-            
-            elif self.crystal.ns == 2:
-                print("Nspin is not 1")
-                sys.exit()
-        elif self.crystal.soc is True:
-            print("SOC must be False")
-            sys.exit()
-        return None
-    
-    def write_dyn_dict(self,iter,key,utilde_rf_2):
-        norb,_,ns,_,nft,_ = utilde_rf_2.shape
-        norbc = len(self.crystal.find)
-        utilde_rf_4 = np.zeros((norbc,norbc,norbc,norbc,ns,ns,nft),dtype=np.complex64,order='F')
-
-        for iis in range(ns):
-            for jjs in range(ns):
-                for ift in range(nft):
-                    utilde_rf_4[...,iis,jjs,ift] = self.crystal.Double2Quad(utilde_rf_2[...,iis,jjs,ift,0])
-        
-        F0_val = np.zeros(nft,dtype=np.float64, order='F')
-        for ift in range(nft):
-            F0_val[ift] = 1.0/ns**2/norbc**2*np.einsum('ijjimn->',utilde_rf_4[...,ift]).real
-        
-        F0_dict = {}
-        F0_dict["F0"] = F0_val.tolist()
-
-        return F0_dict
-    
-
-    def write_dyn_json(self,iter,key,dyn : dict):
-
-        if self.crystal.soc is False:
-            if self.crystal.ns == 1:
-                json_dict = dyn
-                # for ikey,val in dyn.items():
-                #     json_dict[ikey] = {}
-                #     # json_dict[ikey]['beta'] = self.ft.beta
-                #     json_dict[ikey]['real'] = np.real(val[0]).tolist()
-                #     json_dict[ikey]['imag'] = np.imag(val[0]).tolist()
-
-                # with open(f'hyb.{iter}.{key}.json','w') as outfile:
-                    # json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
-                with open('dyn.json','w') as outfile:
-                    json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
-            
-            elif self.crystal.ns == 2:
-                print("Nspin is not 1")
-                sys.exit()
-        elif self.crystal.soc is True:
-            print("SOC must be False")
-            sys.exit()
-        return None
-    
     def read_dict_LocDyn(self,equiv : np.ndarray, mat_dict : dict)->np.ndarray:
         
         norb = len(equiv)
@@ -620,21 +500,137 @@ class CTQMC(object):
     
     def read_susceptibility_LocDyn(self,equiv : np.ndarray, mat_dict : dict)->np.ndarray:
         
-        norb = len(equiv)
-        ns = self.crystal.ns
-        nfreq = len(mat_dict["1"])
+        # norb = len(equiv)
+        # ns = self.crystal.ns
+        # nfreq = len(mat_dict["1"])
 
-        mat_out = np.zeros((norb,norb,ns,nfreq),dtype=complex,order='F')
+        # mat_out = np.zeros((norb,norb,ns,nfreq),dtype=complex,order='F')
 
-        Nind = np.amax(equiv)
+        # Nind = np.amax(equiv)
         
-        for js in range(ns):
-            for ind in range(Nind):
-                # pos = find_positions(equiv,ind+1) 
-                pos_row, pos_col = np.where(equiv==ind+1)
-                # for ii, jj in pos:
-                for i in range(len(pos_row)):
-                    mat_out[pos_row[i],pos_col[i],js] = mat_dict[str(ind+1)]
+        # for js in range(ns):
+        #     for ind in range(Nind):
+        #         # pos = find_positions(equiv,ind+1) 
+        #         pos_row, pos_col = np.where(equiv==ind+1)
+        #         # for ii, jj in pos:
+        #         for i in range(len(pos_row)):
+        #             mat_out[pos_row[i],pos_col[i],js] = mat_dict[str(ind+1)]
+        
+
+        ndim = int(np.sqrt(len(mat_dict["occupation-susceptibility-bulla"])))
+        norbc = self.crystal.fprojector.shape[1]
+        ns = self.crystal.ns
+        nspin = 2             ### nspin could be different from ns in CTQMC
+
+        nft = len(mat_dict["occupation-susceptibility-bulla"]['0_0']['function'])
+
+        mat_out = np.zeros((norbc,norbc,norbc,norbc,nspin,nspin,nft), dtype=np.complex128, order='F')
+
+        for ind1 in range(ndim):
+            nn1 = [0]*2
+            ind1, [iorb, ispin] = self.crystal.indexing(ndim,2,[norbc,nspin],0,ind1,nn1)
+            for ind2 in range(ndim):
+                nn2 = [0]*2
+                ind2, [jorb, jspin] = self.crystal.indexing(ndim,2,[norbc,nspin],0,ind2,nn2)
+                name = str(ind1)+'_'+str(ind2)
+                mat_out[iorb,jorb,jorb,iorb,ispin,jspin,:] = mat_dict["occupation-susceptibility-bulla"][name]["function"]
+
+        # susceptibility = np.copy(mat_out)
         
         return mat_out
+    
+
+
+
+    # def write_hyb_dict(self,equiv : np.ndarray, mat_in : np.ndarray)->dict:
+        
+    #     ns = mat_in.shape[2]
+    #     Nind = int(np.amax(equiv))
+    #     # print(Nind)
+    #     # exit()
+    #     mat_dict = {}    
+
+    #     for ind in range(Nind):
+    #         mat_dict[ind+1]=[]
+    #         # pos = find_positions(equiv,ind+1)
+    #         pos_row, pos_col = np.where(equiv==ind+1)
+    #         for js in range(ns):
+    #             e = 0
+    #             # for ii, jj in pos:
+    #             for i in range(len(pos_row)):
+                    
+    #                 e+=mat_in[pos_row[i],pos_col[i],js]
+    #             e/=len(pos_row)
+    #             mat_dict[ind+1].append(e.tolist())
+
+    #     return mat_dict
+    
+    # def write_hyb_json(self,iter,key,hyb : dict):
+
+    #     if self.crystal.soc is False:
+    #         if self.crystal.ns == 1:
+    #             json_dict = {}
+    #             for ikey,val in hyb.items():
+    #                 json_dict[ikey] = {}
+    #                 json_dict[ikey]['beta'] = self.ft.beta
+    #                 json_dict[ikey]['real'] = np.real(val[0]).tolist()
+    #                 json_dict[ikey]['imag'] = np.imag(val[0]).tolist()
+
+    #             with open(f'hyb.{iter}.{key}.json','w') as outfile:
+    #                 json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
+    #             with open('hyb.json','w') as outfile:
+    #                 json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
+    #                 # json.dump(json_dict,outfile,sort_keys=True, separators=(']'))
+            
+    #         elif self.crystal.ns == 2:
+    #             print("Nspin is not 1")
+    #             sys.exit()
+    #     elif self.crystal.soc is True:
+    #         print("SOC must be False")
+    #         sys.exit()
+    #     return None
+    
+    # def write_dyn_dict(self,iter,key,utilde_rf_2):
+    #     norb,_,ns,_,nft,_ = utilde_rf_2.shape
+    #     norbc = len(self.crystal.find)
+    #     utilde_rf_4 = np.zeros((norbc,norbc,norbc,norbc,ns,ns,nft),dtype=np.complex64,order='F')
+
+    #     for iis in range(ns):
+    #         for jjs in range(ns):
+    #             for ift in range(nft):
+    #                 utilde_rf_4[...,iis,jjs,ift] = self.crystal.Double2Quad(utilde_rf_2[...,iis,jjs,ift,0])
+        
+    #     F0_val = np.zeros(nft,dtype=np.float64, order='F')
+    #     for ift in range(nft):
+    #         F0_val[ift] = 1.0/ns**2/norbc**2*np.einsum('ijjimn->',utilde_rf_4[...,ift]).real
+        
+    #     F0_dict = {}
+    #     F0_dict["F0"] = F0_val.tolist()
+
+    #     return F0_dict
+    
+
+    # def write_dyn_json(self,iter,key,dyn : dict):
+
+    #     if self.crystal.soc is False:
+    #         if self.crystal.ns == 1:
+    #             json_dict = dyn
+    #             # for ikey,val in dyn.items():
+    #             #     json_dict[ikey] = {}
+    #             #     # json_dict[ikey]['beta'] = self.ft.beta
+    #             #     json_dict[ikey]['real'] = np.real(val[0]).tolist()
+    #             #     json_dict[ikey]['imag'] = np.imag(val[0]).tolist()
+
+    #             # with open(f'hyb.{iter}.{key}.json','w') as outfile:
+    #                 # json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
+    #             with open('dyn.json','w') as outfile:
+    #                 json.dump(json_dict,outfile,sort_keys=True, indent=4, separators=(',', ': '))
+            
+    #         elif self.crystal.ns == 2:
+    #             print("Nspin is not 1")
+    #             sys.exit()
+    #     elif self.crystal.soc is True:
+    #         print("SOC must be False")
+    #         sys.exit()
+    #     return None
     
