@@ -1,4 +1,4 @@
-Start task at Tue Dec 16 19:52:04 2025
+Start task at Sat Jan  3 15:33:50 2026
 
 
 Number of invariant subspaces: 16
@@ -15,3 +15,20 @@ Begin setting updates
 Setting expansion updates for partition space ... Ok
 End setting updates
 partition eta = 1
+Begin evaluating partition measurements
+Calculating quantum number observables ... Ok
+Calculating observables ... Ok
+Calculating energy ... Ok
+Reading hybridisation function ... Ok
+Reading green function ... Ok
+Calculating self-energy with dyson ... OK
+Calculating self-energy with bulla ... Ok
+Reading N susceptibility ... Ok
+Adding N susceptibility high frequency tail ... Ok
+Reading Sz susceptibility ... Ok
+Adding Sz susceptibility high frequency tail ... Ok
+Reading impurity probabilities ... Ok
+describing eigenstates ... Ok
+End evaluating partition measurements
+Task of worker finished at Sat Jan  3 15:37:51 2026
+

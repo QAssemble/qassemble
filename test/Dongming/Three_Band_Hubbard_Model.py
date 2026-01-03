@@ -136,21 +136,21 @@ vbare = VBare(
 
 
 
-itermax = 1
-mix = 0.1
+# itermax = 1
+# mix = 0.1
 
-cf.GWApproximation(
-    itermax=itermax,
-    mix=mix,
-    hoppinglist=hopping,
-    loccoulomb=locoption,
-    nonloccoulomb=nonlocoption,
-)
+# cf.GWApproximation(
+#     itermax=itermax,
+#     mix=mix,
+#     hoppinglist=hopping,
+#     loccoulomb=locoption,
+#     nonloccoulomb=nonlocoption,
+# )
 
-# fpathstc.Band(hmat = cf.niham.r+cf.sigmah.r+cf.sigmaf.r, plotoption=True)
+# # fpathstc.Band(hmat = cf.niham.r+cf.sigmah.r+cf.sigmaf.r, plotoption=True)
 
 
-
+# exit()
 
 
 
@@ -206,7 +206,20 @@ equiv = cf.crystal.read_imp_equi_mat(imp)
 
 
 
-cf.GW_EDMFT(itermax=2,imp=imp,equiv=equiv)
+# cf.GW_EDMFT_x(itermax=2,imp=imp,equiv=equiv)
+
+
+itermax = 2
+mix = 0.1
+
+cf.GW_EDMFT(
+    itermax=itermax,
+    imp=imp,equiv=equiv,
+    mix=mix,
+    hoppinglist=hopping,
+    loccoulomb=locoption,
+    nonloccoulomb=nonlocoption,
+)
 
 
 

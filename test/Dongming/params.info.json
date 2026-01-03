@@ -1,6 +1,6 @@
 {
-    "measurement steps": 7103792,
+    "measurement steps": 7462196,
     "number of markov chains": 4,
     "number of mpi processes": 4,
-    "thermalization steps": 5993574
+    "thermalization steps": 5902097
 }
