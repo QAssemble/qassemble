@@ -321,6 +321,28 @@ class CorrelationFunction(object):
                  valley : bool = False, site : bool = False, aferro : bool = False, 
                  loccoulomb : dict = None, nonloccoulomb : list = None,
                  ohno : bool = False, jth : bool = False, ohnoyuka : bool = False, hdf5file : str = 'glob.h5', group : str = 'gw_edmft'):
+    
+        """
+        Implement GW directly under the GW+EDMFT cycle (copy/paste Seongjun's GWApproximation method)
+
+        1: GW cycle
+        2: Double Counting cycle
+        3: EDMFT cycle
+        4: compute total G and W
+
+        Minor change in GW part (changed the names): 
+        sigmah -> sigmah_gw
+        sigmaf -> sigmaf_gw
+        sigmagwc -> sigmac_gw
+        pol -> pol_gw
+
+        use GreenInt/WLat classes to compute the total G and W (Check out GreenInt_EDMFT/W_EDMFT classes)
+
+        Question: 
+        Do we need to include the Mixing procedure in the DC and EDMFT parts?
+        How should the Mixing procedure of pol_gw and sigmac_gw be computed after completing the full self-consistency cycles?
+
+        """
 
         errmessage = "missing input for GW_EDMFT calculation"
         if (hoppinglist==None):
@@ -329,16 +351,7 @@ class CorrelationFunction(object):
         elif (loccoulomb==None):
             print(errmessage)
             sys.exit()
-        
 
-
-        ### build a CTQMC class in advance
-        ctqmc = CTQMC(crystal=self.crystal,ft=self.ft)
-        ### get the number of problem space for key iteration
-        nprob = len(self.crystal.probspace)
-
-
-        
 
         niham = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,hdf5file=hdf5file,group=group)
         gbare = GreenBare(crystal=self.crystal,ft=self.ft,hamtb=niham.k,hdf5file=hdf5file,group=group)
@@ -347,7 +360,19 @@ class CorrelationFunction(object):
         self.greenbare = gbare
 
 
-        ## compute vloc in advance
+
+        ########################################################################################
+        ### build CTQMC class in advance & get the number of problem space for key iteration ###
+        ########################################################################################
+            
+        ### build a CTQMC class in advance
+        ctqmc = CTQMC(crystal=self.crystal,ft=self.ft)
+        ### get the number of problem space for key iteration
+        nprob = len(self.crystal.probspace)
+
+        ###############################
+        ### compute vloc in advance ###
+        ###############################
         vloc = self.vbare.vloc                   ### get the vloc from GWApproximation result
         vloc.compute_vloc_projection_on_space()  ### compute projected complex vloc with the nspace dimension
         ### shouldn't it be in nprob, not in nspace?
@@ -355,6 +380,11 @@ class CorrelationFunction(object):
 
 
         for iter in range(1,itermax+1):
+
+            #############################################################
+            ##############    GW part (Seongjun's code)    ##############
+            #############################################################
+            
             if iter == 1:
                 # niham_temp = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin, valley=valley, hdf5file=hdf5file,group='test') 
                 niham_temp = NIHamiltonian(self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin,aferro=aferro, valley=valley,site=site,hdf5file=hdf5file,group='test_gw')
@@ -380,14 +410,14 @@ class CorrelationFunction(object):
             print("Fock calculation finish")
 
             print("Polarizability calculation start")
-            pol = PolLat(crystal=self.crystal,ft=self.ft,green=gold.rt,hdf5file=hdf5file,group=group)
-            pol.kf = pol.Mixing(iter=iter,mix=mix,Bb=pol.kf,Bold=pkfold)
-            if (iter % 50 == 0):
-                pol.Save(f'pkf.{iter}')
+            pol_gw = PolLat(crystal=self.crystal,ft=self.ft,green=gold.rt,hdf5file=hdf5file,group=group)
+            pol_gw.kf = pol_gw.Mixing(iter=iter,mix=mix,Bb=pol_gw.kf,Bold=pkfold)
+            # if (iter % 50 == 0):
+            #     pol.Save(f'pkf.{iter}')
             print("Polarizability calculation finish")
 
             print("Screened coulomb interaction calculation start")
-            w = WLat(crystal=self.crystal,ft=self.ft,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
+            w = WLat(crystal=self.crystal,ft=self.ft,pol=pol_gw.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
             # if (iter % 50 == 0):
             #     w.Save(f'wkf.{iter}')
             # w.Save(w.ckf,f'wckf.{iter}')
@@ -402,11 +432,15 @@ class CorrelationFunction(object):
 
             
 
+            ######################################################################################
+            ##############    build total Green's function for the 1st iteration    ##############
+            ######################################################################################
+
             if iter == 1:
                 print("GW green's function calculation start")
                 gnew = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_gw.k,sigmaf=sigmaf_gw.k,sigmagwc=sigmac_gw.kf,hdf5file=hdf5file,group=group)
-                if (iter % 50 == 0):
-                    gnew.Save(f'gkf.{iter}')
+                # if (iter % 50 == 0):
+                #     gnew.Save(f'gkf.{iter}')
                 print("GW green's function calculation finish")
 
                 fcheck = self.SCFCheck(gnew.kf,gold.kf)
@@ -421,34 +455,51 @@ class CorrelationFunction(object):
             
 
 
+            #######################################################
+            ##############    Lod projection part    ##############
+            #######################################################
+
             ### Green's function ans W projections
             gloc, wloc = self.Loc_Projection(gold,w)
 
 
+            ########################################################
+            ##############    Double Counting part    ##############
+            ########################################################
 
             #### DC (Double Counting) part #### input: vloc/gloc/wloc, output: Sigmaf_dc, sigmac_dc, pi_dc
-            sigmaf_dc,sigmac_dc,pol_dc = self.compute_DC_part(gloc,wloc,vloc) ## passing VLoc class to the argument
+            sigmaf_dc,sigmac_dc,pol_dc = self.compute_DC_part(gloc,wloc,vloc) ## passing VLoc class
+
+
+            ###################################################
+            ##############    EDMFT(IMP) part    ##############
+            ###################################################
 
             #### EDMFT part ####
             for key in range(1,nprob+1):
                 if iter == 1:
+                    ## First iteration uses DC part for IMP calculations
                     (sigmah_edmft,
                     sigmaf_edmft,
                     sigmac_edmft,
                     pol_edmft,
-                    sigmah_dc) = self.compute_IMP_part(iter,ctqmc,key,imp,equiv,gold.mu,gloc,wloc,vloc,sigmah_gw,sigmaf_gw,pol_dc,sigmaf_dc,sigmac_dc) ## First iteration uses DC part for IMP calculations
+                    sigmah_dc) = self.compute_IMP_part(iter,ctqmc,key,imp,equiv,gold.mu,gloc,wloc,vloc,sigmah_gw,sigmaf_gw,pol_dc,sigmaf_dc,sigmac_dc)
                 else:
                     (sigmah_edmft,
                     sigmaf_edmft,
                     sigmac_edmft,
                     pol_edmft,
-                    sigmah_dc) = self.compute_IMP_part(iter,ctqmc,key,imp,equiv,gold.mu,gloc,wloc,vloc,sigmah_gw,sigmaf_gw,pol_dc,sigmaf_dc,sigmac_dc,sigmah_edmft,sigmaf_edmft,sigmac_edmft) ## passing VLoc class to the argument
+                    sigmah_dc) = self.compute_IMP_part(iter,ctqmc,key,imp,equiv,gold.mu,gloc,wloc,vloc,sigmah_gw,sigmaf_gw,pol_dc,sigmaf_dc,sigmac_dc,sigmah_edmft,sigmaf_edmft,sigmac_edmft)
                 
             
 
+            #####################################################################################
+            ##############    Combined GW, DC, and EDMFT to build total G and W    ##############
+            #####################################################################################
+
             #### merge GW+EDMFT+DC to compute the total G and W (namely update total G and W)
             print("\n*** Compute the total Screened Coulomb Interaction -- W_EDMFT")
-            w = self.W_EDMFT(self.vbare, pol.kf, pol_edmft.kf_embedded, pol_dc.kf_embedded)
+            w = self.W_EDMFT(self.vbare, pol_gw.kf, pol_edmft.kf_embedded, pol_dc.kf_embedded)
 
             print("\n*** Compute the total Interacting Green's function -- GreenInt_EDMFT")
             gnew = self.GreenInt_EDMFT(self.greenbare,sigmah_gw.k,sigmaf_gw.k,sigmac_gw.kf
@@ -486,7 +537,7 @@ class CorrelationFunction(object):
                 print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
                 self.greenbare = gbare
                 self.green = gnew
-                self.pol = pol
+                # self.pol = pol
                 self.w = w
                 self.sigmagwc = sigmac_gw
                 self.sigmaf = sigmaf_gw
@@ -504,7 +555,7 @@ class CorrelationFunction(object):
             else:
                 gold = gnew
                 ckfold = sigmac_gw.kf
-                pkfold = pol.kf
+                pkfold = pol_gw.kf
                 wold = w.kf
 
                 # del gnew, sigmah, sigmaf, sigmagwc, pol, w

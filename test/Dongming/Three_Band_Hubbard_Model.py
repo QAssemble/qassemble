@@ -204,11 +204,6 @@ imp={'temperature'            : 300, # temperature (in K)
 equiv = cf.crystal.read_imp_equi_mat(imp)
 
 
-
-
-# cf.GW_EDMFT_x(itermax=2,imp=imp,equiv=equiv)
-
-
 itermax = 2
 mix = 0.1
 
