@@ -236,7 +236,8 @@ class FPathDyn(object):
         cutoff = option.get("cutoff", self.dlr.cutoff)
         beta = option.get("beta", self.dlr.beta)
         # gaussian_broadening = float(option["gaussian_broadening"])
-        omega = self.dlr.MatsubaraFermionUniform(Emax=cutoff, beta=beta)
+        # omega = self.dlr.MatsubaraFermionUniform(Emax=cutoff, beta=beta)
+        omega = np.loadtxt("omega.dat")
 
         info = np.loadtxt("info.dat")
         norb = int(info[0])
@@ -262,7 +263,7 @@ class FPathDyn(object):
             # (moment, high) = self.flatdyn.Moment(gauxmat, True, True)
             (moment, high) = self.flatdyn.Moment(gauxmat, False, False)
         elif gauxmode == "auxg":
-            (moment_temp, high_temp) = self.flatdyn.Moment(gmat, False, True)
+            (moment_temp, high_temp) = self.flatdyn.Moment(gmat, False, False)
 
             for ik in range(1):
                 for js in range(ns):
@@ -296,7 +297,7 @@ class FPathDyn(object):
                         "iorb " + str(iorb + 1) + " center:", acenter, "width:", awidth
                     )
                     emax = max(round(abs(acenter) + awidth * 30), emax)
-
+        # emax = 10
         print("emax:", emax)
         print("\n")
 
@@ -336,7 +337,7 @@ class FPathDyn(object):
                     f = open("mqem.input.toml", "w")
                     f.write('inputFile = "gaux.dat"\n')
                     f.write("NumOrbit = 1\n")
-                    f.write("inverse_temp =  " + str(np.pi / omega[0]) + "\n")
+                    f.write("inverse_temp =  " + str(self.dlr.beta) + "\n")
                     f.write("Egrid = 400\n")
                     f.write("EwinOuterRight = " + str(np.real(emax)) + "\n")
                     f.write("EwinOuterLeft = -" + str(np.real(emax)) + "\n")
@@ -420,7 +421,7 @@ class FPathDyn(object):
                 for js in range(ns):
                     for iorb in range(norb):
                         x = omega_real
-                        y = np.real(sig_real_bare[iorb, iorb, js, ik])
+                        y = sig_real_bare[iorb, iorb, js, ik]
                         f = interpolate.interp1d(x, y, kind="cubic")
                         tempdat = f(xnew)
                         if gaussian_broadening > 0:
@@ -482,7 +483,7 @@ class FPathDyn(object):
 
         return None
 
-    def MQEMPrepare(self, gmat : np.ndarray = None):
+    def MQEMPrepare(self, gmat : np.ndarray = None, omega : np.ndarray = None):
 
         norb, _, ns, nk, nomega = gmat.shape
 
@@ -513,6 +514,10 @@ class FPathDyn(object):
                                     np.imag(gmat[iorb, jorb, js, ik, iomega]),
                                 )
                             )
+            f.close()
+            f = open("omega.dat", "w")
+            for iomega in range(nomega):
+                f.write("%20.10f\n" % omega[iomega])
             f.close()
             os.chdir("..")
         
