@@ -417,14 +417,14 @@ class CorrelationFunction(object):
             print("Polarizability calculation finish")
 
             print("Screened coulomb interaction calculation start")
-            w = WLat(crystal=self.crystal,ft=self.ft,pol=pol_gw.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
+            w_gw = WLat(crystal=self.crystal,ft=self.ft,pol=pol_gw.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
             # if (iter % 50 == 0):
             #     w.Save(f'wkf.{iter}')
             # w.Save(w.ckf,f'wckf.{iter}')
             print("Screened coulomb interaction calculation finish")
 
             print("GW self-energy calculation start")
-            sigmac_gw = SigmaGWC(crystal=self.crystal,ft=self.ft,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group)
+            sigmac_gw = SigmaGWC(crystal=self.crystal,ft=self.ft,green=gold.rt,wlat=w_gw.crt,hdf5file=hdf5file,group=group)
             sigmac_gw.kf = sigmac_gw.Mixing(iter=iter,mix=mix,Fb=sigmac_gw.kf,Fm=ckfold)
             # if (iter % 50 == 0):
             #     sigmagwc.Save(f'sigmagwckf.{iter}')
@@ -437,11 +437,18 @@ class CorrelationFunction(object):
             ######################################################################################
 
             if iter == 1:
-                print("GW green's function calculation start")
+                
+                ############################
+                ### Green's function - G ###
+                ############################
                 gnew = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_gw.k,sigmaf=sigmaf_gw.k,sigmagwc=sigmac_gw.kf,hdf5file=hdf5file,group=group)
                 # if (iter % 50 == 0):
                 #     gnew.Save(f'gkf.{iter}')
-                print("GW green's function calculation finish")
+
+                ########################################
+                ### Screen's Coulomb Interaction - W ###
+                ########################################
+                wold = np.copy(w_gw)
 
                 fcheck = self.SCFCheck(gnew.kf,gold.kf)
                 # bcheck = self.SCFCheck(w.kf,wold)
@@ -460,7 +467,7 @@ class CorrelationFunction(object):
             #######################################################
 
             ### Green's function ans W projections
-            gloc, wloc = self.Loc_Projection(gold,w)
+            gloc, wloc = self.Loc_Projection(gold,wold)
 
 
             ########################################################
@@ -499,7 +506,7 @@ class CorrelationFunction(object):
 
             #### merge GW+EDMFT+DC to compute the total G and W (namely update total G and W)
             print("\n*** Compute the total Screened Coulomb Interaction -- W_EDMFT")
-            w = self.W_EDMFT(self.vbare, pol_gw.kf, pol_edmft.kf_embedded, pol_dc.kf_embedded)
+            wnew = self.W_EDMFT(self.vbare, pol_gw.kf, pol_edmft.kf_embedded, pol_dc.kf_embedded)
 
             print("\n*** Compute the total Interacting Green's function -- GreenInt_EDMFT")
             gnew = self.GreenInt_EDMFT(self.greenbare,sigmah_gw.k,sigmaf_gw.k,sigmac_gw.kf
@@ -517,8 +524,8 @@ class CorrelationFunction(object):
                 print(f"Self-consistency is achived with {iter}-th")
                 self.greenbare = gbare
                 self.green = gnew
-                self.pol = pol
-                self.w = w
+                # self.pol = pol
+                self.w = wnew
                 self.sigmagwc = sigmac_gw
                 self.sigmaf = sigmaf_gw
                 self.sigmah = sigmah_gw
@@ -538,7 +545,7 @@ class CorrelationFunction(object):
                 self.greenbare = gbare
                 self.green = gnew
                 # self.pol = pol
-                self.w = w
+                self.w = wnew
                 self.sigmagwc = sigmac_gw
                 self.sigmaf = sigmaf_gw
                 self.sigmah = sigmah_gw
@@ -554,9 +561,10 @@ class CorrelationFunction(object):
                 # gc.collect()
             else:
                 gold = gnew
+                wold = wnew
                 ckfold = sigmac_gw.kf
                 pkfold = pol_gw.kf
-                wold = w.kf
+                
 
                 # del gnew, sigmah, sigmaf, sigmagwc, pol, w
                 # gc.collect()
