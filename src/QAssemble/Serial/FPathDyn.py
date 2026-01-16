@@ -376,7 +376,7 @@ class FPathDyn(object):
                         sigout = gaux_real[n1:n2, 0] - 1.0 / (
                             gaux_real[n1:n2, 1] + gaux_real[n1:n2, 2] * 1j
                         )
-                        sig_real[iorb, iorb, js, ik, :] = sigout + high
+                        sig_real[iorb, iorb, js, ik, :] = sigout + high_temp[iorb, iorb, js, ik]
 
                     os.remove("realFreq_Sw.dat_1_1")
                     os.remove("Sw_SOLVER.full_fromRetardedSw.dat_0_0")
