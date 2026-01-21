@@ -379,94 +379,165 @@ class CorrelationFunction(object):
 
 
 
+
+
+
+
+
+
+
+
+        iter = 0
+
+        #############################
+        
+        # niham_temp = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin, valley=valley, hdf5file=hdf5file,group='test') 
+        niham_temp = NIHamiltonian(self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin,aferro=aferro, valley=valley,site=site,hdf5file=hdf5file,group='test_gw')
+        gbare_temp = GreenBare(crystal=self.crystal,ft=self.ft,hamtb=niham_temp.k,hdf5file=hdf5file,group='test') 
+        gold = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare_temp.kf,hdf5file=hdf5file,group=group)
+        pkfold = None
+        ckfold = None
+        # wold = 0
+        # gbare.Save('gbare')
+
+
+        # print(gold.occ)
+        print("Hartree calculation start")
+        sigmah_gw = SigmaHartree(crystal=self.crystal,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
+        # if (iter % 50 == 0):
+        #     sigmah.Save(f'sigmah.{iter}')
+        print("Hartree calculation finish")
+
+        print("Fock calculation start")
+        sigmaf_gw = SigmaFock(crystal=self.crystal,occr=gold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
+        # if (iter % 50 == 0):
+        #     sigmaf.Save(f'sigmaf.{iter}')
+        print("Fock calculation finish")
+
+        print("Polarizability calculation start")
+        pol_gw = PolLat(crystal=self.crystal,ft=self.ft,green=gold.rt,hdf5file=hdf5file,group=group)
+        # pol_gw.kf = pol_gw.Mixing(iter=iter+1,mix=mix,Bb=pol_gw.kf,Bold=pkfold)
+        # if (iter % 50 == 0):
+        #     pol.Save(f'pkf.{iter}')
+        print("Polarizability calculation finish")
+
+        print("Screened coulomb interaction calculation start")
+        wnew = WLat(crystal=self.crystal,ft=self.ft,pol=pol_gw.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
+        # if (iter % 50 == 0):
+        #     w.Save(f'wkf.{iter}')
+        # w.Save(w.ckf,f'wckf.{iter}')
+        print("Screened coulomb interaction calculation finish")
+
+        print("GW self-energy calculation start")
+        sigmac_gw = SigmaGWC(crystal=self.crystal,ft=self.ft,green=gold.rt,wlat=wnew.crt,hdf5file=hdf5file,group=group)
+        # sigmac_gw.kf = sigmac_gw.Mixing(iter=iter+1,mix=mix,Fb=sigmac_gw.kf,Fm=ckfold)
+        # if (iter % 50 == 0):
+        #     sigmagwc.Save(f'sigmagwckf.{iter}')
+        print("GW self-energy calculation finish")
+
+        ############################
+        ### Green's function - G ###
+        ############################
+        gnew = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_gw.k,sigmaf=sigmaf_gw.k,sigmagwc=sigmac_gw.kf,hdf5file=hdf5file,group=group)
+        # if (iter % 50 == 0):
+        #     gnew.Save(f'gkf.{iter}')
+
+        fcheck = self.SCFCheck(gnew.kf,gold.kf)
+        # bcheck = self.SCFCheck(w.kf,wold)
+        mucheck = abs(gnew.mu-gold.mu)
+        print(f"iteration : {iter} \nfcriteria : {fcheck} \nchemicalpotential : {gnew.mu}")
+
+
+        # # gold = gnew
+        # # # ckfold = sigmac_gw.kf
+        # # # pkfold = pol.kf
+        # # # wold = w.kf
+
+        # # ########################################
+        # # ### Screen's Coulomb Interaction - W ###
+        # # ########################################
+        # # # wold = np.copy(wnew)
+        # # wold = wnew
+
+
+        # gloc, wloc = self.Loc_Projection(gnew,wnew)
+
+        # sigmaf_dc,sigmac_dc,pol_dc = self.compute_DC_part(gloc,wloc,vloc) ## passing VLoc class
+
+        # for key in range(1,nprob+1):
+        #     # if iter == 1:
+        #     ## First iteration uses DC part for IMP calculations
+        #     (sigmah_edmft,
+        #     sigmaf_edmft,
+        #     sigmac_edmft,
+        #     pol_edmft,
+        #     sigmah_dc) = self.compute_IMP_part(iter,ctqmc,key,imp,equiv,gnew.mu,gloc,wloc,vloc,sigmah_gw,sigmaf_gw,pol_dc,sigmaf_dc,sigmac_dc)
+
+
+        # # # sigmah_edmft = SigmaHImp(self.crystal)
+        # # sigmaf_edmft = SigmaFImp(self.crystal)
+        # # sigmac_edmft = SigmaCImp(self.crystal,self.ft)
+        # # pol_edmft = PolImp(self.crystal,self.ft)
+
+        # # # sigmah_edmft.k_embedded = sigmah_dc.k_embedded
+        # # sigmaf_edmft.k_embedded = sigmaf_dc.k_embedded
+        # # sigmac_edmft.kf_embedded = sigmac_dc.kf_embedded
+
+        # # pol_edmft.kf_embedded = pol_dc.kf_embedded
+
+        # # exit()
+
+        # ####################################################################################
+        # ##############    Combined GW, DC, and EDMFT to build full G and W    ##############
+        # ####################################################################################
+
+        # #### merge GW+EDMFT+DC to compute the total G and W (namely update total G and W)
+        # print("\n*** Compute the total Screened Coulomb Interaction -- W_EDMFT")
+        # wnew = self.W_EDMFT(self.vbare, pol_gw.kf, pol_edmft.kf_embedded, pol_dc.kf_embedded)
+
+        # print("\n*** Compute the total Interacting Green's function -- GreenInt_EDMFT")
+        # gnew = self.GreenInt_EDMFT(self.greenbare,sigmah_gw.k,sigmaf_gw.k,sigmac_gw.kf
+        #                         ,sigmaf_edmft.k_embedded,sigmac_edmft.kf_embedded
+        #                         ,sigmaf_dc.k_embedded,sigmac_dc.kf_embedded)
+
+
+
+
+
+
+        
+        
+        
+        
+        
+        
+        
+        """
+        input : gold,
+                wold,
+                vbare, 
+                vloc, 
+                nprob, 
+                imp, 
+                CTQMC
+        """
+
+        gold = gnew
+        wold = wnew
+
         for iter in range(1,itermax+1):
 
             #############################################################
             ##############    GW part (Seongjun's code)    ##############
             #############################################################
-            
-            if iter == 1:
-                # niham_temp = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin, valley=valley, hdf5file=hdf5file,group='test') 
-                niham_temp = NIHamiltonian(self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin,aferro=aferro, valley=valley,site=site,hdf5file=hdf5file,group='test_gw')
-                gbare_temp = GreenBare(crystal=self.crystal,ft=self.ft,hamtb=niham_temp.k,hdf5file=hdf5file,group='test') 
-                gold = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare_temp.kf,hdf5file=hdf5file,group=group)
-                pkfold = None
-                ckfold = None
-                wold = 0
-                # gbare.Save('gbare')
-            
 
-            # print(gold.occ)
-            print("Hartree calculation start")
-            sigmah_gw = SigmaHartree(crystal=self.crystal,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
-            # if (iter % 50 == 0):
-            #     sigmah.Save(f'sigmah.{iter}')
-            print("Hartree calculation finish")
-
-            print("Fock calculation start")
-            sigmaf_gw = SigmaFock(crystal=self.crystal,occr=gold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
-            # if (iter % 50 == 0):
-            #     sigmaf.Save(f'sigmaf.{iter}')
-            print("Fock calculation finish")
-
-            print("Polarizability calculation start")
-            pol_gw = PolLat(crystal=self.crystal,ft=self.ft,green=gold.rt,hdf5file=hdf5file,group=group)
-            pol_gw.kf = pol_gw.Mixing(iter=iter,mix=mix,Bb=pol_gw.kf,Bold=pkfold)
-            # if (iter % 50 == 0):
-            #     pol.Save(f'pkf.{iter}')
-            print("Polarizability calculation finish")
-
-            print("Screened coulomb interaction calculation start")
-            w_gw = WLat(crystal=self.crystal,ft=self.ft,pol=pol_gw.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
-            # if (iter % 50 == 0):
-            #     w.Save(f'wkf.{iter}')
-            # w.Save(w.ckf,f'wckf.{iter}')
-            print("Screened coulomb interaction calculation finish")
-
-            print("GW self-energy calculation start")
-            sigmac_gw = SigmaGWC(crystal=self.crystal,ft=self.ft,green=gold.rt,wlat=w_gw.crt,hdf5file=hdf5file,group=group)
-            sigmac_gw.kf = sigmac_gw.Mixing(iter=iter,mix=mix,Fb=sigmac_gw.kf,Fm=ckfold)
-            # if (iter % 50 == 0):
-            #     sigmagwc.Save(f'sigmagwckf.{iter}')
-            print("GW self-energy calculation finish")
-
-            
-
-            ######################################################################################
-            ##############    build total Green's function for the 1st iteration    ##############
-            ######################################################################################
-
-            if iter == 1:
-                
-                ############################
-                ### Green's function - G ###
-                ############################
-                gnew = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_gw.k,sigmaf=sigmaf_gw.k,sigmagwc=sigmac_gw.kf,hdf5file=hdf5file,group=group)
-                # if (iter % 50 == 0):
-                #     gnew.Save(f'gkf.{iter}')
-
-                ########################################
-                ### Screen's Coulomb Interaction - W ###
-                ########################################
-                wold = np.copy(w_gw)
-
-                fcheck = self.SCFCheck(gnew.kf,gold.kf)
-                # bcheck = self.SCFCheck(w.kf,wold)
-                mucheck = abs(gnew.mu-gold.mu)
-                print(f"iteration : {iter} \nfcriteria : {fcheck} \nchemicalpotential : {gnew.mu}")
-
-                gold = gnew
-                # ckfold = sigmac_gw.kf
-                # pkfold = pol.kf
-                # wold = w.kf
-            
+            sigmah_gw, sigmaf_gw, sigmac_gw, pol_gw = self.GW_update(gold,wold,vbare,mix,hdf5file,group)
 
 
             #######################################################
-            ##############    Lod projection part    ##############
+            ##############    Loc projection part    ##############
             #######################################################
 
-            ### Green's function ans W projections
             gloc, wloc = self.Loc_Projection(gold,wold)
 
 
@@ -474,8 +545,7 @@ class CorrelationFunction(object):
             ##############    Double Counting part    ##############
             ########################################################
 
-            #### DC (Double Counting) part #### input: vloc/gloc/wloc, output: Sigmaf_dc, sigmac_dc, pi_dc
-            sigmaf_dc,sigmac_dc,pol_dc = self.compute_DC_part(gloc,wloc,vloc) ## passing VLoc class
+            sigmaf_dc, sigmac_dc, pol_dc = self.compute_DC_part(gloc,wloc,vloc) ## passing VLoc class
 
 
             ###################################################
@@ -500,9 +570,11 @@ class CorrelationFunction(object):
                 
             
 
-            #####################################################################################
-            ##############    Combined GW, DC, and EDMFT to build total G and W    ##############
-            #####################################################################################
+
+
+            ####################################################################################
+            ##############    Combined GW, DC, and EDMFT to build full G and W    ##############
+            ####################################################################################
 
             #### merge GW+EDMFT+DC to compute the total G and W (namely update total G and W)
             print("\n*** Compute the total Screened Coulomb Interaction -- W_EDMFT")
@@ -510,15 +582,18 @@ class CorrelationFunction(object):
 
             print("\n*** Compute the total Interacting Green's function -- GreenInt_EDMFT")
             gnew = self.GreenInt_EDMFT(self.greenbare,sigmah_gw.k,sigmaf_gw.k,sigmac_gw.kf
-                                    ,sigmah_edmft.k_embedded,sigmaf_edmft.k_embedded,sigmac_edmft.kf_embedded
-                                    ,sigmah_dc.k_embedded,sigmaf_dc.k_embedded,sigmac_dc.kf_embedded)
+                                    ,sigmaf_edmft.k_embedded,sigmac_edmft.kf_embedded
+                                    ,sigmaf_dc.k_embedded,sigmac_dc.kf_embedded)
 
 
+            ##########################
+            ###    SCF Checking    ###
+            ##########################
+            
             fcheck = self.SCFCheck(gnew.kf,gold.kf)
             # bcheck = self.SCFCheck(w.kf,wold)
             mucheck = abs(gnew.mu-gold.mu)
             print(f"iteration : {iter} \nfcriteria : {fcheck} \nchemicalpotential : {gnew.mu}")
-
 
             if (fcheck <=1.0e-6)and(mucheck<=0.01):
                 print(f"Self-consistency is achived with {iter}-th")
@@ -562,14 +637,19 @@ class CorrelationFunction(object):
             else:
                 gold = gnew
                 wold = wnew
-                ckfold = sigmac_gw.kf
-                pkfold = pol_gw.kf
+                # ckfold = sigmac_gw.kf
+                # pkfold = pol_gw.kf
                 
 
                 # del gnew, sigmah, sigmaf, sigmagwc, pol, w
                 # gc.collect()
             
-                
+            
+            print(f"\niteration : {iter} is done")
+            print('=================================================\n')
+            print('\n')
+
+
 
         return None
     
@@ -793,11 +873,14 @@ class CorrelationFunction(object):
     
 
     ### used for GW_EDMFT
+    # def GreenInt_EDMFT(self, gbare : GreenBare, sigmah_gw : np.ndarray, sigmaf_gw : np.ndarray, sigmac_gw : np.ndarray
+    #                            ,sigmah_edmft : np.ndarray, sigmaf_edmft : np.ndarray, sigmac_edmft : np.ndarray
+    #                            ,sigmah_dc : np.ndarray, sigmaf_dc : np.ndarray, sigmac_dc : np.ndarray):
     def GreenInt_EDMFT(self, gbare : GreenBare, sigmah_gw : np.ndarray, sigmaf_gw : np.ndarray, sigmac_gw : np.ndarray
-                               ,sigmah_edmft : np.ndarray, sigmaf_edmft : np.ndarray, sigmac_edmft : np.ndarray
-                               ,sigmah_dc : np.ndarray, sigmaf_dc : np.ndarray, sigmac_dc : np.ndarray):
+                               ,sigmaf_edmft : np.ndarray, sigmac_edmft : np.ndarray
+                               ,sigmaf_dc : np.ndarray, sigmac_dc : np.ndarray):
 
-        sigmah_k = sigmah_gw + sigmah_edmft - sigmah_dc
+        sigmah_k = sigmah_gw# + sigmah_edmft - sigmah_dc
         sigmaf_k = sigmaf_gw + sigmaf_edmft - sigmaf_dc
         sigmac_kf = sigmac_gw + sigmac_edmft - sigmac_dc  ## should the sigmac_gw.rf needs to be converted from sigmac_gw.kf ?
 
@@ -832,16 +915,40 @@ class CorrelationFunction(object):
         return w_edmft
     
     ### used for GW_EDMFT
-    def GW_update(self,g_edmft,vbare):
+    def GW_update(self,gold,wold,vbare,mix,hdf5file,group):
 
-        #### put embedding part to here
+        # print(gold.occ)
+        print("Hartree calculation start")
+        sigmah_gw = SigmaHartree(crystal=self.crystal,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
+        # if (iter % 50 == 0):
+        #     sigmah.Save(f'sigmah.{iter}')
+        print("Hartree calculation finish")
 
-        sigmah = SigmaHartree(crystal=self.crystal,occ=g_edmft.occ,vbare=vbare.k)
-        sigmaf = SigmaFock(crystal=self.crystal,occr=g_edmft.occr,vbare=vbare.r)
-        pol = PolLat(crystal=self.crystal,ft=self.ft,green=g_edmft.rt)
-        # pol.kf = pol.Mixing(iter=iter,mix=mix,Bb=pol.kf,Bold=pkfold)
-        w = WLat(crystal=self.crystal,ft=self.ft,pol=pol.kf,vbare=vbare,c=self.c)
-        sigmagwc = SigmaGWC(crystal=self.crystal,ft=self.ft,green=g_edmft.rt,wlat=w.crt)
-        # sigmagwc.kf = sigmagwc.Mixing(iter=iter,mix=mix,Fb=sigmagwc.kf,Fm=ckfold)
+        print("Fock calculation start")
+        sigmaf_gw = SigmaFock(crystal=self.crystal,occr=gold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
+        # if (iter % 50 == 0):
+        #     sigmaf.Save(f'sigmaf.{iter}')
+        print("Fock calculation finish")
 
-        return sigmah,sigmaf,sigmagwc,pol
+        print("Polarizability calculation start")
+        pol_gw = PolLat(crystal=self.crystal,ft=self.ft,green=gold.rt,hdf5file=hdf5file,group=group)
+        # pol_gw.kf = pol_gw.Mixing(iter=iter,mix=mix,Bb=pol_gw.kf,Bold=pkfold)
+        # if (iter % 50 == 0):
+        #     pol.Save(f'pkf.{iter}')
+        print("Polarizability calculation finish")
+
+        # print("Screened coulomb interaction calculation start")
+        # w_gw = WLat(crystal=self.crystal,ft=self.ft,pol=pol_gw.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
+        # # if (iter % 50 == 0):
+        # #     w.Save(f'wkf.{iter}')
+        # # w.Save(w.ckf,f'wckf.{iter}')
+        # print("Screened coulomb interaction calculation finish")
+
+        print("GW self-energy calculation start")
+        sigmac_gw = SigmaGWC(crystal=self.crystal,ft=self.ft,green=gold.rt,wlat=wold.crt,hdf5file=hdf5file,group=group)
+        # sigmac_gw.kf = sigmac_gw.Mixing(iter=iter,mix=mix,Fb=sigmac_gw.kf,Fm=ckfold)
+        # if (iter % 50 == 0):
+        #     sigmagwc.Save(f'sigmagwckf.{iter}')
+        print("GW self-energy calculation finish")
+
+        return sigmah_gw,sigmaf_gw,sigmac_gw,pol_gw

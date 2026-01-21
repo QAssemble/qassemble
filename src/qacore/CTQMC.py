@@ -22,7 +22,7 @@ class CTQMC(object):
 
     def PreProcessing(self, iter : int, key : int, **kwargs):
 
-        iter = iter + 1 ### convert index from 0-based to 1-based
+        # iter = iter + 1 ### convert index from 0-based to 1-based
 
         Eimp = kwargs['Eimp']
         imp = kwargs['imp']
@@ -94,7 +94,8 @@ class CTQMC(object):
                 params["partition"]["susceptibility cutoff"]=self.ft.cutoff # 50
                 params["partition"]["susceptibility tail"]=0 #200
                 params["partition"]["quantum numbers"]={}
-                tempmat = np.ones(Eimp_final.shape[0]*2)
+                # tempmat = np.ones(Eimp_final.shape[0]*2)
+                tempmat = np.ones(Eimp_final.shape[0])
                 params["partition"]["quantum numbers"]["N"]=tempmat.tolist()
                 for ii in range(len(tempmat)):
                     if ii < Eimp_final.shape[0]:

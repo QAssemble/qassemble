@@ -1,0 +1,2 @@
+ut::Zahl<double>: argument of constructor is not a number ( Thrown from worker 1 )
+Abort(-1) on node 1 (rank 1 in comm 0): application called MPI_Abort(MPI_COMM_WORLD, -1) - process 1
