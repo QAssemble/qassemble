@@ -486,14 +486,8 @@ class BLatDyn(object):
 
 
 class PolLat(BLatDyn):
-    def __init__(
-        self,
-        crystal: Crystal,
-        dlr: DLR,
-        green: np.ndarray = None,
-        hdf5file: str = "glob.h5",
-        group: str = None,
-    ):
+    
+    def __init__(self, crystal : Crystal, dlr : DLR, **kwargs):
         super().__init__(crystal, dlr)
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -512,13 +506,14 @@ class PolLat(BLatDyn):
         self.kf = np.zeros(
             (norb*norb, norb*norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F"
         )
-        self.hdf5file = hdf5file
-        self.group = group
+        self.hdf5file = kwargs.get("hdf5file", "glob.h5")
+        self.group = kwargs.get("group", None)
+        self.green = kwargs.get("green", None)
         self.subgroup = self.__class__.__name__
-        if green is None:
+        if self.green is None:
             print("Error, There is no Green's function.")
             sys.exit()
-        self.green = green
+        
 
         print("Polarizability Calculation Start")
         start = time.time()
@@ -634,17 +629,10 @@ class PolLat(BLatDyn):
 
 
 class WLat(BLatDyn):
-    def __init__(
-        self,
-        crystal: Crystal,
-        dlr: DLR,
-        pol: np.ndarray = None,
-        vbare: VBare = None,
-        c: float = 1.0,
-        hdf5file: str = "glob.h5",
-        group: str = None,
-    ):
+   
+    def __init__(self, crystal : Crystal, dlr : DLR, **kwargs):
         super().__init__(crystal, dlr)
+
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
         nrk = self.crystal.nk
@@ -679,18 +667,19 @@ class WLat(BLatDyn):
             (norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F"
         )
 
-        self.c = c
-        self.hdf5file = hdf5file
-        self.group = group
+        self.c = kwargs.get("c", 1.0)
+        self.hdf5file = kwargs.get("hdf5file", "glob.h5")
+        self.group = kwargs.get("group", None)
         self.subgroup = self.__class__.__name__
-        if pol is None:
+        self.pol = kwargs.get("pol", None)
+        self.vbare = kwargs.get("vbare", None)
+        if self.pol is None:
             print("Error, polarizability doesn't exist")
             sys.exit()
-        if vbare is None:
+        if self.vbare is None:
             print("Error, bare coulomb interaction doesn't exist")
             sys.exit()
-        self.pol = pol
-        self.vbare = vbare
+        
 
         print("Screened Coulomb Interaction Calculation Start")
         start = time.time()
@@ -778,200 +767,3 @@ class WLat(BLatDyn):
 
         return None
 
-
-# class PolLat_Vector(BLatDyn):
-#     def __init__(
-#         self,
-#         crystal: Crystal,
-#         dlr: DLR,
-#         green: np.ndarray = None,
-#         hdf5file: str = "glob.h5",
-#         group: str = None,
-#     ):
-#         super().__init__(crystal, dlr)
-#         norb = len(self.crystal.bind)
-#         ns = self.crystal.ns
-#         nrk = self.crystal.nk
-#         nfreq = len(self.dlr.nu)
-#         ntau_dlr = len(self.dlr.tau)
-
-#         self.rt = np.zeros(
-#             (norb, norb, ns, ns, nrk, ntau_dlr), dtype=np.complex128, order="F"
-#         )
-#         self.kt = np.zeros(
-#             (norb, norb, ns, ns, nrk, ntau_dlr), dtype=np.complex128, order="F"
-#         )
-#         self.rf = np.zeros(
-#             (norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F"
-#         )
-#         self.kf = np.zeros(
-#             (norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F"
-#         )
-
-#         self.hdf5file = hdf5file
-#         self.group = group
-#         self.subgroup = self.__class__.__name__
-
-#         if green is None:
-#             print("Error, There is no Green's function.")
-#             sys.exit()
-#         self.green = green
-
-#         # Precompute boson->fermion index maps once
-#         self._Fp, self._Fq = self._precompute_b2f_maps()
-
-#         self.Cal()
-#         self.kt = self.R2K(self.rt)
-#         self.rf = self.T2F(self.rt)
-#         self.kf = self.T2F(self.kt)
-
-#     def _precompute_b2f_maps(self):
-#         """Return Fp[u], Fq[u] for every boson composite u."""
-#         norb = len(self.crystal.bind)
-#         Fp = np.empty(norb, dtype=int)
-#         Fq = np.empty(norb, dtype=int)
-#         for u in range(norb):
-#             a, (p, q) = self.crystal.BAtomOrb(u)  # two associated fermionic orbitals
-#             Fp[u] = self.crystal.FIndex([a, p])
-#             Fq[u] = self.crystal.FIndex([a, q])
-#         return Fp, Fq
-
-#     # def Cal(self):
-#     #     ns = self.crystal.ns
-#     #     nrk = len(self.crystal.kpoint)
-#     #     # keep your dense uniform-τ resolution (change if you like)
-#     #     ntau_uniform = 5000
-
-#     #     norbf = self.green.shape[0]  # fermion-composite dimension
-
-#     #     # 1) Expand Green's function from DLR τ-nodes to uniform τ-grid
-#     #     #    grt shape: (norbf, norbf, ns, nrk, ntau_uniform)
-#     #     grt = np.empty((norbf, norbf, ns, nrk, ntau_uniform),
-#     #                    dtype=np.complex128, order='F')
-#     #     for irk in range(nrk):
-#     #         for s in range(ns):
-#     #             grt[:, :, s, irk, :] = self.dlr.TauDLR2Uniform(
-#     #                 ftau=self.green[:, :, s, irk, :], ntau=ntau_uniform
-#     #             )
-
-#     #     # 2) Apply your mR ∘ (·) ∘ mT mapping
-#     #     #    gmrt has the same shape as grt
-#     #     gmrt = self.crystal.RT2mRmT(grt)
-
-#     #     norb = len(self.crystal.bind)
-#     #     # temporary polarization on the uniform τ-grid
-#     #     polrt = np.zeros((norb, norb, ns, ns, nrk, ntau_uniform), dtype=np.complex128, order='F')
-
-#     #     Fp, Fq = self._Fp, self._Fq  # boson→fermion index maps
-
-#     #     if ns == 2:
-#     #         # Only diagonal spin blocks are populated (js == ks)
-#     #         for js in range(ns):
-#     #             for l, k, j, i in itertools.product(range(norbf), repeat=4):
-#     #                 iorb = self.crystal.bbasis[i, l]
-#     #                 jorb = self.crystal.bbasis[j, k]
-#     #                 polrt[iorb, jorb, js, js] = gmrt[k, i, js]*grt[l, j, js]
-#     #     else:
-#     #         # Spinless/collinear branch with SOC factor
-#     #         C = 1 if getattr(self.crystal, 'soc', False) else 2
-#     #         for l, k, j, i in itertools.product(range(norbf), repeat=4):
-#     #         # for irk in range(nrk):
-#     #             # gm = gmrt[:, :, 0, irk, :]
-#     #             # gr = grt[:, :, 0, irk, :]
-
-#     #             # # gm: jorbc=Fq[j], iorbc=Fp[i] → transpose to (i,j,ntau)
-#     #             # gm_sel = gm[np.ix_(Fq, Fp)].transpose(1, 0, 2)
-#     #             # # gr: korbc=Fq[i], lorbc=Fp[j]
-#     #             # gr_sel = gr[np.ix_(Fq, Fp)]
-
-#     #             # pol_slice = C * gm_sel * gr_sel
-#     #             # polrt[:, :, 0, 0, irk, :] = pol_slice
-#     #             iorb = self.crystal.bbasis[i, l]
-#     #             jorb = self.crystal.bbasis[j, k]
-#     #             polrt[iorb, jorb] = C*gmrt[k, i]*grt[l, j]
-#     #     # polrt = self.Quad2Double(tempmat)
-#     #     # 3) Project each (js, ks, k) block back to DLR τ-nodes
-#     #     for irk in range(nrk):
-#     #         # for ks in range(ns):
-#     #         #     for js in range(ns):
-#     #         for ks, js, in itertools.product(range(ns), repeat=2):
-#     #                 # polrt = self.crystal.Quad2Double(tempmat[..., js, ks, irk, :])
-#     #             self.rt[:, :, js, ks, irk] = self.dlr.TauUniform2DLR(
-#     #                 polrt[:, :, js, ks, irk]
-#     #             )
-
-#     #     return None
-#     def Cal(self):
-#         ns = self.crystal.ns
-#         nrk = len(self.crystal.kpoint)
-#         # keep your dense uniform-τ resolution (change if you like)
-#         ntau_uniform = 5000
-
-#         norbf = self.green.shape[0]  # fermion-composite dimension
-
-#         # 1) Expand Green's function from DLR τ-nodes to uniform τ-grid
-#         #    grt shape: (norbf, norbf, ns, nrk, ntau_uniform)
-#         grt = np.empty(
-#             (norbf, norbf, ns, nrk, ntau_uniform), dtype=np.complex128, order="F"
-#         )
-#         for irk in range(nrk):
-#             for s in range(ns):
-#                 grt[:, :, s, irk, :] = self.dlr.TauDLR2Uniform(
-#                     ftau=self.green[:, :, s, irk, :], ntau=ntau_uniform
-#                 )
-
-#         # 2) Apply your mR ∘ (·) ∘ mT mapping
-#         #    gmrt has the same shape as grt
-#         gmrt = self.crystal.RT2mRmT(grt)
-
-#         norb = len(self.crystal.bind)
-#         # temporary polarization on the uniform τ-grid
-#         polrt = np.zeros(
-#             (norb, norb, ns, ns, nrk, ntau_uniform), dtype=np.complex128, order="F"
-#         )
-
-#         Fp, Fq = self._Fp, self._Fq  # boson→fermion index maps
-
-#         if ns == 2:
-#             # Only diagonal spin blocks are populated (js == ks)
-#             for s in range(2):
-#                 for irk in range(nrk):
-#                     # Take (norbf, norbf, ntau) slices
-#                     gm = gmrt[:, :, s, irk, :]  # G_m
-#                     gr = grt[:, :, s, irk, :]  # G_r
-
-#                     # gm part: rows = Fq[j], cols = Fp[i]  -> (j,i,ntau)
-#                     gm_sel = gm[np.ix_(Fq, Fp)].transpose(1, 0, 2)  # (i,j,ntau)
-
-#                     # gr part: rows = Fq[i], cols = Fp[j]  -> (i,j,ntau)
-#                     gr_sel = gr[np.ix_(Fq, Fp)]  # (i,j,ntau)
-
-#                     # elementwise product for all (i,j,τ)
-#                     pol_slice = gm_sel * gr_sel  # (i,j,ntau)
-
-#                     polrt[:, :, s, s, irk, :] = pol_slice
-#             # Off-diagonal spin blocks remain zero.
-#         else:
-#             # Spinless/collinear branch with SOC factor
-#             C = 1 if getattr(self.crystal, "soc", False) else 2
-#             for irk in range(nrk):
-#                 gm = gmrt[:, :, 0, irk, :]
-#                 gr = grt[:, :, 0, irk, :]
-
-#                 # gm: jorbc=Fq[j], iorbc=Fp[i] → transpose to (i,j,ntau)
-#                 gm_sel = gm[np.ix_(Fq, Fp)].transpose(1, 0, 2)
-#                 # gr: korbc=Fq[i], lorbc=Fp[j]
-#                 gr_sel = gr[np.ix_(Fq, Fp)]
-
-#                 pol_slice = C * gm_sel * gr_sel
-#                 polrt[:, :, 0, 0, irk, :] = pol_slice
-
-#         # 3) Project each (js, ks, k) block back to DLR τ-nodes
-#         for irk in range(nrk):
-#             for ks in range(ns):
-#                 for js in range(ns):
-#                     self.rt[:, :, js, ks, irk] = self.dlr.TauUniform2DLR(
-#                         polrt[:, :, js, ks, irk]
-#                     )
-
-#         return None

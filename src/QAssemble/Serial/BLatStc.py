@@ -330,23 +330,12 @@ class BLatStc(object):
 
 class VBare(BLatStc):
 
-    def __init__(
-        self,
-        crystal: Crystal,
-        vloc: VLoc = None,
-        orboption: dict = None,
-        intamp: dict = None,
-        ohno: bool = False,
-        jth: bool = False,
-        ohnoyuka: bool = False,
-        hdf5file: str = None,
-        group: str = None,
-    ):
+    def __init__(self, crystal : Crystal, **kwargs):
         super().__init__(crystal)
         self.k = None
         self.r = None
         self.intamp = None
-
+        intamp = kwargs.get('intamp', None)
         if intamp != None:
             intamplist = []
             for orb, val in intamp.items():
@@ -354,36 +343,41 @@ class VBare(BLatStc):
                     for r in lat:
                         intamplist.append([v, list(orb[0]), list(orb[1]), r])
             self.intamp = intamplist
-        self.locoption = orboption
+        self.locoption = kwargs.get('locoption', None)
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
         nrk = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
         self.nonlock = np.zeros((norb, norb, ns, ns, nrk), dtype=complex, order="F")
         self.nonlocr = np.zeros((norb, norb, ns, ns, nrk), dtype=complex, order="F")
         self.sigmaonsiter = None
-        self.hdf5file = hdf5file
-        self.group = group
+        self.hdf5file = kwargs.get('hdf5file', None)
+        self.group = kwargs.get('group', None)
         self.subgroup = self.__class__.__name__
 
+        self.ohno = kwargs.get('ohno', False)
+        self.jth = kwargs.get('jth', False)
+        self.ohnoyuka = kwargs.get('ohnoyuka', False)
+
+        vloc = kwargs.get('vloc', None)
         print("Bare Coulomb Interaction Calculation Start")
-        if (ohno == False) and (intamp == None) and (jth == False):
+        if (self.ohno == False) and (intamp == None) and (self.jth == False) and (self.ohnoyuka == False):
             print("Only calculate the local coulomb interaction")
         if vloc == None:
-            if orboption != None:
-                self.vloc = VLoc(crystal, orboption)
+            if self.locoption != None:
+                self.vloc = VLoc(crystal, self.locoption)
             else:
                 print("Error, orboption is not exsist. v local can't generate in here")
         else:
             self.vloc = vloc
 
-        if ohno:
+        if self.ohno:
             self.OhnoParameter()
             # self.Cal()
-        elif jth:
+        elif self.jth:
             print("JTH Potential calculation start")
             self.JTHPotential()
             print("JTH Potential calculation finish")
-        elif ohnoyuka:
+        elif self.ohnoyuka:
             print("Ohno-Yukawa calculation start")
             self.OhnoYukawa()
             print("Ohno-Yukawa calculation finish")
@@ -392,7 +386,7 @@ class VBare(BLatStc):
                 # self.InteractingAmplitue(intamp)
                 self.Cal()
         self.LocPlusNonLoc()
-        if hdf5file != None:
+        if self.hdf5file != None:
             self.Save()
         # self.GetOnsiteEnergy()
         print("Bare Coulomb Interaction Calculation Finish")

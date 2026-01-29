@@ -25,6 +25,7 @@ from scipy.fftpack import fftn, ifftn
 from sympy.physics.wigner import gaunt, wigner_3j
 
 from .Crystal import Crystal
+from .utility.Common import Common
 from .utility.Dyson import Dyson
 from .utility.Fourier import Fourier
 
@@ -537,13 +538,12 @@ class FLatStc(object):
 class NIHamiltonian(FLatStc):
 
     def __init__(
-        self, crystal: Crystal = None, hopping: dict = None, onsite: dict = None, spin : bool = False, 
-        ferro : bool = False, aferro : bool = False, valley: bool = False, avalley : bool = False, site : bool = False, 
-        asite : bool = False, hdf5file: h5py.File = None, group: str = None,
-    ):
-
+        self, crystal: Crystal = None, **kwargs):
         super().__init__(crystal)
 
+        hopping = kwargs.get("hopping", {})
+
+        
         print("Non-interacting Hamiltonian Calculation Start")
         hopplist = []
         for orb, val in hopping.items():
@@ -553,14 +553,16 @@ class NIHamiltonian(FLatStc):
 
         # print(hopplist)
         self.hopping = hopplist
-        self.onsite = onsite
-        self.hdf5file = hdf5file
-        self.spin = spin
-        self.asite = asite
-        self.site = site
-        self.ferro = ferro
-        self.aferro = aferro
-        self.group = group
+        self.onsite = kwargs.get("onsite", {})
+        self.hdf5file = kwargs.get("hdf5file", None)
+        self.spin = kwargs.get("spin", False) 
+        self.asite = kwargs.get("asite", False)
+        self.site = kwargs.get("site", False)
+        self.ferro = kwargs.get("ferro", False)
+        self.aferro = kwargs.get("aferro", False)
+        self.valley = kwargs.get("valley", False)
+        self.avalley = kwargs.get("avalley", False)
+        self.group = kwargs.get("group", None)
         self.subgroup = self.__class__.__name__
         # print(self.onsite)
         self.k = None
@@ -569,13 +571,13 @@ class NIHamiltonian(FLatStc):
         # self.Onsite()
 
         self.Cal()
-        if valley:
+        if self.valley:
             self.Valley()
         
-        if avalley:
+        if self.avalley:
             self.AntiValley()
 
-        if hdf5file != None:
+        if self.hdf5file != None:
             self.Save()
 
         print("Non-interacting Hamiltonian Calculation Finish")
@@ -792,22 +794,24 @@ class NIHamiltonian(FLatStc):
 
 class SigmaHartree(FLatStc):
 
-    def __init__(
-        self,
-        crystal: Crystal,
-        occ=None,
-        vbare: np.ndarray = None,
-        hdf5file: str = "glob.h5",
-        group: str = None,
-    ):  # green -> occ
+    # def __init__(
+    #     self,
+    #     crystal: Crystal,
+    #     occ=None,
+    #     vbare: np.ndarray = None,
+    #     hdf5file: str = "glob.h5",
+    #     group: str = None,
+    # ):  # green -> occ
+
+    def __init__(self, crystal : Crystal, **kwargs):
         super().__init__(crystal)
         self.r = None
         self.k = None
-        self.vbare = vbare
-        self.hdf5file = hdf5file
-        self.group = group
+        self.vbare = kwargs.get("vbare", None)
+        self.hdf5file = kwargs.get("hdf5file", None)
+        self.group = kwargs.get("group", None)
         self.subgroup = self.__class__.__name__
-        self.occ = occ
+        self.occ = kwargs.get("occ", None)
 
         print("Hartree Self-energy Calculation Start")
         self.Cal()
@@ -827,26 +831,10 @@ class SigmaHartree(FLatStc):
         h = np.zeros((norbc, norbc, ns, nk), dtype=np.complex128, order="F")
 
         if self.crystal.ns != 1:
-            #     for ik in range(nk):
-            #         tempmat[...,ik] = self.crystal.OrbSpin2Composite(vbare[...,ik])
-
-            # for ik in range(nk):
-            #     for ind1 in range(norb*ns):
-            #         nn1 = [0]*2
-            #         ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
-            #         [iorbc1,iorbc2] = self.crystal.b2f[iorb]
-
-            #         for ind2 in range(norb*ns):
-            #             nn2 = [0]*2
-            #             ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
-            #             [iorbc3,iorbc4] = self.crystal.b2f[jorb]
-            #             h[iorbc1,iorbc2,js,ik] += tempmat[ind1,ind2,0]*occ[iorbc4,iorbc3,ks]
-            # for jk in range(nk):
-            #     h[iorbc1,iorbc2,js,ik] += tempmat[ind1,ind2,0]*occ[iorbc4,iorbc3,ks,jk]/nk
             for ik in range(nk):
                 for ind1 in range(norb * ns):
                     nn1 = [0] * 2
-                    ind1, [iorb, js] = self.crystal.indexing(
+                    ind1, [iorb, js] = Common.Indexing(
                         norb * ns, 2, [norb, ns], 0, ind1, nn1
                     )
                     [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
@@ -854,7 +842,7 @@ class SigmaHartree(FLatStc):
                     iorbc2 = self.crystal.FIndex([a, m2])
                     for ind2 in range(norb * ns):
                         nn2 = [0] * 2
-                        ind2, [jorb, ks] = self.crystal.indexing(
+                        ind2, [jorb, ks] = Common.Indexing(
                             norb * ns, 2, [norb, ns], 0, ind2, nn2
                         )
                         [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
@@ -880,7 +868,7 @@ class SigmaHartree(FLatStc):
                 for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
-                        ind1, [iorb, js] = self.crystal.indexing(
+                        ind1, [iorb, js] = Common.Indexing(
                             norb * ns, 2, [norb, ns], 0, ind1, nn1
                         )
                         [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
@@ -888,7 +876,7 @@ class SigmaHartree(FLatStc):
                         iorbc2 = self.crystal.FIndex([a, m2])
                         for ind2 in range(norb * ns):
                             nn2 = [0] * 2
-                            ind2, [jorb, ks] = self.crystal.indexing(
+                            ind2, [jorb, ks] = Common.Indexing(
                                 norb * ns, 2, [norb, ns], 0, ind2, nn2
                             )
                             [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
@@ -913,7 +901,7 @@ class SigmaHartree(FLatStc):
                 for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
-                        ind1, [iorb, js] = self.crystal.indexing(
+                        ind1, [iorb, js] = Common.Indexing(
                             norb * ns, 2, [norb, ns], 0, ind1, nn1
                         )
                         [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
@@ -921,7 +909,7 @@ class SigmaHartree(FLatStc):
                         iorbc2 = self.crystal.FIndex([a, m2])
                         for ind2 in range(norb * ns):
                             nn2 = [0] * 2
-                            ind2, [jorb, ks] = self.crystal.indexing(
+                            ind2, [jorb, ks] = Common.Indexing(
                                 norb * ns, 2, [norb, ns], 0, ind2, nn2
                             )
                             [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
@@ -970,23 +958,24 @@ class SigmaHartree(FLatStc):
 
 class SigmaFock(FLatStc):
 
-    def __init__(
-        self,
-        crystal: Crystal,
-        occr=None,
-        vbare: np.ndarray = None,
-        hdf5file: str = "glob.h5",
-        group: str = None,
-    ):  # green -> occ
+    # def __init__(
+    #     self,
+    #     crystal: Crystal,
+    #     occr=None,
+    #     vbare: np.ndarray = None,
+    #     hdf5file: str = "glob.h5",
+    #     group: str = None,
+    # ):  # green -> occ
+    def __init__(self, crystal : Crystal, **kwargs):
         super().__init__(crystal)
         self.r = None
         self.k = None
-        self.hdf5file = hdf5file
-        self.group = group
+        self.hdf5file = kwargs.get("hdf5file", "glob.h5")
+        self.group = kwargs.get("group", None)
         self.subgroup = self.__class__.__name__
         # self.green = green
-        self.occr = occr
-        self.vbare = vbare
+        self.occr = kwargs.get("occr", None)
+        self.vbare = kwargs.get("vbare", None)
 
         print("Fock Self-energy Calculation Start")
         self.Cal()
@@ -1016,7 +1005,7 @@ class SigmaFock(FLatStc):
         for ir in range(nr):
             for ind1 in range(norb * ns):
                 nn1 = [0] * 2
-                ind1, [iorb, js] = self.crystal.indexing(
+                ind1, [iorb, js] = Common.Indexing(
                     norb * ns, 2, [norb, ns], 0, ind1, nn1
                 )
                 [a, [m1, m4]] = self.crystal.BAtomOrb(iorb)
@@ -1024,7 +1013,7 @@ class SigmaFock(FLatStc):
                 iorbc4 = self.crystal.FIndex([a, m4])
                 for ind2 in range(norb * ns):
                     nn2 = [0] * 2
-                    ind2, [jorb, ks] = self.crystal.indexing(
+                    ind2, [jorb, ks] = Common.Indexing(
                         norb * ns, 2, [norb, ns], 0, ind2, nn2
                     )
                     [b, [m3, m2]] = self.crystal.BAtomOrb(jorb)
@@ -1077,18 +1066,27 @@ class SigmaFock(FLatStc):
 
 class Hamiltonian(FLatStc):
 
-    def __init__(
-        self,
-        crystal: Crystal,
-        ham: np.ndarray = None,
-        beta: float = None,
-        sigmah: np.ndarray = None,
-        sigmaf: np.ndarray = None,
-        sigmac: np.ndarray = None,
-        z : np.ndarray = None,
-        hdf5file: str = "glob.h5",
-        group: str = None,
-    ):
+    # def __init__(
+    #     self,
+    #     crystal: Crystal,
+    #     ham: np.ndarray = None,
+    #     beta: float = None,
+    #     sigmah: np.ndarray = None,
+    #     sigmaf: np.ndarray = None,
+    #     sigmac: np.ndarray = None,
+    #     z : np.ndarray = None,
+    #     hdf5file: str = "glob.h5",
+    #     group: str = None,
+    # ):
+    def __init__(self, crystal : Crystal, **kwargs):
+        ham = kwargs.get("ham", None)
+        beta = kwargs.get("beta", None)
+        sigmah = kwargs.get("sigmah", None)
+        sigmaf = kwargs.get("sigmaf", None)
+        sigmac = kwargs.get("sigmac", None)
+        z = kwargs.get("z", None)
+        hdf5file = kwargs.get("hdf5file", "glob.h5")
+        group = kwargs.get("group", None)
         super().__init__(crystal)
 
         self.occ = None
@@ -1328,16 +1326,16 @@ class HamiltonianAB(FLatStc):
     
 class ZFactor(FLatStc):
 
-    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
+    def __init__(self, crystal : Crystal, **kwargs):
 
         super().__init__(crystal)
 
-        self.sigmac = sigmac
-        self.beta = beta
+        self.sigmac = kwargs.get("sigmac", None)
+        self.beta = kwargs.get("beta", None)
         self.r = None
         self.k = None
-        self.hdf5file = hdf5file
-        self.group = group
+        self.hdf5file = kwargs.get("hdf5file", "glob.h5")
+        self.group = kwargs.get("group", None)
         self.subgroup = self.__class__.__name__
 
         print("Z-factor Calculation Start")
@@ -1396,16 +1394,16 @@ class ZFactor(FLatStc):
 
 class SigmaStc(FLatStc):
 
-    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
+    def __init__(self, crystal : Crystal, **kwargs):
 
         super().__init__(crystal)
 
-        self.sigmac = sigmac
-        self.beta = beta
+        self.sigmac = kwargs.get("sigmac", None)
+        self.beta = kwargs.get("beta", None)
         self.r = None
         self.k = None
-        self.hdf5file = hdf5file
-        self.group = group
+        self.hdf5file = kwargs.get("hdf5file", "glob.h5")
+        self.group = kwargs.get("group", None)
         self.subgroup = self.__class__.__name__
 
         print("Static Self-energy Calculation Start")

@@ -444,23 +444,27 @@ class FLatDyn(object):
     
 class GreenBare(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
+    # def __init__(self, crystal: Crystal, dlr : DLR, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
+    def __init__(self, crystal: Crystal, dlr : DLR, **kwargs) -> object:
         
         super().__init__(crystal, dlr)
         # print(self.niham.hamtb[...,0,0])
-        self.hamtb = hamtb
+        self.hamtb = kwargs.get("hamtb", None)
+        if self.hamtb is None:
+            print("Hamiltonian doesn't exist")
+            sys.exit()
         self.kt = None
         self.kf = None
         self.rt = None
         self.rf = None
-        self.hdf5file = hdf5file
-        self.group = group
+        self.hdf5file = kwargs.get("hdf5file", None)
+        self.group = kwargs.get("group", None)
         self.subgroup = self.__class__.__name__
 
         print("Bare Green's function Calculation Start")
         start = time.time()
         self.Cal()
-        if hdf5file != None:
+        if self.hdf5file != None:
             self.Save()
         end = time.time()    
         print("Bare Green's function Calculation Finish")
@@ -508,30 +512,19 @@ class GreenBare(FLatDyn):
 
         return None
     
-    # def Load(self):
-
-    #     os.chdir('work')
-
-    #     filepath = 'flatdyn.h5'
-    #     groupname = 'gbare'
-    #     errmessage = 'There is no calculation data. Please perform the calculation again.'
-    #     with h5py.File(filepath,'r') as file:
-    #         if self.CheckGroup(filepath,groupname):
-    #             group = file[groupname]
-    #         else:
-    #             print(errmessage)
-    #             sys.exit()
-            
-    #         g0kf = group['g0kf'][:]
-
-    #     os.chdir('..')
-
-    #     return g0kf
     
 class GreenInt(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
+    # def __init__(self, crystal: Crystal, dlr : DLR, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
+    def __init__(self, crystal: Crystal, dlr : DLR, **kwargs) -> object:
         
+        greenbare = kwargs.get("greenbare", None)
+        sigmah = kwargs.get("sigmah", None)
+        sigmaf = kwargs.get("sigmaf", None)
+        sigmagwc = kwargs.get("sigmagwc", None)
+        hdf5file = kwargs.get("hdf5file", "glob.h5")
+        group = kwargs.get("group", None)
+
         if greenbare is None:
             print("Bare Green's function doesn't exist")
             sys.exit()
@@ -563,9 +556,7 @@ class GreenInt(FLatDyn):
         print("Interacting Green's function Calculation Start")
         start = time.time()
         self.CalMu0()
-        # if (self.sigmac is None)and(self.sigmah is None)and(self.sigmaf is None):
-        #     self.UpdateMu()
-        # else:
+
         self.SearchMu()
         end = time.time()
         print("Interacting Green's function Calculation Finish")
@@ -751,9 +742,10 @@ class GreenInt(FLatDyn):
     
 class SigmaGWC(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, green : np.ndarray = None, wlat : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None) -> object:
+    def __init__(self, crystal: Crystal, dlr : DLR, **kwargs) -> object:
         super().__init__(crystal, dlr)
         self.flatstc = FLatStc(crystal=crystal)
+        green = kwargs.get("green", None)
         norb, _, ns, nk, nfreq = green.shape
         ntau = len(self.dlr.tauF)
         self.rt = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
@@ -762,8 +754,8 @@ class SigmaGWC(FLatDyn):
         self.kf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
         self.stck = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
         self.z = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
-        self.hdf5file = hdf5file
-        self.group = group
+        self.hdf5file = kwargs.get("hdf5file", "glob.h5")
+        self.group = kwargs.get("group", None)
         self.subgroup = self.__class__.__name__
 
         if green is None:
