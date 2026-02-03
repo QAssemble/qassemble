@@ -266,7 +266,7 @@ class BLocStc(object):
 
 class VLoc(BLocStc):
 
-    def __init__(self, crystal: Crystal,voption : dict = None):
+    def __init__(self, crystal: Crystal, voption : dict = None):
         super().__init__(crystal)
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
