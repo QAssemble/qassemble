@@ -2,6 +2,7 @@ import os
 
 def CheckMPI():
 
+    ismpi = False
     # for OpenMPI:
     if os.environ.get('OMPI_COMM_WORLD_RANK'):
         ismpi = True
@@ -18,6 +19,7 @@ def CheckMPI():
         ismpi = True
     else:
         print('Warning: could not identify MPI environment!')
+        print('The calculation proceeds using the serial version.')
 
     return ismpi
 
