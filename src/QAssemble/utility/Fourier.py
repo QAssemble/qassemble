@@ -4,7 +4,8 @@ Serial implementation without MPI dependencies.
 """
 import numpy as np
 from scipy.linalg import solve
-from numba import jit
+from mpi4py import MPI
+from mpi4py_fft import PFFT, newDistArray
 from typing import Tuple, Optional
 
 ArrayLike = np.ndarray
@@ -566,3 +567,34 @@ class Fourier:
                     fout[iorb, jorb, js, :] = phase @ fin[iorb, jorb, js, :]
         
         return fout
+
+    
+    @staticmethod
+    def FFT(comm : MPI.COMM_WORLD = None, shape : list = None):
+
+        if (shape[2] == 1):
+            fft = PFFT(comm, shape=shape, axes = (0, 1, 2), dtype = np.complex128, grid = (-1,))
+        else:
+            fft = PFFT(comm, shape=shape, axes = (0, 1, 2), dtype = np.complex128)
+
+        arr = newDistArray(fft, forward_output=True)
+        arrT = newDistArray(fft, forward_output=False)
+        localslicef = fft.local_slice(forward_output=True)
+        localsliceb = fft.local_slice(forward_output=False)
+
+        localslicef = [(s.start, s.stop) for s in localslicef]
+        localsliceb = [(s.start, s.stop) for s in localsliceb]
+        localshapef = tuple(s[1] - s[0] for s in localslicef)
+        localshapeb = tuple(s[1] - s[0] for s in localsliceb)
+
+        all_slicef = comm.allgather(localslicef)
+        all_sliceb = comm.allgather(localsliceb)
+        all_localshapef = comm.allgather(localshapef)
+        all_localshapeb = comm.allgather(localshapeb)
+
+        slicef = {rank: all_slicef[rank] for rank in range(comm.Get_size())}
+        sliceb = {rank: all_sliceb[rank] for rank in range(comm.Get_size())}
+        localshapef = {rank: all_localshapef[rank] for rank in range(comm.Get_size())}
+        localshapeb = {rank: all_localshapeb[rank] for rank in range(comm.Get_size())}
+
+        return fft, arr, arrT, slicef, sliceb, localshapef, localshapeb
