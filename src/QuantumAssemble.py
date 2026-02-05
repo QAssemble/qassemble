@@ -1,17 +1,53 @@
 #!/usr/bin/env python3.9
 import copy
+import datetime
+import gc
+import importlib
+import json
 import os
+import string
+import subprocess
 import sys
-import time, datetime
+import time
 import h5py
-from mpi4py import MPI
+
+# def ensure_module(module_name, package_name=None):
+#     package = package_name or module_name
+#     try:
+#         return importlib.import_module(module_name)
+#     except ModuleNotFoundError as exc:
+#         if getattr(exc, "name", module_name) != module_name:
+#             raise
+#         print(f"Installing missing Python package '{package}' with pip...", flush=True)
+#     try:
+#         subprocess.check_call(
+#             [sys.executable, "-m", "pip", "install", package],
+#         )
+#     except subprocess.CalledProcessError as exc:
+#         print(
+#             f"Failed to install required package '{package}': {exc}",
+#             flush=True,
+#         )
+#         raise
+#     return importlib.import_module(module_name)
+
+
+# h5py = ensure_module("h5py")
+# np = ensure_module("numpy")
+# ensure_module("scipy")
+# ensure_module("matplotlib")
+# ensure_module("numba")
+# ensure_module("finufft")
+# ensure_module("mpi4py")
+# ensure_module("mpi4py_fft", "mpi4py-fft")
+
 from QAssemble.Serial.CorrelationFunction import CorrelationFunction
-from QAssemble.utility.MPIManager import MPIManager
 
 
 class Run:
     def __init__(self, test=False) -> None:
 
+<<<<<<< HEAD
         self.ismpi = self.CheckMPI()
         if self.ismpi:
             self.comm = MPI.COMM_WORLD
@@ -21,6 +57,8 @@ class Run:
             self.mpictx = {"comm": self.comm, "rank": self.rank, "size": self.size}
         else:
             self.mpictx = None
+=======
+>>>>>>> parent of 1ed0333 (Delete MPI directory)
         self.control = None
         self.func = None
         self.ReadInput()
@@ -532,29 +570,6 @@ class Run:
     #     kappa = 2.0
     #     vlist = []
     #     rkgrid = self.control["crystal"]['rkgrid']
-
-    def CheckMPI():
-
-        ismpi = False
-        # for OpenMPI:
-        if os.environ.get('OMPI_COMM_WORLD_RANK'):
-            ismpi = True
-        # for MPICH and intel based MPI:
-        elif os.environ.get('PMI_RANK'):
-            ismpi = True
-        # for PMIx (used by srun/Slurm with PMIx support):
-        elif os.environ.get('PMIX_RANK'):
-            ismpi = True
-        elif os.environ.get('CRAY_MPICH_VERSION'):
-            ismpi = True
-        # to force the MPI init manually
-        elif os.environ.get('TRIQS_FORCE_MPI_INIT'):
-            ismpi = True
-        else:
-            print('Warning: could not identify MPI environment!')
-            print('The calculation proceeds using the serial version.')
-
-        return ismpi
 
 
 if __name__ == "__main__":

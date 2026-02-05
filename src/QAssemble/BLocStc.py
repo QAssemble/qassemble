@@ -39,7 +39,7 @@ class BLocStc(object):
 
         
         tempmat = self.crystal.OrbSpin2Composite(matin)
-        tempmat2 = Common.MatInv(tempmat)
+        tempmat2 = np.linalg.inv(tempmat)
         matout = self.crystal.Composite2OrbSpin(tempmat2)
         
         return matout
