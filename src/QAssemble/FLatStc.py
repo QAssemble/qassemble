@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.linalg
 import scipy.optimize
+from mpi4py import MPI
 from pylab import cm
 from pymatgen.core import Lattice, Structure
 from pymatgen.transformations.standard_transformations import \
@@ -37,9 +38,42 @@ from .utility.Fourier import Fourier
 
 class FLatStc(object):
 
-    def __init__(self, crystal: Crystal):
+    def __init__(self, crystal: Crystal, mpictx : dict = None):
 
         self.crystal = crystal
+        self.mpictx = mpictx
+        self.comm = None
+        self.rank = 0
+        self.size = 1
+        if self.mpictx is not None:
+            self.comm = self.mpictx.get("comm", None)
+            if self.comm is not None:
+                self.rank = self.comm.Get_rank()
+                self.size = self.comm.Get_size()
+
+    def _mpi_enabled(self) -> bool:
+        return (self.comm is not None) and (self.size > 1)
+
+    def _is_root(self) -> bool:
+        return (not self._mpi_enabled()) or (self.rank == 0)
+
+    def _k_indices(self, nk: int):
+        if not self._mpi_enabled():
+            return range(nk)
+        if self.mpictx is not None and "k_indices" in self.mpictx:
+            return self.mpictx["k_indices"]
+        splits = np.array_split(np.arange(nk), self.size)
+        return splits[self.rank]
+
+    def _allreduce_array(self, arr: np.ndarray) -> np.ndarray:
+        if not self._mpi_enabled():
+            return arr
+        out = np.zeros_like(arr)
+        self.comm.Allreduce(arr, out, op=MPI.SUM)
+        return out
+
+    def _should_write(self) -> bool:
+        return self._is_root()
 
     def Inverse(self, mat: np.ndarray):
 
@@ -66,24 +100,27 @@ class FLatStc(object):
         nrk = matk.shape[3]
 
         tempmat = copy.deepcopy(matk)
+        matr = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
 
-        for irk in range(nrk):
-            for js in range(ns):
-                for iorb in range(norb):
-                    for jorb in range(norb):
-                        [a, m1] = self.crystal.FAtomOrb(iorb)
-                        [b, m2] = self.crystal.FAtomOrb(jorb)
+        if self._is_root():
+            for irk in range(nrk):
+                for js in range(ns):
+                    for iorb in range(norb):
+                        for jorb in range(norb):
+                            [a, m1] = self.crystal.FAtomOrb(iorb)
+                            [b, m2] = self.crystal.FAtomOrb(jorb)
 
-                        delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+                            delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
 
-                        phase = np.exp(2.0j * np.pi * np.dot(rkvec[irk], delta))
+                            phase = np.exp(2.0j * np.pi * np.dot(rkvec[irk], delta))
 
-                        # matk[iorb,jorb,js,irk] *= phase
-                        tempmat[iorb, jorb, js, irk] *= phase
+                            # matk[iorb,jorb,js,irk] *= phase
+                            tempmat[iorb, jorb, js, irk] *= phase
 
-        # matr = QAFort.fourier.flatstc_k2r(rkgrid, tempmat)
-        matr = Fourier.FLatStcK2R(tempmat, rkgrid)
+            # matr = QAFort.fourier.flatstc_k2r(rkgrid, tempmat)
+            matr = Fourier.FLatStcK2R(tempmat, rkgrid)
 
+        matr = self._allreduce_array(matr)
         return matr
 
     def R2K(self, matr: np.ndarray = None, rkgrid: list = None) -> np.ndarray:
@@ -97,22 +134,24 @@ class FLatStc(object):
         nrk = matr.shape[3]
 
         matk = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
-        tempmat = copy.deepcopy(matr)
-        # matk = QAFort.fourier.flatstc_r2k(rkgrid, tempmat)
-        matk = Fourier.FLatStcR2K(tempmat, rkgrid)
+        if self._is_root():
+            tempmat = copy.deepcopy(matr)
+            # matk = QAFort.fourier.flatstc_r2k(rkgrid, tempmat)
+            matk = Fourier.FLatStcR2K(tempmat, rkgrid)
 
-        for irk in range(nrk):
-            for js in range(ns):
-                for iorb in range(norb):
-                    for jorb in range(norb):
-                        [a, m1] = self.crystal.FAtomOrb(iorb)
-                        [b, m2] = self.crystal.FAtomOrb(jorb)
+            for irk in range(nrk):
+                for js in range(ns):
+                    for iorb in range(norb):
+                        for jorb in range(norb):
+                            [a, m1] = self.crystal.FAtomOrb(iorb)
+                            [b, m2] = self.crystal.FAtomOrb(jorb)
 
-                        delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
-                        phase = np.exp(-2.0j * np.pi * np.dot(rkvec[irk], delta))
+                            delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+                            phase = np.exp(-2.0j * np.pi * np.dot(rkvec[irk], delta))
 
-                        matk[iorb, jorb, js, irk] = matk[iorb, jorb, js, irk] * phase
+                            matk[iorb, jorb, js, irk] = matk[iorb, jorb, js, irk] * phase
 
+        matk = self._allreduce_array(matk)
         return matk
 
     def Band(
@@ -539,7 +578,7 @@ class NIHamiltonian(FLatStc):
 
     def __init__(
         self, crystal: Crystal = None, **kwargs):
-        super().__init__(crystal)
+        super().__init__(crystal, mpictx=kwargs.get("mpictx", None))
 
         hopping = kwargs.get("hopping", {})
 
@@ -674,6 +713,9 @@ class NIHamiltonian(FLatStc):
 
     def Save(self):
 
+        if not self._should_write():
+            return None
+
         # if os.path.exists('niham'):
         #     pass
         # else:
@@ -804,7 +846,7 @@ class SigmaHartree(FLatStc):
     # ):  # green -> occ
 
     def __init__(self, crystal : Crystal, **kwargs):
-        super().__init__(crystal)
+        super().__init__(crystal, mpictx=kwargs.get("mpictx", None))
         self.r = None
         self.k = None
         self.vbare = kwargs.get("vbare", None)
@@ -829,9 +871,10 @@ class SigmaHartree(FLatStc):
 
         # onsite = self.R2K(self.onsiter)
         h = np.zeros((norbc, norbc, ns, nk), dtype=np.complex128, order="F")
+        k_indices = self._k_indices(nk)
 
         if self.crystal.ns != 1:
-            for ik in range(nk):
+            for ik in k_indices:
                 for ind1 in range(norb * ns):
                     nn1 = [0] * 2
                     ind1, [iorb, js] = Common.Indexing(
@@ -865,7 +908,7 @@ class SigmaHartree(FLatStc):
                 #             # for jk in range(nk):
                 #             #     gtemp[iorbc4,iorbc3,0] += g0kt[iorbc4,iorbc3,0,0,-1]
                 #             h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0]*C #1/nk*gtemp[iorbc4,iorbc3,0]*C
-                for ik in range(nk):
+                for ik in k_indices:
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
                         ind1, [iorb, js] = Common.Indexing(
@@ -898,7 +941,7 @@ class SigmaHartree(FLatStc):
                 #             h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0]*C
                 #             # for jk in range(nk):
                 #             #     h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0,jk]/nk*C
-                for ik in range(nk):
+                for ik in k_indices:
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
                         ind1, [iorb, js] = Common.Indexing(
@@ -922,12 +965,16 @@ class SigmaHartree(FLatStc):
                                 * C
                             )
 
+        h = self._allreduce_array(h)
         self.k = h  # +onsite
         self.r = self.K2R(h)
 
         return None
 
     def Save(self, fn: str):
+
+        if not self._should_write():
+            return None
 
         # os.chdir('work')
 
@@ -967,7 +1014,7 @@ class SigmaFock(FLatStc):
     #     group: str = None,
     # ):  # green -> occ
     def __init__(self, crystal : Crystal, **kwargs):
-        super().__init__(crystal)
+        super().__init__(crystal, mpictx=kwargs.get("mpictx", None))
         self.r = None
         self.k = None
         self.hdf5file = kwargs.get("hdf5file", "glob.h5")
@@ -994,6 +1041,7 @@ class SigmaFock(FLatStc):
         norb = len(self.crystal.bind)
 
         fr = np.zeros((norbc, norbc, ns, nr), dtype=np.complex128, order="F")
+        r_indices = self._k_indices(nr)
 
         # for ir in range(nr):
         #     for js in range(ns):
@@ -1002,7 +1050,7 @@ class SigmaFock(FLatStc):
         #             for jorb in range(norb):
         #                 [iorbc2,iorbc3] = self.crystal.b2f[jorb]
         #                 fr[iorbc1,iorbc3,js,ir] = -occr[iorbc4,iorbc2,js,ir]*vr[iorb,jorb,js,js,ir]
-        for ir in range(nr):
+        for ir in r_indices:
             for ind1 in range(norb * ns):
                 nn1 = [0] * 2
                 ind1, [iorb, js] = Common.Indexing(
@@ -1028,6 +1076,7 @@ class SigmaFock(FLatStc):
 
                         # fr[iorbc1,iorbc2,js,ir] += -occr[iorbc3,iorbc4,js,ir]*vr[iorbc1,iorbc3,iorbc2,iorbc4,js,ks,ir]
 
+        fr = self._allreduce_array(fr)
         fk = self.R2K(fr)
 
         self.r = fr
@@ -1036,6 +1085,9 @@ class SigmaFock(FLatStc):
         return None
 
     def Save(self, fn: str):
+
+        if not self._should_write():
+            return None
 
         # os.chdir('work')
 
@@ -1087,7 +1139,7 @@ class Hamiltonian(FLatStc):
         z = kwargs.get("z", None)
         hdf5file = kwargs.get("hdf5file", "glob.h5")
         group = kwargs.get("group", None)
-        super().__init__(crystal)
+        super().__init__(crystal, mpictx=kwargs.get("mpictx", None))
 
         self.occ = None
         self.occk = None

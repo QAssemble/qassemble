@@ -18,6 +18,9 @@ class Run:
             self.rank = self.comm.Get_rank()
             self.size = self.comm.Get_size()
             self.mpimanager = MPIManager(self.comm)
+            self.mpictx = {"comm": self.comm, "rank": self.rank, "size": self.size}
+        else:
+            self.mpictx = None
         self.control = None
         self.func = None
         self.ReadInput()
@@ -35,6 +38,7 @@ class Run:
                 beta=control["ft"]["beta"],
                 size=control["ft"]["size"],
                 c=control["run"]["cw"],
+                mpictx=self.mpictx,
             )
             self.func = func
         else:
@@ -385,7 +389,7 @@ class Run:
         control = self.control
         cry = control["crystal"]
         ft = control["ft"]
-        func = CorrelationFunction(cry=cry, ft=ft)
+        func = CorrelationFunction(cry=cry, ft=ft, mpictx=self.mpictx)
         # func = CorrelationFunction(latt=control['crystal']['lattice'], basisposition=control['crystal']['basispos'], ns=control['crystal']['ns'],soc=control['crystal']['soc'],rkgrid=control['crystal']['rkgrid'],orboption=control['crystal']['orbital'],N=control['crystal']['nume'],T=control['ft']['T'],beta=control['ft']['beta'],size=control['ft']['size'],c=control['run']['cw'])
 
         itermax = control["run"]["nscf"]
