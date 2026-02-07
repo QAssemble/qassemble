@@ -50,8 +50,8 @@
         "probabilities": [ "N", "energy", "Sz" ],
         "quantum number susceptibility": true,
         "quantum numbers": {
-            "N": [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ],
-            "Sz": [ 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, -0.5, -0.5, -0.5, -0.5, -0.5 ]
+            "N": [ 1, 1, 1, 1, 1, 1 ],
+            "Sz": [ 0.5, 0.5, 0.5, 0.5, 0.5, 0.5 ]
         },
         "storeA": 100,
         "storeB": 20,

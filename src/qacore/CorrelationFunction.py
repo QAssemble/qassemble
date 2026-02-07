@@ -32,6 +32,13 @@ class CorrelationFunction(object):
         self.pol = None
         self.w = None
 
+
+        ### for GW+EDMFT
+        self.full_sigmah_k = None
+        self.full_sigmaf_k = None
+        self.full_sigmac_kf = None
+        self.full_pol_kf = None
+
         # cry = Crystal(latt=latt,basisposition=basisposition,ns=ns,soc=soc,rkgrid=rkgrid,orboption=orboption,N=N)
         #cry = Crystal#(Rvec=Rvec,CorF=CorF,Basis=Basis,Nspin=Nspin,SOC=SOC,Nelec=Nelec,#KGrid=KGrid)
         #self.cry = cry
@@ -576,14 +583,24 @@ class CorrelationFunction(object):
             ##############    Combined GW, DC, and EDMFT to build full G and W    ##############
             ####################################################################################
 
-            #### merge GW+EDMFT+DC to compute the total G and W (namely update total G and W)
-            print("\n*** Compute the total Screened Coulomb Interaction -- W_EDMFT")
-            wnew = self.W_EDMFT(self.vbare, pol_gw.kf, pol_edmft.kf_embedded, pol_dc.kf_embedded)
+            # #### merge GW+EDMFT+DC to compute the total G and W (namely update total G and W)
+            # print("\n*** Compute the total Screened Coulomb Interaction -- W_EDMFT")
+            # wnew = self.W_EDMFT(self.vbare, pol_gw.kf, pol_edmft.kf_embedded, pol_dc.kf_embedded)
 
-            print("\n*** Compute the total Interacting Green's function -- GreenInt_EDMFT")
-            gnew = self.GreenInt_EDMFT(self.greenbare,sigmah_gw.k,sigmaf_gw.k,sigmac_gw.kf
-                                    ,sigmaf_edmft.k_embedded,sigmac_edmft.kf_embedded
-                                    ,sigmaf_dc.k_embedded,sigmac_dc.kf_embedded)
+            # print("\n*** Compute the total Interacting Green's function -- GreenInt_EDMFT")
+            # gnew = self.GreenInt_EDMFT(self.greenbare,sigmah_gw.k,sigmaf_gw.k,sigmac_gw.kf
+            #                         ,sigmaf_edmft.k_embedded,sigmac_edmft.kf_embedded
+            #                         ,sigmaf_dc.k_embedded,sigmac_dc.kf_embedded)
+            
+
+            #### merge GW+EDMFT+DC to compute the full G and W (namely update full G and W)
+            self.full_sigmah_k = sigmah_gw.k
+            self.full_sigmaf_k = sigmaf_gw.k + sigmaf_edmft.k_embedded - sigmaf_dc.k_embedded
+            self.full_sigmac_kf = sigmac_gw.kf + sigmac_edmft.kf_embedded - sigmac_dc.kf_embedded
+            gnew = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=self.full_sigmah_k,sigmaf=self.full_sigmaf_k,sigmagwc=self.full_sigmac_kf)
+
+            self.full_pol_kf = pol_gw.kf + pol_edmft.kf_embedded - pol_dc.kf_embedded
+            wnew = WLat(crystal=self.crystal,ft=self.ft,pol=self.full_pol_kf,vbare=self.vbare,c=self.c)
 
 
             ##########################
