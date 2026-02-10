@@ -17,19 +17,9 @@ from .BLocStc import *
 
 class CorrelationFunction(object):
 
-    def __init__(self, cry : dict = None, ft : dict = None, c = 1.0, mpictx : dict = None):
+    def __init__(self, cry : dict = None, ft : dict = None, c = 1.0):
 
         self.c = c
-        self.mpictx = mpictx
-        self.comm = None
-        self.rank = 0
-        self.size = 1
-        if self.mpictx is not None:
-            self.comm = self.mpictx.get("comm", None)
-            if self.comm is not None:
-                self.rank = self.comm.Get_rank()
-                self.size = self.comm.Get_size()
-        self.is_root = (self.rank == 0)
         self.niham = None
         self.green = None
         self.greenbare = None
@@ -195,10 +185,9 @@ class CorrelationFunction(object):
             print(errmessage)
             sys.exit()
         
-        mpictx = self.mpictx
-        niham = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,hdf5file=hdf5file,group=group, mpictx=mpictx)
-        gbare = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham.k,hdf5file=hdf5file,group=group, mpictx=mpictx)
-        vbare = VBare(crystal=self.crystal,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,ohnoyuka=ohnoyuka,hdf5file=hdf5file,group=group, mpictx=mpictx)
+        niham = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,hdf5file=hdf5file,group=group)
+        gbare = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham.k,hdf5file=hdf5file,group=group)
+        vbare = VBare(crystal=self.crystal,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,ohnoyuka=ohnoyuka,hdf5file=hdf5file,group=group)
 
 
         for iter in range(1,itermax+1):
@@ -206,48 +195,46 @@ class CorrelationFunction(object):
                 # niham_temp = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin, valley=valley, hdf5file=hdf5file,group='test') 
                 # niham_temp = NIHamiltonian(self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin,aferro=aferro, valley=valley,site=site,hdf5file=hdf5file,group='test_gw')
                 # gbare_temp = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham_temp.k,hdf5file=hdf5file,group='test') 
-                gold = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,hdf5file=hdf5file,group=group, mpictx=mpictx)
-                if self.is_root:
-                    print(f"Initial chemical potential : {gold.mu}")
+                gold = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,hdf5file=hdf5file,group=group)
+                print(f"Initial chemical potential : {gold.mu}")
                 gold.Save(f'gkf_ini')
                 pkfold = None
                 ckfold = None
                 wold = 0
                 # gbare.Save('gbare')
 
-            if self.is_root:
-                print("Density Matrix :")
-                print(gold.occ)
+            print("Density Matrix :")
+            print(gold.occ)
             # print("Hartree calculation start")
-            sigmah = SigmaHartree(crystal=self.crystal,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group, mpictx=mpictx)
+            sigmah = SigmaHartree(crystal=self.crystal,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
             # if (iter % 50 == 0)or(iter == 1):
             sigmah.Save(f'sigmah.{iter}')
             # print("Hartree calculation finish")
             # print("Fock calculation start")
-            sigmaf = SigmaFock(crystal=self.crystal,occr=gold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group, mpictx=mpictx)
+            sigmaf = SigmaFock(crystal=self.crystal,occr=gold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
             # if (iter % 50 == 0)or(iter == 1):
             sigmaf.Save(f'sigmaf.{iter}')
             # print("Fock calculation finish")
             # print("Polarizability calculation start")
-            pol = PolLat(crystal=self.crystal,dlr=self.dlr,green=gold.rt,hdf5file=hdf5file,group=group, mpictx=mpictx)
+            pol = PolLat(crystal=self.crystal,dlr=self.dlr,green=gold.rt,hdf5file=hdf5file,group=group)
             # pol.kf = pol.Mixing(iter=iter,mix=mix,Bb=pol.kf,Bold=pkfold)
             # if (iter % 50 == 0)or(iter == 1):
             pol.Save(f'pkf.{iter}')
             # print("Polarizability calculation finish")
             # print("Screened coulomb interaction calculation start")
-            w = WLat(crystal=self.crystal,dlr=self.dlr,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group, mpictx=mpictx)
+            w = WLat(crystal=self.crystal,dlr=self.dlr,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
             # if (iter % 50 == 0)or(iter == 1):
             w.Save(f'wkf.{iter}')
             # w.Save(w.ckf,f'wckf.{iter}')
             # print("Screened coulomb interaction calculation finish")
             # print("GW self-energy calculation start")
-            sigmagwc = SigmaGWC(crystal=self.crystal,dlr=self.dlr,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group, mpictx=mpictx)
+            sigmagwc = SigmaGWC(crystal=self.crystal,dlr=self.dlr,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group)
             # sigmagwc.kf = sigmagwc.Mixing(iter=iter,mix=mix,Fb=sigmagwc.kf,Fm=ckfold)
             # if (iter % 50 == 0)or(iter == 1):
             sigmagwc.Save(f'sigmagwckf.{iter}')
             # print("GW self-energy calculation finish")
             # print("GW green's function calculation start")
-            gnew = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,sigmah=sigmah.k,sigmaf=sigmaf.k,sigmagwc=sigmagwc.kf,hdf5file=hdf5file,group=group, mpictx=mpictx)
+            gnew = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,sigmah=sigmah.k,sigmaf=sigmaf.k,sigmagwc=sigmagwc.kf,hdf5file=hdf5file,group=group)
             # if (iter % 50 == 0)or(iter == 1):
             gnew.Save(f'gkf.{iter}')
             # print("GW green's function calculation start")
@@ -257,13 +244,11 @@ class CorrelationFunction(object):
             bcheck = self.SCFCheck(w.kf,wold)
             mucheck = abs(gnew.mu-gold.mu)
 
-            if self.is_root:
-                print(f"iteration : {iter} \nfcriteria : {fcheck} \nbcriteria : {bcheck} \nchemicalpotential : {gnew.mu+gnew.c}")
+            print(f"iteration : {iter} \nfcriteria : {fcheck} \nbcriteria : {bcheck} \nchemicalpotential : {gnew.mu+gnew.c}")
             # print(f"iteration : {iter} \nfcriteria : {fcheck} \nchemicalpotential : {gnew.mu}")
 
             if (fcheck <=1.0e-6)and(mucheck<=0.01)and(bcheck<=1.0e-4):
-                if self.is_root:
-                    print(f"Self-consistency is achived with {iter}-th")
+                print(f"Self-consistency is achived with {iter}-th")
                 self.green = gnew
                 self.pol = pol
                 self.w = w
@@ -282,8 +267,7 @@ class CorrelationFunction(object):
                 gc.collect()
                 break
             elif (iter==itermax):
-                if self.is_root:
-                    print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
+                print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
                 self.green = gnew
                 self.pol = pol
                 self.w = w

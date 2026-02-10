@@ -25,9 +25,7 @@ class Crystal(object):
     This class constructs indices and vectors for fermionic and bosonic orbitals,
     k-point grids, real-space vectors, and provides methods to map between different basis representations.
     """
-    # def __init__(self, cry: dict = None):
-    def __init__(self, **kwargs):
-    
+    def __init__(self, cry: dict = None):
         """Initialize the Crystal object.
 
         Args:
@@ -41,15 +39,15 @@ class Crystal(object):
                 KGrid (list of int]): Grid dimensions for k-point sampling.
         """
 
-        Rvec = kwargs['RVec']
-        Basis = kwargs['Basis']
-        # CorF = kwargs['CorF']
-        CorF = kwargs.get('CorF', 'F')
-        Nspin = kwargs['NSpin']
-        # SOC = kwargs['SOC']
-        SOC = kwargs.get('SOC', False)
-        Nelec = kwargs['NElec']
-        KGrid = kwargs['KGrid']
+        Rvec = cry['RVec']
+        Basis = cry['Basis']
+        # CorF = cry['CorF']
+        CorF = cry.get('CorF', 'F')
+        Nspin = cry['NSpin']
+        # SOC = cry['SOC']
+        SOC = cry.get('SOC', False)
+        Nelec = cry['NElec']
+        KGrid = cry['KGrid']
         self.avec = np.array(Rvec,dtype=float)
         pos = []
         orboption = {}

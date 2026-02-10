@@ -14,7 +14,6 @@ from scipy.fftpack import fftn, ifftn
 import copy
 import h5py
 import time, datetime
-from mpi4py import MPI
 from .Crystal import Crystal
 from .FLatStc import FLatStc
 from .utility.DLR import DLR
@@ -26,44 +25,11 @@ from .utility.Dyson import Dyson
 # import QAFort
 
 class FLatDyn(object):
-    def __init__(self,crystal : Crystal, dlr : DLR, mpictx : dict = None) -> object:
+    def __init__(self,crystal : Crystal, dlr : DLR) -> object:
         self.crystal = crystal
         self.dlr = dlr
-        self.mpictx = mpictx
-        self.comm = None
-        self.rank = 0
-        self.size = 1
-        if self.mpictx is not None:
-            self.comm = self.mpictx.get("comm", None)
-            if self.comm is not None:
-                self.rank = self.comm.Get_rank()
-                self.size = self.comm.Get_size()
         self.mappingidx = None
         self._fermion_phase_cache = None
-
-    def _mpi_enabled(self) -> bool:
-        return (self.comm is not None) and (self.size > 1)
-
-    def _is_root(self) -> bool:
-        return (not self._mpi_enabled()) or (self.rank == 0)
-
-    def _should_write(self) -> bool:
-        return self._is_root()
-
-    def _k_indices(self, nk: int):
-        if not self._mpi_enabled():
-            return range(nk)
-        if self.mpictx is not None and "k_indices" in self.mpictx:
-            return self.mpictx["k_indices"]
-        splits = np.array_split(np.arange(nk), self.size)
-        return splits[self.rank]
-
-    def _allreduce_array(self, arr: np.ndarray) -> np.ndarray:
-        if not self._mpi_enabled():
-            return arr
-        out = np.zeros_like(arr)
-        self.comm.Allreduce(arr, out, op=MPI.SUM)
-        return out
     
     def _get_fermion_phase(self) -> np.ndarray:
         if self._fermion_phase_cache is not None:
@@ -114,15 +80,13 @@ class FLatDyn(object):
         ff = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order='F')
         tempmat = np.zeros((ntau), dtype=np.complex128, order='F')
 
-        k_indices = self._k_indices(nk)
-        for ik in k_indices:
+        for ik in range(nk):
             for js in range(ns):
+                
                 for jorb, iorb in itertools.product(range(norb), repeat=2):
                     tempmat = ftau[iorb, jorb, js, ik]
                     tempmat2 = self.dlr.FT2F(tempmat)
                     ff[iorb, jorb, js, ik] = tempmat2
-
-        ff = self._allreduce_array(ff)
 
         return ff
     
@@ -137,15 +101,12 @@ class FLatDyn(object):
         ftau = np.zeros((norb,norb,ns,nk,ntau),dtype=np.complex128,order='F')
         tempmat = np.zeros((nfreq), dtype=np.complex128, order='F')
         
-        k_indices = self._k_indices(nk)
-        for ik in k_indices:
+        for ik in range(nk):
             for js in range(ns):
                 for jorb, iorb in itertools.product(range(norb), repeat=2):
                     tempmat = ff[iorb, jorb, js, ik]
                     tempmat2 = self.dlr.FF2T(tempmat)
                     ftau[iorb, jorb, js, ik] = tempmat2
-
-        ftau = self._allreduce_array(ftau)
 
         return ftau
 
@@ -184,15 +145,13 @@ class FLatDyn(object):
         nft = matk.shape[4]
 
         matr = np.zeros((norb, norb, ns, nrk, nft), dtype=np.complex128, order='F')
-        if self._is_root():
-            tempmat = np.empty((norb, norb, ns, nrk), dtype=np.complex128, order='F')
-            phase_view = phases[:, :, np.newaxis, :]
+        tempmat = np.empty((norb, norb, ns, nrk), dtype=np.complex128, order='F')
+        phase_view = phases[:, :, np.newaxis, :]
 
-            for ift in range(nft):
-                np.multiply(matk[..., ift], phase_view, out=tempmat)
-                matr[..., ift] = Fourier.FLatStcK2R(tempmat, rkgrid)
+        for ift in range(nft):
+            np.multiply(matk[..., ift], phase_view, out=tempmat)
+            matr[..., ift] = Fourier.FLatStcK2R(tempmat, rkgrid)
 
-        matr = self._allreduce_array(matr)
         return matr
     
     def R2K(self, matr : np.ndarray) -> np.ndarray:
@@ -207,15 +166,12 @@ class FLatDyn(object):
         phases = self._get_fermion_phase()
         phase_conj = np.conjugate(phases)[:, :, np.newaxis, :]
         matk = np.zeros((norb, norb, ns, nrk, nft), dtype=np.complex128, order='F')
-        if self._is_root():
-            tempmat = np.empty((norb, norb, ns, nrk), dtype=np.complex128, order='F')
+        tempmat = np.empty((norb, norb, ns, nrk), dtype=np.complex128, order='F')
 
-            for ift in range(nft):
-                temp_k = Fourier.FLatStcR2K(matr[..., ift], rkgrid)
-                np.multiply(temp_k, phase_conj, out=tempmat)
-                matk[..., ift] = tempmat
-
-        matk = self._allreduce_array(matk)
+        for ift in range(nft):
+            temp_k = Fourier.FLatStcR2K(matr[..., ift], rkgrid)
+            np.multiply(temp_k, phase_conj, out=tempmat)
+            matk[..., ift] = tempmat
         return matk
     
     def R2mR(self) -> list: # move to crystal
@@ -250,20 +206,13 @@ class FLatDyn(object):
 
         GmRmT = np.zeros((norb,norb,ns,nr,ntau),dtype=np.complex128,order='F')
 
-        rp_list = self.mappingidx
-        if self._mpi_enabled():
-            splits = np.array_split(np.arange(len(rp_list)), self.size)
-            local_idx = splits[self.rank]
-            rp_list = [self.mappingidx[ii] for ii in local_idx]
-
         for itau in range(ntau):
-            for rp in rp_list:
+            for rp in self.mappingidx:
                 for js in range(ns):
                     for iorb in range(norb):
                         for jorb in range(norb):
                             GmRmT[iorb,jorb,js,rp[0],itau] = -G[iorb,jorb,js,rp[1],ntau-itau-1]
 
-        GmRmT = self._allreduce_array(GmRmT)
         return GmRmT
     
     def GaussianLinearBroad(self,x, y, w1, temperature, cutoff):
@@ -315,20 +264,7 @@ class FLatDyn(object):
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
 
         # matout = QAFort.dyson.flatdyn(mat1,mat2)
-        if not self._mpi_enabled():
-            return Dyson.FLatDyn(mat1, mat2)
-
-        nfreq = mat1.shape[4]
-        nk = mat1.shape[3]
-        matout = np.zeros_like(mat1, dtype=np.complex128, order='F')
-        k_indices = self._k_indices(nk)
-
-        for ifreq in range(nfreq):
-            for ik in k_indices:
-                matout[..., ik, ifreq] = Dyson.FLocStc(mat1[..., ik, ifreq], mat2[..., ik, ifreq])
-
-        matout = self._allreduce_array(matout)
-        return matout
+        return Dyson.FLatDyn(mat1, mat2)
     
     def ChemEmbedding(self,mu : np.float64) -> np.ndarray:
 
@@ -481,14 +417,11 @@ class FLatDyn(object):
         ntau = len(self.dlr.tauF)
         fout = np.zeros((norb, norb, ns, ns, nk, ntau), dtype=np.complex128, order='F')  
 
-        k_indices = self._k_indices(nk)
-        for ik in k_indices:
+        for ik in range(nk):
             for ks, js in itertools.product(range(ns), repeat=2):
                 for jorb, iorb in itertools.product(range(norb), repeat=2):
                     tempmat = ftau[iorb, jorb, js, ks, ik]
                     fout[iorb, jorb, js, ks, ik] = self.dlr.TauB2TauF(tempmat)
-
-        fout = self._allreduce_array(fout)
 
         return fout
     
@@ -511,27 +444,23 @@ class FLatDyn(object):
     
 class GreenBare(FLatDyn):
 
-    # def __init__(self, crystal: Crystal, dlr : DLR, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
-    def __init__(self, crystal: Crystal, dlr : DLR, **kwargs) -> object:
+    def __init__(self, crystal: Crystal, dlr : DLR, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
         
-        super().__init__(crystal, dlr, mpictx=kwargs.get("mpictx", None))
+        super().__init__(crystal, dlr)
         # print(self.niham.hamtb[...,0,0])
-        self.hamtb = kwargs.get("hamtb", None)
-        if self.hamtb is None:
-            print("Hamiltonian doesn't exist")
-            sys.exit()
+        self.hamtb = hamtb
         self.kt = None
         self.kf = None
         self.rt = None
         self.rf = None
-        self.hdf5file = kwargs.get("hdf5file", None)
-        self.group = kwargs.get("group", None)
+        self.hdf5file = hdf5file
+        self.group = group
         self.subgroup = self.__class__.__name__
 
         print("Bare Green's function Calculation Start")
         start = time.time()
         self.Cal()
-        if self.hdf5file != None:
+        if hdf5file != None:
             self.Save()
         end = time.time()    
         print("Bare Green's function Calculation Finish")
@@ -542,34 +471,23 @@ class GreenBare(FLatDyn):
         
         from .utility.Bare import Bare
         # print(self.hamtb[:,:,0,0])
-        norb, _, ns, nk = self.hamtb.shape
-        nfreq = len(self.dlr.omega)
-        ntau = len(self.dlr.tauF)
-        gnotkf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
-        gnotkt = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
-
-        k_indices = self._k_indices(nk)
-        for ik in k_indices:
-            gnotkf[..., ik, :] = Bare.FLocFreq(self.dlr.omega, self.hamtb[..., ik])
-            gnotkt[..., ik, :] = Bare.FLocTau(self.dlr.tauF, self.dlr.beta, self.hamtb[..., ik])
-
-        gnotkf = self._allreduce_array(gnotkf)
-        gnotkt = self._allreduce_array(gnotkt)
-
-        gnotrf = self.K2R(gnotkf)
-        gnotrt = self.K2R(gnotkt)
-
+        # gnotkf = QAFort.bare.flatfreq(self.hamtb,self.dlr.omega)
+        gnotkf = Bare.FLatFreq(self.dlr.omega, self.hamtb)
+        gnotrf = self.K2R(gnotkf)#######
+        
         self.kf = gnotkf
         self.rf = gnotrf
+
+        # gnotkt = QAFort.bare.flattau(self.hamtb,self.dlr.tau)
+        gnotkt = Bare.FLatTau(tau=self.dlr.tauF, beta=self.dlr.beta, hlatt=self.hamtb)
+        gnotrt = self.K2R(gnotkt)
+
         self.kt = gnotkt
         self.rt = gnotrt
 
         return None
     
     def Save(self):
-
-        if not self._should_write():
-            return None
 
         # if os.path.exists('gbare'):
         #     pass
@@ -590,24 +508,35 @@ class GreenBare(FLatDyn):
 
         return None
     
+    # def Load(self):
+
+    #     os.chdir('work')
+
+    #     filepath = 'flatdyn.h5'
+    #     groupname = 'gbare'
+    #     errmessage = 'There is no calculation data. Please perform the calculation again.'
+    #     with h5py.File(filepath,'r') as file:
+    #         if self.CheckGroup(filepath,groupname):
+    #             group = file[groupname]
+    #         else:
+    #             print(errmessage)
+    #             sys.exit()
+            
+    #         g0kf = group['g0kf'][:]
+
+    #     os.chdir('..')
+
+    #     return g0kf
     
 class GreenInt(FLatDyn):
 
-    # def __init__(self, crystal: Crystal, dlr : DLR, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
-    def __init__(self, crystal: Crystal, dlr : DLR, **kwargs) -> object:
+    def __init__(self, crystal: Crystal, dlr : DLR, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
         
-        greenbare = kwargs.get("greenbare", None)
-        sigmah = kwargs.get("sigmah", None)
-        sigmaf = kwargs.get("sigmaf", None)
-        sigmagwc = kwargs.get("sigmagwc", None)
-        hdf5file = kwargs.get("hdf5file", "glob.h5")
-        group = kwargs.get("group", None)
-
         if greenbare is None:
             print("Bare Green's function doesn't exist")
             sys.exit()
-        super().__init__(crystal, dlr, mpictx=kwargs.get("mpictx", None))
-        self.flatstc = FLatStc(crystal=crystal, mpictx=self.mpictx)
+        super().__init__(crystal, dlr)
+        self.flatstc = FLatStc(crystal=crystal)
         norb, _, ns, nk, nfreq = greenbare.shape
         ntau = len(self.dlr.tauF)
         self.kf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
@@ -634,7 +563,9 @@ class GreenInt(FLatDyn):
         print("Interacting Green's function Calculation Start")
         start = time.time()
         self.CalMu0()
-
+        # if (self.sigmac is None)and(self.sigmah is None)and(self.sigmaf is None):
+        #     self.UpdateMu()
+        # else:
         self.SearchMu()
         end = time.time()
         print("Interacting Green's function Calculation Finish")
@@ -698,8 +629,7 @@ class GreenInt(FLatDyn):
         tau_beta = np.array([tau_uniform[-1]], dtype=np.float64)
         # tau_beta = np.array([self.dlr.beta], dtype=np.float64)
 
-        k_indices = self._k_indices(nrk)
-        for irk in k_indices:
+        for irk in range(nrk):
             for js in range(ns):
                 for jorb in range(norb):
                     for iorb in range(norb):
@@ -707,10 +637,9 @@ class GreenInt(FLatDyn):
                         occk[iorb, jorb, js, irk] = -value_beta
                         # occk[iorb, jorb, js, irk] = -tempmat[-1, 0, 0]
 
-        occk = self._allreduce_array(occk)
-
         for irk in range(nrk):
             occ += occk[...,irk]
+            
         occ /= nrk
         self.occ = occ
         self.occk = occk
@@ -761,8 +690,7 @@ class GreenInt(FLatDyn):
         tau_beta = np.array([tau_uniform[-1]], dtype=np.float64)
         # tau_beta = np.array([self.dlr.beta], dtype=np.float64)
         
-        k_indices = self._k_indices(nrk)
-        for irk in k_indices:
+        for irk in range(nrk):
             for js in range(ns):
                 for iorb in range(norb):
                     value_beta = self.dlr.TauDLR2Points(tempmat2[iorb, iorb, js, irk], tau_beta)[0]
@@ -771,8 +699,6 @@ class GreenInt(FLatDyn):
                 # for iorb in range(norb):
                 #     Ne += -np.real(tempmat3[iorb, iorb, -1])
                     # Ne += -np.real(gcalt[iorb,iorb,js,irk,-1])
-        if self._mpi_enabled():
-            Ne = self.comm.allreduce(Ne, op=MPI.SUM)
         Ne /= nrk
         
         N = self.crystal.nume
@@ -803,8 +729,6 @@ class GreenInt(FLatDyn):
     
     def Save(self, fn: str, chem : bool = False):
 
-        if not self._should_write():
-            return None
         
         with h5py.File(self.hdf5file,'a') as file:
             if self.CheckGroup(self.hdf5file,self.group):
@@ -827,11 +751,9 @@ class GreenInt(FLatDyn):
     
 class SigmaGWC(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, **kwargs) -> object:
-        super().__init__(crystal, dlr, mpictx=kwargs.get("mpictx", None))
-        self.flatstc = FLatStc(crystal=crystal, mpictx=self.mpictx)
-        green = kwargs.get("green", None)
-        wlat = kwargs.get("wlat", None)
+    def __init__(self, crystal: Crystal, dlr : DLR, green : np.ndarray = None, wlat : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None) -> object:
+        super().__init__(crystal, dlr)
+        self.flatstc = FLatStc(crystal=crystal)
         norb, _, ns, nk, nfreq = green.shape
         ntau = len(self.dlr.tauF)
         self.rt = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
@@ -840,8 +762,8 @@ class SigmaGWC(FLatDyn):
         self.kf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
         self.stck = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
         self.z = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
-        self.hdf5file = kwargs.get("hdf5file", "glob.h5")
-        self.group = kwargs.get("group", None)
+        self.hdf5file = hdf5file
+        self.group = group
         self.subgroup = self.__class__.__name__
 
         if green is None:
@@ -892,9 +814,8 @@ class SigmaGWC(FLatDyn):
         tempmat = np.zeros((norbc,norbc,ns,nr,ntau),dtype=np.complex128,order='F')
 
         
-        k_indices = self._k_indices(nr)
         for itau in range(ntau):
-            for ir in k_indices:
+            for ir in range(nr):
                 for ind2 in range(norb*ns):
                     nn2 = [0]*2
                     ind2, [jorb,ks] = Common.Indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
@@ -916,7 +837,7 @@ class SigmaGWC(FLatDyn):
         # for ir in range(nr):
         #     for js in range(ns):
         #         crtau[:, :, js, ir] = self.dlr.TauUniform2DLR(tempmat[:, :, js, ir])
-        crtau = self._allreduce_array(tempmat)
+        crtau = tempmat
         cktau = self.R2K(crtau)
         ckfreq = self.T2F(cktau)
         crfreq = self.T2F(crtau)
@@ -967,9 +888,6 @@ class SigmaGWC(FLatDyn):
         return None
     
     def Save(self, fn: str, obj : np.ndarray = None):
-
-        if not self._should_write():
-            return None
 
         with h5py.File(self.hdf5file,'a') as file:
             if self.CheckGroup(self.hdf5file,self.group):

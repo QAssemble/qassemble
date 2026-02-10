@@ -17,7 +17,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.linalg
 import scipy.optimize
-from mpi4py import MPI
 from pylab import cm
 from pymatgen.core import Lattice, Structure
 from pymatgen.transformations.standard_transformations import \
@@ -26,7 +25,6 @@ from scipy.fftpack import fftn, ifftn
 from sympy.physics.wigner import gaunt, wigner_3j
 
 from .Crystal import Crystal
-from .utility.Common import Common
 from .utility.Dyson import Dyson
 from .utility.Fourier import Fourier
 
@@ -38,42 +36,9 @@ from .utility.Fourier import Fourier
 
 class FLatStc(object):
 
-    def __init__(self, crystal: Crystal, mpictx : dict = None):
+    def __init__(self, crystal: Crystal):
 
         self.crystal = crystal
-        self.mpictx = mpictx
-        self.comm = None
-        self.rank = 0
-        self.size = 1
-        if self.mpictx is not None:
-            self.comm = self.mpictx.get("comm", None)
-            if self.comm is not None:
-                self.rank = self.comm.Get_rank()
-                self.size = self.comm.Get_size()
-
-    def _mpi_enabled(self) -> bool:
-        return (self.comm is not None) and (self.size > 1)
-
-    def _is_root(self) -> bool:
-        return (not self._mpi_enabled()) or (self.rank == 0)
-
-    def _k_indices(self, nk: int):
-        if not self._mpi_enabled():
-            return range(nk)
-        if self.mpictx is not None and "k_indices" in self.mpictx:
-            return self.mpictx["k_indices"]
-        splits = np.array_split(np.arange(nk), self.size)
-        return splits[self.rank]
-
-    def _allreduce_array(self, arr: np.ndarray) -> np.ndarray:
-        if not self._mpi_enabled():
-            return arr
-        out = np.zeros_like(arr)
-        self.comm.Allreduce(arr, out, op=MPI.SUM)
-        return out
-
-    def _should_write(self) -> bool:
-        return self._is_root()
 
     def Inverse(self, mat: np.ndarray):
 
@@ -100,27 +65,24 @@ class FLatStc(object):
         nrk = matk.shape[3]
 
         tempmat = copy.deepcopy(matk)
-        matr = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
 
-        if self._is_root():
-            for irk in range(nrk):
-                for js in range(ns):
-                    for iorb in range(norb):
-                        for jorb in range(norb):
-                            [a, m1] = self.crystal.FAtomOrb(iorb)
-                            [b, m2] = self.crystal.FAtomOrb(jorb)
+        for irk in range(nrk):
+            for js in range(ns):
+                for iorb in range(norb):
+                    for jorb in range(norb):
+                        [a, m1] = self.crystal.FAtomOrb(iorb)
+                        [b, m2] = self.crystal.FAtomOrb(jorb)
 
-                            delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+                        delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
 
-                            phase = np.exp(2.0j * np.pi * np.dot(rkvec[irk], delta))
+                        phase = np.exp(2.0j * np.pi * np.dot(rkvec[irk], delta))
 
-                            # matk[iorb,jorb,js,irk] *= phase
-                            tempmat[iorb, jorb, js, irk] *= phase
+                        # matk[iorb,jorb,js,irk] *= phase
+                        tempmat[iorb, jorb, js, irk] *= phase
 
-            # matr = QAFort.fourier.flatstc_k2r(rkgrid, tempmat)
-            matr = Fourier.FLatStcK2R(tempmat, rkgrid)
+        # matr = QAFort.fourier.flatstc_k2r(rkgrid, tempmat)
+        matr = Fourier.FLatStcK2R(tempmat, rkgrid)
 
-        matr = self._allreduce_array(matr)
         return matr
 
     def R2K(self, matr: np.ndarray = None, rkgrid: list = None) -> np.ndarray:
@@ -134,24 +96,22 @@ class FLatStc(object):
         nrk = matr.shape[3]
 
         matk = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
-        if self._is_root():
-            tempmat = copy.deepcopy(matr)
-            # matk = QAFort.fourier.flatstc_r2k(rkgrid, tempmat)
-            matk = Fourier.FLatStcR2K(tempmat, rkgrid)
+        tempmat = copy.deepcopy(matr)
+        # matk = QAFort.fourier.flatstc_r2k(rkgrid, tempmat)
+        matk = Fourier.FLatStcR2K(tempmat, rkgrid)
 
-            for irk in range(nrk):
-                for js in range(ns):
-                    for iorb in range(norb):
-                        for jorb in range(norb):
-                            [a, m1] = self.crystal.FAtomOrb(iorb)
-                            [b, m2] = self.crystal.FAtomOrb(jorb)
+        for irk in range(nrk):
+            for js in range(ns):
+                for iorb in range(norb):
+                    for jorb in range(norb):
+                        [a, m1] = self.crystal.FAtomOrb(iorb)
+                        [b, m2] = self.crystal.FAtomOrb(jorb)
 
-                            delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
-                            phase = np.exp(-2.0j * np.pi * np.dot(rkvec[irk], delta))
+                        delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+                        phase = np.exp(-2.0j * np.pi * np.dot(rkvec[irk], delta))
 
-                            matk[iorb, jorb, js, irk] = matk[iorb, jorb, js, irk] * phase
+                        matk[iorb, jorb, js, irk] = matk[iorb, jorb, js, irk] * phase
 
-        matk = self._allreduce_array(matk)
         return matk
 
     def Band(
@@ -577,12 +537,13 @@ class FLatStc(object):
 class NIHamiltonian(FLatStc):
 
     def __init__(
-        self, crystal: Crystal = None, **kwargs):
-        super().__init__(crystal, mpictx=kwargs.get("mpictx", None))
+        self, crystal: Crystal = None, hopping: dict = None, onsite: dict = None, spin : bool = False, 
+        ferro : bool = False, aferro : bool = False, valley: bool = False, avalley : bool = False, site : bool = False, 
+        asite : bool = False, hdf5file: h5py.File = None, group: str = None,
+    ):
 
-        hopping = kwargs.get("hopping", {})
+        super().__init__(crystal)
 
-        
         print("Non-interacting Hamiltonian Calculation Start")
         hopplist = []
         for orb, val in hopping.items():
@@ -592,16 +553,14 @@ class NIHamiltonian(FLatStc):
 
         # print(hopplist)
         self.hopping = hopplist
-        self.onsite = kwargs.get("onsite", {})
-        self.hdf5file = kwargs.get("hdf5file", None)
-        self.spin = kwargs.get("spin", False) 
-        self.asite = kwargs.get("asite", False)
-        self.site = kwargs.get("site", False)
-        self.ferro = kwargs.get("ferro", False)
-        self.aferro = kwargs.get("aferro", False)
-        self.valley = kwargs.get("valley", False)
-        self.avalley = kwargs.get("avalley", False)
-        self.group = kwargs.get("group", None)
+        self.onsite = onsite
+        self.hdf5file = hdf5file
+        self.spin = spin
+        self.asite = asite
+        self.site = site
+        self.ferro = ferro
+        self.aferro = aferro
+        self.group = group
         self.subgroup = self.__class__.__name__
         # print(self.onsite)
         self.k = None
@@ -610,13 +569,13 @@ class NIHamiltonian(FLatStc):
         # self.Onsite()
 
         self.Cal()
-        if self.valley:
+        if valley:
             self.Valley()
         
-        if self.avalley:
+        if avalley:
             self.AntiValley()
 
-        if self.hdf5file != None:
+        if hdf5file != None:
             self.Save()
 
         print("Non-interacting Hamiltonian Calculation Finish")
@@ -712,9 +671,6 @@ class NIHamiltonian(FLatStc):
         return None
 
     def Save(self):
-
-        if not self._should_write():
-            return None
 
         # if os.path.exists('niham'):
         #     pass
@@ -836,24 +792,22 @@ class NIHamiltonian(FLatStc):
 
 class SigmaHartree(FLatStc):
 
-    # def __init__(
-    #     self,
-    #     crystal: Crystal,
-    #     occ=None,
-    #     vbare: np.ndarray = None,
-    #     hdf5file: str = "glob.h5",
-    #     group: str = None,
-    # ):  # green -> occ
-
-    def __init__(self, crystal : Crystal, **kwargs):
-        super().__init__(crystal, mpictx=kwargs.get("mpictx", None))
+    def __init__(
+        self,
+        crystal: Crystal,
+        occ=None,
+        vbare: np.ndarray = None,
+        hdf5file: str = "glob.h5",
+        group: str = None,
+    ):  # green -> occ
+        super().__init__(crystal)
         self.r = None
         self.k = None
-        self.vbare = kwargs.get("vbare", None)
-        self.hdf5file = kwargs.get("hdf5file", None)
-        self.group = kwargs.get("group", None)
+        self.vbare = vbare
+        self.hdf5file = hdf5file
+        self.group = group
         self.subgroup = self.__class__.__name__
-        self.occ = kwargs.get("occ", None)
+        self.occ = occ
 
         print("Hartree Self-energy Calculation Start")
         self.Cal()
@@ -871,13 +825,28 @@ class SigmaHartree(FLatStc):
 
         # onsite = self.R2K(self.onsiter)
         h = np.zeros((norbc, norbc, ns, nk), dtype=np.complex128, order="F")
-        k_indices = self._k_indices(nk)
 
         if self.crystal.ns != 1:
-            for ik in k_indices:
+            #     for ik in range(nk):
+            #         tempmat[...,ik] = self.crystal.OrbSpin2Composite(vbare[...,ik])
+
+            # for ik in range(nk):
+            #     for ind1 in range(norb*ns):
+            #         nn1 = [0]*2
+            #         ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
+            #         [iorbc1,iorbc2] = self.crystal.b2f[iorb]
+
+            #         for ind2 in range(norb*ns):
+            #             nn2 = [0]*2
+            #             ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
+            #             [iorbc3,iorbc4] = self.crystal.b2f[jorb]
+            #             h[iorbc1,iorbc2,js,ik] += tempmat[ind1,ind2,0]*occ[iorbc4,iorbc3,ks]
+            # for jk in range(nk):
+            #     h[iorbc1,iorbc2,js,ik] += tempmat[ind1,ind2,0]*occ[iorbc4,iorbc3,ks,jk]/nk
+            for ik in range(nk):
                 for ind1 in range(norb * ns):
                     nn1 = [0] * 2
-                    ind1, [iorb, js] = Common.Indexing(
+                    ind1, [iorb, js] = self.crystal.indexing(
                         norb * ns, 2, [norb, ns], 0, ind1, nn1
                     )
                     [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
@@ -885,7 +854,7 @@ class SigmaHartree(FLatStc):
                     iorbc2 = self.crystal.FIndex([a, m2])
                     for ind2 in range(norb * ns):
                         nn2 = [0] * 2
-                        ind2, [jorb, ks] = Common.Indexing(
+                        ind2, [jorb, ks] = self.crystal.indexing(
                             norb * ns, 2, [norb, ns], 0, ind2, nn2
                         )
                         [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
@@ -908,10 +877,10 @@ class SigmaHartree(FLatStc):
                 #             # for jk in range(nk):
                 #             #     gtemp[iorbc4,iorbc3,0] += g0kt[iorbc4,iorbc3,0,0,-1]
                 #             h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0]*C #1/nk*gtemp[iorbc4,iorbc3,0]*C
-                for ik in k_indices:
+                for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
-                        ind1, [iorb, js] = Common.Indexing(
+                        ind1, [iorb, js] = self.crystal.indexing(
                             norb * ns, 2, [norb, ns], 0, ind1, nn1
                         )
                         [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
@@ -919,7 +888,7 @@ class SigmaHartree(FLatStc):
                         iorbc2 = self.crystal.FIndex([a, m2])
                         for ind2 in range(norb * ns):
                             nn2 = [0] * 2
-                            ind2, [jorb, ks] = Common.Indexing(
+                            ind2, [jorb, ks] = self.crystal.indexing(
                                 norb * ns, 2, [norb, ns], 0, ind2, nn2
                             )
                             [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
@@ -941,10 +910,10 @@ class SigmaHartree(FLatStc):
                 #             h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0]*C
                 #             # for jk in range(nk):
                 #             #     h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0,jk]/nk*C
-                for ik in k_indices:
+                for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
-                        ind1, [iorb, js] = Common.Indexing(
+                        ind1, [iorb, js] = self.crystal.indexing(
                             norb * ns, 2, [norb, ns], 0, ind1, nn1
                         )
                         [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
@@ -952,7 +921,7 @@ class SigmaHartree(FLatStc):
                         iorbc2 = self.crystal.FIndex([a, m2])
                         for ind2 in range(norb * ns):
                             nn2 = [0] * 2
-                            ind2, [jorb, ks] = Common.Indexing(
+                            ind2, [jorb, ks] = self.crystal.indexing(
                                 norb * ns, 2, [norb, ns], 0, ind2, nn2
                             )
                             [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
@@ -965,16 +934,12 @@ class SigmaHartree(FLatStc):
                                 * C
                             )
 
-        h = self._allreduce_array(h)
         self.k = h  # +onsite
         self.r = self.K2R(h)
 
         return None
 
     def Save(self, fn: str):
-
-        if not self._should_write():
-            return None
 
         # os.chdir('work')
 
@@ -1005,24 +970,23 @@ class SigmaHartree(FLatStc):
 
 class SigmaFock(FLatStc):
 
-    # def __init__(
-    #     self,
-    #     crystal: Crystal,
-    #     occr=None,
-    #     vbare: np.ndarray = None,
-    #     hdf5file: str = "glob.h5",
-    #     group: str = None,
-    # ):  # green -> occ
-    def __init__(self, crystal : Crystal, **kwargs):
-        super().__init__(crystal, mpictx=kwargs.get("mpictx", None))
+    def __init__(
+        self,
+        crystal: Crystal,
+        occr=None,
+        vbare: np.ndarray = None,
+        hdf5file: str = "glob.h5",
+        group: str = None,
+    ):  # green -> occ
+        super().__init__(crystal)
         self.r = None
         self.k = None
-        self.hdf5file = kwargs.get("hdf5file", "glob.h5")
-        self.group = kwargs.get("group", None)
+        self.hdf5file = hdf5file
+        self.group = group
         self.subgroup = self.__class__.__name__
         # self.green = green
-        self.occr = kwargs.get("occr", None)
-        self.vbare = kwargs.get("vbare", None)
+        self.occr = occr
+        self.vbare = vbare
 
         print("Fock Self-energy Calculation Start")
         self.Cal()
@@ -1041,7 +1005,6 @@ class SigmaFock(FLatStc):
         norb = len(self.crystal.bind)
 
         fr = np.zeros((norbc, norbc, ns, nr), dtype=np.complex128, order="F")
-        r_indices = self._k_indices(nr)
 
         # for ir in range(nr):
         #     for js in range(ns):
@@ -1050,10 +1013,10 @@ class SigmaFock(FLatStc):
         #             for jorb in range(norb):
         #                 [iorbc2,iorbc3] = self.crystal.b2f[jorb]
         #                 fr[iorbc1,iorbc3,js,ir] = -occr[iorbc4,iorbc2,js,ir]*vr[iorb,jorb,js,js,ir]
-        for ir in r_indices:
+        for ir in range(nr):
             for ind1 in range(norb * ns):
                 nn1 = [0] * 2
-                ind1, [iorb, js] = Common.Indexing(
+                ind1, [iorb, js] = self.crystal.indexing(
                     norb * ns, 2, [norb, ns], 0, ind1, nn1
                 )
                 [a, [m1, m4]] = self.crystal.BAtomOrb(iorb)
@@ -1061,7 +1024,7 @@ class SigmaFock(FLatStc):
                 iorbc4 = self.crystal.FIndex([a, m4])
                 for ind2 in range(norb * ns):
                     nn2 = [0] * 2
-                    ind2, [jorb, ks] = Common.Indexing(
+                    ind2, [jorb, ks] = self.crystal.indexing(
                         norb * ns, 2, [norb, ns], 0, ind2, nn2
                     )
                     [b, [m3, m2]] = self.crystal.BAtomOrb(jorb)
@@ -1076,7 +1039,6 @@ class SigmaFock(FLatStc):
 
                         # fr[iorbc1,iorbc2,js,ir] += -occr[iorbc3,iorbc4,js,ir]*vr[iorbc1,iorbc3,iorbc2,iorbc4,js,ks,ir]
 
-        fr = self._allreduce_array(fr)
         fk = self.R2K(fr)
 
         self.r = fr
@@ -1085,9 +1047,6 @@ class SigmaFock(FLatStc):
         return None
 
     def Save(self, fn: str):
-
-        if not self._should_write():
-            return None
 
         # os.chdir('work')
 
@@ -1118,28 +1077,19 @@ class SigmaFock(FLatStc):
 
 class Hamiltonian(FLatStc):
 
-    # def __init__(
-    #     self,
-    #     crystal: Crystal,
-    #     ham: np.ndarray = None,
-    #     beta: float = None,
-    #     sigmah: np.ndarray = None,
-    #     sigmaf: np.ndarray = None,
-    #     sigmac: np.ndarray = None,
-    #     z : np.ndarray = None,
-    #     hdf5file: str = "glob.h5",
-    #     group: str = None,
-    # ):
-    def __init__(self, crystal : Crystal, **kwargs):
-        ham = kwargs.get("ham", None)
-        beta = kwargs.get("beta", None)
-        sigmah = kwargs.get("sigmah", None)
-        sigmaf = kwargs.get("sigmaf", None)
-        sigmac = kwargs.get("sigmac", None)
-        z = kwargs.get("z", None)
-        hdf5file = kwargs.get("hdf5file", "glob.h5")
-        group = kwargs.get("group", None)
-        super().__init__(crystal, mpictx=kwargs.get("mpictx", None))
+    def __init__(
+        self,
+        crystal: Crystal,
+        ham: np.ndarray = None,
+        beta: float = None,
+        sigmah: np.ndarray = None,
+        sigmaf: np.ndarray = None,
+        sigmac: np.ndarray = None,
+        z : np.ndarray = None,
+        hdf5file: str = "glob.h5",
+        group: str = None,
+    ):
+        super().__init__(crystal)
 
         self.occ = None
         self.occk = None
@@ -1378,16 +1328,16 @@ class HamiltonianAB(FLatStc):
     
 class ZFactor(FLatStc):
 
-    def __init__(self, crystal : Crystal, **kwargs):
+    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
 
         super().__init__(crystal)
 
-        self.sigmac = kwargs.get("sigmac", None)
-        self.beta = kwargs.get("beta", None)
+        self.sigmac = sigmac
+        self.beta = beta
         self.r = None
         self.k = None
-        self.hdf5file = kwargs.get("hdf5file", "glob.h5")
-        self.group = kwargs.get("group", None)
+        self.hdf5file = hdf5file
+        self.group = group
         self.subgroup = self.__class__.__name__
 
         print("Z-factor Calculation Start")
@@ -1446,16 +1396,16 @@ class ZFactor(FLatStc):
 
 class SigmaStc(FLatStc):
 
-    def __init__(self, crystal : Crystal, **kwargs):
+    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
 
         super().__init__(crystal)
 
-        self.sigmac = kwargs.get("sigmac", None)
-        self.beta = kwargs.get("beta", None)
+        self.sigmac = sigmac
+        self.beta = beta
         self.r = None
         self.k = None
-        self.hdf5file = kwargs.get("hdf5file", "glob.h5")
-        self.group = kwargs.get("group", None)
+        self.hdf5file = hdf5file
+        self.group = group
         self.subgroup = self.__class__.__name__
 
         print("Static Self-energy Calculation Start")

@@ -6,7 +6,6 @@ import sys
 
 import h5py
 import numpy as np
-from mpi4py import MPI
 
 from .BLocStc import VLoc
 from .Crystal import Crystal
@@ -17,34 +16,9 @@ from .utility.Dyson import Dyson
 
 class BLatStc(object):
 
-    def __init__(self, crystal: Crystal, mpictx : dict = None):
+    def __init__(self, crystal: Crystal):
         self.crystal = crystal
-        self.mpictx = mpictx
-        self.comm = None
-        self.rank = 0
-        self.size = 1
-        if self.mpictx is not None:
-            self.comm = self.mpictx.get("comm", None)
-            if self.comm is not None:
-                self.rank = self.comm.Get_rank()
-                self.size = self.comm.Get_size()
         self._phase_cache = None
-
-    def _mpi_enabled(self) -> bool:
-        return (self.comm is not None) and (self.size > 1)
-
-    def _is_root(self) -> bool:
-        return (not self._mpi_enabled()) or (self.rank == 0)
-
-    def _allreduce_array(self, arr: np.ndarray) -> np.ndarray:
-        if not self._mpi_enabled():
-            return arr
-        out = np.zeros_like(arr)
-        self.comm.Allreduce(arr, out, op=MPI.SUM)
-        return out
-
-    def _should_write(self) -> bool:
-        return self._is_root()
 
     def _get_phase(self) -> np.ndarray:
         if self._phase_cache is not None:
@@ -87,19 +61,17 @@ class BLatStc(object):
         rkgrid = self.crystal.rkgrid
         norb = matk.shape[0]
         ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        nrk = len(rkvec)
 
         phases = self._get_phase()
         matr = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
-        if self._is_root():
-            tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
-            phase_view = phases[:, :, np.newaxis, np.newaxis, :]
-            np.multiply(matk, phase_view, out=tempmat)
+        tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
+        phase_view = phases[:, :, np.newaxis, np.newaxis, :]
+        np.multiply(matk, phase_view, out=tempmat)
 
-            # matr = QAFort.fourier.blatstc_k2r(rkgrid, tempmat)
-            matr = Fourier.BLatStcK2R(tempmat, rkgrid)
+        # matr = QAFort.fourier.blatstc_k2r(rkgrid, tempmat)
+        matr = Fourier.BLatStcK2R(tempmat, rkgrid)
 
-        matr = self._allreduce_array(matr)
         return matr
 
     def R2K(self, matr: np.ndarray) -> np.ndarray:
@@ -111,16 +83,13 @@ class BLatStc(object):
 
         phases = self._get_phase()
         phase_conj = np.conjugate(phases)[:, :, np.newaxis, np.newaxis, :]
-        matk = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
-        if self._is_root():
-            tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
+        tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
 
-            # matk = QAFort.fourier.blatstc_r2k(rkgrid, matr)
-            tempk = Fourier.BLatStcR2K(matr, rkgrid)
-            np.multiply(tempk, phase_conj, out=tempmat)
-            matk = tempmat
+        # matk = QAFort.fourier.blatstc_r2k(rkgrid, matr)
+        tempk = Fourier.BLatStcR2K(matr, rkgrid)
+        np.multiply(tempk, phase_conj, out=tempmat)
+        matk = tempmat
 
-        matk = self._allreduce_array(matk)
         return matk
 
     def Mixing(
@@ -272,8 +241,6 @@ class BLatStc(object):
         return matout
 
     def Save(self, matin: np.ndarray, fn: str):
-        if not self._should_write():
-            return None
 
         norb = matin.shape[0]
         ns = matin.shape[2]
@@ -363,12 +330,23 @@ class BLatStc(object):
 
 class VBare(BLatStc):
 
-    def __init__(self, crystal : Crystal, **kwargs):
-        super().__init__(crystal, mpictx=kwargs.get("mpictx", None))
+    def __init__(
+        self,
+        crystal: Crystal,
+        vloc: VLoc = None,
+        orboption: dict = None,
+        intamp: dict = None,
+        ohno: bool = False,
+        jth: bool = False,
+        ohnoyuka: bool = False,
+        hdf5file: str = None,
+        group: str = None,
+    ):
+        super().__init__(crystal)
         self.k = None
         self.r = None
         self.intamp = None
-        intamp = kwargs.get('intamp', None)
+
         if intamp != None:
             intamplist = []
             for orb, val in intamp.items():
@@ -376,41 +354,36 @@ class VBare(BLatStc):
                     for r in lat:
                         intamplist.append([v, list(orb[0]), list(orb[1]), r])
             self.intamp = intamplist
-        self.locoption = kwargs.get('locoption', None)
+        self.locoption = orboption
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
         nrk = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
         self.nonlock = np.zeros((norb, norb, ns, ns, nrk), dtype=complex, order="F")
         self.nonlocr = np.zeros((norb, norb, ns, ns, nrk), dtype=complex, order="F")
         self.sigmaonsiter = None
-        self.hdf5file = kwargs.get('hdf5file', None)
-        self.group = kwargs.get('group', None)
+        self.hdf5file = hdf5file
+        self.group = group
         self.subgroup = self.__class__.__name__
 
-        self.ohno = kwargs.get('ohno', False)
-        self.jth = kwargs.get('jth', False)
-        self.ohnoyuka = kwargs.get('ohnoyuka', False)
-
-        vloc = kwargs.get('vloc', None)
         print("Bare Coulomb Interaction Calculation Start")
-        if (self.ohno == False) and (intamp == None) and (self.jth == False) and (self.ohnoyuka == False):
+        if (ohno == False) and (intamp == None) and (jth == False):
             print("Only calculate the local coulomb interaction")
         if vloc == None:
-            if self.locoption != None:
-                self.vloc = VLoc(crystal, self.locoption)
+            if orboption != None:
+                self.vloc = VLoc(crystal, orboption)
             else:
                 print("Error, orboption is not exsist. v local can't generate in here")
         else:
             self.vloc = vloc
 
-        if self.ohno:
+        if ohno:
             self.OhnoParameter()
             # self.Cal()
-        elif self.jth:
+        elif jth:
             print("JTH Potential calculation start")
             self.JTHPotential()
             print("JTH Potential calculation finish")
-        elif self.ohnoyuka:
+        elif ohnoyuka:
             print("Ohno-Yukawa calculation start")
             self.OhnoYukawa()
             print("Ohno-Yukawa calculation finish")
@@ -419,7 +392,7 @@ class VBare(BLatStc):
                 # self.InteractingAmplitue(intamp)
                 self.Cal()
         self.LocPlusNonLoc()
-        if self.hdf5file != None:
+        if hdf5file != None:
             self.Save()
         # self.GetOnsiteEnergy()
         print("Bare Coulomb Interaction Calculation Finish")
@@ -503,9 +476,6 @@ class VBare(BLatStc):
         return None
 
     def Save(self):
-
-        if not self._should_write():
-            return None
 
         with h5py.File(self.hdf5file, "a") as file:
             if self.CheckGroup(self.hdf5file, self.group):
