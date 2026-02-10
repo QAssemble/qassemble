@@ -47,6 +47,7 @@ from QAssemble.Serial.CorrelationFunction import CorrelationFunction
 class Run:
     def __init__(self, test=False) -> None:
 
+<<<<<<< HEAD
         self.ismpi = self.CheckMPI()
         if self.ismpi:
             self.comm = MPI.COMM_WORLD
@@ -54,6 +55,8 @@ class Run:
             self.size = self.comm.Get_size()
             self.mpimanager = MPIManager(self.comm)
 
+=======
+>>>>>>> parent of 1ed0333 (Delete MPI directory)
         self.control = None
         self.func = None
         self.ReadInput()
