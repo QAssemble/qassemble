@@ -10,53 +10,22 @@ import subprocess
 import sys
 import time
 import h5py
+from mpi4py import MPI
 
-# def ensure_module(module_name, package_name=None):
-#     package = package_name or module_name
-#     try:
-#         return importlib.import_module(module_name)
-#     except ModuleNotFoundError as exc:
-#         if getattr(exc, "name", module_name) != module_name:
-#             raise
-#         print(f"Installing missing Python package '{package}' with pip...", flush=True)
-#     try:
-#         subprocess.check_call(
-#             [sys.executable, "-m", "pip", "install", package],
-#         )
-#     except subprocess.CalledProcessError as exc:
-#         print(
-#             f"Failed to install required package '{package}': {exc}",
-#             flush=True,
-#         )
-#         raise
-#     return importlib.import_module(module_name)
-
-
-# h5py = ensure_module("h5py")
-# np = ensure_module("numpy")
-# ensure_module("scipy")
-# ensure_module("matplotlib")
-# ensure_module("numba")
-# ensure_module("finufft")
-# ensure_module("mpi4py")
-# ensure_module("mpi4py_fft", "mpi4py-fft")
-
-from QAssemble.Serial.CorrelationFunction import CorrelationFunction
+from QAssemble.CorrelationFunction import CorrelationFunction
+from QAssemble.utility.MPIManager import MPIManager
 
 
 class Run:
     def __init__(self, test=False) -> None:
 
-<<<<<<< HEAD
-        self.ismpi = self.CheckMPI()
-        if self.ismpi:
+        if self.CheckMPI():
             self.comm = MPI.COMM_WORLD
-            self.rank = self.comm.Get_rank()
-            self.size = self.comm.Get_size()
             self.mpimanager = MPIManager(self.comm)
-
-=======
->>>>>>> parent of 1ed0333 (Delete MPI directory)
+            
+        else:
+            self.comm = None
+            self.mpimanager = None
         self.control = None
         self.func = None
         self.ReadInput()
@@ -74,7 +43,6 @@ class Run:
                 beta=control["ft"]["beta"],
                 size=control["ft"]["size"],
                 c=control["run"]["cw"],
-                mpictx=self.mpictx,
             )
             self.func = func
         else:
@@ -113,6 +81,8 @@ class Run:
         control["run"]["fn"] = ini.get("Prefix", "glob")
         control["run"]["method"] = ini.get("Method")
         control["run"]["mode"]   = ini.get("Mode", "FromScratch")
+        control["run"]["nprock"] = ini.get("NProck", 1)
+        control["run"]["nprocf"] = ini.get("NProcf", 1)
 
         # if control["run"}]
         if os.path.exists(control["run"]["fn"] + ".h5"):
@@ -423,9 +393,9 @@ class Run:
     def RunDiagE(self):
 
         control = self.control
-        cry = control["crystal"]
-        ft = control["ft"]
-        func = CorrelationFunction(cry=cry, ft=ft, mpictx=self.mpictx)
+    
+        func = CorrelationFunction(control=control, mpimanager = self.mpimanager)
+
         # func = CorrelationFunction(latt=control['crystal']['lattice'], basisposition=control['crystal']['basispos'], ns=control['crystal']['ns'],soc=control['crystal']['soc'],rkgrid=control['crystal']['rkgrid'],orboption=control['crystal']['orbital'],N=control['crystal']['nume'],T=control['ft']['T'],beta=control['ft']['beta'],size=control['ft']['size'],c=control['run']['cw'])
 
         itermax = control["run"]["nscf"]
@@ -558,6 +528,30 @@ class Run:
             # BLatDynSave(func.pol.polkf,'pkf')
             # BLatStcSave(func.vbare.k,'vk')
         return None
+
+    def CheckMPI(self):
+
+        ismpi = False
+        # for OpenMPI:
+        if os.environ.get('OMPI_COMM_WORLD_RANK'):
+            ismpi = True
+        # for MPICH and intel based MPI:
+        elif os.environ.get('PMI_RANK'):
+            ismpi = True
+        # for PMIx (used by srun/Slurm with PMIx support):
+        elif os.environ.get('PMIX_RANK'):
+            ismpi = True
+        elif os.environ.get('CRAY_MPICH_VERSION'):
+            ismpi = True
+        else:
+            print('Warning: could not identify MPI environment!')
+            print('The calculation proceeds using the serial version.')
+
+        return ismpi
+
+
+
+
 
     # def OhnoParameter(self):
     #     '''

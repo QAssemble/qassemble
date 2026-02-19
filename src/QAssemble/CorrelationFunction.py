@@ -14,10 +14,11 @@ from .BLatDyn import *
 from .BLatStc import *
 from .BLocDyn import *
 from .BLocStc import *
+from .utility.MPIManager import MPIManager
 
 class CorrelationFunction(object):
 
-    def __init__(self, cry : dict = None, ft : dict = None, c = 1.0):
+    def __init__(self, control : dict = None, c = 1.0, mpimanager : MPIManager = None):
 
         self.c = c
         self.niham = None
@@ -32,15 +33,26 @@ class CorrelationFunction(object):
         self.pol = None
         self.w = None
 
-        # cry = Crystal(latt=latt,basisposition=basisposition,ns=ns,soc=soc,rkgrid=rkgrid,orboption=orboption,N=N)
-        #cry = Crystal#(Rvec=Rvec,CorF=CorF,Basis=Basis,Nspin=Nspin,SOC=SOC,Nelec=Nelec,#KGrid=KGrid)
-        #self.cry = cry
-        #ft = FTGrid(T=T,beta=beta,cutoff=cutoff)
-        #self.ft = ft
+        
+        cry = control["crystal"]
+        ft = control["ft"]
         self.crystal = Crystal(cry=cry)
-        # self.ft = FTGrid(ft=ft)
+        
         self.dlr = DLR(ft)
 
+        if mpimanager is not None:
+            node_input = {}
+            node_input['nk'] = self.crystal.nk
+            node_input['nf'] = len(self.dlr.omega)
+            node_input['ntau'] = len(self.dlr.tauF)
+            node_input['shape'] = self.crystal.rkgrid
+
+            node_input['nprock'] = control['run']['nprock']
+            node_input['nprocf'] = control['run']['nprocf']
+            
+        
+
+            self.nodedict = mpimanager.Query(node_input)
         # if os.path.exists('work'):
         #     pass
         # else:
