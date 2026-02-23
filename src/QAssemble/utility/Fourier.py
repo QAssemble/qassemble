@@ -6,10 +6,11 @@ self-energies.
 """
 import numpy as np
 from Common import Common
-# import numba    
+# import numba
 from numba import jit
 import finufft
 from scipy.linalg import solve
+from scipy.fftpack import fftn, ifftn
 from mpi4py import MPI
 from mpi4py_fft import PFFT, newDistArray
 # from MPIManager import MPIManager
@@ -402,7 +403,275 @@ class Fourier:
             moment[...,ik, :], high[..., ik] = Fourier.BLocDynM(freq, ff[...,ik,:], oddzero, highzero)
 
         return moment, high
-    
+
+    # ---------------------------------------------------------------------------
+    # Serial (scipy-based) K↔R Fourier transforms
+    # ---------------------------------------------------------------------------
+
+    @staticmethod
+    def FLatStcK2R(fin: np.ndarray, rkgrid: list) -> np.ndarray:
+        """Inverse FFT from k-space to real-space for a static fermionic lattice quantity.
+
+        Args:
+            fin  (np.ndarray): Input array of shape (norb, norb, ns, nk).
+            rkgrid (list): [nx, ny, nz] k-point grid dimensions.
+
+        Returns:
+            np.ndarray: Output array of shape (norb, norb, ns, nk) in real space.
+        """
+        norb, _, ns, nk = fin.shape
+        fout = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
+
+        for js in range(ns):
+            for jorb in range(norb):
+                for iorb in range(norb):
+                    temp3d = fin[iorb, jorb, js, :].reshape(rkgrid, order='F')
+                    fout[iorb, jorb, js, :] = ifftn(temp3d).reshape(nk, order='F') * nk
+
+        return fout
+
+    @staticmethod
+    def FLatStcR2K(fin: np.ndarray, rkgrid: list) -> np.ndarray:
+        """Forward FFT from real-space to k-space for a static fermionic lattice quantity.
+
+        Args:
+            fin  (np.ndarray): Input array of shape (norb, norb, ns, nr).
+            rkgrid (list): [nx, ny, nz] grid dimensions.
+
+        Returns:
+            np.ndarray: Output array of shape (norb, norb, ns, nk) in k-space.
+        """
+        norb, _, ns, nr = fin.shape
+        fout = np.zeros((norb, norb, ns, nr), dtype=np.complex128, order='F')
+
+        for js in range(ns):
+            for jorb in range(norb):
+                for iorb in range(norb):
+                    temp3d = fin[iorb, jorb, js, :].reshape(rkgrid, order='F')
+                    fout[iorb, jorb, js, :] = fftn(temp3d).reshape(nr, order='F') / nr
+
+        return fout
+
+    @staticmethod
+    def BLatStcK2R(fin: np.ndarray, rkgrid: list) -> np.ndarray:
+        """Inverse FFT from k-space to real-space for a static bosonic lattice quantity.
+
+        Args:
+            fin  (np.ndarray): Input array of shape (norb, norb, ns, ns, nk).
+            rkgrid (list): [nx, ny, nz] k-point grid dimensions.
+
+        Returns:
+            np.ndarray: Output array of shape (norb, norb, ns, ns, nk) in real space.
+        """
+        norb, _, ns, _, nk = fin.shape
+        fout = np.zeros((norb, norb, ns, ns, nk), dtype=np.complex128, order='F')
+
+        for ks in range(ns):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        temp3d = fin[iorb, jorb, js, ks, :].reshape(rkgrid, order='F')
+                        fout[iorb, jorb, js, ks, :] = ifftn(temp3d).reshape(nk, order='F') * nk
+
+        return fout
+
+    @staticmethod
+    def BLatStcR2K(fin: np.ndarray, rkgrid: list) -> np.ndarray:
+        """Forward FFT from real-space to k-space for a static bosonic lattice quantity.
+
+        Args:
+            fin  (np.ndarray): Input array of shape (norb, norb, ns, ns, nr).
+            rkgrid (list): [nx, ny, nz] grid dimensions.
+
+        Returns:
+            np.ndarray: Output array of shape (norb, norb, ns, ns, nk) in k-space.
+        """
+        norb, _, ns, _, nr = fin.shape
+        fout = np.zeros((norb, norb, ns, ns, nr), dtype=np.complex128, order='F')
+
+        for ks in range(ns):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        temp3d = fin[iorb, jorb, js, ks, :].reshape(rkgrid, order='F')
+                        fout[iorb, jorb, js, ks, :] = fftn(temp3d).reshape(nr, order='F') / nr
+
+        return fout
+
+    # ---------------------------------------------------------------------------
+    # MPI-parallel K↔R Fourier transforms  (nodedict-based)
+    # ---------------------------------------------------------------------------
+
+    @staticmethod
+    def FLatStcK2R_MPI(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+        """MPI-parallel K→R transform for a static fermionic lattice quantity.
+
+        Each MPI rank operates on its local k/r slice as described by *nodedict*.
+        The full global result is assembled via ``MPI.Allreduce``.
+
+        Args:
+            fin      (np.ndarray): Global input array (norb, norb, ns, nk).
+            nodedict (dict): Node information produced by ``MPIManager.Query()``.
+
+        Returns:
+            np.ndarray: Global output array (norb, norb, ns, nr) in real space.
+        """
+        commk     = nodedict['commk']
+        fft_obj   = nodedict['fft']
+        rkgrid    = nodedict['grid']
+        rank      = commk.Get_rank()
+        nk_global = rkgrid[0] * rkgrid[1] * rkgrid[2]
+
+        norb, _, ns, _ = fin.shape
+
+        fout_local  = np.zeros((norb, norb, ns, nk_global), dtype=np.complex128, order='F')
+        fout_global = np.zeros((norb, norb, ns, nk_global), dtype=np.complex128, order='F')
+
+        for js in range(ns):
+            for jorb in range(norb):
+                for iorb in range(norb):
+                    # Fill local k-slice into the distributed forward array
+                    kloc2glob = nodedict['kloc2glob']
+                    arr_fwd = fft_obj.arr.copy()
+                    arr_fwd[:] = 0.0
+                    for loc_idx, glob_idx in kloc2glob[rank].items():
+                        arr_fwd.flat[loc_idx] = fin[iorb, jorb, js, glob_idx]
+
+                    arr_bwd = fft_obj.Backward(arr_fwd)
+
+                    rloc2glob = nodedict['rloc2glob']
+                    for loc_idx, glob_idx in rloc2glob[rank].items():
+                        fout_local[iorb, jorb, js, glob_idx] = arr_bwd.flat[loc_idx]
+
+        commk.Allreduce(fout_local, fout_global, op=MPI.SUM)
+        return fout_global
+
+    @staticmethod
+    def FLatStcR2K_MPI(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+        """MPI-parallel R→K transform for a static fermionic lattice quantity.
+
+        Args:
+            fin      (np.ndarray): Global input array (norb, norb, ns, nr).
+            nodedict (dict): Node information produced by ``MPIManager.Query()``.
+
+        Returns:
+            np.ndarray: Global output array (norb, norb, ns, nk) in k-space.
+        """
+        commk     = nodedict['commk']
+        fft_obj   = nodedict['fft']
+        rkgrid    = nodedict['grid']
+        rank      = commk.Get_rank()
+        nk_global = rkgrid[0] * rkgrid[1] * rkgrid[2]
+
+        norb, _, ns, _ = fin.shape
+
+        fout_local  = np.zeros((norb, norb, ns, nk_global), dtype=np.complex128, order='F')
+        fout_global = np.zeros((norb, norb, ns, nk_global), dtype=np.complex128, order='F')
+
+        for js in range(ns):
+            for jorb in range(norb):
+                for iorb in range(norb):
+                    rloc2glob = nodedict['rloc2glob']
+                    arr_bwd = fft_obj.arrT.copy()
+                    arr_bwd[:] = 0.0
+                    for loc_idx, glob_idx in rloc2glob[rank].items():
+                        arr_bwd.flat[loc_idx] = fin[iorb, jorb, js, glob_idx]
+
+                    arr_fwd = fft_obj.Forward(arr_bwd)
+
+                    kloc2glob = nodedict['kloc2glob']
+                    for loc_idx, glob_idx in kloc2glob[rank].items():
+                        fout_local[iorb, jorb, js, glob_idx] = arr_fwd.flat[loc_idx] / nk_global
+
+        commk.Allreduce(fout_local, fout_global, op=MPI.SUM)
+        return fout_global
+
+    @staticmethod
+    def BLatStcK2R_MPI(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+        """MPI-parallel K→R transform for a static bosonic lattice quantity.
+
+        Args:
+            fin      (np.ndarray): Global input array (norb, norb, ns, ns, nk).
+            nodedict (dict): Node information produced by ``MPIManager.Query()``.
+
+        Returns:
+            np.ndarray: Global output array (norb, norb, ns, ns, nr) in real space.
+        """
+        commk     = nodedict['commk']
+        fft_obj   = nodedict['fft']
+        rkgrid    = nodedict['grid']
+        rank      = commk.Get_rank()
+        nk_global = rkgrid[0] * rkgrid[1] * rkgrid[2]
+
+        norb, _, ns, _, _ = fin.shape
+
+        fout_local  = np.zeros((norb, norb, ns, ns, nk_global), dtype=np.complex128, order='F')
+        fout_global = np.zeros((norb, norb, ns, ns, nk_global), dtype=np.complex128, order='F')
+
+        for ks in range(ns):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        kloc2glob = nodedict['kloc2glob']
+                        arr_fwd = fft_obj.arr.copy()
+                        arr_fwd[:] = 0.0
+                        for loc_idx, glob_idx in kloc2glob[rank].items():
+                            arr_fwd.flat[loc_idx] = fin[iorb, jorb, js, ks, glob_idx]
+
+                        arr_bwd = fft_obj.Backward(arr_fwd)
+
+                        rloc2glob = nodedict['rloc2glob']
+                        for loc_idx, glob_idx in rloc2glob[rank].items():
+                            fout_local[iorb, jorb, js, ks, glob_idx] = arr_bwd.flat[loc_idx]
+
+        commk.Allreduce(fout_local, fout_global, op=MPI.SUM)
+        return fout_global
+
+    @staticmethod
+    def BLatStcR2K_MPI(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+        """MPI-parallel R→K transform for a static bosonic lattice quantity.
+
+        Args:
+            fin      (np.ndarray): Global input array (norb, norb, ns, ns, nr).
+            nodedict (dict): Node information produced by ``MPIManager.Query()``.
+
+        Returns:
+            np.ndarray: Global output array (norb, norb, ns, ns, nk) in k-space.
+        """
+        commk     = nodedict['commk']
+        fft_obj   = nodedict['fft']
+        rkgrid    = nodedict['grid']
+        rank      = commk.Get_rank()
+        nk_global = rkgrid[0] * rkgrid[1] * rkgrid[2]
+
+        norb, _, ns, _, _ = fin.shape
+
+        fout_local  = np.zeros((norb, norb, ns, ns, nk_global), dtype=np.complex128, order='F')
+        fout_global = np.zeros((norb, norb, ns, ns, nk_global), dtype=np.complex128, order='F')
+
+        for ks in range(ns):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        rloc2glob = nodedict['rloc2glob']
+                        arr_bwd = fft_obj.arrT.copy()
+                        arr_bwd[:] = 0.0
+                        for loc_idx, glob_idx in rloc2glob[rank].items():
+                            arr_bwd.flat[loc_idx] = fin[iorb, jorb, js, ks, glob_idx]
+
+                        arr_fwd = fft_obj.Forward(arr_bwd)
+
+                        kloc2glob = nodedict['kloc2glob']
+                        for loc_idx, glob_idx in kloc2glob[rank].items():
+                            fout_local[iorb, jorb, js, ks, glob_idx] = arr_fwd.flat[loc_idx] / nk_global
+
+        commk.Allreduce(fout_local, fout_global, op=MPI.SUM)
+        return fout_global
+
+    # ---------------------------------------------------------------------------
+    # (Legacy commented-out MPI versions kept for reference)
+    # ---------------------------------------------------------------------------
+
     # @staticmethod
     # def FLatStcK2R(commk : MPI.COMM_WORLD, fin : np.ndarray, mpimanager : MPIManager) -> np.ndarray:
 

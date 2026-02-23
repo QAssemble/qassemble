@@ -54,9 +54,9 @@ class FLatStc(object):
 
         return matinv
 
-    def K2R(self, matk: np.ndarray = None, rkgrid: list = None) -> np.ndarray:
+    def K2R(self, matk: np.ndarray = None, rkgrid: list = None, nodedict: dict = None) -> np.ndarray:
 
-        if rkgrid == None:
+        if rkgrid is None:
             rkgrid = self.crystal.rkgrid
         rkvec = self.crystal.kpoint
 
@@ -77,17 +77,18 @@ class FLatStc(object):
 
                         phase = np.exp(2.0j * np.pi * np.dot(rkvec[irk], delta))
 
-                        # matk[iorb,jorb,js,irk] *= phase
                         tempmat[iorb, jorb, js, irk] *= phase
 
-        # matr = QAFort.fourier.flatstc_k2r(rkgrid, tempmat)
-        matr = Fourier.FLatStcK2R(tempmat, rkgrid)
+        if nodedict is not None:
+            matr = Fourier.FLatStcK2R_MPI(tempmat, nodedict)
+        else:
+            matr = Fourier.FLatStcK2R(tempmat, rkgrid)
 
         return matr
 
-    def R2K(self, matr: np.ndarray = None, rkgrid: list = None) -> np.ndarray:
+    def R2K(self, matr: np.ndarray = None, rkgrid: list = None, nodedict: dict = None) -> np.ndarray:
 
-        if rkgrid == None:
+        if rkgrid is None:
             rkgrid = self.crystal.rkgrid
         rkvec = self.crystal.kpoint
 
@@ -95,10 +96,11 @@ class FLatStc(object):
         ns = matr.shape[2]
         nrk = matr.shape[3]
 
-        matk = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
         tempmat = copy.deepcopy(matr)
-        # matk = QAFort.fourier.flatstc_r2k(rkgrid, tempmat)
-        matk = Fourier.FLatStcR2K(tempmat, rkgrid)
+        if nodedict is not None:
+            matk = Fourier.FLatStcR2K_MPI(tempmat, nodedict)
+        else:
+            matk = Fourier.FLatStcR2K(tempmat, rkgrid)
 
         for irk in range(nrk):
             for js in range(ns):

@@ -224,7 +224,7 @@ class MPIFunction():
         (nkx, nky, nkz) = localshapef[rank]
 
         if (len(matin) != nkx*nky*nkz):
-            print(self.KIdx2KVec.__name__)
+            print(self.KRIdx2KVec.__name__)
             print("Input array is wrong. Check the array dimension")
             print(matin.shape, nkx, nky, nkz)
             sys.exit()
@@ -242,7 +242,7 @@ class MPIFunction():
         (nkx, nky, nkz) = matin.shape
 
         if (nkx*nky*nkz != len(kloc[rank])):
-            print(self.KVec2KIdx.__name__)
+            print(self.KRVec2KIdx.__name__)
             print("Input array is wrong. Check the array dimension")
             print(matin.shape, nkx, nky, nkz)
             sys.exit()

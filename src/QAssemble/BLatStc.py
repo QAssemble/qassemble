@@ -56,12 +56,12 @@ class BLatStc(object):
 
         return matout
 
-    def K2R(self, matk: np.ndarray) -> np.ndarray:
+    def K2R(self, matk: np.ndarray, nodedict: dict = None) -> np.ndarray:
 
         rkgrid = self.crystal.rkgrid
         norb = matk.shape[0]
         ns = self.crystal.ns
-        nrk = len(rkvec)
+        nrk = len(self.crystal.kpoint)
 
         phases = self._get_phase()
         matr = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
@@ -69,12 +69,14 @@ class BLatStc(object):
         phase_view = phases[:, :, np.newaxis, np.newaxis, :]
         np.multiply(matk, phase_view, out=tempmat)
 
-        # matr = QAFort.fourier.blatstc_k2r(rkgrid, tempmat)
-        matr = Fourier.BLatStcK2R(tempmat, rkgrid)
+        if nodedict is not None:
+            matr = Fourier.BLatStcK2R_MPI(tempmat, nodedict)
+        else:
+            matr = Fourier.BLatStcK2R(tempmat, rkgrid)
 
         return matr
 
-    def R2K(self, matr: np.ndarray) -> np.ndarray:
+    def R2K(self, matr: np.ndarray, nodedict: dict = None) -> np.ndarray:
 
         rkgrid = self.crystal.rkgrid
         norb = matr.shape[0]
@@ -85,8 +87,10 @@ class BLatStc(object):
         phase_conj = np.conjugate(phases)[:, :, np.newaxis, np.newaxis, :]
         tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
 
-        # matk = QAFort.fourier.blatstc_r2k(rkgrid, matr)
-        tempk = Fourier.BLatStcR2K(matr, rkgrid)
+        if nodedict is not None:
+            tempk = Fourier.BLatStcR2K_MPI(matr, nodedict)
+        else:
+            tempk = Fourier.BLatStcR2K(matr, rkgrid)
         np.multiply(tempk, phase_conj, out=tempmat)
         matk = tempmat
 

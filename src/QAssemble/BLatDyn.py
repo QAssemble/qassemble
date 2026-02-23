@@ -23,27 +23,26 @@ from .utility.Dyson import Dyson
 # import QAFort
 
 
-class BLatDyn(object):
-    def __init__(self, crystal: Crystal, dlr: DLR):
-        self.crystal = crystal
-        self.dlr = dlr
-        # self.flatdyn = flatdyn
+class BLatDyn(Crystal, DLR):
+    def __init__(self, control : dict) -> object:
+        Crystal.__init__(self, control['cry'])
+        DLR.__init__(self, control['ft'])
         self._boson_phase_cache = None
 
     def _get_boson_phase(self) -> np.ndarray:
         if self._boson_phase_cache is not None:
             return self._boson_phase_cache
 
-        norb = len(self.crystal.bind)
-        nk = len(self.crystal.kpoint)
+        norb = len(self.bind)
+        nk = len(self.kpoint)
         phase = np.empty((norb, norb, nk), dtype=np.complex128)
 
-        for irk, kvec in enumerate(self.crystal.kpoint):
+        for irk, kvec in enumerate(self.kpoint):
             for iorb in range(norb):
-                a, _ = self.crystal.BAtomOrb(iorb)
+                a, _ = self.BAtomOrb(iorb)
                 for jorb in range(norb):
-                    b, _ = self.crystal.BAtomOrb(jorb)
-                    delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+                    b, _ = self.BAtomOrb(jorb)
+                    delta = self.basisf[a, :] - self.basisf[b, :]
                     phase[iorb, jorb, irk] = np.exp(2.0j * np.pi * np.dot(kvec, delta))
 
         self._boson_phase_cache = phase
@@ -64,9 +63,9 @@ class BLatDyn(object):
         # Make composite matrix #
         for ift in range(nft):
             for irk in range(nrk):
-                tempmat = self.crystal.OrbSpin2Composite(matin[:, :, :, :, irk, ift])
+                tempmat = self.OrbSpin2Composite(matin[:, :, :, :, irk, ift])
                 tempmat2 = np.linalg.inv(tempmat)
-                matout[:, :, :, :, irk, ift] = self.crystal.Composite2OrbSpin(tempmat2)
+                matout[:, :, :, :, irk, ift] = self.Composite2OrbSpin(tempmat2)
 
         return matout
 
@@ -79,7 +78,7 @@ class BLatDyn(object):
         high = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
 
         # moment, high = QAFort.fourier.blatdyn_m(self.dlr.nu, bf, oddzero, highzero)
-        moment, high = Fourier.BLatDynM(self.dlr.nu, bf, oddzero, highzero)
+        moment, high = Fourier.BLatDynM(self.nu, bf, oddzero, highzero)
 
         return moment, high
 
@@ -88,7 +87,7 @@ class BLatDyn(object):
         ns = bf.shape[2]
         nrk = bf.shape[4]
         nfreq = bf.shape[5]
-        ntau = len(self.dlr.tauB)
+        ntau = len(self.tauB)
 
         btau = np.zeros((norb, norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F")
         tempmat = np.zeros((nfreq), dtype=np.complex128, order="F")
@@ -99,7 +98,7 @@ class BLatDyn(object):
                 # tempmat2 = self.dlr.BF2T(tempmat)
                 for jorb, iorb in itertools.product(range(norb), repeat=2):
                     tempmat = bf[iorb, jorb, js, ks, ik]
-                    tempmat2 = self.dlr.BF2T(tempmat)
+                    tempmat2 = self.BF2T(tempmat)
                     # btau[:, :, js, ks, ik] = np.transpose(tempmat2, (1, 2, 0))
                     # for jorb, iorb in itertools.product(range(norb), repeat=2):
                     btau[iorb, jorb, js, ks, ik] = tempmat2
@@ -111,7 +110,7 @@ class BLatDyn(object):
         ns = btau.shape[2]
         nrk = btau.shape[4]
         ntau = btau.shape[5]
-        nfreq = len(self.dlr.nu)
+        nfreq = len(self.nu)
 
         bf = np.zeros((norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F")
         tempmat = np.zeros((ntau), dtype=np.complex128, order="F")
@@ -124,18 +123,18 @@ class BLatDyn(object):
                 # bf[:, :, js, ks, ik, :] = self.dlr.BT2F(btau[:, :, js, ks, ik, :])
                 for jorb, iorb in itertools.product(range(norb), repeat=2):
                     tempmat = btau[iorb, jorb, js, ks, ik]
-                    tempmat2 = self.dlr.BT2F(tempmat)
+                    tempmat2 = self.BT2F(tempmat)
                     # for jorb, iorb in itertools.product(range(norb), repeat=2):
                     bf[iorb, jorb, js, ks, ik] = tempmat2
 
         return bf
 
-    def K2R(self, matk: np.ndarray) -> np.ndarray:
+    def K2R(self, matk: np.ndarray, nodedict: dict = None) -> np.ndarray:
         norb = matk.shape[0]
         ns = matk.shape[2]
         nrk = matk.shape[4]
         nft = matk.shape[5]
-        rkgrid = self.crystal.rkgrid
+        rkgrid = self.rkgrid
 
         phases = self._get_boson_phase()
         matr = np.zeros((norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F")
@@ -144,16 +143,19 @@ class BLatDyn(object):
 
         for ift in range(nft):
             np.multiply(matk[..., ift], phase_view, out=tempmat)
-            matr[..., ift] = Fourier.BLatStcK2R(tempmat, rkgrid)
+            if nodedict is not None:
+                matr[..., ift] = Fourier.BLatStcK2R_MPI(tempmat, nodedict)
+            else:
+                matr[..., ift] = Fourier.BLatStcK2R(tempmat, rkgrid)
 
         return matr
 
-    def R2K(self, matr: np.ndarray) -> np.ndarray:
+    def R2K(self, matr: np.ndarray, nodedict: dict = None) -> np.ndarray:
         norb = matr.shape[0]
         ns = matr.shape[2]
         nrk = matr.shape[4]
         nft = matr.shape[5]
-        rkgrid = self.crystal.rkgrid
+        rkgrid = self.rkgrid
 
         phases = self._get_boson_phase()
         phase_conj = np.conjugate(phases)[:, :, np.newaxis, np.newaxis, :]
@@ -161,7 +163,10 @@ class BLatDyn(object):
         tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
 
         for ift in range(nft):
-            temp_k = Fourier.BLatStcR2K(matr[..., ift], rkgrid)
+            if nodedict is not None:
+                temp_k = Fourier.BLatStcR2K_MPI(matr[..., ift], nodedict)
+            else:
+                temp_k = Fourier.BLatStcR2K(matr[..., ift], rkgrid)
             np.multiply(temp_k, phase_conj, out=tempmat)
             matk[..., ift] = tempmat
 
@@ -252,7 +257,7 @@ class BLatDyn(object):
         # nrk = len(self.crystal.kpoint)
         # nft = len(self.dlr.nu)#self.ft.size
         _, _, _, _, ns, _, nrk, nft = matin.shape
-        norb = len(self.crystal.bind)
+        norb = len(self.bind)
 
         matout = np.zeros(
             (norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F"
@@ -262,14 +267,14 @@ class BLatDyn(object):
         #     for irk in range(nrk):
         for irk, ift in itertools.product(list(range(nrk)), list(range(nft))):
             for ks, js in itertools.product(range(ns), repeat=2):
-                matout[:, :, js, ks, irk, ift] = self.crystal.Quad2Double(
+                matout[:, :, js, ks, irk, ift] = self.Quad2Double(
                     matin[:, :, :, :, js, ks, irk, ift]
                 )
 
         return matout
 
     def Double2Quad(self, matin: np.ndarray) -> np.ndarray:
-        norb = len(self.crystal.find)
+        norb = len(self.find)
         # ns = self.crystal.ns
         # nrk = len(self.crystal.kpoint)
         # nft = len(self.dlr.nu)#self.ft.size
@@ -282,17 +287,17 @@ class BLatDyn(object):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, :, :, js, ks, irk, ift] = self.crystal.Double2Quad(
+                    matout[:, :, :, :, js, ks, irk, ift] = self.Double2Quad(
                         matin[:, :, js, ks, irk, ift]
                     )
 
         return matout
 
     def Double2Full(self, matin: np.ndarray) -> np.ndarray:
-        norb = len(self.crystal.find)
-        # ns = self.crystal.ns
-        # nrk = len(self.crystal.kpoint)
-        # nft = len(self.dlr.nu)#self.ft.size
+        norb = len(self.find)
+        # ns = self.ns
+        # nrk = len(self.kpoint)
+        # nft = len(self.nu)
         _, _, ns, _, nrk, nft = matin.shape
 
         matout = np.zeros(
@@ -302,7 +307,7 @@ class BLatDyn(object):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, js, ks, irk, ift] = self.crystal.Double2Full(
+                    matout[:, :, js, ks, irk, ift] = self.Double2Full(
                         matin[:, :, js, ks, irk, ift]
                     )
         del matin
@@ -310,9 +315,9 @@ class BLatDyn(object):
         return matout
 
     def Full2Double(self, matin: np.ndarray) -> np.ndarray:
-        norb = len(self.crystal.bind)
-        # ns = self.crystal.ns
-        # nrk = len(self.crystal.kpoint)
+        norb = len(self.bind)
+        # ns = self.ns
+        # nrk = len(self.kpoint)
         # nft = len(self.dlr.nu)#self.ft.size
         _, _, ns, _, nrk, nft = matin.shape
 
@@ -323,17 +328,17 @@ class BLatDyn(object):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, js, ks, irk, ift] = self.crystal.Full2Double(
+                    matout[:, :, js, ks, irk, ift] = self.Full2Double(
                         matin[:, :, js, ks, irk, ift]
                     )
 
         return matout
 
     def Quad2Full(self, matin: np.ndarray) -> np.ndarray:
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
-        nft = len(self.dlr.nu)  # self.ft.size
+        norb = len(self.find)
+        ns = self.ns
+        nrk = len(self.kpoint)
+        nft = len(self.nu)  # self.ft.size
 
         matout = np.zeros(
             (norb * norb, norb * norb, ns, ns, nrk, nft), dtype=np.complex128, order="F"
@@ -342,17 +347,17 @@ class BLatDyn(object):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, js, ks, irk, ift] = self.crystal.Quad2Full(
+                    matout[:, :, js, ks, irk, ift] = self.Quad2Full(
                         matin[:, :, :, :, js, ks, irk, ift]
                     )
 
         return matout
 
     def Full2Quad(self, matin: np.ndarray) -> np.ndarray:
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
-        nft = len(self.dlr.nu)  # self.ft.size
+        norb = len(self.find)
+        ns = self.ns
+        nrk = len(self.kpoint)
+        nft = len(self.nu)  # self.ft.size
 
         matout = np.zeros(
             (norb, norb, norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F"
@@ -361,7 +366,7 @@ class BLatDyn(object):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, :, :, js, ks, irk, ift] = self.crystal.Full2Quad(
+                    matout[:, :, :, :, js, ks, irk, ift] = self.Full2Quad(
                         matin[:, :, js, ks, irk, ift]
                     )
 
@@ -371,7 +376,7 @@ class BLatDyn(object):
         norb = matin.shape[0]
         ns = matin.shape[2]
         nrk = matin.shape[4]
-        nft = len(self.dlr.nu)  # self.ft.size
+        nft = len(self.nu)  # self.ft.size
 
         matout = np.zeros(
             (norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F"
@@ -414,13 +419,13 @@ class BLatDyn(object):
         #     print("Error, kpath doesn't generate")
         #     sys.exit()
         # kpoint = self.crystal.kpath
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nr = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
+        norb = len(self.find)
+        ns = self.ns
+        nr = self.rkgrid[0] * self.rkgrid[1] * self.rkgrid[2]
         nk = len(kpoint)
         nft = matr.shape[4]
 
-        self.crystal.RVec()
+        self.RVec()
         tempmat = copy.deepcopy(matr)
         matk = np.zeros((norb, norb, ns, ns, nk, nft), dtype=complex, order="F")
 
@@ -437,13 +442,13 @@ class BLatDyn(object):
                                     ] * np.exp(
                                         -2.0j
                                         * np.pi
-                                        * (kpoint[ik] @ self.crystal.rvec[ir])
+                                        * (kpoint[ik] @ self.rvec[ir])
                                     )
-                                [a, m1] = self.crystal.FAtomOrb(iorb)
-                                [b, m2] = self.crystal.FAtomOrb(jorb)
+                                [a, m1] = self.FAtomOrb(iorb)
+                                [b, m2] = self.FAtomOrb(jorb)
                                 delta = (
-                                    self.crystal.basisf[a, :]
-                                    - self.crystal.basisf[b, :]
+                                    self.basisf[a, :]
+                                    - self.basisf[b, :]
                                 )
                                 phase = np.exp(-2.0j * np.pi * (kpoint[ik] @ delta))
                                 matk[iorb, jorb, js, ks, ik, ift] = temp * phase
@@ -455,7 +460,7 @@ class BLatDyn(object):
             return group in file
 
     def RT2mRmT(self, ftau: np.ndarray):
-        ftau_mr = self.crystal.R2mR(ftau)
+        ftau_mr = self.R2mR(ftau)
         norb, _, ns, nr, ntau = ftau_mr.shape
         fmtau_mr = np.zeros((norb, norb, ns, nr, ntau), dtype=np.complex128, order="F")
 
@@ -463,7 +468,7 @@ class BLatDyn(object):
             for js in range(ns):
                 for jorb in range(norb):
                     for iorb in range(norb):
-                        fmtau_mr[iorb, jorb, js, ir] = self.dlr.T2mT(
+                        fmtau_mr[iorb, jorb, js, ir] = self.T2mT(
                             ftau_mr[iorb, jorb, js, ir]
                         )
         # fmtau_mr = self.dlr.T2mT(ftau_mr)
@@ -473,14 +478,14 @@ class BLatDyn(object):
     def TauF2TauB(self, ftau : np.ndarray) -> np.ndarray:
 
         norb, _, ns, nk, _ = ftau.shape
-        ntau = len(self.dlr.tauB)
+        ntau = len(self.tauB)
         fout = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
 
         for ik in range(nk):
             for js in range(ns):
                 for jorb, iorb in itertools.product(range(norb), repeat=2):
                     tempmat = ftau[iorb, jorb, js, ik]
-                    fout[iorb, jorb, js, ik] = self.dlr.TauF2TauB(tempmat)
+                    fout[iorb, jorb, js, ik] = self.TauF2TauB(tempmat)
 
         return fout
 

@@ -5,20 +5,20 @@ from .Common import Common
 
 
 class DLR(object):
-    def __init__(self, **kwargs) -> object:
+    def __init__(self, dlropt : dict) -> object:
         
-        if "T" not in kwargs:
-            self.beta = kwargs["beta"]
+        if "T" not in dlropt:
+            self.beta = dlropt["beta"]
             self.T = 1 / (self.beta * 8.6173303 * 10**-5)
 
-        elif "beta" not in kwargs:
-            self.T = kwargs["T"]
+        elif "beta" not in dlropt:
+            self.T = dlropt["T"]
             self.beta = 1 / (self.T * 8.6173303 * 10**-5)
         else:
-            self.T = kwargs["T"]
-            self.beta = kwargs["beta"]
-        self.cutoff = kwargs.get("cutoff", 10.0)
-        self.eps = kwargs.get("eps", 1e-15)
+            self.T = dlropt["T"]
+            self.beta = dlropt["beta"]
+        self.cutoff = dlropt.get("cutoff", 10.0)
+        self.eps = dlropt.get("eps", 1e-15)
         self.lambF = (self.beta / np.pi * self.cutoff - 1) / 2
         self.lambB = self.beta * self.cutoff / (2 * np.pi) * 2  
         
@@ -51,8 +51,8 @@ class DLR(object):
         Emax = self.omega[-1]
         Emin = self.omega[0]
         # nomega = int((self.beta/np.pi*Emax - 1)/2)
-        if Emax is None:
-            Emax = self.cutoff
+        # if Emax is None:
+        #     Emax = self.cutoff
         if beta is None:
             beta = self.beta
         nstart = int((beta / np.pi * Emin - 1) / 2) * 0
