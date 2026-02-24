@@ -9,31 +9,33 @@ import numpy as np
 
 from .BLocStc import VLoc
 from .Crystal import Crystal
+from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 
 
 
-class BLatStc(object):
+class BLatStc(Crystal):
 
-    def __init__(self, crystal: Crystal):
-        self.crystal = crystal
+    def __init__(self, control : dict):
+        
+        Crystal.__init__(self, control['crystal'])
         self._phase_cache = None
 
     def _get_phase(self) -> np.ndarray:
         if self._phase_cache is not None:
             return self._phase_cache
 
-        norb = len(self.crystal.bind)
-        nk = len(self.crystal.kpoint)
+        norb = len(self.bind)
+        nk = len(self.kpoint)
         phase = np.empty((norb, norb, nk), dtype=np.complex128)
 
-        for irk, kvec in enumerate(self.crystal.kpoint):
+        for irk, kvec in enumerate(self.kpoint):
             for iorb in range(norb):
-                a, _ = self.crystal.BAtomOrb(iorb)
+                a, _ = self.BAtomOrb(iorb)
                 for jorb in range(norb):
-                    b, _ = self.crystal.BAtomOrb(jorb)
-                    delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+                    b, _ = self.BAtomOrb(jorb)
+                    delta = self.basisf[a, :] - self.basisf[b, :]
                     phase[iorb, jorb, irk] = np.exp(2.0j * np.pi * np.dot(kvec, delta))
 
         self._phase_cache = phase
@@ -50,18 +52,18 @@ class BLatStc(object):
         tempmat2 = np.zeros((norb * ns, norb * ns), dtype=np.complex128)
 
         for irk in range(nrk):
-            tempmat = self.crystal.OrbSpin2Composite(matin[..., irk])
-            tempmat2 = np.linalg.inv(tempmat)
-            matout[..., irk] = self.crystal.Composite2OrbSpin(tempmat2)
+            tempmat = self.OrbSpin2Composite(matin[..., irk])
+            tempmat2 = Common.MatInv(tempmat)
+            matout[..., irk] = self.Composite2OrbSpin(tempmat2)
 
         return matout
 
     def K2R(self, matk: np.ndarray, nodedict: dict = None) -> np.ndarray:
 
-        rkgrid = self.crystal.rkgrid
+        rkgrid = self.rkgrid
         norb = matk.shape[0]
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        ns = self.ns
+        nrk = len(self.kpoint)
 
         phases = self._get_phase()
         matr = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
@@ -78,10 +80,10 @@ class BLatStc(object):
 
     def R2K(self, matr: np.ndarray, nodedict: dict = None) -> np.ndarray:
 
-        rkgrid = self.crystal.rkgrid
+        rkgrid = self.rkgrid
         norb = matr.shape[0]
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        ns = self.ns
+        nrk = len(self.kpoint)
 
         phases = self._get_phase()
         phase_conj = np.conjugate(phases)[:, :, np.newaxis, np.newaxis, :]
@@ -136,16 +138,16 @@ class BLatStc(object):
 
     def Quad2Double(self, matin: np.ndarray) -> np.ndarray:
 
-        norb = len(self.crystal.bind)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        norb = len(self.bind)
+        ns = self.ns
+        nrk = len(self.kpoint)
 
         matout = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
 
         for irk in range(nrk):
             for ks in range(ns):
                 for js in range(ns):
-                    matout[:, :, js, ks, irk] = self.crystal.Quad2Double(
+                    matout[:, :, js, ks, irk] = self.Quad2Double(
                         matin[:, :, :, :, js, ks, irk]
                     )
 
@@ -153,9 +155,9 @@ class BLatStc(object):
 
     def Double2Quad(self, matin: np.ndarray) -> np.ndarray:
 
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        norb = len(self.find)
+        ns = self.ns
+        nrk = len(self.kpoint)
 
         matout = np.zeros(
             (norb, norb, norb, norb, ns, ns, nrk), dtype=np.complex128, order="F"
@@ -164,7 +166,7 @@ class BLatStc(object):
         for irk in range(nrk):
             for ks in range(ns):
                 for js in range(ns):
-                    matout[:, :, :, :, js, ks, irk] = self.crystal.Double2Quad(
+                    matout[:, :, :, :, js, ks, irk] = self.Double2Quad(
                         matin[:, :, js, ks, irk]
                     )
 
@@ -172,9 +174,9 @@ class BLatStc(object):
 
     def Double2Full(self, matin: np.ndarray) -> np.ndarray:
 
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        norb = len(self.find)
+        ns = self.ns
+        nrk = len(self.kpoint)
 
         matout = np.zeros(
             (norb * norb, norb * norb, ns, ns, nrk), dtype=np.complex128, order="F"
@@ -183,7 +185,7 @@ class BLatStc(object):
         for irk in range(nrk):
             for js in range(ns):
                 for ks in range(ns):
-                    matout[:, :, js, ks, irk] = self.crystal.Double2Full(
+                    matout[:, :, js, ks, irk] = self.Double2Full(
                         matin[:, :, js, ks, irk]
                     )
 
@@ -191,16 +193,16 @@ class BLatStc(object):
 
     def Full2Double(self, matin: np.ndarray) -> np.ndarray:
 
-        norb = len(self.crystal.bind)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        norb = len(self.bind)
+        ns = self.ns
+        nrk = len(self.kpoint)
 
         matout = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
 
         for irk in range(nrk):
             for js in range(ns):
                 for ks in range(ns):
-                    matout[:, :, js, ks, irk] = self.crystal.Full2Double(
+                    matout[:, :, js, ks, irk] = self.Full2Double(
                         matin[:, :, js, ks, irk]
                     )
 
@@ -208,9 +210,9 @@ class BLatStc(object):
 
     def Quad2Full(self, matin: np.ndarray) -> np.ndarray:
 
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        norb = len(self.find)
+        ns = self.ns
+        nrk = len(self.kpoint)
 
         matout = np.zeros(
             (norb * norb, norb * norb, ns, ns, nrk), dtype=np.complex128, order="F"
@@ -219,7 +221,7 @@ class BLatStc(object):
         for irk in range(nrk):
             for js in range(ns):
                 for ks in range(ns):
-                    matout[:, :, js, ks, irk] = self.crystal.Quad2Full(
+                    matout[:, :, js, ks, irk] = self.Quad2Full(
                         matin[:, :, :, :, js, ks, irk]
                     )
 
@@ -227,9 +229,9 @@ class BLatStc(object):
 
     def Full2Quad(self, matin: np.ndarray) -> np.ndarray:
 
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        norb = len(self.find)
+        ns = self.ns
+        nrk = len(self.kpoint)
 
         matout = np.zeros(
             (norb, norb, norb, norb, ns, ns, nrk), dtype=np.complex128, order="F"
@@ -238,7 +240,7 @@ class BLatStc(object):
         for irk in range(nrk):
             for js in range(ns):
                 for ks in range(ns):
-                    matout[:, :, :, :, js, ks, irk] = self.crystal.Full2Quad(
+                    matout[:, :, :, :, js, ks, irk] = self.Full2Quad(
                         matin[:, :, js, ks, irk]
                     )
 
@@ -273,9 +275,9 @@ class BLatStc(object):
 
     def HermitianCheck(self, matin: np.ndarray):
 
-        norb = len(self.crystal.bind)
-        ns = self.crystal.ns
-        nk = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
+        norb = len(self.bind)
+        ns = self.ns
+        nk = self.rkgrid[0] * self.rkgrid[1] * self.rkgrid[2]
 
         errmessage = "The matrix is not hermitian. Check the input file again"
         for ik in range(nk):
@@ -297,12 +299,12 @@ class BLatStc(object):
         #     print("Error, kpath doesn't generate")
         #     sys.exit()
         # kpoint = self.crystal.kpath
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nr = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
+        norb = len(self.find)
+        ns = self.ns
+        nr = self.rkgrid[0] * self.rkgrid[1] * self.rkgrid[2]
         nk = len(kpoint)
 
-        self.crystal.RVec()
+        self.RVec()
         tempmat = copy.deepcopy(matr)
         matk = np.zeros((norb, norb, ns, ns, nk), dtype=complex, order="F")
 
@@ -314,12 +316,12 @@ class BLatStc(object):
                             temp = 0
                             for ir in range(nr):
                                 temp += tempmat[iorb, jorb, js, ks, ir] * np.exp(
-                                    -2.0j * np.pi * (kpoint[ik] @ self.crystal.rvec[ir])
+                                    -2.0j * np.pi * (kpoint[ik] @ self.rvec[ir])
                                 )
-                            [a, m1] = self.crystal.FAtomOrb(iorb)
-                            [b, m2] = self.crystal.FAtomOrb(jorb)
+                            [a, m1] = self.FAtomOrb(iorb)
+                            [b, m2] = self.FAtomOrb(jorb)
                             delta = (
-                                self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+                                self.basisf[a, :] - self.basisf[b, :]
                             )
                             phase = np.exp(-2.0j * np.pi * (kpoint[ik] @ delta))
                             matk[iorb, jorb, js, ks, ik] = temp * phase
