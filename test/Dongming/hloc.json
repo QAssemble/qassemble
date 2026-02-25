@@ -1,317 +1,121 @@
 {
     "block states": [ 
         [ 0 ], 
-        [ 1 ], 
-        [ 2 ], 
-        [ 3 ], 
-        [ 4 ], 
-        [ 5 ], 
-        [ 6 ], 
+        [ 1, 2, 4 ], 
+        [ 3, 5, 6 ], 
         [ 7 ], 
-        [ 8 ], 
-        [ 9, 18, 36 ], 
-        [ 10, 17 ], 
-        [ 11, 38 ], 
-        [ 12, 33 ], 
-        [ 13, 22 ], 
-        [ 14, 21, 35 ], 
-        [ 15 ], 
-        [ 16 ], 
-        [ 19, 37 ], 
-        [ 20, 34 ], 
-        [ 23 ], 
-        [ 24 ], 
-        [ 25, 52 ], 
-        [ 26, 44 ], 
-        [ 27, 45, 54 ], 
-        [ 28, 42, 49 ], 
-        [ 29, 43 ], 
-        [ 30, 51 ], 
-        [ 31 ], 
-        [ 32 ], 
-        [ 39 ], 
-        [ 40 ], 
-        [ 41, 50 ], 
-        [ 46, 53 ], 
-        [ 47 ], 
-        [ 48 ], 
-        [ 55 ], 
+        [ 8, 16, 32 ], 
+        [ 9, 10, 12, 17, 18, 20, 33, 34, 36 ], 
+        [ 11, 13, 14, 19, 21, 22, 35, 37, 38 ], 
+        [ 15, 23, 39 ], 
+        [ 24, 40, 48 ], 
+        [ 25, 26, 28, 41, 42, 44, 49, 50, 52 ], 
+        [ 27, 29, 30, 43, 45, 46, 51, 53, 54 ], 
+        [ 31, 47, 55 ], 
         [ 56 ], 
-        [ 57 ], 
-        [ 58 ], 
-        [ 59 ], 
-        [ 60 ], 
-        [ 61 ], 
-        [ 62 ], 
+        [ 57, 58, 60 ], 
+        [ 59, 61, 62 ], 
         [ 63 ] ],
-    "eigen values": [ "AAAAAAAAAAA", "AAAAAAAAAAA", "AAAAAAAAAAA", "AAAAsZmZm/D", "AAAAAAAAAAA", "AAAAsZmZm/D", "AAAAsZmZm/D", "AAAARzMzAAE", "AAAAAAAAAAA", "AAAAMzMzs/DAAAAzMzM7/AAAAQzMzM/P", "AAAAsZmZm/DAAAA1MzM7/A", "AAAA2MzMDAEAAAA0MzMBAB", "AAAAsZmZm/DAAAA1MzM7/A", "AAAA2MzMDAEAAAA0MzMBAB", "BAAARzMzAAEAAAAOzMzAABAAAgzMzMAQ", "AAAgQzMzSAE", "AAAAAAAAAAA", "AAAA2MzMDAEAAAA0MzMBAB", "AAAAsZmZm/DAAAA1MzM7/A", "AAAgQzMzSAE", "AAAAsZmZm/D", "AAAA2MzMDAEAAAA0MzMBAB", "AAAA2MzMDAEAAAA0MzMBAB", "9//fcmZmTAUAAAInZm5EA5////MzMTBQ", "BAAARzMzAAEAAAAOzMzAABAAAgzMzMAQ", "AAAgQzMzSAEAAAYnZm5EAB", "AAAgQzMzSAEAAAYnZm5EAB", "AAAADAAAgAE", "AAAAAAAAAAA", "AAAgQzMzSAE", "AAAAsZmZm/D", "AAAA2MzMDAEAAAA0MzMBAB", "AAAgQzMzSAEAAAYnZm5EAB", "AAAADAAAgAE", "AAAAsZmZm/D", "AAAADAAAgAE", "AAAARzMzAAE", "AAAgQzMzSAE", "AAAgQzMzSAE", "AAAADAAAgAE", "AAAgQzMzSAE", "AAAADAAAgAE", "AAAADAAAgAE", "AAAgEAAAoAE" ],
-    "filling": "AAAAAAAAAAAAAAAAAAA8/AAAAAAAAA/PAAAAAAAAAAEAAAAAAAA8/AAAAAAAAAAQAAAAAAAAAAEAAAAAAAACABAAAAAAAA/PAAAAAAAAAAEAAAAAAAAAABAAAAAAAgAQAAAAAAAAAAEAAAAAAAACABAAAAAAAgAQAAAAAAAAQAEAAAAAAAA8/AAAAAAAAgAQAAAAAAAAAAEAAAAAAAAEABAAAAAAAAAQAAAAAAAAIAEAAAAAAAACABAAAAAAAABQAAAAAAAAIAEAAAAAAAAEABAAAAAAAABQAAAAAAAAUAEAAAAAAAA8/AAAAAAAAABQAAAAAAAAAAEAAAAAAAACABAAAAAAAABQAAAAAAAAUAEAAAAAAAAAABAAAAAAAQBQAAAAAAAAIAEAAAAAAAAEABAAAAAAAABQAAAAAAAAUAEAAAAAAAAEABAAAAAAAQBQAAAAAAAAUAEAAAAAAAAGAB",
+    "eigen values": [ "AAAAAAAAAAA", "AAAAAAAAw/LAAAAAAAA8/CAAAAAAAAAA", "AAAAKzMz0/LAAAAKzMz0/CAAAgyMzM9v", "AAAAgoZm5+D", "AAAAAAAAw/LAAAAAAAA8/CAAAAAAAAAA", "CAAAKzMz0/LAAAgmZmZ8/CAAAYZmZG/vRUvHe8oIt/bAAAAKzMz0/u///fyMzM9vGAAAglZm5+r8///XZmZu/aoePkS4qA/P", "EDXGhuNKg/rwwlRobjC4/CAAAAimZm7PAAAAwmZmZ/DAAAAwZmZ2/AAAAAcmZm9PAAAAANzMj/DY4yI3tRB+/EGuMydbUg/P", "AAAACNzM7/DAAAgQzMz+/AAAAEamZWAQ", "AAAAKzMz0/LAAAAKzMz0/CAAAgyMzM9v", "EDXGhuNKg/rwwlRobjC4/CAAAAimZm7PAAAAwmZmZ/DAAAAwZmZ2/AAAAAcmZm9PAAAAANzMj/DY4yI3tRB+/EGuMydbUg/P", "wOlC8Tlsv/DAAAgQzMz+/EAAAI0Mzs/PAAAA2ZmZ+/DAAAgdmZm//AAAAEamZWAQ+///4MzMHAEAAAwOzMzBARxa9n5NgjAQ", "AAAAGAAAQAEAAAgBAAAFABAAAYAAAQBQ", "AAAAgoZm5+D", "AAAACNzM7/DAAAgQzMz+/AAAAEamZWAQ", "AAAAGAAAQAEAAAgBAAAFABAAAYAAAQBQ", "AAAgEAAAgAE" ],
+    "filling": "AAAAAAAAAAAAAAAAAAA8/AAAAAAAAAAQAAAAAAAAIAEAAAAAAAA8/AAAAAAAAAAQAAAAAAAAIAEAAAAAAAAEABAAAAAAAAAQAAAAAAAAIAEAAAAAAAAEABAAAAAAAQBQAAAAAAAAIAEAAAAAAAAEABAAAAAAAQBQAAAAAAAAYAE",
     "interaction": [ {
         "matrix": [ 1, 1, "AAAAAAAAAAA" ],
         "target": 0
     }, {
-        "matrix": [ 1, 1, "AAAAAAAAAAA" ],
+        "matrix": [ 3, 3, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" ],
         "target": 1
     }, {
-        "matrix": [ 1, 1, "AAAAAAAAAAA" ],
+        "matrix": [ 3, 3, "AAAAsZmZm/DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAbmZm5/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwmZmZ+P" ],
         "target": 2
     }, {
-        "matrix": [ 1, 1, "AAAAsZmZm/D" ],
+        "matrix": [ 1, 1, "AAAARzMzAAE" ],
         "target": 3
     }, {
-        "matrix": [ 1, 1, "AAAAAAAAAAA" ],
+        "matrix": [ 3, 3, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" ],
         "target": 4
     }, {
-        "matrix": [ 1, 1, "AAAAsZmZm/D" ],
+        "matrix": [ 9, 9, "EAAAsZmZm/TOj7dFTVtk8o6A2AEwnQLPFLPQeRsZZyDZjhSeuyFj8c0TahwD+lJvlLwgypIv0xb2n/3hv73k8U9zo2UJMZKP5Mu3VMV1SyjAAAAzMzM7/0GNZG4qPlIv3X90GnIEBzrFBvdZInZS8G4Ml5Z1/tFPRJ8GVKYhYxTV0thTW6Mc8mJ0u5/fJfLvF8xDRnrvyyTb0kZgr+Ui8GAAAQNzMz+PUFUWuMIHRyrTlFyhkJLb8wUIaEcuyFKPcbZdtvYBZyz78Sw09o7g8yOYeSfKZ6JvFLPQeRsZZyz8Jg69hupw8WVQZ5ygcEJvNyEc6NhQx/zdBAwsDz6T8+8fJtcEDEGPNxXd8da3fxD0Askg7cdd8ScuPr70YL8PkNGK55KXMyjFBvdZInZS8eVZhcIZyyGP2FAAzOMrPxrAAAAbmZm5/8XQOBIz/EGv1RRAcOKWgyzC1fz3yvQe8qs/U8i7THEvG9kWI8gfZybgzUmnV/3W8wUIaEcuyFKPP/XSLHxAhxDc4V5xs8sg8GAAAwmZmZ+PUYC1aKNwSyrr5kco/Axt8Oj7YcFamMFPeLwgypIv0xLUCvRlCWIW80tl11+iFkJPNxXd8da3fxjYgtU+yOqg8ATq/r0XisIv+///TzMzs/D/ovYf4GXg8q0Rc6It6PGPZf+fH+ufTyTV0thTW6Mc8qOvEMdP6OIvRDwSCuz11xLeZl95EdXj8i5QdrLR1vLvCCoiqnlCNyr////0MzM7/MGtg6UNjtHvW/MqNVCTmyDwNn0q9/2t8yOYeSfKZ6JvEn7z6ON2C/zy+TxLuPdQ8Oj7YcFamMFPKdEnOSr+jxDZ0CqT1M2e8e3sP+hhXB/P" ],
         "target": 5
     }, {
-        "matrix": [ 1, 1, "AAAAsZmZm/D" ],
+        "matrix": [ 9, 9, "MQqpm856DAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIArUl2E5l7vAAAAAAAAAAgCkaqJfu+AAlZneAUdmtLPAAAAAAAAAAA9Ku/vJSit84+SJ2RcvPLvAAAAAAAAAAA/rSVaTkXu/CAAAAAAAAAAAAAAAAAAAAwld6BQ1Z2u8EAAAENzMDAQAAAAAAAAAAgtxBwJ1IFu8e7ULFlEJLKPAAAAAAAAAAAmUVvdb2dd8CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA////1MzMDAEAAAAAAAAAAAAAAAAAAAAAAYgIRQiJJyLAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA9Ku/vJSit8Y6XNdek+CLvAAAAAAAAAAQAAAAOzMzAAdC9izQP9VKPAAAAAAAAAAAhbvzvMuac8CAAAAAAAAAAAAAAAAAAAAg7LlYHx9+s8qp3QnTvU1JPAAAAAAAAAAgWTivB+DBn8AAAAgzMzMAQAAAAAAAAAAQlXtZd4lLf8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAa+8rD+u7xLAAAAAAAAAAAAAAAAAAAAA////PzMzEAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ/rSVaTkXu/qJV1b3mdXHvAAAAAAAAAAQhbvzvMuac8W5VbWHe5yHPAAAAAAAAAAA9bl13gRBBABAAAAAAAAAABwKVpNRe5+LAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU/WZ9NYUQAQ" ],
         "target": 6
     }, {
-        "matrix": [ 1, 1, "AAAARzMzAAE" ],
+        "matrix": [ 3, 3, "AAAgQzMzSAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAI0MzsEABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACNzMLBQ" ],
         "target": 7
     }, {
-        "matrix": [ 1, 1, "AAAAAAAAAAA" ],
+        "matrix": [ 3, 3, "AAAAsZmZm/DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAbmZm5/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwmZmZ+P" ],
         "target": 8
     }, {
-        "matrix": [ 3, 3, "AAAAMzMzs/DYZzAUDRVk8o6Xk7e4X1IPQNlwKcoaTyjAAAAzMzM7/UUUzrLw7SJvcRDDq7a+RyjhVNxK5Pgo8KAAAQzMzM/P" ],
+        "matrix": [ 9, 9, "MQqpm856DAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIArUl2E5l7vAAAAAAAAAAwCkaqJfu+AAVrtp2BQYCRuI3HHDXfWNkb0u3gRNo+C5aer60Ywd5FvaeHG8K1WgkTAsSVaTkXu/CAAAAAAAAAAAAAAAAAAAAgqhewPX2CE5GAAAENzMDAQvTNlAI2k0yjtxBwJ1IFu8ydnllIEdCKvvTNlAI2k0yLxCyhNmZfJ5AAAAAAAAAAAAAAAAAAAAAQy9xxw1nVD5CP1UCgYTSLP////1MzMDAkoznSKwCKs8AsHYq9KtcLPAYgIRQiJJyzZjgVkgItF5CAAAAAAAAAAAAAAAAAAAAgS6oReOQnE5a6XNdek+CLviOfKpALowyTAAAAOzMzAAhzHsrtAgRJviOfKpALowyLB7fE7hC1J5AAAAAAAAAAAAAAAAAAAAAg5tqTjB3lX8i/aMPqM7GKv/6BmavSL3yTM6Hxabhfo8+///fzMzMAQT/Qkuhcm3y7LyAKhzbMY8AAAAAAAAAAAAAAAAAAAAAgm3hBvStFI5AP1UCgYTSLvAa+8rD+u7xjoznSKwCKs8K9DR6GyZeLv////PzMzEAUkoiIu12pV5AAAAAAAAAAAAAAAAAAAAAAAsSVaTkXu/CVmN6Swg6UODNCWRCi0WkbgPS4mqBFS5IjMgS48GDGPQiKi4WbnWlj8bl13gRBBABAAAAAAAAAABwKVpNRe5+LAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU/WZ9NYUQAQ" ],
         "target": 9
     }, {
-        "matrix": [ 2, 2, "////rZmZm/jHHdcts1ck8A0ai8XR27Gv////TzMzs/D" ],
+        "matrix": [ 9, 9, "cvhqEDS7TA0tHOy14rhg8g726egn8uUuozqOtZQ7Jl7tHOy14rhg8C4gRZw5upPOAg643ERifwL4Ox5e0UEn6AZuDoe7VE8v3e4IXjvGCyj///H0MzsEApDw95xcyDMvNwhNeO350yL8gHubFJWx80sAmbHEQAUuuD9Sg6PZFkDSDZ8a0HwW5AT5guyvWzMPvhcZXJ+LOlbOA3nHzJPw8GAAACNzMLBQit9vM7UYzyjkyZmrsU7t80JuSFmnpWMPbqLu5s7X1ybPaLAnNLfx84GLO2/kzLZuTE7ubGO5Bl7CcYjnzdOt8GuVKngaSHKPCAAgdmZmTA0LAQyOnVPw8Qde9RebHKMP/dxWJlJXAz72zEdn/Epw8IAcYY3XQpYu3e4IXjvGCyreWGZFxdE08wocm5KL1eLPvAAJ7cW9Azj///XnZm5EANby+87CM0WuitsU+SWy+lDueepTWcfV5CT5guyvWzMvMvWzQpq1ikDzCYudQABQ52JuSFmnpWMPUnXfk32hCzTxJ7zvLwQb5GAAACNzMLBQoZvp/uHyxyTgn0r6LWRz8EZgynQKqBWOOF4rXH1JmxrADT+241WZ5apu4mzufVLv/dxWJlJXAzburYGvrIlg5Q2j8/7eIHLP///fcmZmTAEJ4seHJPCv8wOMcaGNewKP//mPfxfG0q7S6+8a0HwW50j2CwZzyXMPbPT0d+TkCzj8T29SWcfV5qTn35DyXqJPHbU6dk8I8yjAAAYnZm5EA9QEDYz7FEuuQm7Aq3eFB/LMlD6K/aNz8kBYTj55IQZumM4e3OF4LmLMlD6K/aNz8i7gUQm2gUVuwOlrxjMSlyLnb5pnoMs56iC5VfaR5RBQ" ],
         "target": 10
     }, {
-        "matrix": [ 2, 2, "////1MzMDAEAGISEkYSi8Ao5zvO47uHP////PzMzEAE" ],
+        "matrix": [ 3, 3, "AAAADAAAgAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAIABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAACQ" ],
         "target": 11
     }, {
-        "matrix": [ 2, 2, "////rZmZm/jHHdcts1ck8A0ai8XR27Gv////TzMzs/D" ],
+        "matrix": [ 1, 1, "AAAARzMzAAE" ],
         "target": 12
     }, {
-        "matrix": [ 2, 2, "////1MzMDAEAGISEkYSi8Co5zvO47uHv////PzMzEAE" ],
+        "matrix": [ 3, 3, "AAAgQzMzSAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAI0MzsEABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACNzMLBQ" ],
         "target": 13
     }, {
-        "matrix": [ 3, 3, "BAAARzMzAAktxBwJ1IFu8ydnllIEdCKvm+VTnHpvwybAAAAOzMzAAhzHsrtAgRJv4vGzjKzuhybM6Hxabhfo8+///fzMzMAQ" ],
+        "matrix": [ 3, 3, "AAAADAAAgAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAIABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMAAAACQ" ],
         "target": 14
     }, {
-        "matrix": [ 1, 1, "AAAgQzMzSAE" ],
-        "target": 15
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAAAA" ],
-        "target": 16
-    }, {
-        "matrix": [ 2, 2, "////1MzMDAEAGISEkYSi8Co5zvO47uHv////PzMzEAE" ],
-        "target": 17
-    }, {
-        "matrix": [ 2, 2, "////rZmZm/jHHdcts1ck8A0ai8XR27Gv////TzMzs/D" ],
-        "target": 18
-    }, {
-        "matrix": [ 1, 1, "AAAgQzMzSAE" ],
-        "target": 19
-    }, {
-        "matrix": [ 1, 1, "AAAAsZmZm/D" ],
-        "target": 20
-    }, {
-        "matrix": [ 2, 2, "////1MzMDAEAGISEkYSi8Ao5zvO47uHP////PzMzEAE" ],
-        "target": 21
-    }, {
-        "matrix": [ 2, 2, "////1MzMDAEAGISEkYSi8Co5zvO47uHv////PzMzEAE" ],
-        "target": 22
-    }, {
-        "matrix": [ 3, 3, "AAAgcmZmTAEcgn3XGaJo8muk2SXxUQNPeKc//1gQhyLAAAInZm5EAZYF2z/mYZLvGQveHlP1TzjNqRjf8a4w8AAAAANzMTBQ" ],
-        "target": 23
-    }, {
-        "matrix": [ 3, 3, "BAAARzMzAAktxBwJ1IFu8ydnllIEdCKvm+VTnHpvwybAAAAOzMzAAhzHsrtAgRJv4vGzjKzuhybM6Hxabhfo8+///fzMzMAQ" ],
-        "target": 24
-    }, {
-        "matrix": [ 2, 2, "///fQzMzSAEo5hZGdmcm8Awgscutt9JP///fdmZmTAE" ],
-        "target": 25
-    }, {
-        "matrix": [ 2, 2, "///fQzMzSAEo5hZGdmcm8Awgscutt9JP///fdmZmTAE" ],
-        "target": 26
-    }, {
-        "matrix": [ 1, 1, "AAAADAAAgAE" ],
-        "target": 27
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAAAA" ],
-        "target": 28
-    }, {
-        "matrix": [ 1, 1, "AAAgQzMzSAE" ],
-        "target": 29
-    }, {
-        "matrix": [ 1, 1, "AAAAsZmZm/D" ],
-        "target": 30
-    }, {
-        "matrix": [ 2, 2, "////1MzMDAEAGISEkYSi8Co5zvO47uHv////PzMzEAE" ],
-        "target": 31
-    }, {
-        "matrix": [ 2, 2, "///fQzMzSAEo5hZGdmcm8Awgscutt9JP///fdmZmTAE" ],
-        "target": 32
-    }, {
-        "matrix": [ 1, 1, "AAAADAAAgAE" ],
-        "target": 33
-    }, {
-        "matrix": [ 1, 1, "AAAAsZmZm/D" ],
-        "target": 34
-    }, {
-        "matrix": [ 1, 1, "AAAADAAAgAE" ],
-        "target": 35
-    }, {
-        "matrix": [ 1, 1, "AAAARzMzAAE" ],
-        "target": 36
-    }, {
-        "matrix": [ 1, 1, "AAAgQzMzSAE" ],
-        "target": 37
-    }, {
-        "matrix": [ 1, 1, "AAAgQzMzSAE" ],
-        "target": 38
-    }, {
-        "matrix": [ 1, 1, "AAAADAAAgAE" ],
-        "target": 39
-    }, {
-        "matrix": [ 1, 1, "AAAgQzMzSAE" ],
-        "target": 40
-    }, {
-        "matrix": [ 1, 1, "AAAADAAAgAE" ],
-        "target": 41
-    }, {
-        "matrix": [ 1, 1, "AAAADAAAgAE" ],
-        "target": 42
-    }, {
         "matrix": [ 1, 1, "AAAgEAAAoAE" ],
-        "target": 43
+        "target": 15
     } ],
-    "one body": [ 6, 6, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" ],
+    "one body": [ 6, 6, "AAAAAAAAAAAAAAAAAAA8/AAAAAAAAA/PAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8/CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/vAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8/AAAAAAAAA/PAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8/CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/v" ],
     "transformation": [ {
         "matrix": [ 1, 1, "AAAAAAAAw/D" ],
         "target": 0
     }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
+        "matrix": [ 3, 3, "AAAAAAAAAAIAAAAAAAA8/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/PAAAAAAAAw/DAAAAAAAAAAAAAAAAAAAAA" ],
         "target": 1
     }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
+        "matrix": [ 3, 3, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/PAAAAAAAAAAIAAAAAAAA8/AAAAAAAAAAAAAAAAAAAw/DAAAAAAAAAAAAAAAAAAAAA" ],
         "target": 2
     }, {
         "matrix": [ 1, 1, "AAAAAAAAw/D" ],
         "target": 3
     }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
+        "matrix": [ 3, 3, "AAAAAAAAAAIAAAAAAAA8/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/PAAAAAAAAw/DAAAAAAAAAAAAAAAAAAAAA" ],
         "target": 4
     }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
+        "matrix": [ 9, 9, "uYdk/bbMbyzLlAnQB7MJ8i3/nVEcCEJv9a7a18wD4xb2GfcFhTQp8I9O/Zmnga+PPiRntDVfny7y78nZeCq5/CAAAAAAAAAA8fRoz7hFhxLAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgw78nZeCq5/AAAAAAAAAAAAAAAAAAAAAg8///////j8k9O/Zmnga+vdf8LlNqhGy7Q7guASFmY8q3VD/up3XLvLoFBiMjouxrVbEVb0Ffo8u8O/Zmnga+PRpG2Lum8Px7z78nZeCq5/AAAAAAAAAAgrf3Tycg5y+LAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAglxgaIQDp5/AAAAAAAAAAAAAAAAAAAAAg+jK37yBak8EYMoGC0Qa+PT4LUgTh12wL3i6C6POI5/GvMC/m+YM9PgLqLo/4gk/TISLSWj0BV8Ciq16G4ExJPoLjwvpPGT/7lR/Zu+e9e8AAAAAAAAAAA2RQNHX6hIxD8yI8b6jx0/qtoug+jDS+vmLjwvpPGT/T3BPVLEsZZ8sF2a4Z+HvIvgLqLo/4gk/D1BtYthN+f8AAAAAAAAAAAxYK556m0gxjMTTjkpHU5/sLubc4yD88PuMNNSmeQl/TEaik5TQ0Y8gJjL1+ItkKPNj7GHu8AP/D8/Pb6RxSm8AAAAAAAAAAAYlnxMuzD3xru4uxhLPwz/Az00IZ6BV+vKj7GHu8AP/z+xvVCdjme8iGwVKFMCCLvvMNNSmeQl/7SYyNTwptn8CAAAAAAAAAgKMcL2Wa6v/DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAvmwbRBorq/AAAAAAAAAAAAAAAAAAAAAwC6MorvJWl8yqJ8WUA6q6P" ],
         "target": 5
     }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
+        "matrix": [ 9, 9, "iU8Q/5Sgp+LAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWvuyEH11/+vAAAAAAAAAAIIFP0fuEYq/8ZdwgWbZaKvAAAAAAAAAA4n1BDatlpp8MvuyEH11/+vAAAAAAAAAAIAAAAAAAAAACAAAAAAAAAgAAAAAAAAAAIAAAAAAAAAA0xMQW0p5J+vAAAAAAAAAAQHzAZRnmn4/AAAAAAAAAAAdMDkFdaei/LAAAAAAAAAACAAAAAAAAAgAAAAAAAAAAIAAAAAAAAAACAAAAAAAAAgMvzfm5Jom/DAAAAAAAAAACAAAAAAAAAgAAAAAAAAAAIz78nZeCq5/CAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAA4DLMAXvgo9vAAAAAAAAAAgPswAc9Ci2/AAAAAAAAAAg/wCDw1LIq/DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAw8O/Zmnga+PAAAAAAAAAAQz78nZeCq5/AAAAAAAAAKPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMvzfm5Jom/LAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAz78nZeCq5/CAAAAAAAAAAAAAAAAAAAAQ96KTcUX/7/00qB+B1IIGPAAAAAAAAAAQTrG4HUjgY86RxD9nLBm6PAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1rrMxRd9v/LAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAISxD9nLBm6P" ],
         "target": 6
     }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
+        "matrix": [ 3, 3, "AAAAAAAAAAIAAAAAAAA8/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/PAAAAAAAAw/DAAAAAAAAAAAAAAAAAAAAA" ],
         "target": 7
     }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
+        "matrix": [ 3, 3, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/PAAAAAAAAAAIAAAAAAAA8/AAAAAAAAAAAAAAAAAAAw/DAAAAAAAAAAAAAAAAAAAAA" ],
         "target": 8
     }, {
-        "matrix": [ 3, 3, "Nvzfm5Jom/Dz78nZeCq5/CAAAAAAAAAA+wCDw1LIa/jPswAc9Ci2/8DLMAXvgo+vdMDkFdaei/THzAZRnmn4/0xMQW0p5J+P" ],
+        "matrix": [ 9, 9, "iU8Q/5Sgp+LAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWvuyEH11/+vAAAAAAAAAAIAAAAAAAAAAq9U/GSCLaEviU8Q/5Sgp+D3T9bIJsoR8CDCi2IL5/POAAAAAAAAAAI96KTcUX/7/CAAAAAAAAAgAAAAAAAAAAIAAAAAAAAAA0xMQW0p5J+vAAAAAAAAAAQHzAZRnmn4/AAAAAAAAAAAdMDkFdaei/LAAAAAAAAAACAAAAAAAAAgAAAAAAAAAAIz78nZeCq5/Yen/HzTQBKvAAAAAAAAAAIz787ZeCao8w8O/Zmnga+vAAAAAAAAAAIAAAAAAAAAACAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAA4DLMAXvgo9vAAAAAAAAAAgPswAc9Ci2/AAAAAAAAAAg/wCDw1LIq/DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAw+///k808O/Zmnga+PBAAA7///TyDz78nZeCq5/AAAAAAAAAKvAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAz78nZeCq5/c5d+HNPBlIPAAAAAAAAAAAz78TZeC6q8y8O/Zmnga+PAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAUNossLy/wIvzrrMxRd9v/T1gyyuI/Dj8qRs2/gmlTLOAAAAAAAAAAQIFP0fuEYq/AAAAAAAAAAA1rrMxRd9v/LAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAISxD9nLBm6P" ],
         "target": 9
     }, {
-        "matrix": [ 2, 2, "Mvzfm5Jom/Lz78nZeCq5/w8O/Zmnga+PMvzfm5Jom/D" ],
+        "matrix": [ 9, 9, "pPqfn44No+DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ6j63JOeDq/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASkVKfwpt/+v+///////fyDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAg////////n8w8O/Zmnga+PKwF3W/ojUzzy78nZeCq5/CAAAAAAAAAg/LJ+Q7avoyDAAAAAAAAAAO9O/Zmnga+vAAAAAAAAAAoATiP0u2Lq8eAXcb9jOSNvHvzfm5Jom/zBgKVgyWGp8AAAAAAAAAAgK0ZKzT6RwyDAAAAAAAAAAc8O/Zmnga+PAAAAAAAAAAwCdmy8keEs8KBXcb9jOSNvUvzfm5Jom/jXMO2/5P5o8AAAAAAAAAAA+///////fyLAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAg////////n8y8O/Zmnga+PKwF3W/ojUzzy78nZeCq5/AAAAAAAAAAAesCGxcLCSyzz78nZeCq5/aQeGdiH6KHvLvzfm5Jom/jHrgRM3igk8eoj/q58fYZu/cFp/01unyDAAAAAAAAAACAAAAAAAAAgMvzfm5Jom/ztHoPvJWUK+orhRAS5OOJviLI40mYRp4Dz78nZeCq5/a8Srx66kEbOigciHzqjCzLAAAAAAAAAAAAAAAAAAAAABqDGymYRp47y78nZeCq5/sS1pBAHtPHvQvzfm5Jom/Tg6ghsJWUK+4IWgzFpkWZumK9v9LR7nyDAAAAAAAAAAAAAAAAAAAAA3yzLkU6km/DAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwt88CJlOp5/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE8yLH2vfE7P" ],
         "target": 10
     }, {
-        "matrix": [ 2, 2, "Mvzfm5Jom/Lz78nZeCq5/y8O/Zmnga+vMvzfm5Jom/D" ],
+        "matrix": [ 3, 3, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/PAAAAAAAAAAIAAAAAAAA8/AAAAAAAAAAAAAAAAAAAw/DAAAAAAAAAAAAAAAAAAAAA" ],
         "target": 11
     }, {
-        "matrix": [ 2, 2, "Mvzfm5Jom/Lz78nZeCq5/w8O/Zmnga+PMvzfm5Jom/D" ],
+        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
         "target": 12
     }, {
-        "matrix": [ 2, 2, "Mvzfm5Jom/Lz78nZeCq5/w8O/Zmnga+PMvzfm5Jom/D" ],
+        "matrix": [ 3, 3, "AAAAAAAAAAIAAAAAAAA8/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/PAAAAAAAAw/DAAAAAAAAAAAAAAAAAAAAA" ],
         "target": 13
     }, {
-        "matrix": [ 3, 3, "dMDkFdaei/bHzAZRnmn4/0xMQW0p5J+v+wCDw1LIa/rPswAc9Ci2/8DLMAXvgo+PNvzfm5Jom/Dz78nZeCq5/AAAAAAAAAAA" ],
+        "matrix": [ 3, 3, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/PAAAAAAAAAAIAAAAAAAA8/AAAAAAAAAAAAAAAAAAAw/DAAAAAAAAAAAAAAAAAAAAA" ],
         "target": 14
     }, {
         "matrix": [ 1, 1, "AAAAAAAAw/D" ],
         "target": 15
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 16
-    }, {
-        "matrix": [ 2, 2, "Mvzfm5Jom/Lz78nZeCq5/w8O/Zmnga+PMvzfm5Jom/D" ],
-        "target": 17
-    }, {
-        "matrix": [ 2, 2, "Mvzfm5Jom/Lz78nZeCq5/w8O/Zmnga+PMvzfm5Jom/D" ],
-        "target": 18
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 19
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 20
-    }, {
-        "matrix": [ 2, 2, "Mvzfm5Jom/Lz78nZeCq5/y8O/Zmnga+vMvzfm5Jom/D" ],
-        "target": 21
-    }, {
-        "matrix": [ 2, 2, "Mvzfm5Jom/Lz78nZeCq5/w8O/Zmnga+PMvzfm5Jom/D" ],
-        "target": 22
-    }, {
-        "matrix": [ 3, 3, "u1l1v3qw9+Lbw7HvFHE6/EFJE6/bJS+vi0UPCjJ3p/j2kHsras20/SrWcr2CnA+vkMDkFdaei/z6yAZRnmn4/Y0MQW0p5J+P" ],
-        "target": 23
-    }, {
-        "matrix": [ 3, 3, "dMDkFdaei/bHzAZRnmn4/0xMQW0p5J+v+wCDw1LIa/rPswAc9Ci2/8DLMAXvgo+PNvzfm5Jom/Dz78nZeCq5/AAAAAAAAAAA" ],
-        "target": 24
-    }, {
-        "matrix": [ 2, 2, "Mvzfm5Jom/Lz78nZeCq5/w8O/Zmnga+PMvzfm5Jom/D" ],
-        "target": 25
-    }, {
-        "matrix": [ 2, 2, "Mvzfm5Jom/Lz78nZeCq5/w8O/Zmnga+PMvzfm5Jom/D" ],
-        "target": 26
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 27
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 28
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 29
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 30
-    }, {
-        "matrix": [ 2, 2, "Mvzfm5Jom/Lz78nZeCq5/w8O/Zmnga+PMvzfm5Jom/D" ],
-        "target": 31
-    }, {
-        "matrix": [ 2, 2, "Mvzfm5Jom/Lz78nZeCq5/w8O/Zmnga+PMvzfm5Jom/D" ],
-        "target": 32
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 33
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 34
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 35
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 36
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 37
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 38
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 39
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 40
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 41
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 42
-    }, {
-        "matrix": [ 1, 1, "AAAAAAAAw/D" ],
-        "target": 43
     } ],
     "two body": [ 1, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8000000119, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 0.1000000015, 0, 0, 0, 0, 0, 0, 1 ]
 }

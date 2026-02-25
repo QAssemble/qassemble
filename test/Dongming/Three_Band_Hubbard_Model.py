@@ -134,31 +134,14 @@ vbare = VBare(
 
 
 
-# itermax = 1
-# mix = 0.1
+itermax = 1
+mix = 0.1
 
-
-
-# # start = time.time()
-
-# # cf.GWApproximation(
-# #     itermax=itermax,
-# #     mix=mix,
-# #     hoppinglist=hopping,
-# #     loccoulomb=locoption,
-# #     nonloccoulomb=nonlocoption,
-# # )
-
-# # end = time.time()
-# # tiem_delta = end-start
-# # print("\n==============================================================")
-# # print("GWApproximation code      - ",round(tiem_delta,5),'seconds')
-# # print("==============================================================")
 
 
 # start = time.time()
 
-# cf.GWApproximation_new(
+# cf.GWApproximation(
 #     itermax=itermax,
 #     mix=mix,
 #     hoppinglist=hopping,
@@ -169,13 +152,30 @@ vbare = VBare(
 # end = time.time()
 # tiem_delta = end-start
 # print("\n==============================================================")
-# print("GWApproximation new code      - ",round(tiem_delta,5),'seconds')
+# print("GWApproximation code      - ",round(tiem_delta,5),'seconds')
 # print("==============================================================")
 
-# fpathstc.Band(hmat = cf.niham.r+cf.sigmah.r+cf.sigmaf.r, plotoption=True)
+
+start = time.time()
+
+cf.GWApproximation_new(
+    itermax=itermax,
+    mix=mix,
+    hoppinglist=hopping,
+    loccoulomb=locoption,
+    nonloccoulomb=nonlocoption,
+)
+
+end = time.time()
+tiem_delta = end-start
+print("\n==============================================================")
+print("GWApproximation new code      - ",round(tiem_delta,5),'seconds')
+print("==============================================================")
+
+fpathstc.Band(hmat = cf.niham.r+cf.sigmah.r+cf.sigmaf.r, plotoption=True)
 
 
-# exit()
+exit()
 
 
 

@@ -1,8 +1,8 @@
-Start task at Tue Feb 24 20:32:41 2026
+Start task at Tue Feb 24 22:14:40 2026
 
 
-Number of invariant subspaces: 44
-Dimension of the biggest subspace: 3
+Number of invariant subspaces: 16
+Dimension of the biggest subspace: 9
 Reading in dynamic interaction ... Ok
 Reading eigenvalues ... Ok
 Reading operators ... Ok
@@ -14,3 +14,4 @@ End setting up partition observables
 Begin setting updates
 Setting expansion updates for partition space ... Ok
 End setting updates
+partition eta = 1
