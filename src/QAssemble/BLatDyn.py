@@ -82,50 +82,85 @@ class BLatDyn(Crystal, DLR):
 
         return moment, high
 
-    def F2T(self, bf: np.ndarray) -> np.ndarray:
+    def F2T(self, bf: np.ndarray, nodedict: dict = None) -> np.ndarray:
         norb = bf.shape[0]
         ns = bf.shape[2]
         nrk = bf.shape[4]
         nfreq = bf.shape[5]
         ntau = len(self.tauB)
-
         btau = np.zeros((norb, norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F")
-        tempmat = np.zeros((nfreq), dtype=np.complex128, order="F")
 
-        for ik in range(nrk):
-            for ks, js in itertools.product(range(ns), repeat=2):
-                # tempmat = np.transpose(bf[:, :, js, ks, ik], (2, 0, 1))
-                # tempmat2 = self.dlr.BF2T(tempmat)
-                for jorb, iorb in itertools.product(range(norb), repeat=2):
-                    tempmat = bf[iorb, jorb, js, ks, ik]
-                    tempmat2 = self.BF2T(tempmat)
-                    # btau[:, :, js, ks, ik] = np.transpose(tempmat2, (1, 2, 0))
-                    # for jorb, iorb in itertools.product(range(norb), repeat=2):
-                    btau[iorb, jorb, js, ks, ik] = tempmat2
+        if nodedict is not None:
+            from mpi4py import MPI
+            commf = nodedict['commf']
+            floc  = nodedict['floc']
+            tloc  = nodedict['tloc']
+            rank  = commf.Get_rank()
+
+            # 1) Gathering \nu slices from all ranks to form the complete \nu array
+            bf_local  = np.zeros((norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F")
+            bf_global = np.zeros((norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F")
+            for loc_idx, glob_idx in floc[rank].items():
+                bf_local[..., glob_idx] = bf[..., loc_idx]
+            commf.Allreduce(bf_local, bf_global, op=MPI.SUM)
+
+            # 2) Compute the Fourier transform using DLR
+            btau_global = np.zeros((norb, norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F")
+            for ik in range(nrk):
+                for ks, js in itertools.product(range(ns), repeat=2):
+                    for jorb, iorb in itertools.product(range(norb), repeat=2):
+                        btau_global[iorb, jorb, js, ks, ik] = self.BF2T(bf_global[iorb, jorb, js, ks, ik])
+
+            # 3) Separate the complete \tau array back into local slices for each rank
+            for loc_idx, glob_idx in tloc[rank].items():
+                btau[..., loc_idx] = btau_global[..., glob_idx]
+
+        else:
+            for ik in range(nrk):
+                for ks, js in itertools.product(range(ns), repeat=2):
+                    for jorb, iorb in itertools.product(range(norb), repeat=2):
+                        btau[iorb, jorb, js, ks, ik] = self.BF2T(bf[iorb, jorb, js, ks, ik])
 
         return btau
 
-    def T2F(self, btau: np.ndarray) -> np.ndarray:
+    def T2F(self, btau: np.ndarray, nodedict: dict = None) -> np.ndarray:
         norb = btau.shape[0]
         ns = btau.shape[2]
         nrk = btau.shape[4]
         ntau = btau.shape[5]
         nfreq = len(self.nu)
-
         bf = np.zeros((norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F")
-        tempmat = np.zeros((ntau), dtype=np.complex128, order="F")
 
-        for ik in range(nrk):
-            for ks, js in itertools.product(range(ns), repeat=2):
-                # tempmat = np.transpose(btau[:, :, js, ks, ik], (2, 0, 1))
-                # tempmat2 = self.dlr.BT2F(tempmat)
-                # bf[:, :, js, ks, ik] = np.transpose(tempmat2, (1, 2, 0))
-                # bf[:, :, js, ks, ik, :] = self.dlr.BT2F(btau[:, :, js, ks, ik, :])
-                for jorb, iorb in itertools.product(range(norb), repeat=2):
-                    tempmat = btau[iorb, jorb, js, ks, ik]
-                    tempmat2 = self.BT2F(tempmat)
-                    # for jorb, iorb in itertools.product(range(norb), repeat=2):
-                    bf[iorb, jorb, js, ks, ik] = tempmat2
+        if nodedict is not None:
+            from mpi4py import MPI
+            commtau = nodedict['commtau']
+            floc    = nodedict['floc']
+            tloc    = nodedict['tloc']
+            rank    = commtau.Get_rank()
+
+            # 1) Gathering \tau slices from all ranks to form the complete \tau array
+            btau_local  = np.zeros((norb, norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F")
+            btau_global = np.zeros((norb, norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F")
+            for loc_idx, glob_idx in tloc[rank].items():
+                btau_local[..., glob_idx] = btau[..., loc_idx]
+            commtau.Allreduce(btau_local, btau_global, op=MPI.SUM)
+
+            # 2) Compute the Fourier transform using DLR
+            bf_global = np.zeros((norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F")
+            for ik in range(nrk):
+                for ks, js in itertools.product(range(ns), repeat=2):
+                    for jorb, iorb in itertools.product(range(norb), repeat=2):
+                        bf_global[iorb, jorb, js, ks, ik] = self.BT2F(btau_global[iorb, jorb, js, ks, ik])
+
+            # 3) Separate the complete \nu array back into local slices for each rank
+            for loc_idx, glob_idx in floc[rank].items():
+                bf[..., loc_idx] = bf_global[..., glob_idx]
+
+        else:
+            for ik in range(nrk):
+                for ks, js in itertools.product(range(ns), repeat=2):
+                    for jorb, iorb in itertools.product(range(norb), repeat=2):
+                        bf[iorb, jorb, js, ks, ik] = self.BT2F(btau[iorb, jorb, js, ks, ik])
 
         return bf
 
