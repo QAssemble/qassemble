@@ -78,7 +78,7 @@ class CTQMC(object):
                 Eimp_final = np.array(np.real(Eimp_final),dtype=float)
                 ctqmc_mu = np.array(np.real(ctqmc_mu),dtype=float)
 
-                params["hloc"]['one body'] = np.zeros((6,6)).tolist() # np.round(Eimp_final).tolist()
+                params["hloc"]['one body'] = np.round(Eimp_final).tolist()
 
                 U = vloc.GetUijklComCTQMC(key)    ####### !!!
                 params["hloc"]["two body"]=U.tolist() ####### !!!
