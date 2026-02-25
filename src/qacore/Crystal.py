@@ -522,6 +522,26 @@ class Crystal(object):
 
         return matret
 
+    def Full2Double_new(self, mat: np.ndarray) -> np.ndarray:
+        """Convert a full composite matrix to a boson basis 2-index matrix.
+
+        Args:
+            mat (np.ndarray): 2D array of shape (n^2, n^2).
+
+        Returns:
+            np.ndarray: 2D array of shape (norb, norb).
+        """
+        # Ensure we have an integer index array once
+        c2b = np.asarray(self.c2b, dtype=np.int64)
+
+        # Fast submatrix extraction (vectorized)
+        matret = mat[np.ix_(c2b, c2b)]
+
+        # Match your previous dtype + Fortran order output
+        # (Your old code used complex64; keep that unless you want complex128.)
+        return np.array(matret, dtype=np.complex64, order='F', copy=False)
+    
+
     def Double2Full(self, mat: np.ndarray) -> np.ndarray:
         """Convert a boson basis 2-index matrix to a full composite matrix.
 
@@ -543,6 +563,27 @@ class Crystal(object):
                 matret[ind1,ind2] = mat[iorb,jorb]
 
         return matret ## construct
+    
+    def Double2Full_new(self, mat: np.ndarray) -> np.ndarray:
+        """Convert a boson basis 2-index matrix to a full composite matrix.
+
+        Args:
+            mat (np.ndarray): 2D array of shape (norb, norb).
+
+        Returns:
+            np.ndarray: 2D array of shape (n^2, n^2).
+        """
+        nind = len(self.find) ** 2
+        norb = len(self.bind)
+
+        c2b = np.asarray(self.c2b, dtype=np.int64)[:norb]
+
+        matret = np.zeros((nind, nind), dtype=np.complex64, order='F')
+
+        rhs = np.asarray(mat, dtype=np.complex64).astype(np.complex64, copy=False)
+        matret[np.ix_(c2b, c2b)] = rhs
+
+        return matret
 
     def Kpath(self, kpath: list = None, nk: int = None) -> np.ndarray:
         """Generate k-point path through specified high-symmetry points.

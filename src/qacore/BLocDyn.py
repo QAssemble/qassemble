@@ -323,7 +323,8 @@ class BLocDyn(object):
         
         F0_val = np.zeros(nft,dtype=np.float64, order='F')
         for ift in range(nft):
-            F0_val[ift] = 1.0/ns**2/norbc**2*np.einsum('ijjimn->',utilde_rf_4[...,ift]).real
+            # F0_val[ift] = 1.0/ns**2/norbc**2*np.einsum('ijjimn->',utilde_rf_4[...,ift]).real #- 0.866
+            F0_val[ift] = 0.0
         
         F0_dict = {}
         F0_dict["F0"] = F0_val.tolist()

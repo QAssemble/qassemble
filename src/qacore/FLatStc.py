@@ -31,6 +31,8 @@ qapath = os.environ.get("QAssemble", "")
 sys.path.append(qapath + "/src/qacore/modules")
 import QAFort
 
+import time, datetime
+
 
 class FLatStc(object):
 
@@ -579,7 +581,10 @@ class NIHamiltonian(FLatStc):
         nk = len(self.crystal.kpoint)
         kvec = self.crystal.kpoint
 
-        print(norb,ns,nk,kvec)
+        print(norb,ns,nk)
+        # print(kvec)
+
+        # exit()
 
         hamtb = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order="F")
         tempmat = np.zeros(
@@ -610,6 +615,8 @@ class NIHamiltonian(FLatStc):
                     # print(tij,iorb,jorb,R,tempmat[iorb,jorb,js,R[0],R[1],R[2]],tempmat[jorb,iorb,js,-R[0],-R[1],-R[2]])
 
                 # 0 == -0
+        
+        
 
         if (self.spin): 
                 tempmat[0,0,0,0,0,0] += 1
@@ -655,6 +662,7 @@ class NIHamiltonian(FLatStc):
         # for iorb in range(norb):
         #     tempmat[iorb,iorb,js,0,0,0] = +self.onsitelist[iorb]
         # Hermitian check
+        
         tempmat = tempmat.reshape((norb, norb, ns, nk), order="F")
         self.r = tempmat
         hamtb = self.R2K(tempmat)
@@ -818,6 +826,8 @@ class SigmaHartree(FLatStc):
         # onsite = self.R2K(self.onsiter)
         h = np.zeros((norbc, norbc, ns, nk), dtype=np.complex128, order="F")
 
+        start = time.time()
+
         if self.crystal.ns != 1:
             #     for ik in range(nk):
             #         tempmat[...,ik] = self.crystal.OrbSpin2Composite(vbare[...,ik])
@@ -926,8 +936,18 @@ class SigmaHartree(FLatStc):
                                 * C
                             )
 
+        end = time.time()
+        tiem_delta = end-start
+        print("old code      - ",round(tiem_delta,5),'seconds')
+
+        start = time.time()
+
         self.k = h  # +onsite
         self.r = self.K2R(h)
+
+        end = time.time()
+        tiem_delta = end-start
+        print("old code      - ",round(tiem_delta,5),'seconds')
 
         return None
 

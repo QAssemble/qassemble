@@ -1,0 +1,90 @@
+{
+    "all errors": false,
+    "basis": {
+        "orbitals": "d",
+        "type": "product real"
+    },
+    "beta": 50,
+    "complex": false,
+    "dyn": {
+        "functions": "dyn.json",
+        "matrix": [ 
+            [ "F0" ] ],
+        "quantum numbers": [ 
+            [ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ] ]
+    },
+    "error": "parallel",
+    "expansion histogram": true,
+    "hloc": {
+        "one body": [ 
+            [ 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0 ], 
+            [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ], 
+            [ 0, 0, -0.55, 0, 0, 0, 0, 0, 0, 0 ], 
+            [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ], 
+            [ 0, 0, 0, 0, -0.6, 0, 0, 0, 0, 0 ], 
+            [ 0, 0, 0, 0, 0, 0.02, 0, 0, 0, 0 ], 
+            [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ], 
+            [ 0, 0, 0, 0, 0, 0, 0, -0.55, 0, 0 ], 
+            [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ], 
+            [ 0, 0, 0, 0, 0, 0, 0, 0, 0, -0.6 ] ],
+        "two body": {
+            "F0": 15,
+            "F2": 5.169230769,
+            "F4": 3.230769231,
+            "approximation": "none",
+            "parametrisation": "slater-condon"
+        }
+    },
+    "hybridisation": {
+        "functions": "hyb.json",
+        "matrix": [ 
+            [ "xy", "", "", "", "", "", "", "", "", "" ], 
+            [ "", "yz", "", "", "", "", "", "", "", "" ], 
+            [ "", "", "3z2r2", "", "", "", "", "", "", "" ], 
+            [ "", "", "", "zx", "", "", "", "", "", "" ], 
+            [ "", "", "", "", "x2y2", "", "", "", "", "" ], 
+            [ "", "", "", "", "", "xy", "", "", "", "" ], 
+            [ "", "", "", "", "", "", "yz", "", "", "" ], 
+            [ "", "", "", "", "", "", "", "3z2r2", "", "" ], 
+            [ "", "", "", "", "", "", "", "", "zx", "" ], 
+            [ "", "", "", "", "", "", "", "", "", "x2y2" ] ]
+    },
+    "measurement steps": 100000,
+    "measurement time": 20,
+    "mu": 31.65110126,
+    "partition": {
+        "density matrix precise": false,
+        "green basis": "matsubara",
+        "green bulla": true,
+        "green legendre cutoff": 100,
+        "green matsubara cutoff": 50,
+        "occupation susceptibility": false,
+        "occupation susceptibility bulla": false,
+        "occupation susceptibility direct": false,
+        "print eigenstates": true,
+        "probabilities": [ "N", "energy", "S2", "Sz" ],
+        "quantum number susceptibility": true,
+        "quantum numbers": {
+            "N": {
+            },
+            "Sz": {
+            }
+        },
+        "storeA": 100,
+        "storeB": 20,
+        "susceptibility cutoff": 50,
+        "susceptibility tail": 200,
+        "sweepA": 50,
+        "sweepB": 250
+    },
+    "partition fraction": 0.5,
+    "print": true,
+    "quad insert": false,
+    "restart": false,
+    "seed": 41085,
+    "seed inc": 857,
+    "sim per device": 0,
+    "streams per device": 1,
+    "thermalisation steps": 10000,
+    "thermalisation time": 5
+}

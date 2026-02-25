@@ -17,6 +17,8 @@ qapath = os.environ.get("QAssemble", "")
 sys.path.append(qapath + "/src/qacore/modules")
 import QAFort
 
+import time, datetime
+
 
 class BLatStc(object):
 
@@ -381,6 +383,7 @@ class VBare(BLatStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+
         if (ohno == False) and (intamp == None) and (jth == False):
             print("Only calculate the local coulomb interaction")
         if vloc == None:
@@ -406,7 +409,10 @@ class VBare(BLatStc):
             if intamp != None:
                 # self.InteractingAmplitue(intamp)
                 self.Cal()
+
+
         self.LocPlusNonLoc()
+
         if hdf5file != None:
             self.Save()
         # self.GetOnsiteEnergy()

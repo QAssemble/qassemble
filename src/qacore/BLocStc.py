@@ -23,6 +23,8 @@ qapath = os.environ.get('QAssemble','')
 sys.path.append(qapath+'/src/qacore/modules')
 import QAFort
 
+from itertools import product
+
 class BLocStc(object):
 
     def __init__(self,crystal : Crystal):
@@ -303,6 +305,8 @@ class VLoc(BLocStc):
                             jorb = self.crystal.BIndex([atom,[m2,m3]])
                             if (iorb is not None)and(jorb is not None):
                                 self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
+
+
         if voption["Parameter"] == "Slater":
             for key, val in voption["option"].items():
                 atom = int(key-1)
@@ -317,6 +321,50 @@ class VLoc(BLocStc):
                         jorb = self.crystal.BIndex([atom,[m2,m3]])
                         if (iorb is not None)and(jorb is not None):
                             self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
+        
+        # if voption["Parameter"] == "Slater":
+        #     for key, val in voption["option"].items():
+        #         atom = int(key - 1)
+        #         orbs = list(val["orbitals"])
+        #         norbc = len(orbs)
+
+        #         if norbc > len(self.crystal.find):
+        #             print("Invalid l value set")
+        #             sys.exit()
+
+        #         # tempmat shape: (norbc,norbc,norbc,norbc,ns,ns)
+        #         tempmat = self.SlaterParameter(l=val["l"], norbc=norbc, val=val["value"])
+
+        #         # Map orbital label -> axis index (safe even if labels aren't 0..norbc-1)
+        #         orb2ax = {o: i for i, o in enumerate(orbs)}
+
+        #         # Precompute valid iorb indices for (m1,m4)
+        #         i_pairs = []  # (ax1, ax4, iorb)
+        #         for m1 in orbs:
+        #             ax1 = orb2ax[m1]
+        #             for m4 in orbs:
+        #                 ax4 = orb2ax[m4]
+        #                 iorb = self.crystal.BIndex([atom, [m1, m4]])
+        #                 if iorb is not None:
+        #                     i_pairs.append((ax1, ax4, iorb))
+
+        #         # Precompute valid jorb indices for (m2,m3)
+        #         j_pairs = []  # (ax2, ax3, jorb)
+        #         for m2 in orbs:
+        #             ax2 = orb2ax[m2]
+        #             for m3 in orbs:
+        #                 ax3 = orb2ax[m3]
+        #                 jorb = self.crystal.BIndex([atom, [m2, m3]])
+        #                 if jorb is not None:
+        #                     j_pairs.append((ax2, ax3, jorb))
+
+        #         # Fill whole (ns, ns) blocks at once (removes js/ks loops completely)
+        #         for ax1, ax4, iorb in i_pairs:
+        #             for ax2, ax3, jorb in j_pairs:
+        #                 self.vloc[iorb, jorb, :, :] = tempmat[ax1, ax2, ax3, ax4, :, :]
+
+
+
         if voption["Parameter"] == "SlaterKanamori":
             for key, val in voption["option"].items():
                 atom = int(key-1)
@@ -493,6 +541,67 @@ class VLoc(BLocStc):
         else:
             return v
     
+    # def SlaterParameter(self, l: int = None, norbc: int = None, val: list = None, sc: str = 'c') -> np.ndarray:
+    #     print("Only calculate the odd number of orbitals")
+
+    #     ns = int(self.crystal.ns)
+    #     norb = 2 * l + 1
+    #     mvals = np.arange(-l, l + 1, dtype=int)
+
+    #     # ---- 1) Build base tensor in spherical harmonics: base[i1,i2,i3,i4] ----
+    #     # Cache key: l + val tuple (k is implied by index)
+    #     # (You can make this cache persistent on self if you call this often.)
+    #     if not hasattr(self, "_slater_ai_cache"):
+    #         self._slater_ai_cache = {}  # (l, tuple(val)) -> base tensor (norb^4)
+
+    #     cache_key = (l, tuple(float(x) for x in val))
+    #     base = self._slater_ai_cache.get(cache_key)
+
+    #     if base is None:
+    #         base = np.zeros((norb, norb, norb, norb), dtype=float)
+
+    #         # Cache AngularIntegral per (l,k,m1,m2,m4,m3) to avoid repeated calls
+    #         local_ai_cache = {}
+
+    #         for n, f in enumerate(val):
+    #             k = 2 * n
+    #             if f == 0.0:
+    #                 continue
+
+    #             # Accumulate f * AI into base
+    #             for m1, m2, m3, m4 in product(mvals, repeat=4):
+    #                 key = (l, k, m1, m2, m4, m3)
+    #                 ai = local_ai_cache.get(key)
+    #                 if ai is None:
+    #                     ai = self.AngularIntegral(l, k, m1, m2, m4, m3)
+    #                     local_ai_cache[key] = ai
+    #                 base[m1 + l, m2 + l, m3 + l, m4 + l] += f * ai
+
+    #         # Store for reuse if this function is called repeatedly with same l,val
+    #         self._slater_ai_cache[cache_key] = base
+
+    #     # ---- 2) Convert spherical -> cubic ONCE if requested ----
+    #     if sc == 'c':
+    #         base = self.Spherical2Cubic(base, l)
+
+    #     # ---- 3) Select correlated subspace (fast indexing) ----
+    #     # Determine orbital indices for correlated block
+    #     if (l == 2) and (norbc == 3):
+    #         idx = [0, 1, 3]
+    #     elif (l == 2) and (norbc == 2):
+    #         idx = [2, 4]
+    #     else:
+    #         idx = list(range(norb))  # full
+
+    #     # Extract base block
+    #     base_block = base[np.ix_(idx, idx, idx, idx)]  # (norbc,norbc,norbc,norbc)
+
+    #     # ---- 4) Broadcast to include (ns, ns) without recomputing ----
+    #     # Output shape matches your original v: (norbc,norbc,norbc,norbc,ns,ns)
+    #     out = np.broadcast_to(base_block[..., None, None],
+    #                         base_block.shape + (ns, ns)).copy(order='F')
+
+    #     return out
     
     def SlaterKanamori(self,l : int,norb : int, val : list) -> np.ndarray :
 
