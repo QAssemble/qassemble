@@ -20,9 +20,7 @@ from .utility.DLR import DLR
 from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
-# qapath = os.environ.get('QAssemble','')
-# sys.path.append(qapath+'/src/QAssemble/modules')
-# import QAFort
+
 
 class FLatDyn(Crystal, DLR):
     def __init__(self, control : dict) -> object:
