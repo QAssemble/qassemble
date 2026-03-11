@@ -17,12 +17,22 @@ from .utility.Dyson import Dyson
 
 class BLatStc(Crystal):
 
-    def __init__(self, crystal):
+    def __init__(self, control: dict = None) -> object:
 
-        Crystal.__init__(self, crystal)
-        # Backward-compatible handle for methods still using composition style.
-        self.crystal = crystal if isinstance(crystal, Crystal) else self
+        if not isinstance(control, dict):
+            raise TypeError("BLatStc input must be a control dictionary.")
+        if "crystal" not in control:
+            raise KeyError("control must contain a 'crystal' key.")
+
+        Crystal.__init__(self, control["crystal"])
         self._phase_cache = None
+
+    @staticmethod
+    def _has_parallel_fft_layout(nodedict: dict) -> bool:
+        if not isinstance(nodedict, dict):
+            return False
+        required = ("commk", "fft", "grid", "kloc2glob", "rloc2glob")
+        return all(key in nodedict for key in required)
 
     def _get_phase(self) -> np.ndarray:
         if self._phase_cache is not None:
@@ -73,7 +83,7 @@ class BLatStc(Crystal):
         phase_view = phases[:, :, np.newaxis, np.newaxis, :]
         np.multiply(matk, phase_view, out=tempmat)
 
-        if nodedict is not None:
+        if self._has_parallel_fft_layout(nodedict):
             matr = Fourier.BLatStcK2R_MPI(tempmat, nodedict)
         else:
             matr = Fourier.BLatStcK2R(tempmat, rkgrid)
@@ -91,7 +101,7 @@ class BLatStc(Crystal):
         phase_conj = np.conjugate(phases)[:, :, np.newaxis, np.newaxis, :]
         tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
 
-        if nodedict is not None:
+        if self._has_parallel_fft_layout(nodedict):
             tempk = Fourier.BLatStcR2K_MPI(matr, nodedict)
         else:
             tempk = Fourier.BLatStcR2K(matr, rkgrid)
@@ -123,9 +133,9 @@ class BLatStc(Crystal):
 
     # def Projection(self, matin: np.ndarray):
 
-    #     norbc = self.crystal.bprojector.shape[1]
-    #     nspace = self.crystal.bprojector.shape[3]
-    #     ns = self.crystal.ns
+    #     norbc = self.bprojector.shape[1]
+    #     nspace = self.bprojector.shape[3]
+    #     ns = self.ns
 
     #     matout = np.zeros(
     #         (norbc, norbc, ns, ns, nspace), dtype=np.complex128, order="F"
@@ -133,7 +143,7 @@ class BLatStc(Crystal):
 
     #     for ispace in range(nspace):
     #         matout[..., ispace] = QAFort.projection.blatstc(
-    #             matin, self.crystal.bprojector[..., ispace]
+    #             matin, self.bprojector[..., ispace]
     #         )
 
     #     return matout
@@ -303,10 +313,10 @@ class BLatStc(Crystal):
 
     def R2KArb(self, matr: np.ndarray = None, kpoint: np.ndarray = None):  # R2KAny
 
-        # if self.crystal.kpath == None:
+        # if self.kpath == None:
         #     print("Error, kpath doesn't generate")
         #     sys.exit()
-        # kpoint = self.crystal.kpath
+        # kpoint = self.kpath
         norb = len(self.find)
         ns = self.ns
         nr = self.rkgrid[0] * self.rkgrid[1] * self.rkgrid[2]
@@ -346,7 +356,7 @@ class VBare(BLatStc):
 
     def __init__(
         self,
-        crystal: Crystal,
+        control: dict = None,
         vloc: VLoc = None,
         orboption: dict = None,
         intamp: dict = None,
@@ -357,7 +367,7 @@ class VBare(BLatStc):
         group: str = None,
         nodedict: dict = None,
     ):
-        super().__init__(crystal)
+        super().__init__(control=control)
         self.k = None
         self.r = None
         self.intamp = None
@@ -370,9 +380,9 @@ class VBare(BLatStc):
                         intamplist.append([v, list(orb[0]), list(orb[1]), r])
             self.intamp = intamplist
         self.locoption = orboption
-        norb = len(self.crystal.bind)
-        ns = self.crystal.ns
-        nrk = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
+        norb = len(self.bind)
+        ns = self.ns
+        nrk = self.rkgrid[0] * self.rkgrid[1] * self.rkgrid[2]
         self.nonlock = np.zeros((norb, norb, ns, ns, nrk), dtype=complex, order="F")
         self.nonlocr = np.zeros((norb, norb, ns, ns, nrk), dtype=complex, order="F")
         self.sigmaonsiter = None
@@ -386,7 +396,7 @@ class VBare(BLatStc):
             print("Only calculate the local coulomb interaction")
         if vloc == None:
             if orboption != None:
-                self.vloc = VLoc(crystal, orboption)
+                self.vloc = VLoc(self, orboption)
             else:
                 print("Error, orboption is not exsist. v local can't generate in here")
         else:
@@ -416,11 +426,11 @@ class VBare(BLatStc):
     def Cal(self):
 
         errmessage = "Wrong value entered, please check the input.ini file"
-        rkgrid = self.crystal.rkgrid
-        rkvec = self.crystal.kpoint
+        rkgrid = self.rkgrid
+        rkvec = self.kpoint
 
-        norb = len(self.crystal.bind)
-        ns = self.crystal.ns
+        norb = len(self.bind)
+        ns = self.ns
         nk = len(rkvec)
         vnlk = np.zeros((norb, norb, ns, ns, nk), dtype=np.complex128, order="F")
         tempmat = np.zeros(
@@ -435,8 +445,8 @@ class VBare(BLatStc):
                     vij = ind[0]
                     (a, m) = ind[1]
                     (b, mp) = ind[2]
-                    iorb = self.crystal.BIndex([a, [m, m]])
-                    jorb = self.crystal.BIndex([b, [mp, mp]])
+                    iorb = self.BIndex([a, [m, m]])
+                    jorb = self.BIndex([b, [mp, mp]])
                     R = ind[3]
 
                     # tempmat[iorb,jorb,js,ks,R[0],R[1],R[2]] += vij
@@ -469,9 +479,9 @@ class VBare(BLatStc):
         # print(vloc[:, :, 0, 0])
         #       vnlk = self.nonlock
 
-        norb = len(self.crystal.bind)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        norb = len(self.bind)
+        ns = self.ns
+        nrk = len(self.kpoint)
 
         vbare = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
         # if (self.nonlock == None):
@@ -509,10 +519,10 @@ class VBare(BLatStc):
 
     def OhnoParameter(self):
 
-        ns = self.crystal.ns
-        norb = len(self.crystal.bind)
-        natom = len(self.crystal.basisf)
-        R = copy.deepcopy(self.crystal.rkgrid)
+        ns = self.ns
+        norb = len(self.bind)
+        natom = len(self.basisf)
+        R = copy.deepcopy(self.rkgrid)
 
         Rij = 0
         nr = R[0] * R[1] * R[2]
@@ -532,8 +542,8 @@ class VBare(BLatStc):
                         (a, m) = ind[1]
                         (b, mp) = ind[2]
                         # Rtemp.append(ind[3])
-                        iorb = self.crystal.BIndex([a, [m, m]])
-                        jorb = self.crystal.BIndex([b, [mp, mp]])
+                        iorb = self.BIndex([a, [m, m]])
+                        jorb = self.BIndex([b, [mp, mp]])
                         vloc[iorb, jorb, js, ks] = vij
                         vloc[jorb, iorb, js, ks] = vij
 
@@ -542,15 +552,15 @@ class VBare(BLatStc):
         for ks in range(ns):
             for js in range(ns):
                 for jatom in range(natom):
-                    jj = self.crystal.orboption[jatom]
+                    jj = self.orboption[jatom]
                     j_orb_list = list(range(jj))
                     for m3, m2 in itertools.product(j_orb_list, j_orb_list):
-                        jorb = self.crystal.BIndex([jatom, [m2, m3]])
+                        jorb = self.BIndex([jatom, [m2, m3]])
                         for iatom in range(natom):
-                            ii = self.crystal.orboption[iatom]
+                            ii = self.orboption[iatom]
                             i_orb_list = list(range(ii))
                             for m4, m1 in itertools.product(i_orb_list, i_orb_list):
-                                iorb = self.crystal.BIndex([iatom, [m1, m4]])
+                                iorb = self.BIndex([iatom, [m1, m4]])
                                 Uij = self.vloc.vloc[iorb, jorb, js, ks]
                                 U = Uij / au
                                 # print(f'Uij : {Uij}, iorb : {iorb}, jorb : {jorb}')
@@ -565,16 +575,16 @@ class VBare(BLatStc):
                                                     [ix, iy, iz], dtype=float
                                                 )
                                                 ind = np.where(
-                                                    (self.crystal.rind == rvec).all(
+                                                    (self.rind == rvec).all(
                                                         axis=1
                                                     )
                                                 )[0][0]
-                                                rvec = self.crystal.rvec[ind]
-                                                delta = self.crystal.basisc[
+                                                rvec = self.rvec[ind]
+                                                delta = self.basisc[
                                                     iatom, :
                                                 ] - (
-                                                    self.crystal.basisc[jatom, :]
-                                                    + rvec @ self.crystal.avec
+                                                    self.basisc[jatom, :]
+                                                    + rvec @ self.avec
                                                 )
                                                 # rij = self.RMin(
                                                 #     delta, iatom, jatom, rvec
@@ -596,15 +606,15 @@ class VBare(BLatStc):
         # for ks in range(ns):
         #     for js in range(ns):
         #         for jatom in range(natom):
-        #             jj = self.crystal.orboption[jatom]
+        #             jj = self.orboption[jatom]
         #             j_orb_list = list(range(jj))
         #             for m3, m2 in itertools.product(j_orb_list,j_orb_list):
-        #                 jorb = self.crystal.BIndex([jatom,[m2,m3]])
+        #                 jorb = self.BIndex([jatom,[m2,m3]])
         #                 for iatom in range(natom):
-        #                     ii = self.crystal.orboption[iatom]
+        #                     ii = self.orboption[iatom]
         #                     i_orb_list = list(range(ii))
         #                     for m4, m1 in itertools.product(i_orb_list,i_orb_list):
-        #                         iorb = self.crystal.BIndex([iatom,[m1,m4]])
+        #                         iorb = self.BIndex([iatom,[m1,m4]])
         #                         Uij = self.vloc.vloc[iorb,jorb,js,ks]
         #                         U = Uij/au
         #                         if (iorb <= jorb):
@@ -615,9 +625,9 @@ class VBare(BLatStc):
         #                                             continue
         #                                         else:
         #                                             rvec = np.array([ix,iy,iz],dtype=float)
-        #                                             ind = np.where((self.crystal.rind==rvec).all(axis=1))[0][0]
-        #                                             rvec = self.crystal.rvec[ind]
-        #                                             delta = self.crystal.basisc[iatom,:] - (self.crystal.basisc[jatom,:]+rvec@self.crystal.avec)
+        #                                             ind = np.where((self.rind==rvec).all(axis=1))[0][0]
+        #                                             rvec = self.rvec[ind]
+        #                                             delta = self.basisc[iatom,:] - (self.basisc[jatom,:]+rvec@self.avec)
         #                                             rij = self.RMin(delta,iatom,jatom,rvec)
         #                                             Rij = rij/a0
         #                                             vij = 1/(Rij**2+1/U**2)**(0.5)*au
@@ -636,8 +646,8 @@ class VBare(BLatStc):
                         if [ix, iy, iz] == [0, 0, 0]:
                             continue
                         else:
-                            iorb = self.crystal.BIndex([a, [m, m]])
-                            jorb = self.crystal.BIndex([b, [mp, mp]])
+                            iorb = self.BIndex([a, [m, m]])
+                            jorb = self.BIndex([b, [mp, mp]])
                             tempmat[iorb, jorb, js, ks, ix, iy, iz] = vij
                             tempmat[jorb, iorb, js, ks, -ix, -iy, -iz] = vij
 
@@ -651,10 +661,10 @@ class VBare(BLatStc):
 
     def JTHPotential(self):
 
-        ns = self.crystal.ns
-        norb = len(self.crystal.bind)
-        natom = len(self.crystal.basisf)
-        R = copy.deepcopy(self.crystal.rkgrid)
+        ns = self.ns
+        norb = len(self.bind)
+        natom = len(self.basisf)
+        R = copy.deepcopy(self.rkgrid)
         nr = R[0] * R[1] * R[2]
         vr = np.zeros((norb, norb, ns, ns, nr), dtype=complex, order="F")
         tempmat = np.zeros(
@@ -667,37 +677,37 @@ class VBare(BLatStc):
         for ks in range(ns):
             for js in range(ns):
                 for jatom in range(natom):
-                    jj = self.crystal.orboption[jatom]
+                    jj = self.orboption[jatom]
                     j_orb_list = list(range(jj))
                     for m3, m2 in itertools.product(j_orb_list, j_orb_list):
-                        jorb = self.crystal.BIndex([jatom, [m2, m3]])
+                        jorb = self.BIndex([jatom, [m2, m3]])
                         for iatom in range(natom):
-                            ii = self.crystal.orboption[iatom]
+                            ii = self.orboption[iatom]
                             i_orb_list = list(range(ii))
                             for m4, m1 in itertools.product(i_orb_list, i_orb_list):
-                                iorb = self.crystal.BIndex([iatom, [m1, m4]])
+                                iorb = self.BIndex([iatom, [m1, m4]])
                                 # if iorb <= jorb:
                                 Ui = self.vloc.vloc[iorb, iorb, js, ks]
                                 Uj = self.vloc.vloc[jorb, jorb, js, ks]
                                 U = (Ui + Uj) / 2.0 / au
                                 for iz, iy, ix in itertools.product(
-                                    list(range(self.crystal.rkgrid[2])),
-                                    list(range(self.crystal.rkgrid[1])),
-                                    list(range(self.crystal.rkgrid[0])),
+                                    list(range(self.rkgrid[2])),
+                                    list(range(self.rkgrid[1])),
+                                    list(range(self.rkgrid[0])),
                                 ):
                                     if ([ix, iy, iz] == [0, 0, 0]) and (iorb == jorb):
                                         continue
-                                    # ind = np.where(self.crystal.rind == np.array([ix,iy,iz],dtype=float).all( axis = 1))[0][0]
+                                    # ind = np.where(self.rind == np.array([ix,iy,iz],dtype=float).all( axis = 1))[0][0]
                                     rvec = np.array([ix, iy, iz], dtype=float)
                                     ind = np.where(
-                                        (self.crystal.rind == rvec).all(axis=1)
+                                        (self.rind == rvec).all(axis=1)
                                     )[0][0]
-                                    rvec = self.crystal.rvec[ind]
-                                    delta = self.crystal.basisc[iatom, :] - (
-                                        self.crystal.basisc[jatom, :]
-                                        + rvec[0] * self.crystal.avec[0]
-                                        + rvec[1] * self.crystal.avec[1]
-                                        + rvec[2] * self.crystal.avec[2]
+                                    rvec = self.rvec[ind]
+                                    delta = self.basisc[iatom, :] - (
+                                        self.basisc[jatom, :]
+                                        + rvec[0] * self.avec[0]
+                                        + rvec[1] * self.avec[1]
+                                        + rvec[2] * self.avec[2]
                                     )
                                     rij = self.RMin2(delta)
                                     Rij = rij / a0
@@ -738,10 +748,10 @@ class VBare(BLatStc):
 
     def OhnoYukawa(self):
 
-        ns = self.crystal.ns
-        norb = len(self.crystal.bind)
-        natom = len(self.crystal.basisf)
-        R = copy.deepcopy(self.crystal.rkgrid)
+        ns = self.ns
+        norb = len(self.bind)
+        natom = len(self.basisf)
+        R = copy.deepcopy(self.rkgrid)
         nr = R[0] * R[1] * R[2]
 
         vr = np.zeros((norb, norb, ns, ns, nr), dtype=np.complex128, order="F")
@@ -756,15 +766,15 @@ class VBare(BLatStc):
         for ks in range(ns):
             for js in range(ns):
                 for jatom in range(natom):
-                    jj = self.crystal.orboption[jatom]
+                    jj = self.orboption[jatom]
                     j_orb_list = list(range(jj))
                     for m3, m2 in itertools.product(j_orb_list, j_orb_list):
-                        jorb = self.crystal.BIndex([jatom, [m2, m3]])
+                        jorb = self.BIndex([jatom, [m2, m3]])
                         for iatom in range(natom):
-                            ii = self.crystal.orboption[iatom]
+                            ii = self.orboption[iatom]
                             i_orb_list = list(range(ii))
                             for m4, m1 in itertools.product(i_orb_list, i_orb_list):
-                                iorb = self.crystal.BIndex([iatom, [m1, m4]])
+                                iorb = self.BIndex([iatom, [m1, m4]])
 
                                 Ui = self.vloc.vloc[iorb, iorb, js, ks]
                                 Uj = self.vloc.vloc[jorb, jorb, js, ks]
@@ -781,16 +791,16 @@ class VBare(BLatStc):
 
                                     rvec = np.array([ix, iy, iz], dtype=float)
                                     ind = np.where(
-                                        (self.crystal.rind == rvec).all(axis=1)
+                                        (self.rind == rvec).all(axis=1)
                                     )[0][0]
 
-                                    rvec = self.crystal.rvec[ind]
+                                    rvec = self.rvec[ind]
 
-                                    delta = self.crystal.basisc[iatom, :] - (
-                                        self.crystal.basisc[jatom, :]
-                                        + rvec[0] * self.crystal.avec[0]
-                                        + rvec[1] * self.crystal.avec[1]
-                                        + rvec[2] * self.crystal.avec[2]
+                                    delta = self.basisc[iatom, :] - (
+                                        self.basisc[jatom, :]
+                                        + rvec[0] * self.avec[0]
+                                        + rvec[1] * self.avec[1]
+                                        + rvec[2] * self.avec[2]
                                     )
 
                                     rij = self.RMin2(delta)
@@ -839,7 +849,7 @@ class VBare(BLatStc):
     #       # R1 = 0
     #       # R2 = 0
     #       # dtemp = 0
-    #       # svec = self.crystal.svec
+    #       # svec = self.svec
     #       # # print(f"initial : {d}, guess : {dtemp}")
     #       # R1 = np.linalg.norm(d)
     #       # for iz in range(-1, 2):
@@ -848,8 +858,8 @@ class VBare(BLatStc):
     #       #             r = np.array(
     #       #                 [ix * svec[0], iy * svec[1], iz * svec[2]], dtype=np.float64
     #       #             )
-    #       #             dtemp = self.crystal.basisc[a, :] - (
-    #       #                 self.crystal.basisc[b, :] + rvec @ self.crystal.avec + r
+    #       #             dtemp = self.basisc[a, :] - (
+    #       #                 self.basisc[b, :] + rvec @ self.avec + r
     #       #             )
     #       #             R2 = np.linalg.norm(dtemp)
     #       #             if R1 > R2:
@@ -878,7 +888,7 @@ class VBare(BLatStc):
     #       R1 = 0
     #       R2 = 0
     #       dtemp = 0
-    #       svec = self.crystal.svec
+    #       svec = self.svec
     #       R1 = np.linalg.norm(d)
 
     #       # Distribute the work among processes
@@ -890,8 +900,8 @@ class VBare(BLatStc):
     #                   r = np.array(
     #                       [ix * svec[0], iy * svec[1], iz * svec[2]], dtype=np.float64
     #                   )
-    #                   dtemp = self.crystal.basisc[a, :] - (
-    #                       self.crystal.basisc[b, :] + rvec @ self.crystal.avec + r
+    #                   dtemp = self.basisc[a, :] - (
+    #                       self.basisc[b, :] + rvec @ self.avec + r
     #                   )
     #                   R2 = np.linalg.norm(dtemp)
     #                   if R1 > R2:
@@ -913,7 +923,7 @@ class VBare(BLatStc):
 
     def RMin2(self, d: np.ndarray):
         from .utility.Common import Common
-        svec = self.crystal.svec
+        svec = self.svec
 
 
         R = Common.MinDistance(svec, d)
@@ -922,10 +932,10 @@ class VBare(BLatStc):
 
     # def BoundaryCheck(self,a : int, b : int, rvec : np.ndarray):
 
-    #     taua = copy.deepcopy(self.crystal.basisf[a,:])
-    #     taub = copy.deepcopy(self.crystal.basisf[b,:])
-    #     r = rvec@self.crystal.avec
-    #     delta = self.crystal.basisc[a,:] - (self.crystal.basisc[b,:] + r)
+    #     taua = copy.deepcopy(self.basisf[a,:])
+    #     taub = copy.deepcopy(self.basisf[b,:])
+    #     r = rvec@self.avec
+    #     delta = self.basisc[a,:] - (self.basisc[b,:] + r)
     #     rmin1 = self.RMin2(delta)
     #     # rmin = 0.0
     #     taua_p = taua.copy()
@@ -943,7 +953,7 @@ class VBare(BLatStc):
     #             taub_p[0] += 1
     #         if (taub[1] < 1.0e-6):
     #             taub_p[1] += 1
-    #         delta2 = taua_p@self.crystal.avec - (taub_p@self.crystal.avec +r)
+    #         delta2 = taua_p@self.avec - (taub_p@self.avec +r)
     #         rmin2 = self.RMin2(delta2)
 
     #         if (rmin1 <= rmin2):
@@ -963,7 +973,7 @@ class VBare(BLatStc):
     #     #         taub_p[1] = taub_p[1]+1
     #     #     # if (taua[2] < 1.0e-6):
     #     #     #     taub[2] = taub[2]+1
-    #     #     delta2 = taua@self.crystal.avec - (taub@self.crystal.avec + r)
+    #     #     delta2 = taua@self.avec - (taub@self.avec + r)
     #     #     rmin2 = self.RMin2(delta2)
 
     #     #     if (rmin1 < rmin2):
@@ -985,7 +995,7 @@ class VBare(BLatStc):
     #     #     if (taub[1] < 1.0e-6):
     #     #         taub_p[1] += 1
 
-    #     #     delta2 = taua@self.crystal.avec - (taub_p@self.crystal.avec + r)
+    #     #     delta2 = taua@self.avec - (taub_p@self.avec + r)
     #     #     rmin2 = self.RMin2(delta2)
 
     #     #     if (rmin1 <= rmin2):

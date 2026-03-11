@@ -66,7 +66,14 @@ class BPathDyn(object):
         
         self.crystal = crystal
         self.ft = ft
-        self.blatdyn = BLatDyn(crystal=self.crystal, dlr=self.ft)
+        dlr_control = self.ft
+        if not isinstance(dlr_control, dict):
+            dlr_control = {
+                "T": self.ft.T,
+                "beta": self.ft.beta,
+                "cutoff": self.ft.cutoff,
+            }
+        self.blatdyn = BLatDyn(control={"crystal": self.crystal, "dlr": dlr_control})
     
     def R2K(self, matr : np.ndarray = None, kpoint = None) -> np.ndarray:
 

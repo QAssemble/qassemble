@@ -54,7 +54,7 @@ class BPathStc(object):
                 sys.exit()
         
         self.crystal = crystal
-        self.blatstc = BLatStc(crystal=self.crystal)
+        self.blatstc = BLatStc(control={"crystal": self.crystal})
 
     def R2K(self, matr : np.ndarray = None, kpoint = None) -> np.ndarray:
 

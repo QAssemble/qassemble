@@ -39,9 +39,9 @@ class Run:
                 rkgrid=control["crystal"]["rkgrid"],
                 orboption=control["crystal"]["orbital"],
                 N=control["crystal"]["nume"],
-                T=control["ft"]["T"],
-                beta=control["ft"]["beta"],
-                size=control["ft"]["size"],
+                T=control["dlr"]["T"],
+                beta=control["dlr"]["beta"],
+                size=control["dlr"]["size"],
                 c=control["run"]["cw"],
             )
             self.func = func
@@ -69,7 +69,7 @@ class Run:
         control = {}
         control["name"] = "control"
         control["crystal"] = {}
-        control["ft"] = {}
+        control["dlr"] = {}
         control["ham"] = {}
         control["run"] = {}
         inicrystal = loc["Crystal"]
@@ -289,9 +289,9 @@ class Run:
             T = ini.get("T", 300)
             beta = 1 / (T * kb)
 
-        control["ft"]["T"] = T
-        control["ft"]["beta"] = beta
-        control["ft"]["cutoff"] = cutoff
+        control["dlr"]["T"] = T
+        control["dlr"]["beta"] = beta
+        control["dlr"]["cutoff"] = cutoff
 
         self.control = control
 
