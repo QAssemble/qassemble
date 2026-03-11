@@ -17,9 +17,11 @@ from .utility.Dyson import Dyson
 
 class BLatStc(Crystal):
 
-    def __init__(self, control : dict):
-        
-        Crystal.__init__(self, control['crystal'])
+    def __init__(self, crystal):
+
+        Crystal.__init__(self, crystal)
+        # Backward-compatible handle for methods still using composition style.
+        self.crystal = crystal if isinstance(crystal, Crystal) else self
         self._phase_cache = None
 
     def _get_phase(self) -> np.ndarray:
@@ -147,7 +149,8 @@ class BLatStc(Crystal):
         for irk in range(nrk):
             for ks in range(ns):
                 for js in range(ns):
-                    matout[:, :, js, ks, irk] = self.Quad2Double(
+                    matout[:, :, js, ks, irk] = Crystal.Quad2Double(
+                        self,
                         matin[:, :, :, :, js, ks, irk]
                     )
 
@@ -166,7 +169,8 @@ class BLatStc(Crystal):
         for irk in range(nrk):
             for ks in range(ns):
                 for js in range(ns):
-                    matout[:, :, :, :, js, ks, irk] = self.Double2Quad(
+                    matout[:, :, :, :, js, ks, irk] = Crystal.Double2Quad(
+                        self,
                         matin[:, :, js, ks, irk]
                     )
 
@@ -185,7 +189,8 @@ class BLatStc(Crystal):
         for irk in range(nrk):
             for js in range(ns):
                 for ks in range(ns):
-                    matout[:, :, js, ks, irk] = self.Double2Full(
+                    matout[:, :, js, ks, irk] = Crystal.Double2Full(
+                        self,
                         matin[:, :, js, ks, irk]
                     )
 
@@ -202,7 +207,8 @@ class BLatStc(Crystal):
         for irk in range(nrk):
             for js in range(ns):
                 for ks in range(ns):
-                    matout[:, :, js, ks, irk] = self.Full2Double(
+                    matout[:, :, js, ks, irk] = Crystal.Full2Double(
+                        self,
                         matin[:, :, js, ks, irk]
                     )
 
@@ -221,7 +227,8 @@ class BLatStc(Crystal):
         for irk in range(nrk):
             for js in range(ns):
                 for ks in range(ns):
-                    matout[:, :, js, ks, irk] = self.Quad2Full(
+                    matout[:, :, js, ks, irk] = Crystal.Quad2Full(
+                        self,
                         matin[:, :, :, :, js, ks, irk]
                     )
 
@@ -240,7 +247,8 @@ class BLatStc(Crystal):
         for irk in range(nrk):
             for js in range(ns):
                 for ks in range(ns):
-                    matout[:, :, :, :, js, ks, irk] = self.Full2Quad(
+                    matout[:, :, :, :, js, ks, irk] = Crystal.Full2Quad(
+                        self,
                         matin[:, :, js, ks, irk]
                     )
 
@@ -347,6 +355,7 @@ class VBare(BLatStc):
         ohnoyuka: bool = False,
         hdf5file: str = None,
         group: str = None,
+        nodedict: dict = None,
     ):
         super().__init__(crystal)
         self.k = None
@@ -370,6 +379,7 @@ class VBare(BLatStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.nodedict = nodedict
 
         print("Bare Coulomb Interaction Calculation Start")
         if (ohno == False) and (intamp == None) and (jth == False):
@@ -441,7 +451,7 @@ class VBare(BLatStc):
                     tempmat[jorb, iorb, js, ks, -R[0], -R[1], -R[2]] = vij
 
         vnlr = tempmat.reshape((norb, norb, ns, ns, nk), order="F")
-        vnlk = self.R2K(vnlr)
+        vnlk = self.R2K(vnlr, nodedict=self.nodedict)
         self.HermitianCheck(vnlk)
 
         self.nonlocr = vnlr
@@ -477,7 +487,7 @@ class VBare(BLatStc):
         #       self.k = vbare
         #       self.r = self.K2R(vbare)
         self.r = vbare
-        self.k = self.R2K(vbare)
+        self.k = self.R2K(vbare, nodedict=self.nodedict)
 
         return None
 
@@ -635,7 +645,7 @@ class VBare(BLatStc):
         # self.intamp = V
 
         self.nonlocr = copy.deepcopy(vr)
-        self.nonlock = self.R2K(vr)
+        self.nonlock = self.R2K(vr, nodedict=self.nodedict)
 
         return None
 
@@ -700,7 +710,7 @@ class VBare(BLatStc):
         # self.intamp = V
 
         self.nonlocr = copy.deepcopy(vr)
-        self.nonlock = self.R2K(vr)
+        self.nonlock = self.R2K(vr, nodedict=self.nodedict)
 
         del (
             vr,
@@ -795,7 +805,7 @@ class VBare(BLatStc):
         vr = tempmat.reshape((norb, norb, ns, ns, nr), order="F")
 
         self.nonlocr = np.copy(vr)
-        self.nonlock = self.R2K(vr)
+        self.nonlock = self.R2K(vr, nodedict=self.nodedict)
 
         del (
             vr,

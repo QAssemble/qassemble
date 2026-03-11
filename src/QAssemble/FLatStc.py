@@ -21,9 +21,11 @@ from .utility.Fourier import Fourier
 
 class FLatStc(Crystal):
 
-    def __init__(self, control : dict):
+    def __init__(self, crystal):
 
-        Crystal.__init__(self, control['crystal'])
+        Crystal.__init__(self, crystal)
+        # Backward-compatible handle for methods still using composition style.
+        self.crystal = crystal if isinstance(crystal, Crystal) else self
 
     def Inverse(self, mat: np.ndarray):
 
@@ -527,7 +529,7 @@ class NIHamiltonian(FLatStc):
     def __init__(
         self, crystal: Crystal = None, hopping: dict = None, onsite: dict = None, spin : bool = False, 
         ferro : bool = False, aferro : bool = False, valley: bool = False, avalley : bool = False, site : bool = False, 
-        asite : bool = False, hdf5file: h5py.File = None, group: str = None,
+        asite : bool = False, hdf5file: h5py.File = None, group: str = None, nodedict: dict = None,
     ):
 
         super().__init__(crystal)
@@ -550,6 +552,7 @@ class NIHamiltonian(FLatStc):
         self.aferro = aferro
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.nodedict = nodedict
         # print(self.onsite)
         self.k = None
         self.r = None
@@ -651,7 +654,7 @@ class NIHamiltonian(FLatStc):
         # Hermitian check
         tempmat = tempmat.reshape((norb, norb, ns, nk), order="F")
         self.r = tempmat
-        hamtb = self.R2K(tempmat)
+        hamtb = self.R2K(tempmat, nodedict=self.nodedict)
         self.HermitianCheck(hamtb)
 
         self.k = hamtb
@@ -726,7 +729,7 @@ class NIHamiltonian(FLatStc):
                         
 
         self.k = h0k
-        self.r = self.K2R(h0k)
+        self.r = self.K2R(h0k, nodedict=self.nodedict)
 
         return None
     
@@ -764,7 +767,7 @@ class NIHamiltonian(FLatStc):
                         
 
         self.k = h0k
-        self.r = self.K2R(h0k)
+        self.r = self.K2R(h0k, nodedict=self.nodedict)
 
         return None
 
@@ -787,6 +790,7 @@ class SigmaHartree(FLatStc):
         vbare: np.ndarray = None,
         hdf5file: str = "glob.h5",
         group: str = None,
+        nodedict: dict = None,
     ):  # green -> occ
         super().__init__(crystal)
         self.r = None
@@ -796,6 +800,7 @@ class SigmaHartree(FLatStc):
         self.group = group
         self.subgroup = self.__class__.__name__
         self.occ = occ
+        self.nodedict = nodedict
 
         print("Hartree Self-energy Calculation Start")
         self.Cal()
@@ -923,7 +928,7 @@ class SigmaHartree(FLatStc):
                             )
 
         self.k = h  # +onsite
-        self.r = self.K2R(h)
+        self.r = self.K2R(h, nodedict=self.nodedict)
 
         return None
 
@@ -965,6 +970,7 @@ class SigmaFock(FLatStc):
         vbare: np.ndarray = None,
         hdf5file: str = "glob.h5",
         group: str = None,
+        nodedict: dict = None,
     ):  # green -> occ
         super().__init__(crystal)
         self.r = None
@@ -975,6 +981,7 @@ class SigmaFock(FLatStc):
         # self.green = green
         self.occr = occr
         self.vbare = vbare
+        self.nodedict = nodedict
 
         print("Fock Self-energy Calculation Start")
         self.Cal()
@@ -1027,7 +1034,7 @@ class SigmaFock(FLatStc):
 
                         # fr[iorbc1,iorbc2,js,ir] += -occr[iorbc3,iorbc4,js,ir]*vr[iorbc1,iorbc3,iorbc2,iorbc4,js,ks,ir]
 
-        fk = self.R2K(fr)
+        fk = self.R2K(fr, nodedict=self.nodedict)
 
         self.r = fr
         self.k = fk
@@ -1076,6 +1083,7 @@ class Hamiltonian(FLatStc):
         z : np.ndarray = None,
         hdf5file: str = "glob.h5",
         group: str = None,
+        nodedict: dict = None,
     ):
         super().__init__(crystal)
 
@@ -1095,6 +1103,7 @@ class Hamiltonian(FLatStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.nodedict = nodedict
         # self.muold = mu
         print("Hamiltonian with Self-energy Calculation Start")
         self.CalMu0()
@@ -1216,7 +1225,7 @@ class Hamiltonian(FLatStc):
 
         self.occ = occ
         self.occk = occk
-        self.occr = self.K2R(occk)
+        self.occr = self.K2R(occk, nodedict=self.nodedict)
 
         return None
 
@@ -1225,7 +1234,7 @@ class Hamiltonian(FLatStc):
         chem = self.ChemEmbedding(self.mu)
 
         ham = self.hkmu0 - chem
-        hamr = self.K2R(ham)
+        hamr = self.K2R(ham, nodedict=self.nodedict)
         self.k = ham
         self.r = hamr
         self.Occ()
@@ -1274,7 +1283,7 @@ class Hamiltonian(FLatStc):
             occnew += occknew[..., ik]
 
         occnew = occknew/nk
-        occrnew = self.K2R(occknew)
+        occrnew = self.K2R(occknew, nodedict=self.nodedict)
 
         self.occ = occnew
         self.occk = occknew
@@ -1284,8 +1293,9 @@ class Hamiltonian(FLatStc):
 
 class HamiltonianAB(FLatStc):
 
-    def __init__(self, crystal: Crystal):
+    def __init__(self, crystal: Crystal, nodedict: dict = None):
         super().__init__(crystal)
+        self.nodedict = nodedict
 
         glob = h5py.File('../../glob_dat/global.dat', 'r')
         self.i_kerf = glob['full_space']['gw']['i_kref'][:]
@@ -1310,13 +1320,13 @@ class HamiltonianAB(FLatStc):
         glob.close()
 
         self.k = tempmat
-        self.r = self.K2R(self.k)
+        self.r = self.K2R(self.k, nodedict=self.nodedict)
 
         return None
     
 class ZFactor(FLatStc):
 
-    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
+    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None, nodedict: dict = None):
 
         super().__init__(crystal)
 
@@ -1327,6 +1337,7 @@ class ZFactor(FLatStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.nodedict = nodedict
 
         print("Z-factor Calculation Start")
         self.Cal()
@@ -1355,7 +1366,7 @@ class ZFactor(FLatStc):
 
         z = self.Inverse(tempmat)
         self.k = z
-        self.r = self.K2R(z)
+        self.r = self.K2R(z, nodedict=self.nodedict)
         del z, tempmat
 
         return None
@@ -1384,7 +1395,7 @@ class ZFactor(FLatStc):
 
 class SigmaStc(FLatStc):
 
-    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
+    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None, nodedict: dict = None):
 
         super().__init__(crystal)
 
@@ -1395,6 +1406,7 @@ class SigmaStc(FLatStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.nodedict = nodedict
 
         print("Static Self-energy Calculation Start")
         self.Cal()
@@ -1414,7 +1426,7 @@ class SigmaStc(FLatStc):
                 )
         
         self.k = tempmat
-        self.r = self.K2R(tempmat)
+        self.r = self.K2R(tempmat, nodedict=self.nodedict)
 
         del tempmat
         

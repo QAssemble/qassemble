@@ -5,8 +5,12 @@ from .Common import Common
 
 
 class DLR(object):
-    def __init__(self, dlropt : dict) -> object:
-        
+    def __init__(self, dlropt = None) -> object:
+
+        if isinstance(dlropt, DLR):
+            self.__dict__.update(dlropt.__dict__)
+            return
+
         if "T" not in dlropt:
             self.beta = dlropt["beta"]
             self.T = 1 / (self.beta * 8.6173303 * 10**-5)

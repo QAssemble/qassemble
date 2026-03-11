@@ -66,7 +66,7 @@ class BPathDyn(object):
         
         self.crystal = crystal
         self.ft = ft
-        self.blatdyn = BLatDyn(crystal=self.crystal,ft=self.ft)
+        self.blatdyn = BLatDyn(crystal=self.crystal, dlr=self.ft)
     
     def R2K(self, matr : np.ndarray = None, kpoint = None) -> np.ndarray:
 

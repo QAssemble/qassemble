@@ -23,11 +23,14 @@ from .utility.Dyson import Dyson
 
 
 class FLatDyn(Crystal, DLR):
-    def __init__(self, control : dict) -> object:
-        
-        Crystal.__init__(self, control['cry'])
-        DLR.__init__(self, control['ft'])
-        
+    def __init__(self, crystal, dlr=None) -> object:
+
+        Crystal.__init__(self, crystal)
+        DLR.__init__(self, dlr)
+        # Backward-compatible handles for methods using self.crystal / self.dlr.
+        self.crystal = crystal if isinstance(crystal, Crystal) else self
+        self.dlr = dlr if isinstance(dlr, DLR) else self
+
         self.mappingidx = None
         self._fermion_phase_cache = None
 
@@ -90,7 +93,7 @@ class FLatDyn(Crystal, DLR):
             ftau_local  = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
             ftau_global = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
             for loc_idx, glob_idx in tloc[rank].items():
-                ftau_local[..., glob_idx] = ftau[..., loc_idx]
+                ftau_local[..., glob_idx] = ftau[..., glob_idx]
             commtau.Allreduce(ftau_local, ftau_global, op=MPI.SUM)
 
             # 2) Compute the Fourier transform using DLR
@@ -102,7 +105,7 @@ class FLatDyn(Crystal, DLR):
 
             # 3) Separate the complete \omega array back into local slices for each rank
             for loc_idx, glob_idx in floc[rank].items():
-                ff[..., loc_idx] = ff_global[..., glob_idx]
+                ff[..., glob_idx] = ff_global[..., glob_idx]
 
         else:
             for ik in range(nk):
@@ -132,7 +135,7 @@ class FLatDyn(Crystal, DLR):
             ff_local  = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
             ff_global = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
             for loc_idx, glob_idx in floc[rank].items():
-                ff_local[..., glob_idx] = ff[..., loc_idx]
+                ff_local[..., glob_idx] = ff[..., glob_idx]
             commf.Allreduce(ff_local, ff_global, op=MPI.SUM)
 
             # 2) Compute the Fourier transform using DLR
@@ -144,7 +147,7 @@ class FLatDyn(Crystal, DLR):
 
             # 3) Separate the complete \tau array back into local slices for each rank
             for loc_idx, glob_idx in tloc[rank].items():
-                ftau[..., loc_idx] = ftau_global[..., glob_idx]
+                ftau[..., glob_idx] = ftau_global[..., glob_idx]
 
         else:
             for ik in range(nk):
@@ -223,30 +226,9 @@ class FLatDyn(Crystal, DLR):
             matk[..., ift] = tempmat
         return matk
     
-    def R2mR(self) -> list: # move to crystal
-
-        rkvec = self.kpoint
-
-        mrkvec = np.array(1.0-rkvec,dtype=float)
-
-        for ii in range(mrkvec.shape[0]):
-            for jj in range(mrkvec.shape[1]):
-                if mrkvec[ii,jj] == 1.0:
-                    mrkvec[ii,jj] = 0.0
-        
-        mappingidx = []
-
-        for ii in range(rkvec.shape[0]):
-            for jj in range(mrkvec.shape[1]):
-                if (abs(rkvec[ii,0]-mrkvec[jj,0])<=1.0e-6)and(abs(rkvec[ii,1]-mrkvec[jj,1])<=1.0e-6)and(abs(rkvec[ii,2]-mrkvec[jj,2])<=1.0e-6):
-                    mappingidx.append([ii,jj])
-
-        self.mappingidx = mappingidx
-        return None
-    
     def RT2mRmT(self,G : np.ndarray) -> np.ndarray: # move to crystal
 
-        self.R2mR()
+        self.R2mRMapping()
 
         norb = G.shape[0]
         ns = G.shape[2]
@@ -436,7 +418,7 @@ class FLatDyn(Crystal, DLR):
     
     def R2mR(self, matin : np.ndarray) -> np.ndarray:
 
-        self.R2mR()
+        self.R2mRMapping()
 
         matout = np.zeros_like(matin, dtype=np.complex128, order='F')
 
@@ -470,7 +452,7 @@ class FLatDyn(Crystal, DLR):
             for ks, js in itertools.product(range(ns), repeat=2):
                 for jorb, iorb in itertools.product(range(norb), repeat=2):
                     tempmat = ftau[iorb, jorb, js, ks, ik]
-                    fout[iorb, jorb, js, ks, ik] = self.TauB2TauF(tempmat)
+                    fout[iorb, jorb, js, ks, ik] = self.dlr.TauB2TauF(tempmat)
 
         return fout
     
@@ -493,8 +475,8 @@ class FLatDyn(Crystal, DLR):
     
 class GreenBare(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
-        
+    def __init__(self, crystal: Crystal, dlr : DLR, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None, nodedict : dict = None) -> object:
+
         super().__init__(crystal, dlr)
         # print(self.niham.hamtb[...,0,0])
         self.hamtb = hamtb
@@ -505,6 +487,7 @@ class GreenBare(FLatDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.nodedict = nodedict
 
         print("Bare Green's function Calculation Start")
         start = time.time()
@@ -522,14 +505,14 @@ class GreenBare(FLatDyn):
         # print(self.hamtb[:,:,0,0])
         # gnotkf = QAFort.bare.flatfreq(self.hamtb,self.dlr.omega)
         gnotkf = Bare.FLatFreq(self.dlr.omega, self.hamtb)
-        gnotrf = self.K2R(gnotkf)#######
-        
+        gnotrf = self.K2R(gnotkf, nodedict=self.nodedict)
+
         self.kf = gnotkf
         self.rf = gnotrf
 
         # gnotkt = QAFort.bare.flattau(self.hamtb,self.dlr.tau)
         gnotkt = Bare.FLatTau(tau=self.dlr.tauF, beta=self.dlr.beta, hlatt=self.hamtb)
-        gnotrt = self.K2R(gnotkt)
+        gnotrt = self.K2R(gnotkt, nodedict=self.nodedict)
 
         self.kt = gnotkt
         self.rt = gnotrt
@@ -560,13 +543,14 @@ class GreenBare(FLatDyn):
     
 class GreenInt(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
-        
+    def __init__(self, crystal: Crystal, dlr : DLR, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None, nodedict : dict = None) -> object:
+
         if greenbare is None:
             print("Bare Green's function doesn't exist")
             sys.exit()
         super().__init__(crystal, dlr)
         self.flatstc = FLatStc(crystal=crystal)
+        self.nodedict = nodedict
         norb, _, ns, nk, nfreq = greenbare.shape
         ntau = len(self.dlr.tauF)
         self.kf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
@@ -635,9 +619,9 @@ class GreenInt(FLatDyn):
             self.gkfmu0 = self.Dyson(self.gbare,sigma) 
         
 
-        self.gktmu0 = self.F2T(self.gkfmu0)
-        self.grfmu0 = self.K2R(self.gkfmu0)
-        self.grtmu0 = self.K2R(self.gktmu0)
+        self.gktmu0 = self.F2T(self.gkfmu0, nodedict=self.nodedict)
+        self.grfmu0 = self.K2R(self.gkfmu0, nodedict=self.nodedict)
+        self.grtmu0 = self.K2R(self.gktmu0, nodedict=self.nodedict)
         print("Initialization finish")
         return None
     
@@ -674,7 +658,7 @@ class GreenInt(FLatDyn):
         self.occ = occ
         self.occk = occk
         
-        self.occr = self.flatstc.K2R(occk)
+        self.occr = self.flatstc.K2R(occk, nodedict=self.nodedict)
         print("Density matrixy calculation finish")
         return None
     
@@ -694,11 +678,13 @@ class GreenInt(FLatDyn):
     
         
         self.kf = gkfnew
-        self.kt = self.F2T(gkfnew)
+        # Chemical-potential search should use the full frequency tensor on every rank.
+        # Keep this transform in serial mode to avoid distributed-slice inconsistencies.
+        self.kt = self.F2T(gkfnew, nodedict=None)
         # self.grf = self.K2R(self.Dyson(self.gkfmu0,-chem))
         # self.grt = self.K2R(self.F2T(self.Dyson(self.gkfmu0,-chem),1,1))
-        self.rf = self.K2R(self.kf)
-        self.rt = self.K2R(self.kt)
+        self.rf = self.K2R(self.kf, nodedict=self.nodedict)
+        self.rt = self.K2R(self.kt, nodedict=self.nodedict)
         print("Chemical potential shift finish")
         self.Occ()
 
@@ -713,7 +699,8 @@ class GreenInt(FLatDyn):
         # chem = self.ChemEmbedding(mu+self.c)
         gcalf = self.Dyson(self.gkfmu0, -chem)
 
-        tempmat2 = self.F2T(gcalf)
+        # Chemical-potential root finding requires globally consistent occupation values.
+        tempmat2 = self.F2T(gcalf, nodedict=None)
         
         Ne = 0
         tau_uniform = self.dlr.TauUniform()
@@ -781,9 +768,10 @@ class GreenInt(FLatDyn):
     
 class SigmaGWC(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, green : np.ndarray = None, wlat : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None) -> object:
+    def __init__(self, crystal: Crystal, dlr : DLR, green : np.ndarray = None, wlat : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None, nodedict : dict = None) -> object:
         super().__init__(crystal, dlr)
         self.flatstc = FLatStc(crystal=crystal)
+        self.nodedict = nodedict
         norb, _, ns, nk, nfreq = green.shape
         ntau = len(self.dlr.tauF)
         self.rt = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
@@ -868,9 +856,9 @@ class SigmaGWC(FLatDyn):
         #     for js in range(ns):
         #         crtau[:, :, js, ir] = self.dlr.TauUniform2DLR(tempmat[:, :, js, ir])
         crtau = tempmat
-        cktau = self.R2K(crtau)
-        ckfreq = self.T2F(cktau)
-        crfreq = self.T2F(crtau)
+        cktau = self.R2K(crtau, nodedict=self.nodedict)
+        ckfreq = self.T2F(cktau, nodedict=self.nodedict)
+        crfreq = self.T2F(crtau, nodedict=self.nodedict)
 
         self.rt = crtau
         self.kt = cktau
@@ -940,8 +928,9 @@ class SigmaGWC(FLatDyn):
 
 class GreenAB(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR) -> object:
+    def __init__(self, crystal: Crystal, dlr : DLR, nodedict: dict = None) -> object:
         super().__init__(crystal, dlr)
+        self.nodedict = nodedict
 
         glob = h5py.File('../../glob_dat/global.dat', 'r')
         self.i_kerf = glob['full_space']['gw']['i_kref'][:]
@@ -968,9 +957,9 @@ class GreenAB(FLatDyn):
 
         self.kf = np.copy(tempmat)
 
-        self.kt = self.F2T(tempmat, 1, 1)
-        self.rf = self.K2R(tempmat)
-        self.rt = self.K2R(self.kt)
+        self.kt = self.F2T(tempmat, nodedict=self.nodedict)
+        self.rf = self.K2R(tempmat, nodedict=self.nodedict)
+        self.rt = self.K2R(self.kt, nodedict=self.nodedict)
 
         return None
     

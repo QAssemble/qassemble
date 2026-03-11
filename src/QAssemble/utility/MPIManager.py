@@ -7,9 +7,9 @@ import numpy as np
 import scipy
 import h5py
 # from MPI import IsMPI as MPIFunction
-from Common import Common
-from FFT import FFT
-from Fourier import Fourier
+from .Common import Common
+from .FFT import FFT
+from .Fourier import Fourier
 
 class MPIManager(object):
 

@@ -15,11 +15,12 @@ class Crystal(object):
     This class constructs indices and vectors for fermionic and bosonic orbitals,
     k-point grids, real-space vectors, and provides methods to map between different basis representations.
     """
-    def __init__(self, cry: dict = None):
+    def __init__(self, cry = None):
         """Initialize the Crystal object.
 
         Args:
-            cry (dict): Dictionary containing crystal parameters. Expected keys:
+            cry: Dictionary containing crystal parameters, or an existing Crystal instance
+                 (copy-constructor). Expected dict keys:
                 RVec (list of list[float]): Real-space lattice vectors.
                 Basis (list): List of [position, orbital_count] entries.
                 CorF (str): 'C' for Cartesian coords input, 'F' for fractional coords.
@@ -28,6 +29,10 @@ class Crystal(object):
                 NElec (float): Number of electrons.
                 KGrid (list of int]): Grid dimensions for k-point sampling.
         """
+
+        if isinstance(cry, Crystal):
+            self.__dict__.update(cry.__dict__)
+            return
 
         Rvec = cry['RVec']
         Basis = cry['Basis']

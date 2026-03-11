@@ -24,9 +24,12 @@ from .utility.Dyson import Dyson
 
 
 class BLatDyn(Crystal, DLR):
-    def __init__(self, control : dict) -> object:
-        Crystal.__init__(self, control['cry'])
-        DLR.__init__(self, control['ft'])
+    def __init__(self, crystal, dlr=None) -> object:
+        Crystal.__init__(self, crystal)
+        DLR.__init__(self, dlr)
+        # Backward-compatible handles for methods using self.crystal / self.dlr.
+        self.crystal = crystal if isinstance(crystal, Crystal) else self
+        self.dlr = dlr if isinstance(dlr, DLR) else self
         self._boson_phase_cache = None
 
     def _get_boson_phase(self) -> np.ndarray:
@@ -101,7 +104,7 @@ class BLatDyn(Crystal, DLR):
             bf_local  = np.zeros((norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F")
             bf_global = np.zeros((norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F")
             for loc_idx, glob_idx in floc[rank].items():
-                bf_local[..., glob_idx] = bf[..., loc_idx]
+                bf_local[..., glob_idx] = bf[..., glob_idx]
             commf.Allreduce(bf_local, bf_global, op=MPI.SUM)
 
             # 2) Compute the Fourier transform using DLR
@@ -113,7 +116,7 @@ class BLatDyn(Crystal, DLR):
 
             # 3) Separate the complete \tau array back into local slices for each rank
             for loc_idx, glob_idx in tloc[rank].items():
-                btau[..., loc_idx] = btau_global[..., glob_idx]
+                btau[..., glob_idx] = btau_global[..., glob_idx]
 
         else:
             for ik in range(nrk):
@@ -142,7 +145,7 @@ class BLatDyn(Crystal, DLR):
             btau_local  = np.zeros((norb, norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F")
             btau_global = np.zeros((norb, norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F")
             for loc_idx, glob_idx in tloc[rank].items():
-                btau_local[..., glob_idx] = btau[..., loc_idx]
+                btau_local[..., glob_idx] = btau[..., glob_idx]
             commtau.Allreduce(btau_local, btau_global, op=MPI.SUM)
 
             # 2) Compute the Fourier transform using DLR
@@ -154,7 +157,7 @@ class BLatDyn(Crystal, DLR):
 
             # 3) Separate the complete \nu array back into local slices for each rank
             for loc_idx, glob_idx in floc[rank].items():
-                bf[..., loc_idx] = bf_global[..., glob_idx]
+                bf[..., glob_idx] = bf_global[..., glob_idx]
 
         else:
             for ik in range(nrk):
@@ -302,7 +305,8 @@ class BLatDyn(Crystal, DLR):
         #     for irk in range(nrk):
         for irk, ift in itertools.product(list(range(nrk)), list(range(nft))):
             for ks, js in itertools.product(range(ns), repeat=2):
-                matout[:, :, js, ks, irk, ift] = self.Quad2Double(
+                matout[:, :, js, ks, irk, ift] = Crystal.Quad2Double(
+                    self,
                     matin[:, :, :, :, js, ks, irk, ift]
                 )
 
@@ -322,7 +326,8 @@ class BLatDyn(Crystal, DLR):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, :, :, js, ks, irk, ift] = self.Double2Quad(
+                    matout[:, :, :, :, js, ks, irk, ift] = Crystal.Double2Quad(
+                        self,
                         matin[:, :, js, ks, irk, ift]
                     )
 
@@ -342,7 +347,8 @@ class BLatDyn(Crystal, DLR):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, js, ks, irk, ift] = self.Double2Full(
+                    matout[:, :, js, ks, irk, ift] = Crystal.Double2Full(
+                        self,
                         matin[:, :, js, ks, irk, ift]
                     )
         del matin
@@ -363,7 +369,8 @@ class BLatDyn(Crystal, DLR):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, js, ks, irk, ift] = self.Full2Double(
+                    matout[:, :, js, ks, irk, ift] = Crystal.Full2Double(
+                        self,
                         matin[:, :, js, ks, irk, ift]
                     )
 
@@ -382,7 +389,8 @@ class BLatDyn(Crystal, DLR):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, js, ks, irk, ift] = self.Quad2Full(
+                    matout[:, :, js, ks, irk, ift] = Crystal.Quad2Full(
+                        self,
                         matin[:, :, :, :, js, ks, irk, ift]
                     )
 
@@ -401,7 +409,8 @@ class BLatDyn(Crystal, DLR):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, :, :, js, ks, irk, ift] = self.Full2Quad(
+                    matout[:, :, :, :, js, ks, irk, ift] = Crystal.Full2Quad(
+                        self,
                         matin[:, :, js, ks, irk, ift]
                     )
 
@@ -503,7 +512,7 @@ class BLatDyn(Crystal, DLR):
             for js in range(ns):
                 for jorb in range(norb):
                     for iorb in range(norb):
-                        fmtau_mr[iorb, jorb, js, ir] = self.T2mT(
+                        fmtau_mr[iorb, jorb, js, ir] = self.dlr.T2mT(
                             ftau_mr[iorb, jorb, js, ir]
                         )
         # fmtau_mr = self.dlr.T2mT(ftau_mr)
@@ -520,7 +529,7 @@ class BLatDyn(Crystal, DLR):
             for js in range(ns):
                 for jorb, iorb in itertools.product(range(norb), repeat=2):
                     tempmat = ftau[iorb, jorb, js, ik]
-                    fout[iorb, jorb, js, ik] = self.TauF2TauB(tempmat)
+                    fout[iorb, jorb, js, ik] = self.dlr.TauF2TauB(tempmat)
 
         return fout
 
@@ -533,8 +542,10 @@ class PolLat(BLatDyn):
         green: np.ndarray = None,
         hdf5file: str = "glob.h5",
         group: str = None,
+        nodedict: dict = None,
     ):
         super().__init__(crystal, dlr)
+        self.nodedict = nodedict
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = self.crystal.nk
@@ -563,10 +574,10 @@ class PolLat(BLatDyn):
         print("Polarizability Calculation Start")
         start = time.time()
         self.Cal()
-        self.kt = self.R2K(self.rt)
+        self.kt = self.R2K(self.rt, nodedict=self.nodedict)
 
-        self.rf = self.T2F(self.rt)
-        self.kf = self.T2F(self.kt)
+        self.rf = self.T2F(self.rt, nodedict=self.nodedict)
+        self.kf = self.T2F(self.kt, nodedict=self.nodedict)
         end = time.time()
         print("Polarizability Calculation Done")
         print(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
@@ -683,8 +694,10 @@ class WLat(BLatDyn):
         c: float = 1.0,
         hdf5file: str = "glob.h5",
         group: str = None,
+        nodedict: dict = None,
     ):
         super().__init__(crystal, dlr)
+        self.nodedict = nodedict
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
         nrk = self.crystal.nk
@@ -741,9 +754,9 @@ class WLat(BLatDyn):
         # self.wrt = self.K2R(self.wkt)
 
         print(f"Fourier transform in {self.__class__.__name__} start")
-        self.ckt = self.F2T(self.ckf)
-        self.crf = self.K2R(self.ckf)
-        self.crt = self.K2R(self.ckt)
+        self.ckt = self.F2T(self.ckf, nodedict=self.nodedict)
+        self.crf = self.K2R(self.ckf, nodedict=self.nodedict)
+        self.crt = self.K2R(self.ckt, nodedict=self.nodedict)
         end= time.time()
         print(f"Fourier transform in {self.__class__.__name__} finish")
         print("Screened Coulomb Interaction Calculation Finish")

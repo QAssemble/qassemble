@@ -84,24 +84,37 @@ class Run:
         control["run"]["nprock"] = ini.get("NProck", 1)
         control["run"]["nprocf"] = ini.get("NProcf", 1)
 
-        # if control["run"}]
-        if os.path.exists(control["run"]["fn"] + ".h5"):
-            file = h5py.File(control["run"]["fn"] + ".h5", "r")
-            group = file["input"]
-            d1 = self.Hdf52Dict(group)
-            print(self.CheckInput(d1=d1, d2=loc))
-            testloc = self.ChangeInput(copy.deepcopy(loc))
-            if self.CheckInput(d1=d1, d2=testloc):
-                pass
+        # Initialize input HDF5 only on root rank to avoid parallel file-lock races.
+        h5path = control["run"]["fn"] + ".h5"
+        is_parallel = self.comm is not None
+        is_root = (not is_parallel) or (self.comm.Get_rank() == 0)
+        input_ok = True
+
+        if is_root:
+            if control["run"]["mode"] == "FromScratch":
+                with h5py.File(h5path, "w") as file:
+                    group = file.create_group("input")
+                    self.Dict2Hdf5(loc, group)
             else:
-                print("Please change the prefix of hdf5 file")
-                sys.exit()
-        else:
-            file = h5py.File(control["run"]["fn"] + ".h5", "w")
-            group = file.create_group("input")
-            self.Dict2Hdf5(loc, group)
-            file.close()
-        # file.close()
+                if os.path.exists(h5path):
+                    with h5py.File(h5path, "r") as file:
+                        group = file["input"]
+                        d1 = self.Hdf52Dict(group)
+                    print(self.CheckInput(d1=d1, d2=loc))
+                    testloc = self.ChangeInput(copy.deepcopy(loc))
+                    if not self.CheckInput(d1=d1, d2=testloc):
+                        print("Please change the prefix of hdf5 file")
+                        input_ok = False
+                else:
+                    with h5py.File(h5path, "w") as file:
+                        group = file.create_group("input")
+                        self.Dict2Hdf5(loc, group)
+
+        if is_parallel:
+            input_ok = self.comm.bcast(input_ok if is_root else None, root=0)
+            self.comm.Barrier()
+        if not input_ok:
+            sys.exit()
 
         inicrystal["name"] = "Crystal"
         ham["name"] = "Hamiltonian"

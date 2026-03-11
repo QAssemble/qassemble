@@ -12,7 +12,7 @@ FourierMPI
     MPI-parallel Fourier transforms using mpi4py_fft (PFFT).
 """
 import numpy as np
-from Common import Common
+from .Common import Common
 from numba import jit
 import finufft
 from scipy.linalg import solve

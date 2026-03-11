@@ -1,5 +1,5 @@
 import numpy as np
-from Common import Common
+from .Common import Common
 from mpi4py import MPI
 from mpi4py_fft import PFFT, newDistArray
 
