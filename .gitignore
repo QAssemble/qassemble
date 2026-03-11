@@ -5,3 +5,4 @@ test/Dongming
 AGENTS.md
 __pycache__/
 *.pyc
+tests
