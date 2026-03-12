@@ -526,20 +526,9 @@ class BLatDyn(Crystal, DLR):
             return group in file
 
     def RT2mRmT(self, ftau: np.ndarray):
+        # Apply R -> -R mapping first, then tau -> beta - tau with fermionic sign.
         ftau_mr = self.R2mR(ftau)
-        norb, _, ns, nr, ntau = ftau_mr.shape
-        fmtau_mr = np.zeros((norb, norb, ns, nr, ntau), dtype=np.complex128, order="F")
-
-        for ir in range(nr):
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        fmtau_mr[iorb, jorb, js, ir] = self.T2mT(
-                            ftau_mr[iorb, jorb, js, ir]
-                        )
-        # fmtau_mr = self.T2mT(ftau_mr)
-
-        return fmtau_mr
+        return np.asfortranarray(-ftau_mr[..., ::-1], dtype=np.complex128)
     
     def TauF2TauB(self, ftau : np.ndarray) -> np.ndarray:
 
