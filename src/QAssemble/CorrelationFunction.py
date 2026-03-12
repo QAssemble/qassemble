@@ -20,6 +20,7 @@ class CorrelationFunction(object):
 
     def __init__(self, control : dict = None, c = 1.0, mpimanager : MPIManager = None):
 
+        self.control = control
         self.c = c
         self.niham = None
         self.green = None
@@ -34,6 +35,7 @@ class CorrelationFunction(object):
         self.w = None
         self.nodedict = None
         self.is_root = True
+        
 
         cry = control["crystal"]
         dlr = control["dlr"]
