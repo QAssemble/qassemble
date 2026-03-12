@@ -67,7 +67,7 @@ class FPathStc(object):
 
         self.crystal = crystal
         self.obj = obj
-        self.flatstc = FLatStc(control={"crystal": self.crystal})
+        self.flatstc = FLatStc(crystal=self.crystal)
         self.hdf5file = hdf5file
 
     def CheckGroup(self, filepath: str, group: str):

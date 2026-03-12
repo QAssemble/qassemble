@@ -33,58 +33,40 @@ class MPIManager(object):
 
         self.mpidict = {}
 
-    def Query(self, nodedict: dict):
+    def Query(self, **kwargs):
 
-        query_input = nodedict
-
-        nprock = query_input.get('nprock', 1)
-        nprocf = query_input.get('nprocf', 1)
+        nprock = kwargs.get('nprock', 1)
+        nprocf = kwargs.get('nprocf', 1)
         
-        nk = query_input['nk']
-        nfermion = query_input['nff']
-        nboson = query_input.get('nfb', nfermion)
-        shape = query_input['shape']
+        nk = kwargs['nk']
+        nf = kwargs['nf']
+        ntau = kwargs['ntau']
+        shape = kwargs['shape']
 
-
-        cache_key = (nk, nfermion, nboson, nprock, nprocf)
-
-        if cache_key in self.mpidict:
-            return self.mpidict[cache_key]
+        if (nk, nf, ntau, nprock, nprocf) in self.mpidict:
+            return self.mpidict[(nk, nf, ntau, nprock, nprocf)]
         else:
-            resultdict = {}
+            nodedict = {}
 
             if (nprock * nprocf != self.size):
                 if self.rank == 0:
                     errmsg = f"Error: nprock*nprocf = {nprock*nprocf}, but world size = {self.size}"
                     print(errmsg)
                     raise ValueError("nprock*nprocf must equal MPI world size")
-
-            def _build_submatrix(npoint: int):
-                chunks = np.array_split(np.arange(npoint), nprocf)
-                submatrix = []
-                for chunk in chunks:
-                    if chunk.size == 0:
-                        submatrix.append((0, 0))
-                    else:
-                        submatrix.append((chunk[0], chunk[-1] + 1))
-                return submatrix
-
-            submatrix_fermion = _build_submatrix(nfermion)
-            submatrix_boson = _build_submatrix(nboson)
-            resultdict['submatrix_fermion'] = submatrix_fermion
-            resultdict['submatrix_boson'] = submatrix_boson
-
-            floc_fermion = self.mf.FTLocalGlobal(submatrix_fermion)
-            tloc_fermion = self.mf.FTLocalGlobal(submatrix_fermion)
-            floc_boson = self.mf.FTLocalGlobal(submatrix_boson)
-            tloc_boson = self.mf.FTLocalGlobal(submatrix_boson)
-
-            self.mf.floc = floc_fermion
-            self.mf.tloc = tloc_fermion
-            self.mf.floc_fermion = floc_fermion
-            self.mf.tloc_fermion = tloc_fermion
-            self.mf.floc_boson = floc_boson
-            self.mf.tloc_boson = tloc_boson
+            ftemp = np.arange(nf)
+            fchunk = np.array_split(ftemp, nprocf)
+            submatrixf = [(chunk[0], chunk[-1]+1) for chunk in fchunk]
+            nodedict['submatrixf'] = submatrixf
+            floc = self.mf.FTLocalGlobal(submatrixf)
+            self.mf.floc = floc
+            
+            
+            tautemp = np.arange(ntau)
+            tauchunk = np.array_split(tautemp, nprocf)
+            submatrixtau = [(chunk[0], chunk[-1]+1) for chunk in tauchunk]
+            nodedict['submatrixtau'] = submatrixtau
+            tloc = self.mf.FTLocalGlobal(submatrixtau)
+            self.mf.tloc = tloc
 
             kidx = self.rank // nprock
             fidx = self.rank % nprock
@@ -108,39 +90,33 @@ class MPIManager(object):
             self.mf.rloc2glob = rloc2glob
 
             # Store communicators
-            resultdict['commk'] = commk
-            resultdict['commf'] = commf
-            resultdict['commtau'] = commtau
+            nodedict['commk'] = commk
+            nodedict['commf'] = commf
+            nodedict['commtau'] = commtau
 
             # Store submatrix
-            resultdict['submatrixk'] = self.fft.slicef
-            resultdict['localshapek'] = self.fft.localshapef
-            resultdict['submatrixr'] = self.fft.sliceb
-            resultdict['localshaper'] = self.fft.localshapeb
-            resultdict['submatrixf'] = submatrix_fermion
-            resultdict['submatrixtau'] = submatrix_fermion
+            nodedict['submatrixk'] = self.fft.slicef
+            nodedict['localshapek'] = self.fft.localshapef
+            nodedict['submatrixr'] = self.fft.sliceb
+            nodedict['localshaper'] = self.fft.localshapeb
 
             # Store FFT variables
-            resultdict['fft'] = self.fft
+            nodedict['fft'] = self.fft
 
             # Store local indices
-            resultdict['kloc'] = klocal
-            resultdict['rloc'] = rlocal
-            resultdict['floc'] = floc_fermion
-            resultdict['tloc'] = tloc_fermion
-            resultdict['floc_fermion'] = floc_fermion
-            resultdict['tloc_fermion'] = tloc_fermion
-            resultdict['floc_boson'] = floc_boson
-            resultdict['tloc_boson'] = tloc_boson
+            nodedict['kloc'] = klocal
+            nodedict['rloc'] = rlocal
+            nodedict['floc'] = floc
+            nodedict['tloc'] = tloc
 
             # Store local to global indices
-            resultdict['kloc2glob'] = kloc2glob
-            resultdict['rloc2glob'] = rloc2glob
-            resultdict['grid'] = shape
+            nodedict['kloc2glob'] = kloc2glob
+            nodedict['rloc2glob'] = rloc2glob
+            nodedict['grid'] = shape
 
-            self.mpidict[cache_key] = resultdict
+            self.mpidict[(nk, nf, ntau, nprock, nprocf)] = nodedict
 
-            return resultdict
+            return nodedict
 
 class MPIFunction():
 
@@ -149,10 +125,6 @@ class MPIFunction():
 
         self.floc = {}
         self.tloc = {}
-        self.floc_fermion = {}
-        self.tloc_fermion = {}
-        self.floc_boson = {}
-        self.tloc_boson = {}
         self.kloc = {}
         self.rloc = {}
         self.kloc2glob = {}
@@ -331,3 +303,4 @@ class MPIFunction():
         loc_idx = self.tloc[rank].values()
 
         return A[loc_idx]
+

@@ -79,7 +79,7 @@ class FPathDyn(object):
                 sys.exit()
         self.crystal = crystal
         self.dlr = dlr
-        self.flatdyn = FLatDyn(control={"crystal": self.crystal, "dlr": self.dlr})
+        self.flatdyn = FLatDyn(self.crystal, self.dlr)
         if (kpath is not None) and (nk is not None):
             self.kpath = self.crystal.Kpath(kpath=kpath, nk=nk)
         self.k = None

@@ -21,21 +21,11 @@ from .utility.Fourier import Fourier
 
 class FLatStc(Crystal):
 
-    def __init__(self, control: dict = None) -> object:
+    def __init__(self, crystal):
 
-        if not isinstance(control, dict):
-            raise TypeError("FLatStc input must be a control dictionary.")
-        if "crystal" not in control:
-            raise KeyError("control must contain a 'crystal' key.")
-
-        Crystal.__init__(self, control["crystal"])
-
-    @staticmethod
-    def _has_parallel_fft_layout(nodedict: dict) -> bool:
-        if not isinstance(nodedict, dict):
-            return False
-        required = ("commk", "fft", "grid", "kloc2glob", "rloc2glob")
-        return all(key in nodedict for key in required)
+        Crystal.__init__(self, crystal)
+        # Backward-compatible handle for methods still using composition style.
+        self.crystal = crystal if isinstance(crystal, Crystal) else self
 
     def Inverse(self, mat: np.ndarray):
 
@@ -76,7 +66,7 @@ class FLatStc(Crystal):
 
                         tempmat[iorb, jorb, js, irk] *= phase
 
-        if self._has_parallel_fft_layout(nodedict):
+        if nodedict is not None:
             matr = Fourier.FLatStcK2R_MPI(tempmat, nodedict)
         else:
             matr = Fourier.FLatStcK2R(tempmat, rkgrid)
@@ -94,7 +84,7 @@ class FLatStc(Crystal):
         nrk = matr.shape[3]
 
         tempmat = copy.deepcopy(matr)
-        if self._has_parallel_fft_layout(nodedict):
+        if nodedict is not None:
             matk = Fourier.FLatStcR2K_MPI(tempmat, nodedict)
         else:
             matk = Fourier.FLatStcR2K(tempmat, rkgrid)
@@ -411,16 +401,16 @@ class FLatStc(Crystal):
 
     # def Projection(self, matin: np.ndarray):
 
-    #     norb = len(self.find)
-    #     ns = self.ns
-    #     norbc = self.fprojector.shape[1]
-    #     nspace = self.fprojector.shape[3]
+    #     norb = len(self.crystal.find)
+    #     ns = self.crystal.ns
+    #     norbc = self.crystal.fprojector.shape[1]
+    #     nspace = self.crystal.fprojector.shape[3]
 
     #     matout = np.zeros((norbc, norbc, ns, nspace), dtype=np.complex128, order="F")
 
     #     for ispace in range(nspace):
     #         matout[..., ispace] = QAFort.projection.flatstc(
-    #             matin, self.fprojector[..., ispace]
+    #             matin, self.crystal.fprojector[..., ispace]
     #         )
 
     #     return matout
@@ -450,10 +440,10 @@ class FLatStc(Crystal):
 
     def R2KArb(self, matr: np.ndarray = None, kpoint: np.ndarray = None):  # R2KAny
 
-        # if self.kpath == None:
+        # if self.crystal.kpath == None:
         #     print("Error, kpath doesn't generate")
         #     sys.exit()
-        # kpoint = self.kpath
+        # kpoint = self.crystal.kpath
         norb = len(self.find)
         ns = self.ns
         nr = self.rkgrid[0] * self.rkgrid[1] * self.rkgrid[2]
@@ -514,9 +504,9 @@ class FLatStc(Crystal):
     
     def KValley(self, kgrid : list = None):
 
-        # grid = self.rkgrid
+        # grid = self.crystal.rkgrid
         if (kgrid is None):
-            kgrid = self.rkgrid
+            kgrid = self.crystal.rkgrid
         kplus = []
         kminus = []
         kpoint_temp=np.array(list(itertools.product(np.linspace(0,1,num=kgrid[2],endpoint=False),np.linspace(0,1,num=kgrid[1],endpoint=False),np.linspace(0,1,num=kgrid[0],endpoint=False))))
@@ -537,12 +527,12 @@ class FLatStc(Crystal):
 class NIHamiltonian(FLatStc):
 
     def __init__(
-        self, control: dict = None, hopping: dict = None, onsite: dict = None, spin : bool = False, 
+        self, crystal: Crystal = None, hopping: dict = None, onsite: dict = None, spin : bool = False, 
         ferro : bool = False, aferro : bool = False, valley: bool = False, avalley : bool = False, site : bool = False, 
         asite : bool = False, hdf5file: h5py.File = None, group: str = None, nodedict: dict = None,
     ):
 
-        super().__init__(control=control)
+        super().__init__(crystal)
 
         print("Non-interacting Hamiltonian Calculation Start")
         hopplist = []
@@ -583,14 +573,14 @@ class NIHamiltonian(FLatStc):
 
     def Cal(self):  # GenHam
 
-        norb = len(self.find)
-        ns = self.ns
-        nk = len(self.kpoint)
-        kvec = self.kpoint
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nk = len(self.crystal.kpoint)
+        kvec = self.crystal.kpoint
 
         hamtb = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order="F")
         tempmat = np.zeros(
-            (norb, norb, ns, self.rkgrid[0], self.rkgrid[1], self.rkgrid[2]),
+            (norb, norb, ns, self.crystal.rkgrid[0], self.crystal.rkgrid[1], self.crystal.rkgrid[2]),
             dtype=np.complex128,
             order="F",
         )
@@ -603,8 +593,8 @@ class NIHamiltonian(FLatStc):
 
                 (a, m) = hopp[1]
                 (b, mp) = hopp[2]
-                iorb = self.FIndex([a, m])
-                jorb = self.FIndex([b, mp])
+                iorb = self.crystal.FIndex([a, m])
+                jorb = self.crystal.FIndex([b, mp])
                 R = hopp[3]
 
                 # tempmat[iorb,jorb,js,R[0],R[1],R[2]] += -tij
@@ -651,12 +641,12 @@ class NIHamiltonian(FLatStc):
         if self.onsite != None:
             for js, value in self.onsite.items():
                 for orb, val in value.items():
-                    iorb = self.FIndex(list(orb))
+                    iorb = self.crystal.FIndex(list(orb))
                     tempmat[iorb, iorb, js, 0, 0, 0] += val
         #           for js in range(ns):
         #               for orb, val in self.onsite.items():
-        #                   iorb = self.FIndex(list(orb))
-        #                   # jorb = self.FIndex(list(orb[1]))
+        #                   iorb = self.crystal.FIndex(list(orb))
+        #                   # jorb = self.crystal.FIndex(list(orb[1]))
         #                   tempmat[iorb,iorb,js,0,0,0] += val
         # print(tempmat[iorb,iorb,js,0,0,0],val)
         # for iorb in range(norb):
@@ -707,7 +697,7 @@ class NIHamiltonian(FLatStc):
 
     def Valley(self):
 
-        # kpoint = self.kpoint
+        # kpoint = self.crystal.kpoint
 
         h0k = np.copy(self.k)
         norb = h0k.shape[0]
@@ -745,7 +735,7 @@ class NIHamiltonian(FLatStc):
     
     def AntiValley(self):
 
-        # kpoint = self.kpoint
+        # kpoint = self.crystal.kpoint
 
         h0k = np.copy(self.k)
         norb = h0k.shape[0]
@@ -795,14 +785,14 @@ class SigmaHartree(FLatStc):
 
     def __init__(
         self,
-        control: dict = None,
+        crystal: Crystal,
         occ=None,
         vbare: np.ndarray = None,
         hdf5file: str = "glob.h5",
         group: str = None,
         nodedict: dict = None,
     ):  # green -> occ
-        super().__init__(control=control)
+        super().__init__(crystal)
         self.r = None
         self.k = None
         self.vbare = vbare
@@ -821,61 +811,61 @@ class SigmaHartree(FLatStc):
         # vbare = self.vbare.k
         occ = self.occ
         # vk = self.vbare.Double2Quad(self.vbare.k)
-        norbc = len(self.find)  # occk.shape[0]
-        ns = self.ns  # occk.shape[2]
-        nk = len(self.kpoint)  # occk.shape[3]
-        norb = len(self.bind)  # vbare.shape[0]
+        norbc = len(self.crystal.find)  # occk.shape[0]
+        ns = self.crystal.ns  # occk.shape[2]
+        nk = len(self.crystal.kpoint)  # occk.shape[3]
+        norb = len(self.crystal.bind)  # vbare.shape[0]
 
         # onsite = self.R2K(self.onsiter)
         h = np.zeros((norbc, norbc, ns, nk), dtype=np.complex128, order="F")
 
-        if self.ns != 1:
+        if self.crystal.ns != 1:
             #     for ik in range(nk):
-            #         tempmat[...,ik] = self.OrbSpin2Composite(vbare[...,ik])
+            #         tempmat[...,ik] = self.crystal.OrbSpin2Composite(vbare[...,ik])
 
             # for ik in range(nk):
             #     for ind1 in range(norb*ns):
             #         nn1 = [0]*2
-            #         ind1, [iorb,js] = self.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
-            #         [iorbc1,iorbc2] = self.b2f[iorb]
+            #         ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
+            #         [iorbc1,iorbc2] = self.crystal.b2f[iorb]
 
             #         for ind2 in range(norb*ns):
             #             nn2 = [0]*2
-            #             ind2, [jorb,ks] = self.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
-            #             [iorbc3,iorbc4] = self.b2f[jorb]
+            #             ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
+            #             [iorbc3,iorbc4] = self.crystal.b2f[jorb]
             #             h[iorbc1,iorbc2,js,ik] += tempmat[ind1,ind2,0]*occ[iorbc4,iorbc3,ks]
             # for jk in range(nk):
             #     h[iorbc1,iorbc2,js,ik] += tempmat[ind1,ind2,0]*occ[iorbc4,iorbc3,ks,jk]/nk
             for ik in range(nk):
                 for ind1 in range(norb * ns):
                     nn1 = [0] * 2
-                    ind1, [iorb, js] = self.indexing(
+                    ind1, [iorb, js] = self.crystal.indexing(
                         norb * ns, 2, [norb, ns], 0, ind1, nn1
                     )
-                    [a, [m1, m2]] = self.BAtomOrb(iorb)
-                    iorbc1 = self.FIndex([a, m1])
-                    iorbc2 = self.FIndex([a, m2])
+                    [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
+                    iorbc1 = self.crystal.FIndex([a, m1])
+                    iorbc2 = self.crystal.FIndex([a, m2])
                     for ind2 in range(norb * ns):
                         nn2 = [0] * 2
-                        ind2, [jorb, ks] = self.indexing(
+                        ind2, [jorb, ks] = self.crystal.indexing(
                             norb * ns, 2, [norb, ns], 0, ind2, nn2
                         )
-                        [b, [m3, m4]] = self.BAtomOrb(jorb)
-                        iorbc3 = self.FIndex([b, m3])
-                        iorbc4 = self.FIndex([b, m4])
+                        [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
+                        iorbc3 = self.crystal.FIndex([b, m3])
+                        iorbc4 = self.crystal.FIndex([b, m4])
                         # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]
                         h[iorbc1, iorbc2, js, ik] += (
                             self.vbare[iorb, jorb, js, ks, 0] * occ[iorbc4, iorbc3, ks]
                         )
 
         else:
-            if self.soc == True:
+            if self.crystal.soc == True:
                 C = 1
                 # for ik in range(nk):
                 #     for iorb in range(norb):
-                #         iorbc1,iorbc2 = self.b2f[iorb]
+                #         iorbc1,iorbc2 = self.crystal.b2f[iorb]
                 #         for jorb in range(norb):
-                #             iorbc3, iorbc4 = self.b2f[jorb]
+                #             iorbc3, iorbc4 = self.crystal.b2f[jorb]
                 #             # gtemp = np.zeros((norbc,norbc,1),dtype=np.complex64)
                 #             # for jk in range(nk):
                 #             #     gtemp[iorbc4,iorbc3,0] += g0kt[iorbc4,iorbc3,0,0,-1]
@@ -883,20 +873,20 @@ class SigmaHartree(FLatStc):
                 for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
-                        ind1, [iorb, js] = self.indexing(
+                        ind1, [iorb, js] = self.crystal.indexing(
                             norb * ns, 2, [norb, ns], 0, ind1, nn1
                         )
-                        [a, [m1, m2]] = self.BAtomOrb(iorb)
-                        iorbc1 = self.FIndex([a, m1])
-                        iorbc2 = self.FIndex([a, m2])
+                        [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
+                        iorbc1 = self.crystal.FIndex([a, m1])
+                        iorbc2 = self.crystal.FIndex([a, m2])
                         for ind2 in range(norb * ns):
                             nn2 = [0] * 2
-                            ind2, [jorb, ks] = self.indexing(
+                            ind2, [jorb, ks] = self.crystal.indexing(
                                 norb * ns, 2, [norb, ns], 0, ind2, nn2
                             )
-                            [b, [m3, m4]] = self.BAtomOrb(jorb)
-                            iorbc3 = self.FIndex([b, m3])
-                            iorbc4 = self.FIndex([b, m4])
+                            [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
+                            iorbc3 = self.crystal.FIndex([b, m3])
+                            iorbc4 = self.crystal.FIndex([b, m4])
                             h[iorbc1, iorbc2, js, ik] = (
                                 self.vbare[iorb, jorb, js, ks, 0]
                                 * occ[iorbc4, iorbc3, ks]
@@ -907,29 +897,29 @@ class SigmaHartree(FLatStc):
                 C = 2
                 # for ik in range(nk):
                 #     for iorb in range(norb):
-                #         iorbc1,iorbc2 = self.b2f[iorb]
+                #         iorbc1,iorbc2 = self.crystal.b2f[iorb]
                 #         for jorb in range(norb):
-                #             iorbc3, iorbc4 = self.b2f[jorb]
+                #             iorbc3, iorbc4 = self.crystal.b2f[jorb]
                 #             h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0]*C
                 #             # for jk in range(nk):
                 #             #     h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0,jk]/nk*C
                 for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
-                        ind1, [iorb, js] = self.indexing(
+                        ind1, [iorb, js] = self.crystal.indexing(
                             norb * ns, 2, [norb, ns], 0, ind1, nn1
                         )
-                        [a, [m1, m2]] = self.BAtomOrb(iorb)
-                        iorbc1 = self.FIndex([a, m1])
-                        iorbc2 = self.FIndex([a, m2])
+                        [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
+                        iorbc1 = self.crystal.FIndex([a, m1])
+                        iorbc2 = self.crystal.FIndex([a, m2])
                         for ind2 in range(norb * ns):
                             nn2 = [0] * 2
-                            ind2, [jorb, ks] = self.indexing(
+                            ind2, [jorb, ks] = self.crystal.indexing(
                                 norb * ns, 2, [norb, ns], 0, ind2, nn2
                             )
-                            [b, [m3, m4]] = self.BAtomOrb(jorb)
-                            iorbc3 = self.FIndex([b, m3])
-                            iorbc4 = self.FIndex([b, m4])
+                            [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
+                            iorbc3 = self.crystal.FIndex([b, m3])
+                            iorbc4 = self.crystal.FIndex([b, m4])
                             # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]*C
                             h[iorbc1, iorbc2, js, ik] += (
                                 self.vbare[iorb, jorb, js, ks, 0]
@@ -975,14 +965,14 @@ class SigmaFock(FLatStc):
 
     def __init__(
         self,
-        control: dict = None,
+        crystal: Crystal,
         occr=None,
         vbare: np.ndarray = None,
         hdf5file: str = "glob.h5",
         group: str = None,
         nodedict: dict = None,
     ):  # green -> occ
-        super().__init__(control=control)
+        super().__init__(crystal)
         self.r = None
         self.k = None
         self.hdf5file = hdf5file
@@ -1004,37 +994,37 @@ class SigmaFock(FLatStc):
         occr = self.occr
         # vr = self.vbare.Double2Quad(self.vbare.r)
 
-        norbc = len(self.find)
+        norbc = len(self.crystal.find)
         ns = occr.shape[2]
         nr = occr.shape[3]
-        norb = len(self.bind)
+        norb = len(self.crystal.bind)
 
         fr = np.zeros((norbc, norbc, ns, nr), dtype=np.complex128, order="F")
 
         # for ir in range(nr):
         #     for js in range(ns):
         #         for iorb in range(norb):
-        #             [iorbc1,iorbc4] = self.b2f[iorb]
+        #             [iorbc1,iorbc4] = self.crystal.b2f[iorb]
         #             for jorb in range(norb):
-        #                 [iorbc2,iorbc3] = self.b2f[jorb]
+        #                 [iorbc2,iorbc3] = self.crystal.b2f[jorb]
         #                 fr[iorbc1,iorbc3,js,ir] = -occr[iorbc4,iorbc2,js,ir]*vr[iorb,jorb,js,js,ir]
         for ir in range(nr):
             for ind1 in range(norb * ns):
                 nn1 = [0] * 2
-                ind1, [iorb, js] = self.indexing(
+                ind1, [iorb, js] = self.crystal.indexing(
                     norb * ns, 2, [norb, ns], 0, ind1, nn1
                 )
-                [a, [m1, m4]] = self.BAtomOrb(iorb)
-                iorbc1 = self.FIndex([a, m1])
-                iorbc4 = self.FIndex([a, m4])
+                [a, [m1, m4]] = self.crystal.BAtomOrb(iorb)
+                iorbc1 = self.crystal.FIndex([a, m1])
+                iorbc4 = self.crystal.FIndex([a, m4])
                 for ind2 in range(norb * ns):
                     nn2 = [0] * 2
-                    ind2, [jorb, ks] = self.indexing(
+                    ind2, [jorb, ks] = self.crystal.indexing(
                         norb * ns, 2, [norb, ns], 0, ind2, nn2
                     )
-                    [b, [m3, m2]] = self.BAtomOrb(jorb)
-                    iorbc3 = self.FIndex([b, m3])
-                    iorbc2 = self.FIndex([b, m2])
+                    [b, [m3, m2]] = self.crystal.BAtomOrb(jorb)
+                    iorbc3 = self.crystal.FIndex([b, m3])
+                    iorbc2 = self.crystal.FIndex([b, m2])
                     if js == ks:
                         # fr[iorbc1,iorbc2,js,ir] += -occr[iorbc4,iorbc3,js,ir]*vr[iorbc1,iorbc3,iorbc2,iorbc4,js,ks,ir]
                         fr[iorbc1, iorbc2, js, ir] += (
@@ -1084,7 +1074,7 @@ class Hamiltonian(FLatStc):
 
     def __init__(
         self,
-        control: dict = None,
+        crystal: Crystal,
         ham: np.ndarray = None,
         beta: float = None,
         sigmah: np.ndarray = None,
@@ -1095,7 +1085,7 @@ class Hamiltonian(FLatStc):
         group: str = None,
         nodedict: dict = None,
     ):
-        super().__init__(control=control)
+        super().__init__(crystal)
 
         self.occ = None
         self.occk = None
@@ -1122,9 +1112,9 @@ class Hamiltonian(FLatStc):
 
     def CalMu0(self) -> np.ndarray:
 
-        norb = len(self.find)
-        ns = self.ns
-        nrk = len(self.kpoint)
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
 
         tempmat = np.array(self.ham, dtype=np.complex128, order="F", copy=True)
 
@@ -1162,9 +1152,9 @@ class Hamiltonian(FLatStc):
 
     def NumOfE(self, mu: float) -> np.ndarray:
 
-        norb = len(self.find)
-        ns = self.ns
-        nk = len(self.kpoint)
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nk = len(self.crystal.kpoint)
 
         energy = self.Diagonalize(self.hkmu0)
 
@@ -1178,7 +1168,7 @@ class Hamiltonian(FLatStc):
                     )
 
         Ne /= nk
-        N = self.nume
+        N = self.crystal.nume
 
         return N - Ne
 
@@ -1206,9 +1196,9 @@ class Hamiltonian(FLatStc):
 
     def Occ(self) -> np.ndarray:
 
-        norb = len(self.find)
-        ns = self.ns
-        nrk = len(self.kpoint)
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
 
         # energy = self.Diagonalize(self.hk)
 
@@ -1303,8 +1293,8 @@ class Hamiltonian(FLatStc):
 
 class HamiltonianAB(FLatStc):
 
-    def __init__(self, control: dict = None, nodedict: dict = None):
-        super().__init__(control=control)
+    def __init__(self, crystal: Crystal, nodedict: dict = None):
+        super().__init__(crystal)
         self.nodedict = nodedict
 
         glob = h5py.File('../../glob_dat/global.dat', 'r')
@@ -1317,11 +1307,11 @@ class HamiltonianAB(FLatStc):
 
     def KI2KF(self):
         
-        tempmat = np.zeros((self.nbndf[0], self.nbndf[0], self.n3[0], len(self.kpt_latt), self.ns), dtype=np.complex128, order='F')
+        tempmat = np.zeros((self.nbndf[0], self.nbndf[0], self.n3[0], len(self.kpt_latt), self.crystal.ns), dtype=np.complex128, order='F')
 
         glob = h5py.File('../../glob_dat/global.dat', 'r')
 
-        for js in range(self.ns):
+        for js in range(self.crystal.ns):
             for iw in range(self.n3[0]):
                 for ik in range(len(self.kpt_latt)):
                     kidx = self.i_kerf[ik]
@@ -1336,9 +1326,9 @@ class HamiltonianAB(FLatStc):
     
 class ZFactor(FLatStc):
 
-    def __init__(self, control : dict = None, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None, nodedict: dict = None):
+    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None, nodedict: dict = None):
 
-        super().__init__(control=control)
+        super().__init__(crystal)
 
         self.sigmac = sigmac
         self.beta = beta
@@ -1405,9 +1395,9 @@ class ZFactor(FLatStc):
 
 class SigmaStc(FLatStc):
 
-    def __init__(self, control : dict = None, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None, nodedict: dict = None):
+    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None, nodedict: dict = None):
 
-        super().__init__(control=control)
+        super().__init__(crystal)
 
         self.sigmac = sigmac
         self.beta = beta
