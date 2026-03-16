@@ -698,6 +698,7 @@ class Crystal(object):
         Returns:
             tuple: (n1, n2) updated by the indexing operation.
         """
+        tmpsize = 1
         for size in divisionarray:
             tmpsize *= size
 
