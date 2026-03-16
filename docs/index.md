@@ -12,7 +12,7 @@ hide:
   </p>
   <div class="hero-buttons">
     <a href="getting-started/installation/" class="hero-btn hero-btn-primary">Get Started</a>
-    <a href="https://github.com/Mo-Seong-Jun/QAssemble" class="hero-btn hero-btn-secondary">View on GitHub</a>
+    <a href="https://github.com/QAssemble/qassemble" class="hero-btn hero-btn-secondary">View on GitHub</a>
   </div>
 </div>
 
@@ -57,7 +57,7 @@ hide:
     <div class="card-icon">💻</div>
     <h3>GitHub</h3>
     <p>Browse the source code, report issues, and contribute to QAssemble on GitHub.</p>
-    <a href="https://github.com/Mo-Seong-Jun/QAssemble" class="card-link">Visit →</a>
+    <a href="https://github.com/QAssemble/qassemble" class="card-link">Visit →</a>
   </div>
 
 </div>

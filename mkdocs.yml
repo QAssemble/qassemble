@@ -5,8 +5,8 @@ site_description: >
   properties of materials using diagrammatic many-body perturbation theory.
 site_author: Mo Seong Jun
 
-repo_name: Mo-Seong-Jun/QAssemble
-repo_url: https://github.com/Mo-Seong-Jun/QAssemble
+repo_name: QAssemble/qassemble
+repo_url: https://github.com/QAssemble/qassemble
 
 theme:
   name: material

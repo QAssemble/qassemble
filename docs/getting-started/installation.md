@@ -16,7 +16,7 @@ QAssemble requires Python 3.8 or later and the following packages:
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/Mo-Seong-Jun/QAssemble.git
+git clone https://github.com/QAssemble/qassemble.git
 cd QAssemble
 pip install numpy scipy h5py 
 ```
