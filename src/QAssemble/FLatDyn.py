@@ -680,36 +680,29 @@ class GreenInt(FLatDyn):
         norb = len(self.find)
         ns = self.ns
         nrk = len(self.kpoint)
-        
-        
+
         occk = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
         occ = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
-        
-        print("Density matrixy calculation start")
-        # kt = np.copy(self.kt)
-        # ntau = 5000
-        
-        tau_uniform = self.TauUniform()
-        tau_beta = np.array([tau_uniform[-1]], dtype=np.float64)
-        # tau_beta = np.array([self.dlr.beta], dtype=np.float64)
+
+        print("Density matrix calculation start")
+
+        tau_beta = np.array([self._tau_beta], dtype=np.float64)
 
         for irk in range(nrk):
             for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        value_beta = self.TauDLR2Points(self.kt[iorb, jorb, js, irk], tau_beta)[0]
-                        occk[iorb, jorb, js, irk] = -value_beta
-                        # occk[iorb, jorb, js, irk] = -tempmat[-1, 0, 0]
+                # batch: (ntau, norb, norb) -> dlr_from_tau -> eval_dlr_tau
+                block = self.kt[:, :, js, irk, :].T           # (ntau, norb, norb)
+                fxx = self.dF.dlr_from_tau(block)
+                fout = self.dF.eval_dlr_tau(fxx, tau_beta, beta=self.beta)
+                # fout: (1, norb, norb)
+                occk[:, :, js, irk] = -fout[0]
 
-        for irk in range(nrk):
-            occ += occk[...,irk]
-            
-        occ /= nrk
+        occ = occk.sum(axis=3) / nrk
         self.occ = occ
         self.occk = occk
-        
+
         self.occr = self.flatstc.K2R(occk)
-        print("Density matrixy calculation finish")
+        print("Density matrix calculation finish")
         return None
     
     def UpdateMu(self) -> np.ndarray:
@@ -744,40 +737,39 @@ class GreenInt(FLatDyn):
         ns = self.ns
         nrk = len(self.kpoint)
         chem = self.ChemEmbedding(mu)
-        # chem = self.ChemEmbedding(mu+self.c)
         gcalf = self.Dyson(self.gkfmu0, -chem)
 
         tempmat2 = self.F2T(gcalf)
-        
+
         Ne = 0
-        tau_uniform = self.TauUniform()
-        tau_beta = np.array([tau_uniform[-1]], dtype=np.float64)
-        # tau_beta = np.array([self.dlr.beta], dtype=np.float64)
-        
+        tau_beta = np.array([self._tau_beta], dtype=np.float64)
+
         for irk in range(nrk):
             for js in range(ns):
-                for iorb in range(norb):
-                    value_beta = self.TauDLR2Points(tempmat2[iorb, iorb, js, irk], tau_beta)[0]
-                    Ne += -np.real(value_beta)
-                # tempmat3 = self.dlr.TauDLR2Uniform(tempmat2[..., js, irk, :])
-                # for iorb in range(norb):
-                #     Ne += -np.real(tempmat3[iorb, iorb, -1])
-                    # Ne += -np.real(gcalt[iorb,iorb,js,irk,-1])
+                # batch: (ntau, norb, norb) -> dlr_from_tau -> eval_dlr_tau
+                block = tempmat2[:, :, js, irk, :].T          # (ntau, norb, norb)
+                fxx = self.dF.dlr_from_tau(block)
+                fout = self.dF.eval_dlr_tau(fxx, tau_beta, beta=self.beta)
+                # fout: (1, norb, norb), trace of diagonal
+                Ne += -np.real(np.trace(fout[0]))
+
         Ne /= nrk
-        
+
         N = self.nume
         del gcalf
         return (N - Ne)
 
     def SearchMu(self):
-        
+
         print("Finding chemical potential start")
-        # omega = self.dlr.MatsubaraFermionUniform()
-        # mumin = -self.dlr.omega[-1]*0.6
-        # mumax = self.dlr.omega[-1]*0.6
         mumin = self.omega[0]
         mumax = self.omega[-1]
         print(f"minimum : {mumin}, maximum : {mumax}")
+
+        # cache tau_beta for NumOfE and Occ calls
+        tau_uniform = self.TauUniform()
+        self._tau_beta = tau_uniform[-1]
+
         nmin = self.NumOfE(mumin)
         nmax = self.NumOfE(mumax)
         if (nmin < 0) or (nmax>0):
