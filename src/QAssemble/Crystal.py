@@ -1,12 +1,9 @@
 import numpy as np
 import sys
 import itertools
-# import scipy.optimize
+
 import copy
-# qapath = os.environ.get('QAssemble','')
-# sys.path.append(qapath+'/src/QAssemble/modules')
-# import QAFort
-# from .modules.Common import Common
+from .utility.Common import Common
 
 # Ask to professor for change variables
 class Crystal(object):
@@ -264,7 +261,7 @@ class Crystal(object):
                 (a,m1) = self.FAtomOrb(iorbc)
                 (b,m2) = self.FAtomOrb(jorbc)
                 nn = [iorbc,jorbc]
-                ind, nn = self.indexing(norbc*norbc,2,[norbc,norbc],1,0,nn)
+                ind, nn = Common.Indexing(norbc*norbc,2,[norbc,norbc],1,0,nn)
                 full[ind] = [[a,m1],[b,m2]]
                 pbasis[iorbc,jorbc] = ind
 
@@ -311,7 +308,7 @@ class Crystal(object):
         for iorbc in range(norbc):
             for jorbc in range(norbc):
                 nn1 = [iorbc,jorbc]
-                iorb, nn1 = self.indexing(norb,2,[norbc,norbc],1,0,nn1)
+                iorb, nn1 = Common.Indexing(norb,2,[norbc,norbc],1,0,nn1)
                 c2f.append([iorbc,jorbc])
         self.c2f = c2f
 
@@ -328,7 +325,7 @@ class Crystal(object):
 
         for ind in range(ndim):
             nn1 = [0]*2
-            ind,[iorbc,jorbc] = self.indexing(ndim,2,[norbc,norbc],0,ind,nn1)
+            ind,[iorbc,jorbc] = Common.Indexing(ndim,2,[norbc,norbc],0,ind,nn1)
             [a,m1] = self.FAtomOrb(iorbc)
             [a_p,m2] = self.FAtomOrb(jorbc)
             if a==a_p:
@@ -354,10 +351,10 @@ class Crystal(object):
 
         for ind1 in range(ndim):
             nn1 = [0]*2
-            ind1, [iorb,js] = self.indexing(ndim,2,[norb,ns],0,ind1,nn1)
+            ind1, [iorb,js] = Common(ndim,2,[norb,ns],0,ind1,nn1)
             for ind2 in range(ndim):
                 nn2 = [0]*2
-                ind2, [jorb,ks] = self.indexing(ndim,2,[norb,ns],0,ind2,nn2)
+                ind2, [jorb,ks] = Common.Indexing(ndim,2,[norb,ns],0,ind2,nn2)
                 matout[iorb,jorb,js,ks] = mat[ind1,ind2]
 
         return matout
@@ -379,11 +376,11 @@ class Crystal(object):
         for js in range(ns):
             for iorb in range(norb):
                 nn1 = [iorb,js]
-                ind1, nn1 = self.indexing(norb*ns,2,[norb,ns],1,0,nn1)
+                ind1, nn1 = Common.Indexing(norb*ns,2,[norb,ns],1,0,nn1)
                 for ks in range(ns):
                     for jorb in range(norb):
                         nn2 = [jorb,ks]
-                        ind2, nn2 = self.indexing(norb*ns,2,[norb,ns],1,0,nn2)
+                        ind2, nn2 = Common.Indexing(norb*ns,2,[norb,ns],1,0,nn2)
                         matout[ind1,ind2] = mat[iorb,jorb,js,ks]
         return matout
 
@@ -507,29 +504,33 @@ class Crystal(object):
 
         return matret
 
-    def Full2Double(self, mat: np.ndarray) -> np.ndarray:
+    def Full2Double(self, matin: np.ndarray) -> np.ndarray:
         """Convert a full composite matrix to a boson basis 2-index matrix.
 
         Args:
-            mat (np.ndarray): 2D array of shape (n^2, n^2).
+            matin (np.ndarray): 2D array of shape (n^2, n^2).
 
         Returns:
             np.ndarray: 2D array of shape (norb, norb).
         """
 
-        norb = len(self.bind)
+        # norb = len(self.bind)
 
-        matret = np.zeros((norb,norb),dtype=np.complex64,order='F')
+        # matret = np.zeros((norb,norb),dtype=np.complex64,order='F')
 
-        for jorb in range(norb):
-            for iorb in range(norb):
-                ind1 = self.c2b[iorb]
-                ind2 = self.c2b[jorb]
-                matret[iorb,jorb] = mat[ind1,ind2]
+        # for jorb in range(norb):
+        #     for iorb in range(norb):
+        #         ind1 = self.c2b[iorb]
+        #         ind2 = self.c2b[jorb]
+        #         matret[iorb,jorb] = mat[ind1,ind2]
 
-        return matret
+        c2b = np.asarray(self.c2b, dtype=np.int64)
 
-    def Double2Full(self, mat: np.ndarray) -> np.ndarray:
+        matret = matin[np.ix_(c2b, c2b)]
+
+        return np.array(matret, dtype=np.complex128, order='F')
+
+    def Double2Full(self, matin: np.ndarray) -> np.ndarray:
         """Convert a boson basis 2-index matrix to a full composite matrix.
 
         Args:
@@ -541,14 +542,19 @@ class Crystal(object):
 
         nind = len(self.find)**2
         norb = len(self.bind)
-        matret = np.zeros((nind,nind),dtype=np.complex64,order='F')
 
-        for jorb in range(norb):
-            for iorb in range(norb):
-                ind1 = self.c2b[iorb]
-                ind2 = self.c2b[jorb]
-                matret[ind1,ind2] = mat[iorb,jorb]
+        c2b = np.asarray(self.c2b, dtype=np.int64)
+        matret = np.zeros((nind,nind),dtype=np.complex128,order='F')
 
+        # for jorb in range(norb):
+        #     for iorb in range(norb):
+        #         ind1 = self.c2b[iorb]
+        #         ind2 = self.c2b[jorb]
+        #         matret[ind1,ind2] = mat[iorb,jorb]
+
+        rhs = np.asarray(matin, dtype=np.complex128).astype(np.complex128)
+
+        matret[np.ix_(c2b, c2b)] = rhs
         return matret ## construct
 
     def Kpath(self, kpath: list = None, nk: int = None) -> np.ndarray:
@@ -694,48 +700,48 @@ class Crystal(object):
         return None
 
 
-    def indexing(self, ntot, ndivision, divisionarray, flag, n1, n2):
-        """Map between flat index and multi-dimensional indices.
+    # def indexing(self, ntot, ndivision, divisionarray, flag, n1, n2):
+    #     """Map between flat index and multi-dimensional indices.
 
-        Args:
-            ntot (int): Total number of elements.
-            ndivision (int): Number of dimensions.
-            divisionarray (list of int): Size of each dimension.
-            flag (int): Mode flag (1 for encode, 0 for decode).
-            n1 (int): Input or output flat index.
-            n2 (list of int): Input or output multi-dimensional index list.
+    #     Args:
+    #         ntot (int): Total number of elements.
+    #         ndivision (int): Number of dimensions.
+    #         divisionarray (list of int): Size of each dimension.
+    #         flag (int): Mode flag (1 for encode, 0 for decode).
+    #         n1 (int): Input or output flat index.
+    #         n2 (list of int): Input or output multi-dimensional index list.
 
-        Returns:
-            tuple: (n1, n2) updated by the indexing operation.
-        """
-        tmpsize = 1
-        for size in divisionarray:
-            tmpsize *= size
+    #     Returns:
+    #         tuple: (n1, n2) updated by the indexing operation.
+    #     """
+    #     tmpsize = 1
+    #     for size in divisionarray:
+    #         tmpsize *= size
 
-        if tmpsize != ntot:
-            print('array_division wrong')
-            return
+    #     if tmpsize != ntot:
+    #         print('array_division wrong')
+    #         return
 
-        if flag == 1:
-            n1 = n2[0]
-            for ii in range(1, ndivision):
-                tempcnt = 1
-                for jj in range(ii):
-                    tempcnt *= divisionarray[jj]
-                n1 += (n2[ii] ) * tempcnt
-        else:
-            n2_array = [0] * ndivision
-            tempcnt = n1
-            for ii in range(ndivision - 1):
-                n2_array[ii] = tempcnt - ((tempcnt) // divisionarray[ii]) * divisionarray[ii]
-                tempcnt = (tempcnt - n2_array[ii])//divisionarray[ii]
-            n2_array[ndivision - 1] = tempcnt
+    #     if flag == 1:
+    #         n1 = n2[0]
+    #         for ii in range(1, ndivision):
+    #             tempcnt = 1
+    #             for jj in range(ii):
+    #                 tempcnt *= divisionarray[jj]
+    #             n1 += (n2[ii] ) * tempcnt
+    #     else:
+    #         n2_array = [0] * ndivision
+    #         tempcnt = n1
+    #         for ii in range(ndivision - 1):
+    #             n2_array[ii] = tempcnt - ((tempcnt) // divisionarray[ii]) * divisionarray[ii]
+    #             tempcnt = (tempcnt - n2_array[ii])//divisionarray[ii]
+    #         n2_array[ndivision - 1] = tempcnt
 
-            # Copy the values from the temporary array to the n2 output array
-            for i in range(ndivision):
-                n2[i] = n2_array[i]
+    #         # Copy the values from the temporary array to the n2 output array
+    #         for i in range(ndivision):
+    #             n2[i] = n2_array[i]
 
-        return n1, n2
+    #     return n1, n2
 
     def FindPositions(self, array, value):
         """Find all positions of a value in a 2D array.
@@ -879,7 +885,7 @@ class Crystal(object):
         nk = grid[0]*grid[1]*grid[2]
         kind = {}
         for ik in range(nk):
-            [n1, n2] = self.indexing(nk, 3, grid, 0, ik, [0, 0, 0])
+            [n1, n2] = Common.Indexing(nk, 3, grid, 0, ik, [0, 0, 0])
             kind[n1] = n2
         
         if grid == self.rkgrid:
@@ -969,3 +975,12 @@ class Crystal(object):
         self.mappingrvec = mapping
 
         return None
+
+    def MappingBosonFermion(self, iorb):
+
+        [a, [m1, m4]] = self.BAtomOrb(iorb)
+
+        iorbc = self.FIndex([a, m1])
+        lorbc = self.FIndex([a, m4])
+
+        return iorbc, lorbc

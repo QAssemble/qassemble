@@ -499,3 +499,20 @@ class Common:
             if val == klist:
                 return key
     
+    @staticmethod
+    def FindPositions(array, value):
+        """Find all positions of a value in a 2D array.
+
+        Args:
+            array (iterable of iterable): 2D array to search.
+            value: Value to search for.
+
+        Returns:
+            list of [int, int]: List of [row_index, col_index] where value matches.
+        """
+        positions = []
+        for row_index, row in enumerate(array):
+            for col_index, col_value in enumerate(row):
+                if col_value == value:
+                    positions.append([row_index, col_index])
+        return positions
