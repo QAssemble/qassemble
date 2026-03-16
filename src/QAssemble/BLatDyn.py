@@ -526,7 +526,7 @@ class BLatDyn(Crystal, DLR):
         with h5py.File(filepath, "r") as file:
             return group in file
 
-    def RT2mRmT(self, ftau: np.ndarray):
+    def RT2mRmTDLR(self, ftau: np.ndarray):
         ftau_mr = self.R2mR(ftau)
         norb, _, ns, nr, ntau = ftau_mr.shape
         fmtau_mr = np.zeros((norb, norb, ns, nr, ntau), dtype=np.complex128, order="F")
@@ -552,7 +552,7 @@ class BLatDyn(Crystal, DLR):
             for js in range(ns):
                 for jorb, iorb in itertools.product(range(norb), repeat=2):
                     tempmat = ftau[iorb, jorb, js, ik]
-                    fout[iorb, jorb, js, ik] = self.TauF2TauB(tempmat)
+                    fout[iorb, jorb, js, ik] = DLR.TauF2TauB(self,tempmat)
 
         return fout
 
@@ -615,7 +615,7 @@ class PolLat(BLatDyn):
         )
 
         # gmrt = self.crystal.RT2mRmT(grt)
-        gmrt = self.RT2mRmT(grt)
+        gmrt = self.RT2mRmTDLR(grt)
 
         if ns == 2:
             map0 = np.array([self.MappingBosonFermion(i)[0] for i in range(norb)])
