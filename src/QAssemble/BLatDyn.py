@@ -374,7 +374,7 @@ class BLatDyn(Crystal, DLR):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, js, ks, irk, ift] = self.Double2Full(
+                    matout[:, :, js, ks, irk, ift] = Crystal.Double2Full(self,
                         matin[:, :, js, ks, irk, ift]
                     )
         del matin
@@ -395,7 +395,7 @@ class BLatDyn(Crystal, DLR):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, js, ks, irk, ift] = self.Full2Double(
+                    matout[:, :, js, ks, irk, ift] = Crystal.Full2Double(self,
                         matin[:, :, js, ks, irk, ift]
                     )
 
@@ -414,7 +414,7 @@ class BLatDyn(Crystal, DLR):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, js, ks, irk, ift] = self.Quad2Full(
+                    matout[:, :, js, ks, irk, ift] = Crystal.Quad2Full(self,
                         matin[:, :, :, :, js, ks, irk, ift]
                     )
 
@@ -433,7 +433,7 @@ class BLatDyn(Crystal, DLR):
         for ift in range(nft):
             for irk in range(nrk):
                 for ks, js in itertools.product(range(ns), repeat=2):
-                    matout[:, :, :, :, js, ks, irk, ift] = self.Full2Quad(
+                    matout[:, :, :, :, js, ks, irk, ift] = Crystal.Full2Quad(self,
                         matin[:, :, js, ks, irk, ift]
                     )
 
