@@ -41,7 +41,7 @@ import h5py
 # ensure_module("mpi4py")
 # ensure_module("mpi4py_fft", "mpi4py-fft")
 
-from QAssemble.Serial.CorrelationFunction import CorrelationFunction
+from QAssemble.CorrelationFunction import CorrelationFunction
 
 
 class Run:
@@ -50,6 +50,7 @@ class Run:
         self.control = None
         self.func = None
         self.ReadInput()
+        self.mpimanager = None
         if test:
             control = self.control
             func = CorrelationFunction(
@@ -412,9 +413,7 @@ class Run:
     def RunDiagE(self):
 
         control = self.control
-        cry = control["crystal"]
-        ft = control["ft"]
-        func = CorrelationFunction(cry=cry, ft=ft)
+        func = CorrelationFunction(control=control, mpimanager=self.mpimanager)
         # func = CorrelationFunction(latt=control['crystal']['lattice'], basisposition=control['crystal']['basispos'], ns=control['crystal']['ns'],soc=control['crystal']['soc'],rkgrid=control['crystal']['rkgrid'],orboption=control['crystal']['orbital'],N=control['crystal']['nume'],T=control['ft']['T'],beta=control['ft']['beta'],size=control['ft']['size'],c=control['run']['cw'])
 
         itermax = control["run"]["nscf"]

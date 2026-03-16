@@ -22,11 +22,15 @@ from .Crystal import Crystal
 from .utility.Common import Common
 from .utility.Dyson import Dyson
 
-class BLocStc(object):
+class BLocStc(Crystal):
 
-    def __init__(self,crystal : Crystal):
+    def __init__(self, control : dict):
 
-        self.crystal = crystal
+        if isinstance(control, dict):
+            Crystal.__init__(self, control['crystal'])
+        else:
+            # If a Crystal instance is passed, copy its attributes directly
+            self.__dict__.update(control.__dict__)
 
     def Inverse(self, matin : np.ndarray)-> np.ndarray:
 
@@ -38,9 +42,9 @@ class BLocStc(object):
         tempmat2 = np.zeros((norb*ns,norb*ns),dtype=np.complex128)
 
         
-        tempmat = self.crystal.OrbSpin2Composite(matin)
+        tempmat = self.OrbSpin2Composite(matin)
         tempmat2 = np.linalg.inv(tempmat)
-        matout = self.crystal.Composite2OrbSpin(tempmat2)
+        matout = self.Composite2OrbSpin(tempmat2)
         
         return matout
     
@@ -66,12 +70,12 @@ class BLocStc(object):
 
 
         nspace = 0
-        for val in self.crystal.probspace.values():
+        for val in self.probspace.values():
             nspace += len(val)
 
         matloc = np.zeros((norb,norb,ns,ns,nspace),dtype=np.complex128,order='F')
 
-        for key, val in self.crystal.probspace.items():
+        for key, val in self.probspace.items():
             iprob = int(key)-1
             for ispace in val:
                 matloc[...,ispace] = matimp[...,iprob]
@@ -85,12 +89,12 @@ class BLocStc(object):
     
 
         nspace = 0
-        for val in self.crystal.probspace.values():
+        for val in self.probspace.values():
             nspace += len(val)
 
         matloc = np.zeros((norb,norb,ns,ns,nspace),dtype=np.complex128,order='F')
 
-        for key, val in self.crystal.probspace.items():
+        for key, val in self.probspace.items():
             iprob = int(key)-1
             for ispace in val:
                 matloc[...,ispace] = matimp[...,iprob]
@@ -106,7 +110,7 @@ class BLocStc(object):
         
         for ind in range(nind):
             matdict[ind+1] = []
-            pos = self.crystal.FindPositions(equiv,ind+1)
+            pos = self.FindPositions(equiv,ind+1)
             for js in range(ns):
                 for ks in range(ns):
                     e = 0
@@ -120,14 +124,14 @@ class BLocStc(object):
     def Dict2Arr(self, equiv : np.ndarray, matdict : dict) -> np.ndarray:
 
         norb = len(equiv)
-        ns = self.crystal.ns
+        ns = self.ns
         matout = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
         nind = np.amax(equiv)
 
         for js in range(ns):
             for ks in range(ns):
                 for ind in range(nind):
-                    pos = self.crystal.FindPositions(equiv,ind+1)
+                    pos = self.FindPositions(equiv,ind+1)
                     for ii,jj in pos:
                         matout[ii,jj,js,ks] = matdict[str(ind+1)]
 
@@ -146,99 +150,99 @@ class BLocStc(object):
 
     # def Embedding(self, matin : np.ndarray):
 
-    #     norb = len(self.crystal.bind)
-    #     ns = self.crystal.ns
-    #     nrk = len(self.crystal.kpoint)
-    #     nspace = self.crystal.bprojector.shape[3]
+    #     norb = len(self.bind)
+    #     ns = self.ns
+    #     nrk = len(self.kpoint)
+    #     nspace = self.bprojector.shape[3]
 
     #     matout = np.zeros((norb,norb,ns,ns,nrk),dtype=np.complex128,order='F')
 
     #     for ispace in range(nspace):
-    #         matout += QAFort.embedding.blocstc(nrk,matin[...,ispace],self.crystal.bprojector.shape[...,ispace])
+    #         matout += QAFort.embedding.blocstc(nrk,matin[...,ispace],self.bprojector.shape[...,ispace])
 
     #     return matout
     
     def Double2Quad(self, matin):
 
-        norb = len(self.crystal.bind)
-        norbc = len(self.crystal.find)
-        ns = self.crystal.ns
+        norb = len(self.bind)
+        norbc = len(self.find)
+        ns = self.ns
 
         matout = np.zeros((norbc,norbc,norbc,norbc,ns,ns),dtype=np.complex128,order='F')
-        
+
         for js in range(ns):
             for ks in range(ns):
-                matout[...,js,ks] = self.crystal.Double2Quad(matin[...,js,ks])
+                matout[...,js,ks] = Crystal.Double2Quad(self, matin[...,js,ks])
 
         return matout
-    
+
     def Quad2Double(self,matin):
 
-        norb = len(self.crystal.bind)
-        norbc = len(self.crystal.find)
-        ns = self.crystal.ns
+        norb = len(self.bind)
+        norbc = len(self.find)
+        ns = self.ns
 
         matout = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
 
         for js in range(ns):
             for ks in range(ns):
-                matout[...,js,ks] = self.crystal.Quad2Double(matin[...,js,ks])
+                matout[...,js,ks] = Crystal.Quad2Double(self, matin[...,js,ks])
 
         return matout
-    
+
     def Double2Full(self,matin):
 
-        norb = len(self.crystal.bind)
-        norbc = len(self.crystal.find)
-        ns = self.crystal.ns
+        norb = len(self.bind)
+        norbc = len(self.find)
+        ns = self.ns
 
         matout = np.zeros((norbc**2,norbc**2,ns,ns),dtype=np.complex128)
 
         for js in range(ns):
             for ks in range(ns):
-                matout[...,js,ks] = self.Double2Full(matin[...,js,ks])
-        
-        return matin
-    
+                matout[...,js,ks] = Crystal.Double2Full(self, matin[...,js,ks])
+
+        return matout
+
     def Full2Double(self,matin):
 
-        norb = len(self.crystal.bind)
-        norbc = len(self.crystal.find)
-        ns = self.crystal.ns
+        norb = len(self.bind)
+        norbc = len(self.find)
+        ns = self.ns
 
         matout = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
 
         for js in range(ns):
             for ks in range(ns):
-                matout[...,js,ks] = self.crystal.Full2Double(matin[...,js,ks])
+                matout[...,js,ks] = Crystal.Full2Double(self, matin[...,js,ks])
 
         return matout
-    
+
     def Quad2Full(self,matin):
 
-        norb = len(self.crystal.bind)
-        norbc = len(self.crystal.find)
-        ns = self.crystal.ns
+        norb = len(self.bind)
+        norbc = len(self.find)
+        ns = self.ns
 
         matout = np.zeros((norbc*norbc,norbc*norbc,ns,ns),dtype=np.complex128,order='F')
 
         for js in range(ns):
             for ks in range(ns):
-                matout[...,js,ks] = self.Quad2Full(matin[...,js,ks])
-        
+                matout[...,js,ks] = Crystal.Quad2Full(self, matin[...,js,ks])
+
         return matout
-    
+
     def Full2Quad(self,matin):
 
-        norb = len(self.crystal.bind)
-        norbc = len(self.crystal.find)
-        ns = self.crystal.ns
+        norb = len(self.bind)
+        norbc = len(self.find)
+        ns = self.ns
 
         matout = np.zeros((norbc,norbc,norbc,norbc,ns,ns),dtype=np.complex128,order='F')
 
         for js in range(ns):
             for ks in range(ns):
-                matout[...,js,ks] = self.crystal.Full2Quad(matout[...,js,ks])
+                matout[...,js,ks] = Crystal.Full2Quad(self, matin[...,js,ks])
 
         return matout
     
@@ -266,10 +270,10 @@ class BLocStc(object):
 
 class VLoc(BLocStc):
 
-    def __init__(self, crystal: Crystal,voption : dict = None):
-        super().__init__(crystal)
-        norb = len(self.crystal.bind)
-        ns = self.crystal.ns
+    def __init__(self, control : dict, voption : dict = None):
+        super().__init__(control)
+        norb = len(self.bind)
+        ns = self.ns
         self.onsitelist = None
         self.vloc = np.zeros((norb,norb,ns,ns),dtype=float,order='F')
         if voption is None:
@@ -280,49 +284,49 @@ class VLoc(BLocStc):
 
     def SetLocalInteracting(self,voption : dict):
         
-        ns = self.crystal.ns
+        ns = self.ns
 
         if voption["Parameter"] == "Kanamori":
             for key, val in voption["option"].items():
                 atom = int(key-1)
                 norbc = len(val["orbitals"])
-                if norbc > len(self.crystal.find):
+                if norbc > len(self.find):
                     print("Invalid l value set")
                     sys.exit()
                 tempmat = self.KanamoriParameter(norb=norbc,val=val["value"])
                 for js in range(ns):
                     for ks in range(ns):
                         for m1,m2,m3,m4 in itertools.product(val["orbitals"],val["orbitals"],val["orbitals"],val["orbitals"]):
-                            iorb = self.crystal.BIndex([atom,[m1,m4]])
-                            jorb = self.crystal.BIndex([atom,[m2,m3]])
+                            iorb = self.BIndex([atom,[m1,m4]])
+                            jorb = self.BIndex([atom,[m2,m3]])
                             if (iorb is not None)and(jorb is not None):
                                 self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
         if voption["Parameter"] == "Slater":
             for key, val in voption["option"].items():
                 atom = int(key-1)
                 norbc = len(val["orbitals"])
-                if norbc > len(self.crystal.find):
+                if norbc > len(self.find):
                     print("Invalid l value set")
                     sys.exit()
                 tempmat = self.SlaterParameter(l=val["l"],norbc=norbc,val=val["value"])
                 for js, ks in itertools.product(list(range(ns)),list(range(ns))):
                     for m1,m2,m3,m4 in itertools.product(val["orbitals"],val["orbitals"],val["orbitals"],val["orbitals"]):
-                        iorb = self.crystal.BIndex([atom,[m1,m4]])
-                        jorb = self.crystal.BIndex([atom,[m2,m3]])
+                        iorb = self.BIndex([atom,[m1,m4]])
+                        jorb = self.BIndex([atom,[m2,m3]])
                         if (iorb is not None)and(jorb is not None):
                             self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
         if voption["Parameter"] == "SlaterKanamori":
             for key, val in voption["option"].items():
                 atom = int(key-1)
                 norbc = len(val["orbitals"])
-                if norbc > len(self.crystal.find):
+                if norbc > len(self.find):
                     print("Invalid l value set")
                     sys.exit()
                 tempmat = self.SlaterKanamori(l=val["l"],norb=norbc,val=val["value"])
                 for js, ks in itertools.product(list(range(ns)),list(range(ns))):
                     for m1,m2,m3,m4 in itertools.product(val["orbitals"],val["orbitals"],val["orbitals"],val["orbitals"]):
-                        iorb = self.crystal.BIndex([atom,[m1,m4]])
-                        jorb = self.crystal.BIndex([atom,[m2,m3]])
+                        iorb = self.BIndex([atom,[m1,m4]])
+                        jorb = self.BIndex([atom,[m2,m3]])
                         if (iorb is not None)and(jorb is not None):
                             self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
 
@@ -338,13 +342,13 @@ class VLoc(BLocStc):
         #                     for jorbc in val["orbitals"]:
         #                         for korbc in val["orbitals"]:
         #                             for lorbc in val["orbitals"]:
-        #                                 [a,m1] = self.crystal.FAtomOrb(iorbc)
-        #                                 [b,m2] = self.crystal.FAtomOrb(jorbc)
-        #                                 [bp,m3] = self.crystal.FAtomOrb(korbc)
-        #                                 [ap,m4] = self.crystal.FAtomOrb(lorbc)
+        #                                 [a,m1] = self.FAtomOrb(iorbc)
+        #                                 [b,m2] = self.FAtomOrb(jorbc)
+        #                                 [bp,m3] = self.FAtomOrb(korbc)
+        #                                 [ap,m4] = self.FAtomOrb(lorbc)
         #                                 if(a==ap)and(b==bp):
-        #                                     iorb = self.crystal.BIndex([a,[m1,m4]])
-        #                                     jorb = self.crystal.BIndex([b,[m2,m3]])
+        #                                     iorb = self.BIndex([a,[m1,m4]])
+        #                                     jorb = self.BIndex([b,[m2,m3]])
         #                                     self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
         #     elif val["Parameter"] == "Slater":
         #         tempmat = self.SlaterParameter(norbc,val["value"])
@@ -354,13 +358,13 @@ class VLoc(BLocStc):
         #                     for jorbc in val["orbitals"]:
         #                         for korbc in val["orbitals"]:
         #                             for lorbc in val["orbitals"]:
-        #                                 [a,m1] = self.crystal.FAtomOrb(iorbc)
-        #                                 [b,m2] = self.crystal.FAtomOrb(jorbc)
-        #                                 [bp,m3] = self.crystal.FAtomOrb(korbc)
-        #                                 [ap,m4] = self.crystal.FAtomOrb(lorbc)
+        #                                 [a,m1] = self.FAtomOrb(iorbc)
+        #                                 [b,m2] = self.FAtomOrb(jorbc)
+        #                                 [bp,m3] = self.FAtomOrb(korbc)
+        #                                 [ap,m4] = self.FAtomOrb(lorbc)
         #                                 if(a==ap)and(b==bp):
-        #                                     iorb = self.crystal.BIndex([a,[m1,m4]])
-        #                                     jorb = self.crystal.BIndex([b,[m2,m3]])
+        #                                     iorb = self.BIndex([a,[m1,m4]])
+        #                                     jorb = self.BIndex([b,[m2,m3]])
         #                                     self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
         #     elif val["Parameter"] == "SlaterKanamori":
         #         print(norbc)
@@ -371,21 +375,21 @@ class VLoc(BLocStc):
         #                     for jorbc in val["orbitals"]:
         #                         for korbc in val["orbitals"]:
         #                             for lorbc in val["orbitals"]:
-        #                                 [a,m1] = self.crystal.FAtomOrb(iorbc)
-        #                                 [b,m2] = self.crystal.FAtomOrb(jorbc)
-        #                                 [bp,m3] = self.crystal.FAtomOrb(korbc)
-        #                                 [ap,m4] = self.crystal.FAtomOrb(lorbc)
+        #                                 [a,m1] = self.FAtomOrb(iorbc)
+        #                                 [b,m2] = self.FAtomOrb(jorbc)
+        #                                 [bp,m3] = self.FAtomOrb(korbc)
+        #                                 [ap,m4] = self.FAtomOrb(lorbc)
         #                                 if(a==ap)and(b==bp):
-        #                                     iorb = self.crystal.BIndex([a,[m1,m4]])
-        #                                     jorb = self.crystal.BIndex([b,[m2,m3]])
+        #                                     iorb = self.BIndex([a,[m1,m4]])
+        #                                     jorb = self.BIndex([b,[m2,m3]])
         #                                     self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
         
         return None
     
     def GenOnsite(self):
         
-        norbc = len(self.crystal.find)
-        ns = self.crystal.ns
+        norbc = len(self.find)
+        ns = self.ns
         onsitelist = []
         
         tempmat = np.zeros((norbc,norbc,norbc,norbc,ns,ns),dtype=np.complex128,order='F')
@@ -406,7 +410,7 @@ class VLoc(BLocStc):
     def KanamoriParameter(self, norb : int, val : list) -> np.ndarray:
 
         # print("Warning : In kanamori interaction, self interaction term has been added")
-        ns = self.crystal.ns
+        ns = self.ns
         v = np.zeros((norb,norb,norb,norb,ns,ns),dtype=float,order='F')
         U = val[0]
         Up = val[1]
@@ -436,7 +440,7 @@ class VLoc(BLocStc):
         
         # error message
         # print("Only calculate the odd number of orbitals")    
-        ns = self.crystal.ns
+        ns = self.ns
         norb = 2*l+1
         vtemp = np.zeros((norb,norb,norb,norb,ns,ns),dtype=float,order='F')
         v = np.zeros((norbc,norbc,norbc,norbc,ns,ns),dtype=float,order='F')
@@ -485,7 +489,7 @@ class VLoc(BLocStc):
         Up = val[1]
         J = val[2]
         ratio = 0.625
-        ns = self.crystal.ns
+        ns = self.ns
         # print(norb)
 
         v = np.zeros((norb,norb,norb,norb,ns,ns),dtype=float,order='F')
@@ -606,23 +610,23 @@ class VLoc(BLocStc):
 
     def GetUijklComCTQMC(self, key):
 
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
+        norb = len(self.find)
+        ns = self.ns
         
-        orb = self.crystal.fimpdict[key][0]
+        orb = self.fimpdict[key][0]
         norbc = len(orb)
         tempmat = np.zeros((norb, norb, norb, norb), dtype=np.complex128, order='F')
         vloc = np.zeros((norbc, norbc, norbc, norbc, ns, ns), dtype=np.complex128, order='F')
         for ks in range(ns):
             for js in range(ns):
-                tempmat = self.crystal.Double2Quad(self.vloc[...,js,ks])
+                tempmat = self.Double2Quad(self.vloc[...,js,ks])
                 for ll, lorb in enumerate(orb):
                     for kk, korb in enumerate(orb):
                         for jj, jorb in enumerate(orb):
                             for ii, iorb in enumerate(orb):
                                 vloc[ii, jj, kk, ll, js, ks] = tempmat[iorb, jorb, korb, lorb]
 
-        if (self.crystal.soc == False):
+        if (self.soc == False):
             U = np.zeros((norbc**4*2**4), dtype=np.float64, order='F')
             idx = 0
             if (ns == 1):
