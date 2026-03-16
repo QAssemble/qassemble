@@ -651,7 +651,7 @@ class PolLat(BLatDyn):
             map1 = np.array([self.MappingBosonFermion(i)[1] for i in range(norb)])
 
             term1 = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], :, :, :]
-            term2 = grt[map1[np.newaxis, :], map0[:, np.newaxis], :, :, :]
+            term2 = grt[map1[:, np.newaxis], map0[np.newaxis, :], :, :, :]
 
             diagonal_product = term1 * term2
 
