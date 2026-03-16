@@ -884,9 +884,9 @@ class SigmaGWC(FLatDyn):
                     nn2 = [0]*2
                     ind2, [jorb,ks] = Common.Indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
                     # ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
-                    [b,[m3,m2]] = self.crystal.BAtomOrb(jorb)
-                    iorbc3 = self.crystal.FIndex([b,m3])
-                    iorbc2 = self.crystal.FIndex([b,m2])
+                    [b,[m3,m2]] = self.BAtomOrb(jorb)
+                    iorbc3 = self.FIndex([b,m3])
+                    iorbc2 = self.FIndex([b,m2])
                     for ind1 in range(norb*ns):
                         nn1 = [0]*2
                         # ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
