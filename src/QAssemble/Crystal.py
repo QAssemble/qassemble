@@ -365,7 +365,7 @@ class Crystal(object):
             np.ndarray: Array of shape (norb, norb, ns, ns).
         """
 
-        norb = len(self.bind)
+        norb = len(self.full)
         ndim = matin.shape[0]
         ns = ndim // norb
 
