@@ -325,6 +325,17 @@ class Fourier:
                     fout[iorb, jorb, js, :] = ifftn(temp3d).reshape(nk, order='F') * nk
 
         return fout
+    
+    @staticmethod
+    def FLatDynK2R(fin: np.ndarray, rkgrid: list) -> np.ndarray:
+        """K→R  (serial, fermionic)  shape: (norb, norb, ns, nk, nft)."""
+        norb, _, ns, nk, nft = fin.shape
+        fout = np.zeros((norb, norb, ns, nk, nft), dtype=np.complex128, order='F')
+
+        for ift in range(nft):
+            fout[..., ift] = Fourier.FLatStcK2R(fin[..., ift], rkgrid)
+        
+        return fout
 
     @staticmethod
     def FLatStcR2K(fin: np.ndarray, rkgrid: list) -> np.ndarray:
@@ -338,6 +349,17 @@ class Fourier:
                     temp3d = fin[iorb, jorb, js, :].reshape(rkgrid, order='F')
                     fout[iorb, jorb, js, :] = fftn(temp3d).reshape(nr, order='F') / nr
 
+        return fout
+    
+    @staticmethod
+    def FLatDynR2K(fin: np.ndarray, rkgrid: list) ->np.ndarray:
+        """R→K  (serial, fermionic)  shape: (norb, norb, ns, nr, nft)."""
+        norb, _, ns, nr, nft = fin.shape
+        fout = np.zeros((norb, norb, ns, nr, nft), dtype=np.complex128, order='F')
+
+        for ift in range(nft):
+            fout[..., ift] = Fourier.FLatStcR2K(fin[..., ift], rkgrid) 
+        
         return fout
 
     @staticmethod
@@ -354,6 +376,17 @@ class Fourier:
                         fout[iorb, jorb, js, ks, :] = ifftn(temp3d).reshape(nk, order='F') * nk
 
         return fout
+    
+    @staticmethod
+    def BLatDynK2R(fin: np.ndarray, rkgrid: list) ->np.ndarray:
+        """K→R  (serial, bosonic)  shape: (norb, norb, ns, ns, nk, nft)."""
+        norb, _, ns, _, nk, nft = fin.shape
+        fout = np.zeros((norb, norb, ns, ns, nk, nft), dtype=np.complex128, order='F')
+
+        for ift in range(nft):
+            fout[..., ift] = Fourier.BLatStcK2R(fin[..., ift], rkgrid)
+        
+        return fout
 
     @staticmethod
     def BLatStcR2K(fin: np.ndarray, rkgrid: list) -> np.ndarray:
@@ -368,6 +401,17 @@ class Fourier:
                         temp3d = fin[iorb, jorb, js, ks, :].reshape(rkgrid, order='F')
                         fout[iorb, jorb, js, ks, :] = fftn(temp3d).reshape(nr, order='F') / nr
 
+        return fout
+    
+    @staticmethod
+    def BLatDynR2K(fin: np.ndarray, rkgrid: list) -> np.ndarray:
+        """R→K  (serial, bosonic)  shape: (norb, norb, ns, ns, nr, nft)."""
+        norb, _, ns, _, nr, nft = fin.shape
+        fout = np.zeros((norb, norb, ns, ns, nr, nft), dtype=np.complex128, order='F')
+
+        for ift in range(nft):
+            fout[..., ift] = Fourier.BLatStcR2K(fin[..., ift], rkgrid)
+        
         return fout
 
     # ---------------------------------------------------------------------------
@@ -472,6 +516,16 @@ class FourierMPI:
 
         commk.Allreduce(fout_local, fout_global, op=MPI.SUM)
         return fout_global
+    
+    @staticmethod
+    def FLatDynK2R(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+
+        pass
+
+    @staticmethod
+    def FLatDynR2K(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+
+        pass
 
     @staticmethod
     def BLatStcK2R(fin: np.ndarray, nodedict: dict) -> np.ndarray:
@@ -579,3 +633,13 @@ class FourierMPI:
             fout[..., ifreq] = FourierMPI.FPathStcR2K(fin[..., ifreq], nodedict, nodedict2, k, rvec)
 
         return fout
+
+    @staticmethod
+    def BLatDynR2K(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+
+        pass
+
+    @staticmethod
+    def BLatDynK2R(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+
+        pass

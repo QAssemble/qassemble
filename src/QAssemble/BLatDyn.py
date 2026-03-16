@@ -174,6 +174,11 @@ class BLatDyn(Crystal, DLR):
         rkvec = self.kpoint
         tempmat = matk.copy()
 
+        if nodedict is not None:
+            from .utility.Fourier import FourierMPI as Fourier
+        else:
+            from .utility.Fourier import Fourier
+
         orb2atom = np.empty(norb, dtype=np.int64)
         for iorb in range(norb):
             a, _ = self.BAtomOrb(iorb)
@@ -191,12 +196,7 @@ class BLatDyn(Crystal, DLR):
         
         tempmat *= phases_T[:, :, None, None, :, None]
 
-        for ift in range(nft):
-            
-            if nodedict is not None:
-                matr[..., ift] = Fourier.BLatStcK2R_MPI(tempmat, nodedict)
-            else:
-                matr[..., ift] = Fourier.BLatStcK2R(tempmat, rkgrid)
+        matr = Fourier.BLatDynK2R(tempmat, rkgrid)
 
         return matr
 
@@ -211,6 +211,11 @@ class BLatDyn(Crystal, DLR):
         # phase_conj = np.conjugate(phases)[:, :, np.newaxis, np.newaxis, :]
 
         rkvec = self.kpoint
+
+        if nodedict is not None:
+            from .utility.Fourier import FourierMPI as Fourier
+        else:
+            from .utility.Fourier import Fourier
 
         orb2atom = np.empty(norb, dtype=np.int64)
         for iorb in range(norb):
@@ -229,11 +234,7 @@ class BLatDyn(Crystal, DLR):
         matk = np.zeros((norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F")
         tempmat = np.empty((norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F")
 
-        for ift in range(nft):
-            if nodedict is not None:
-                tempmat[..., ift] = Fourier.BLatStcR2K_MPI(matr[..., ift], nodedict)
-            else:
-                tempmat[..., ift] = Fourier.BLatStcR2K(matr[..., ift], rkgrid)
+        tempmat = Fourier.BLatDynR2K(matr, rkgrid)
 
         matk = tempmat * phases_T[:, :, None, None, :, None]
 

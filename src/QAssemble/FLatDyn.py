@@ -18,7 +18,6 @@ from .Crystal import Crystal
 from .FLatStc import FLatStc
 from .utility.DLR import DLR
 from .utility.Common import Common
-from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 
 
@@ -181,6 +180,10 @@ class FLatDyn(Crystal, DLR):
         if rkgrid is None:
             rkgrid = self.rkgrid
 
+        if nodedict is not None:
+            from .utility.Fourier import FourierMPI as Fourier
+        else:
+            from .utility.Fourier import Fourier
         # phases = self._get_fermion_phase()
         norb = matk.shape[0]
         ns = matk.shape[2]
@@ -210,12 +213,9 @@ class FLatDyn(Crystal, DLR):
         tempmat = matk.copy()
 
         tempmat *= phases_T[:, :, None, :, None]
-        for ift in range(nft):
+        
             
-            if nodedict is not None:
-                matr[..., ift] = Fourier.FLatStcK2R_MPI(tempmat, nodedict)
-            else:
-                matr[..., ift] = Fourier.FLatStcK2R(tempmat, rkgrid)
+        matr = Fourier.FLatDynK2R(tempmat, rkgrid)
 
         return matr
 
@@ -229,7 +229,10 @@ class FLatDyn(Crystal, DLR):
         nft = matr.shape[4]
 
         rkvec = self.kpoint
-
+        if nodedict is not None:
+            from .utility.Fourier import FourierMPI as Fourier
+        else:
+            from .utility.Fourier import Fourier
         orb2atom = np.empty(norb, dtype=np.int64)
         for iorb in range(norb):
             a, _ = self.FAtomOrb(iorb)
@@ -246,11 +249,7 @@ class FLatDyn(Crystal, DLR):
         matk = np.zeros((norb, norb, ns, nrk, nft), dtype=np.complex128, order='F')
         tempmat = np.empty((norb, norb, ns, nrk, nft), dtype=np.complex128, order='F')
 
-        for ift in range(nft):
-            if nodedict is not None:
-                tempmat[..., ift] = Fourier.FLatStcR2K_MPI(matr[..., ift], nodedict)
-            else:
-                tempmat[..., ift] = Fourier.FLatStcR2K(matr[..., ift], rkgrid)
+        tempmat = Fourier.FLatDynR2K(matr, rkgrid)
 
         matk = tempmat * phases_T[:, :, None, :, None]
         
