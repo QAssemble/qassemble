@@ -569,11 +569,12 @@ class BLatDyn(Crystal, DLR):
         return matout
     
     def Composite2OrbSpin(self, matin: np.ndarray):
-        
+
         _, _,  nrk, nft = matin.shape
 
-        norb = len(self.bind)
-        ns = self.ns
+        norb = len(self.full)
+        ndim = matin.shape[0]
+        ns = ndim // norb
 
         matout = np.zeros((norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F")
 
