@@ -355,24 +355,30 @@ class Crystal(object):
                     c2b.append([borb,ind])
         self.c2b = c2b
 
-    def Composite2OrbSpin(self, matin: np.ndarray):
+    def Composite2OrbSpin(self, matin: np.ndarray, norb: int = None, ns: int = None):
         """Reshape a composite matrix into orbital-spin representation.
 
         Args:
             matin (np.ndarray): Composite matrix of shape (norb*ns, norb*ns).
+            norb (int): Number of orbitals. Defaults to len(self.bind).
+            ns (int): Number of spins. Defaults to self.ns.
 
         Returns:
             np.ndarray: Array of shape (norb, norb, ns, ns).
         """
 
-        norb = len(self.bind)
-        ns = self.ns
+        if norb is None:
+            norb = len(self.bind)
+        if ns is None:
+            ns = self.ns
+        ndim = norb * ns
+
+        # ind = iorb + js * norb (column-major)
+        idx = np.arange(ndim)
+        iorb_arr = idx % norb
+        js_arr   = idx // norb
+
         matout = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
-
-        # bc2os[ind] = [iorb, js], vectorized scatter
-        iorb_arr = self.bc2os[:, 0]  # shape (ndim,)
-        js_arr   = self.bc2os[:, 1]  # shape (ndim,)
-
         matout[iorb_arr[:, None], iorb_arr[None, :],
                js_arr[:, None],   js_arr[None, :]] = matin
 
@@ -391,14 +397,14 @@ class Crystal(object):
         norb = matin.shape[0]
         ns = matin.shape[2]
         ndim = norb * ns
-        matout = np.zeros((ndim,ndim),dtype=np.complex128,order='F')
 
-        # bc2os[ind] = [iorb, js], vectorized gather
-        iorb_arr = self.bc2os[:, 0]  # shape (ndim,)
-        js_arr   = self.bc2os[:, 1]  # shape (ndim,)
+        # ind = iorb + js * norb (column-major)
+        idx = np.arange(ndim)
+        iorb_arr = idx % norb
+        js_arr   = idx // norb
 
         matout = matin[iorb_arr[:, None], iorb_arr[None, :],
-                     js_arr[:, None],   js_arr[None, :]]
+                       js_arr[:, None],   js_arr[None, :]]
 
         return np.array(matout, dtype=np.complex128, order='F')
 
