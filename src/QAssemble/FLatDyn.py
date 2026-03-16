@@ -25,8 +25,8 @@ from .utility.Dyson import Dyson
 class FLatDyn(Crystal, DLR):
     def __init__(self, control : dict) -> object:
         
-        Crystal.__init__(self, control['cry'])
-        DLR.__init__(self, control['ft'])
+        Crystal.__init__(self, control['crystal'])
+        DLR.__init__(self, control['dlr'])
         
         self.mappingidx = None
         self._fermion_phase_cache = None

@@ -25,8 +25,8 @@ from .utility.Dyson import Dyson
 
 class BLatDyn(Crystal, DLR):
     def __init__(self, control : dict) -> object:
-        Crystal.__init__(self, control['cry'])
-        DLR.__init__(self, control['ft'])
+        Crystal.__init__(self, control['crystal'])
+        DLR.__init__(self, control['dlr'])
         self._boson_phase_cache = None
 
     def _get_boson_phase(self) -> np.ndarray:
