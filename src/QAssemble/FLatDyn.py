@@ -208,11 +208,12 @@ class FLatDyn(Crystal, DLR):
         phases_T = np.transpose(phases, (1, 2, 0))
 
         matr = np.zeros((norb, norb, ns, nrk, nft), dtype=np.complex128, order='F')
-        tempmat = np.empty((norb, norb, ns, nrk), dtype=np.complex128, order='F')
+        tempmat = np.empty((norb, norb, ns, nrk, nft), dtype=np.complex128, order='F')
         # phase_view = phases[:, :, np.newaxis, :]
         tempmat = matk.copy()
 
         tempmat *= phases_T[:, :, None, :, None]
+        
         
             
         matr = Fourier.FLatDynK2R(tempmat, rkgrid)
