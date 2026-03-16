@@ -36,7 +36,7 @@ class CorrelationFunction(object):
         self.control = control
         
         cry = control["crystal"]
-        ft = control["ft"]
+        ft = control["dlr"]
         self.crystal = Crystal(cry=cry)
         
         self.dlr = DLR(ft)
