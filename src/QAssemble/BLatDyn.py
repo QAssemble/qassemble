@@ -535,7 +535,7 @@ class BLatDyn(Crystal, DLR):
             for js in range(ns):
                 for jorb in range(norb):
                     for iorb in range(norb):
-                        fmtau_mr[iorb, jorb, js, ir] = self.T2mT(
+                        fmtau_mr[iorb, jorb, js, ir] = DLR.T2mT(self,
                             ftau_mr[iorb, jorb, js, ir]
                         )
         # fmtau_mr = self.dlr.T2mT(ftau_mr)
