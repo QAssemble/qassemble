@@ -564,7 +564,7 @@ class BLatDyn(Crystal, DLR):
 
         for ift in range(nft):
             for irk in range(nrk):
-                matout[..., irk, ift] = Crystal.OrbSpin2Composite(self, matin[..., irk, ift])
+                matout[..., irk, ift] = Crystal.OrbSpin2Composite(self, matin[:, :, :, :, irk, ift])
         
         return matout
     
