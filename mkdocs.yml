@@ -1,0 +1,85 @@
+site_name: QAssemble
+site_url: https://www.qassemble.org/
+site_description: >
+  A pure-Python quantum simulation package for calculating electronic
+  properties of materials using diagrammatic many-body perturbation theory.
+site_author: Mo Seong Jun
+
+repo_name: Mo-Seong-Jun/QAssemble
+repo_url: https://github.com/Mo-Seong-Jun/QAssemble
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.top
+    - navigation.indexes
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - admonition
+  - pymdownx.details
+  - pymdownx.arithmatex:
+      generic: true
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quickstart.md
+  - Basic Theory:
+    - Green's Function Formalism: theory/greens-function.md
+    - Hamiltonian: theory/hamiltonian.md
+    - Hartree-Fock Approximation: theory/hartree-fock.md
+    - GW Approximation: theory/gw-approximation.md
+    - Discrete Lehmann Representation: theory/dlr.md
+  - Reference:
+    - Serial Modules: SerialModules.md
+    - Class Diagram: SerialClassDiagram.md
+
+docs_dir: docs

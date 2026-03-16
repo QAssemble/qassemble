@@ -1,0 +1,179 @@
+/* ============================================================
+   Hero Section
+   ============================================================ */
+.hero {
+  background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #1565c0 100%);
+  color: #fff;
+  padding: 80px 40px;
+  text-align: center;
+  margin: -1.2rem -1.6rem 2rem -1.6rem;
+}
+
+.hero h1 {
+  font-size: 3rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem 0;
+  color: #fff !important;
+  border: none;
+}
+
+.hero .hero-subtitle {
+  font-size: 1.25rem;
+  opacity: 0.9;
+  max-width: 680px;
+  margin: 0 auto 2rem auto;
+  line-height: 1.6;
+}
+
+.hero-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.hero-btn {
+  display: inline-block;
+  padding: 0.75rem 2rem;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none !important;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.hero-btn-primary {
+  background: #fff;
+  color: #1a237e !important;
+  border: 2px solid #fff;
+}
+
+.hero-btn-primary:hover {
+  background: transparent;
+  color: #fff !important;
+}
+
+.hero-btn-secondary {
+  background: transparent;
+  color: #fff !important;
+  border: 2px solid rgba(255,255,255,0.7);
+}
+
+.hero-btn-secondary:hover {
+  background: rgba(255,255,255,0.15);
+  border-color: #fff;
+}
+
+/* ============================================================
+   Feature Cards  (vasp.at style — 3-col grid)
+   ============================================================ */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+@media (max-width: 900px) {
+  .feature-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 580px) {
+  .feature-grid { grid-template-columns: 1fr; }
+  .hero h1 { font-size: 2rem; }
+}
+
+.feature-card {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 6px;
+  padding: 1.5rem;
+  transition: box-shadow 0.2s, border-color 0.2s;
+  background: var(--md-default-bg-color);
+}
+
+.feature-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  border-color: var(--md-primary-fg-color);
+}
+
+.feature-card .card-icon {
+  font-size: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.feature-card h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem 0;
+}
+
+.feature-card p {
+  font-size: 0.9rem;
+  color: var(--md-default-fg-color--light);
+  margin: 0 0 1rem 0;
+  line-height: 1.5;
+}
+
+.feature-card a.card-link {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--md-primary-fg-color);
+  text-decoration: none;
+}
+
+.feature-card a.card-link:hover {
+  text-decoration: underline;
+}
+
+/* ============================================================
+   News / Announcement Section
+   ============================================================ */
+.news-section {
+  margin: 3rem 0 1rem 0;
+}
+
+.news-section h2 {
+  font-size: 1.5rem;
+  border-bottom: 2px solid var(--md-primary-fg-color);
+  padding-bottom: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+/* ============================================================
+   Contributors Section
+   ============================================================ */
+.contributors-section {
+  margin: 3rem 0 1rem 0;
+}
+
+.contributors-section h2 {
+  font-size: 1.5rem;
+  border-bottom: 2px solid var(--md-primary-fg-color);
+  padding-bottom: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.contributors-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2rem;
+  padding: 0;
+  list-style: none;
+}
+
+.contributors-list li {
+  font-size: 0.95rem;
+  color: var(--md-default-fg-color);
+}
+
+.contributors-list li::before {
+  content: "▸ ";
+  color: var(--md-primary-fg-color);
+}
+
+/* ============================================================
+   Hide left sidebar on homepage only
+   ============================================================ */
+[data-md-component="sidebar"][data-md-type="navigation"] {
+  display: initial;
+}
