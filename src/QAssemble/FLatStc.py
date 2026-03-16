@@ -827,27 +827,27 @@ class SigmaHartree(FLatStc):
             for ik in range(nk):
                 for ind1 in range(norb * ns):
                     nn1 = [0] * 2
-                    ind1, [iorb, js] = self.crystal.indexing(
+                    ind1, [iorb, js] = Common.Indexing(
                         norb * ns, 2, [norb, ns], 0, ind1, nn1
                     )
-                    [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
-                    iorbc1 = self.crystal.FIndex([a, m1])
-                    iorbc2 = self.crystal.FIndex([a, m2])
+                    [a, [m1, m2]] = self.BAtomOrb(iorb)
+                    iorbc1 = self.FIndex([a, m1])
+                    iorbc2 = self.FIndex([a, m2])
                     for ind2 in range(norb * ns):
                         nn2 = [0] * 2
-                        ind2, [jorb, ks] = self.crystal.indexing(
+                        ind2, [jorb, ks] = Common.Indexing(
                             norb * ns, 2, [norb, ns], 0, ind2, nn2
                         )
-                        [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
-                        iorbc3 = self.crystal.FIndex([b, m3])
-                        iorbc4 = self.crystal.FIndex([b, m4])
+                        [b, [m3, m4]] = self.BAtomOrb(jorb)
+                        iorbc3 = self.FIndex([b, m3])
+                        iorbc4 = self.FIndex([b, m4])
                         # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]
                         h[iorbc1, iorbc2, js, ik] += (
                             self.vbare[iorb, jorb, js, ks, 0] * occ[iorbc4, iorbc3, ks]
                         )
 
         else:
-            if self.crystal.soc == True:
+            if self.soc == True:
                 C = 1
                 # for ik in range(nk):
                 #     for iorb in range(norb):
@@ -861,20 +861,20 @@ class SigmaHartree(FLatStc):
                 for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
-                        ind1, [iorb, js] = self.crystal.indexing(
+                        ind1, [iorb, js] = Common.Indexing(
                             norb * ns, 2, [norb, ns], 0, ind1, nn1
                         )
-                        [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
-                        iorbc1 = self.crystal.FIndex([a, m1])
-                        iorbc2 = self.crystal.FIndex([a, m2])
+                        [a, [m1, m2]] = self.BAtomOrb(iorb)
+                        iorbc1 = self.FIndex([a, m1])
+                        iorbc2 = self.FIndex([a, m2])
                         for ind2 in range(norb * ns):
                             nn2 = [0] * 2
-                            ind2, [jorb, ks] = self.crystal.indexing(
+                            ind2, [jorb, ks] = Common.Indexing(
                                 norb * ns, 2, [norb, ns], 0, ind2, nn2
                             )
-                            [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
-                            iorbc3 = self.crystal.FIndex([b, m3])
-                            iorbc4 = self.crystal.FIndex([b, m4])
+                            [b, [m3, m4]] = self.BAtomOrb(jorb)
+                            iorbc3 = self.FIndex([b, m3])
+                            iorbc4 = self.FIndex([b, m4])
                             h[iorbc1, iorbc2, js, ik] = (
                                 self.vbare[iorb, jorb, js, ks, 0]
                                 * occ[iorbc4, iorbc3, ks]
@@ -894,20 +894,20 @@ class SigmaHartree(FLatStc):
                 for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
-                        ind1, [iorb, js] = self.crystal.indexing(
+                        ind1, [iorb, js] = Common.Indexing(
                             norb * ns, 2, [norb, ns], 0, ind1, nn1
                         )
-                        [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
-                        iorbc1 = self.crystal.FIndex([a, m1])
-                        iorbc2 = self.crystal.FIndex([a, m2])
+                        [a, [m1, m2]] = self.BAtomOrb(iorb)
+                        iorbc1 = self.FIndex([a, m1])
+                        iorbc2 = self.FIndex([a, m2])
                         for ind2 in range(norb * ns):
                             nn2 = [0] * 2
-                            ind2, [jorb, ks] = self.crystal.indexing(
+                            ind2, [jorb, ks] = Common.Indexing(
                                 norb * ns, 2, [norb, ns], 0, ind2, nn2
                             )
-                            [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
-                            iorbc3 = self.crystal.FIndex([b, m3])
-                            iorbc4 = self.crystal.FIndex([b, m4])
+                            [b, [m3, m4]] = self.BAtomOrb(jorb)
+                            iorbc3 = self.FIndex([b, m3])
+                            iorbc4 = self.FIndex([b, m4])
                             # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]*C
                             h[iorbc1, iorbc2, js, ik] += (
                                 self.vbare[iorb, jorb, js, ks, 0]
