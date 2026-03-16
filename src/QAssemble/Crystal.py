@@ -85,6 +85,7 @@ class Crystal(object):
         # 
         # self.b2f = None
         self.c2b = None
+        self.bc2os = None
         self.probspace = {}
         self.fimpdict = {}
         self.bimpdict = {}
@@ -105,6 +106,7 @@ class Crystal(object):
         self.Boson2Fermion()
         self.SetFullBasis()
         self.Boson2Full()
+        self.SetBosonCompositeOrbSpin()
         self.RVec()
 
         return None
@@ -250,6 +252,8 @@ class Crystal(object):
 
         self.c2b = c2b
 
+        return None
+
     def SetFullBasis(self):
 
         norbc = len(self.find)
@@ -267,6 +271,23 @@ class Crystal(object):
 
         self.pbasis = copy.deepcopy(pbasis)
         self.full = copy.deepcopy(full)
+
+        return None
+    
+    def SetBosonCompositeOrbSpin(self):
+
+        norb = len(self.bind)
+        ns = self.ns
+
+        ndim = norb * ns
+
+        # bc2os[ind] = [iorb, js] where ind = iorb + js * norb
+        bc2os = np.zeros((ndim, 2), dtype=int)
+        for ind in range(ndim):
+            bc2os[ind, 0] = ind % norb   # iorb
+            bc2os[ind, 1] = ind // norb   # js
+
+        self.bc2os = bc2os
 
         return None
 
@@ -334,11 +355,11 @@ class Crystal(object):
                     c2b.append([borb,ind])
         self.c2b = c2b
 
-    def Composite2OrbSpin(self, mat: np.ndarray):
+    def Composite2OrbSpin(self, matin: np.ndarray):
         """Reshape a composite matrix into orbital-spin representation.
 
         Args:
-            mat (np.ndarray): Composite matrix of shape (norb*ns, norb*ns).
+            matin (np.ndarray): Composite matrix of shape (norb*ns, norb*ns).
 
         Returns:
             np.ndarray: Array of shape (norb, norb, ns, ns).
@@ -346,43 +367,40 @@ class Crystal(object):
 
         norb = len(self.bind)
         ns = self.ns
-        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex64,order='F')
-        ndim = mat.shape[0]
+        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
 
-        for ind1 in range(ndim):
-            nn1 = [0]*2
-            ind1, [iorb,js] = Common(ndim,2,[norb,ns],0,ind1,nn1)
-            for ind2 in range(ndim):
-                nn2 = [0]*2
-                ind2, [jorb,ks] = Common.Indexing(ndim,2,[norb,ns],0,ind2,nn2)
-                matout[iorb,jorb,js,ks] = mat[ind1,ind2]
+        # bc2os[ind] = [iorb, js], vectorized scatter
+        iorb_arr = self.bc2os[:, 0]  # shape (ndim,)
+        js_arr   = self.bc2os[:, 1]  # shape (ndim,)
+
+        matout[iorb_arr[:, None], iorb_arr[None, :],
+               js_arr[:, None],   js_arr[None, :]] = matin
 
         return matout
 
-    def OrbSpin2Composite(self, mat: np.ndarray):
+    def OrbSpin2Composite(self, matin: np.ndarray):
         """Reshape an orbital-spin matrix into composite matrix form.
 
         Args:
-            mat (np.ndarray): Array of shape (norb, norb, ns, ns).
+            matin (np.ndarray): Array of shape (norb, norb, ns, ns).
 
         Returns:
             np.ndarray: Composite matrix of shape (norb*ns, norb*ns).
         """
 
-        norb = mat.shape[0]
-        ns = mat.shape[2]
-        matout = np.zeros((norb*ns,norb*ns),dtype=np.complex64,order='F')
+        norb = matin.shape[0]
+        ns = matin.shape[2]
+        ndim = norb * ns
+        matout = np.zeros((ndim,ndim),dtype=np.complex128,order='F')
 
-        for js in range(ns):
-            for iorb in range(norb):
-                nn1 = [iorb,js]
-                ind1, nn1 = Common.Indexing(norb*ns,2,[norb,ns],1,0,nn1)
-                for ks in range(ns):
-                    for jorb in range(norb):
-                        nn2 = [jorb,ks]
-                        ind2, nn2 = Common.Indexing(norb*ns,2,[norb,ns],1,0,nn2)
-                        matout[ind1,ind2] = mat[iorb,jorb,js,ks]
-        return matout
+        # bc2os[ind] = [iorb, js], vectorized gather
+        iorb_arr = self.bc2os[:, 0]  # shape (ndim,)
+        js_arr   = self.bc2os[:, 1]  # shape (ndim,)
+
+        matout = matin[iorb_arr[:, None], iorb_arr[None, :],
+                     js_arr[:, None],   js_arr[None, :]]
+
+        return np.array(matout, dtype=np.complex128, order='F')
 
     def Quad2Double(self, matin: np.ndarray) -> np.ndarray:
         """Convert a 4-index tensor to 2-index matrix in boson basis.

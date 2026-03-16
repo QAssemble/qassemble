@@ -555,6 +555,34 @@ class BLatDyn(Crystal, DLR):
                     fout[iorb, jorb, js, ik] = DLR.TauF2TauB(self,tempmat)
 
         return fout
+    
+    def OrbSpin2Composite(self, matin: np.ndarray):
+        
+        norb, _, ns, _, nrk, nft = matin.shape
+
+        matout = np.zeros((norb*ns, norb*ns, nrk, nft), dtype=np.complex128, order="F")
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                matout[..., irk, ift] = Crystal.OrbSpin2Composite(self, matin[..., irk, ift])
+        
+        return matout
+    
+    def Composite2OrbSpin(self, matin: np.ndarray):
+        
+        _, _,  nrk, nft = matin.shape
+
+        norb = len(self.bind)
+        ns = self.ns
+
+        matout = np.zeros((norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F")
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                matout[..., irk, ift] = Crystal.Composite2OrbSpin(self, matin[..., irk, ift])
+
+        return matout
+        
 
 
 class PolLat(BLatDyn):
@@ -788,8 +816,11 @@ class WLat(BLatDyn):
 
         print("Dyson equation solving start")
         start = time.time()
-        tempmat = self.Dyson(vcomp, polcomp)
-        wkf = self.Full2Double(tempmat)
+        vcom2 = self.OrbSpin2Composite(vcomp)
+        polcom2 = self.OrbSpin2Composite(polcomp)
+        tempmat = self.Dyson(vcom2, polcom2)
+        tempmat2 = self.Composite2OrbSpin(tempmat)
+        wkf = self.Full2Double(tempmat2)
         end = time.time()
         # print(f"Dyson equation solving use time: {end - start} s")
         print("Dyson equation solving finish")

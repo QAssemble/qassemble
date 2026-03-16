@@ -127,43 +127,43 @@ class Dyson:
             np.ndarray: The full local bosonic Green's function (norb, norb, ns, ns).
         """
 
-        norb, _, ns, _ = ffin.shape
+        ndim, _ = ffin.shape
 
-        ffout = np.zeros((norb, norb, ns, ns), dtype=np.complex128, order='F')
-        tempmat = np.zeros((norb*ns, norb*ns), dtype=np.complex128, order='F')
-        tempmat2 = np.zeros((norb*ns, norb*ns), dtype=np.complex128, order='F')
-        ffintemp = np.zeros((norb*ns, norb*ns), dtype=np.complex128, order='F')
-        sigtemp = np.zeros((norb*ns, norb*ns), dtype=np.complex128, order='F')
+        ffout = np.zeros((ndim, ndim), dtype=np.complex128, order='F')
+        # tempmat = np.zeros((norb*ns, norb*ns), dtype=np.complex128, order='F')
+        # tempmat2 = np.zeros((norb*ns, norb*ns), dtype=np.complex128, order='F')
+        # ffintemp = np.zeros((norb*ns, norb*ns), dtype=np.complex128, order='F')
+        # sigtemp = np.zeros((norb*ns, norb*ns), dtype=np.complex128, order='F')
 
-        ndim = norb*ns
+        # ndim = norb*ns
 
-        for ks in range(ns):
-            for jorb in range(norb):
-                nn2 = [jorb, ks]
-                ind2, nn2 = Common.Indexing(ndim, 2, [norb, ns], 1, 0, nn2)
-                for js in range(ns):
-                    for iorb in range(norb):
-                        nn1 = [iorb ,js]
-                        ind1, nn1 = Common.Indexing(ndim, 2, [norb, ns], 1, 0, nn1)
-                        sigtemp[ind1, ind2] = sig[iorb, jorb, js, ks]
-                        ffintemp[ind1, ind2] = ffin[iorb, jorb, js, ks]
+        # for ks in range(ns):
+        #     for jorb in range(norb):
+        #         nn2 = [jorb, ks]
+        #         ind2, nn2 = Common.Indexing(ndim, 2, [norb, ns], 1, 0, nn2)
+        #         for js in range(ns):
+        #             for iorb in range(norb):
+        #                 nn1 = [iorb ,js]
+        #                 ind1, nn1 = Common.Indexing(ndim, 2, [norb, ns], 1, 0, nn1)
+        #                 sigtemp[ind1, ind2] = sig[iorb, jorb, js, ks]
+        #                 ffintemp[ind1, ind2] = ffin[iorb, jorb, js, ks]
 
-        tempmat = -np.dot(sigtemp, ffintemp)
+        tempmat = -np.dot(sig, ffin)
         for ind in range(ndim):
             tempmat[ind, ind] += 1.0
         
         tempmat2 = Common.MatInv(tempmat)
-        tempmat3 = np.dot(ffintemp, tempmat2)
+        ffout = np.dot(ffin, tempmat2)
 
-        for ks in range(ns):
-            for jorb in range(norb):
-                nn2 = [jorb, ks]
-                ind2, nn2 = Common.Indexing(ndim, 2, [norb, ns], 1, 0, nn2)
-                for js in range(ns):
-                    for iorb in range(norb):
-                        nn1 = [iorb ,js]
-                        ind1, nn1 = Common.Indexing(ndim, 2, [norb, ns], 1, 0, nn1)
-                        ffout[iorb, jorb, js, ks] = tempmat3[ind1, ind2]
+        # for ks in range(ns):
+        #     for jorb in range(norb):
+        #         nn2 = [jorb, ks]
+        #         ind2, nn2 = Common.Indexing(ndim, 2, [norb, ns], 1, 0, nn2)
+        #         for js in range(ns):
+        #             for iorb in range(norb):
+        #                 nn1 = [iorb ,js]
+        #                 ind1, nn1 = Common.Indexing(ndim, 2, [norb, ns], 1, 0, nn1)
+        #                 ffout[iorb, jorb, js, ks] = tempmat3[ind1, ind2]
 
         return ffout
     
@@ -180,7 +180,7 @@ class Dyson:
             np.ndarray: The full local bosonic Green's function (norb, norb, ns, ns, nfreq).
         """
 
-        nfreq = ffin.shape[4]
+        nfreq = ffin.shape[2]
         ffout = np.zeros_like(ffin, dtype=np.complex128, order='F')
 
         for ifreq in range(nfreq):
@@ -201,7 +201,7 @@ class Dyson:
             np.ndarray: The full lattice bosonic Green's function (norb, norb, ns, ns, nk).
         """
 
-        nk = ffin.shape[4]
+        nk = ffin.shape[2]
         ffout = np.zeros_like(ffin, dtype=np.complex128, order='F')
 
         for ik in range(nk):
@@ -222,7 +222,7 @@ class Dyson:
             np.ndarray: The full lattice bosonic Green's function (norb, norb, ns, ns, nk, nfreq).
         """
 
-        nfreq = ffin.shape[5]
+        nfreq = ffin.shape[3]
         ffout = np.zeros_like(ffin, dtype=np.complex128, order='F')
 
         for ifreq in range(nfreq):
