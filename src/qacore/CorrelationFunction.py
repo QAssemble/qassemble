@@ -407,7 +407,7 @@ class CorrelationFunction(object):
             print("Screened coulomb interaction calculation start")
             t0 = time.perf_counter()
             w = WLat_new(crystal=self.crystal,ft=self.ft,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
-             iter_timing["WLat"] = time.perf_counter() - t0
+            iter_timing["WLat"] = time.perf_counter() - t0
             if (iter % 50 == 0):
                 w.Save(f'wkf.{iter}')
             # w.Save(w.ckf,f'wckf.{iter}')

@@ -521,7 +521,7 @@ class Run:
             jth = control["ham"]["coulomb"]["jth"]
             oy = control["ham"]["coulomb"]["ohnoyuka"]
             start = time.time()
-            func.GWApproximation(
+            func.GWApproximation_new(
                 itermax=itermax,
                 mix=mix,
                 hoppinglist=hoppinglist,
