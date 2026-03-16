@@ -504,7 +504,7 @@ class FLatDyn(Crystal, DLR):
             for ks, js in itertools.product(range(ns), repeat=2):
                 for jorb, iorb in itertools.product(range(norb), repeat=2):
                     tempmat = ftau[iorb, jorb, js, ks, ik]
-                    fout[iorb, jorb, js, ks, ik] = self.TauB2TauF(tempmat)
+                    fout[iorb, jorb, js, ks, ik] = DLR.TauB2TauF(self, tempmat)
 
         return fout
     
