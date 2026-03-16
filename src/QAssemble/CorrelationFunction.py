@@ -202,13 +202,16 @@ class CorrelationFunction(object):
         gbare = GreenBare(control=self.control,dlr=self.dlr,hamtb=niham.k,hdf5file=hdf5file,group=group)
         vbare = VBare(control=self.control,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,ohnoyuka=ohnoyuka,hdf5file=hdf5file,group=group)
 
-
+        self.gw_object_times = []
         for iter in range(1,itermax+1):
+            iter_timing = {"iter": iter}
             if iter == 1:
                 # niham_temp = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin, valley=valley, hdf5file=hdf5file,group='test') 
                 # niham_temp = NIHamiltonian(self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin,aferro=aferro, valley=valley,site=site,hdf5file=hdf5file,group='test_gw')
                 # gbare_temp = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham_temp.k,hdf5file=hdf5file,group='test') 
+                t0 = time.perf_counter()
                 gold = GreenInt(control=self.control,greenbare=gbare.kf,hdf5file=hdf5file,group=group)
+                iter_timing["GreenInt_init"] = time.perf_counter() - t0
                 print(f"Initial chemical potential : {gold.mu}")
                 gold.Save(f'gkf_ini')
                 pkfold = None
@@ -229,28 +232,47 @@ class CorrelationFunction(object):
             sigmaf.Save(f'sigmaf.{iter}')
             # print("Fock calculation finish")
             # print("Polarizability calculation start")
+            t0 = time.perf_counter()
             pol = PolLat(control=self.control,green=gold.rt,hdf5file=hdf5file,group=group)
+            iter_timing["Polarizability"] = time.perf_counter() - t0
             # pol.kf = pol.Mixing(iter=iter,mix=mix,Bb=pol.kf,Bold=pkfold)
             # if (iter % 50 == 0)or(iter == 1):
             pol.Save(f'pkf.{iter}')
             # print("Polarizability calculation finish")
             # print("Screened coulomb interaction calculation start")
+            t0 = time.perf_counter()
             w = WLat(control = self.control,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
+            iter_timing["WLat"] = time.perf_counter() - t0
             # if (iter % 50 == 0)or(iter == 1):
             w.Save(f'wkf.{iter}')
             # w.Save(w.ckf,f'wckf.{iter}')
             # print("Screened coulomb interaction calculation finish")
             # print("GW self-energy calculation start")
+            t0 = time.perf_counter()
             sigmagwc = SigmaGWC(control=self.control,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group)
+            iter_timing["SigmaGW"] = time.perf_counter() - t0
             # sigmagwc.kf = sigmagwc.Mixing(iter=iter,mix=mix,Fb=sigmagwc.kf,Fm=ckfold)
             # if (iter % 50 == 0)or(iter == 1):
             sigmagwc.Save(f'sigmagwckf.{iter}')
             # print("GW self-energy calculation finish")
             # print("GW green's function calculation start")
+            t0 = time.perf_counter()
             gnew = GreenInt(control=self.control,greenbare=gbare.kf,sigmah=sigmah.k,sigmaf=sigmaf.k,sigmagwc=sigmagwc.kf,hdf5file=hdf5file,group=group)
+            iter_timing["GreenInt"] = time.perf_counter() - t0
             # if (iter % 50 == 0)or(iter == 1):
             gnew.Save(f'gkf.{iter}')
             # print("GW green's function calculation start")
+            
+            self.gw_object_times.append(iter_timing)
+            init_msg = ""
+            if "GreenInt_init" in iter_timing:
+                init_msg = f", GreenInt_init: {iter_timing['GreenInt_init']:.4f}s"
+            print(
+                f"[GW timing][iter {iter}] GreenInt: {iter_timing['GreenInt']:.4f}s, "
+                f"Polarizability: {iter_timing['Polarizability']:.4f}s, "
+                f"WLat: {iter_timing['WLat']:.4f}s, "
+                f"SigmaGW: {iter_timing['SigmaGW']:.4f}s{init_msg}"
+            )
 
             fcheck = self.SCFCheck(gnew.kf,gold.kf)
             
