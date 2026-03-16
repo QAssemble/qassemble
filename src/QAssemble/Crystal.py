@@ -355,23 +355,19 @@ class Crystal(object):
                     c2b.append([borb,ind])
         self.c2b = c2b
 
-    def Composite2OrbSpin(self, matin: np.ndarray, norb: int = None, ns: int = None):
+    def Composite2OrbSpin(self, matin: np.ndarray):
         """Reshape a composite matrix into orbital-spin representation.
 
         Args:
             matin (np.ndarray): Composite matrix of shape (norb*ns, norb*ns).
-            norb (int): Number of orbitals. Defaults to len(self.bind).
-            ns (int): Number of spins. Defaults to self.ns.
 
         Returns:
             np.ndarray: Array of shape (norb, norb, ns, ns).
         """
 
-        if norb is None:
-            norb = len(self.bind)
-        if ns is None:
-            ns = self.ns
-        ndim = norb * ns
+        norb = len(self.bind)
+        ndim = matin.shape[0]
+        ns = ndim // norb
 
         # ind = iorb + js * norb (column-major)
         idx = np.arange(ndim)
