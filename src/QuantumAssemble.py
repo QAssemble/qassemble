@@ -41,7 +41,7 @@ import h5py
 # ensure_module("mpi4py")
 # ensure_module("mpi4py_fft", "mpi4py-fft")
 
-from QAssemble.Serial.CorrelationFunction import CorrelationFunction
+from QAssemble.CorrelationFunction import CorrelationFunction
 
 
 class Run:
