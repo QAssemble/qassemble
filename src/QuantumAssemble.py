@@ -1,47 +1,10 @@
 #!/usr/bin/env python3.9
-import copy
-import datetime
-import gc
-import importlib
-import json
-import os
-import string
-import subprocess
-import sys
-import time
+import time, datetime
+import os, sys, copy
 import h5py
 
-# def ensure_module(module_name, package_name=None):
-#     package = package_name or module_name
-#     try:
-#         return importlib.import_module(module_name)
-#     except ModuleNotFoundError as exc:
-#         if getattr(exc, "name", module_name) != module_name:
-#             raise
-#         print(f"Installing missing Python package '{package}' with pip...", flush=True)
-#     try:
-#         subprocess.check_call(
-#             [sys.executable, "-m", "pip", "install", package],
-#         )
-#     except subprocess.CalledProcessError as exc:
-#         print(
-#             f"Failed to install required package '{package}': {exc}",
-#             flush=True,
-#         )
-#         raise
-#     return importlib.import_module(module_name)
 
-
-# h5py = ensure_module("h5py")
-# np = ensure_module("numpy")
-# ensure_module("scipy")
-# ensure_module("matplotlib")
-# ensure_module("numba")
-# ensure_module("finufft")
-# ensure_module("mpi4py")
-# ensure_module("mpi4py_fft", "mpi4py-fft")
-
-from QAssemble.Serial.CorrelationFunction import CorrelationFunction
+from QAssemble.CorrelationFunction import CorrelationFunction
 
 
 class Run:
