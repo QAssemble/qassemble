@@ -139,7 +139,7 @@ class BLatDyn(object):
         nft = matk.shape[5]
         
         matr = np.zeros((norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F")
-
+        tempmat = matk.copy()
         tempmat *= self._boson_phase_cache_k2r[:, :, None, None, :, None]
 
         matr = Fourier.BLatDynK2R(matk, self.crystal.rkgrid)
