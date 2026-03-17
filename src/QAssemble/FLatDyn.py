@@ -738,33 +738,55 @@ class GreenInt(FLatDyn):
         nrk = len(self.kpoint)
         nfreq = len(self.omega)
 
-        # --- Batched Dyson ---
-        # Dyson equation: G = G0 @ (I - sigma @ G0)^{-1}, with sigma = -mu*I
-        # => G = G0 @ (I + mu*G0)^{-1} = (I + mu*G0)^{-1} @ G0
-        # The last equality holds because sigma = mu*I commutes with G0.
-        # Reshape gkfmu0 from (norb, norb, ns, nk, nfreq) to (ns, nk, nfreq, norb, norb)
-        # so that np.linalg.solve operates in batch over (ns, nk, nfreq).
-        g0 = self.gkfmu0.transpose(2, 3, 4, 0, 1)
+        # --- Batched Dyson (vectorized, no Python loops) ---
+        # Dyson: G = (I + mu*G0)^{-1} @ G0  (sigma = mu*I commutes with G0)
+        # gkfmu0 shape: (norb, norb, ns, nk, nfreq), Fortran order
+        g0 = self.gkfmu0  # (norb, norb, ns, nk, nfreq)
 
-        eye = np.eye(norb, dtype=np.complex128)
-        A = eye + mu * g0                            # (ns, nk, nfreq, norb, norb)
-        gcalf = np.linalg.solve(A, g0)               # (ns, nk, nfreq, norb, norb)
+        # A = I + mu*G0, compute A^{-1} @ G0 with analytic inverse for small norb
+        if norb == 1:
+            # Scalar case: G = g0 / (1 + mu*g0)
+            gcalf = g0 / (1.0 + mu * g0)
+        elif norb == 2:
+            # 2x2 analytic inverse: A^{-1} = adj(A)/det(A), then A^{-1} @ G0
+            a00 = 1.0 + mu * g0[0, 0]  # (ns, nk, nfreq)
+            a01 = mu * g0[0, 1]
+            a10 = mu * g0[1, 0]
+            a11 = 1.0 + mu * g0[1, 1]
+            det = a00 * a11 - a01 * a10
+            inv_det = 1.0 / det
+
+            gcalf = np.empty_like(g0)
+            gcalf[0, 0] = inv_det * (a11 * g0[0, 0] - a01 * g0[1, 0])
+            gcalf[0, 1] = inv_det * (a11 * g0[0, 1] - a01 * g0[1, 1])
+            gcalf[1, 0] = inv_det * (-a10 * g0[0, 0] + a00 * g0[1, 0])
+            gcalf[1, 1] = inv_det * (-a10 * g0[0, 1] + a00 * g0[1, 1])
+        else:
+            # General case: batched np.linalg.solve
+            g0t = np.ascontiguousarray(g0.transpose(2, 3, 4, 0, 1))
+            eye = np.eye(norb, dtype=np.complex128)
+            A = eye + mu * g0t
+            gcalf_t = np.linalg.solve(A, g0t)
+            gcalf = np.asfortranarray(gcalf_t.transpose(3, 4, 0, 1, 2))
 
         # --- Batched F2T (Matsubara freq -> tau via DLR) ---
-        # pydlr batch: (nfreq, N, 1) where N = ns*nk*norb*norb
-        gcalf_dlr = gcalf.transpose(2, 0, 1, 3, 4)   # (nfreq, ns, nk, norb, norb)
-        batch_shape = gcalf_dlr.shape[1:]              # (ns, nk, norb, norb)
-        gcalf_flat = gcalf_dlr.reshape(nfreq, -1, 1)
+        # Flatten all non-freq indices for pydlr batch processing
+        # gcalf: (norb, norb, ns, nk, nfreq)
+        gcalf_perm = np.ascontiguousarray(
+            gcalf.transpose(4, 0, 1, 2, 3)              # (nfreq, norb, norb, ns, nk)
+        )
+        batch_shape = gcalf_perm.shape[1:]               # (norb, norb, ns, nk)
+        gcalf_flat = gcalf_perm.reshape(nfreq, -1, 1)    # (nfreq, N, 1)
 
         fxx = self.dF.dlr_from_matsubara(gcalf_flat, beta=self.beta, xi=-1)
         tau_beta = np.array([self._tau_beta], dtype=np.float64)
         fout = self.dF.eval_dlr_tau(fxx, tau_beta, beta=self.beta)
 
-        gtau_beta = fout[0, :, 0].reshape(batch_shape) # (ns, nk, norb, norb)
+        gtau_beta = fout[0, :, 0].reshape(batch_shape)   # (norb, norb, ns, nk)
 
         # --- Electron count: Ne = -1/nrk * sum_{k,s} Tr[G(tau=beta)] ---
         diag = np.arange(norb)
-        Ne = -np.real(gtau_beta[:, :, diag, diag].sum()) / nrk
+        Ne = -np.real(gtau_beta[diag, diag, :, :].sum()) / nrk
 
         return (self.nume - Ne)
 
