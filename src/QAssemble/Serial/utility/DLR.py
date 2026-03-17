@@ -21,7 +21,7 @@ class DLR(object):
         self.cutoff = ft.get("cutoff", 10.0)
         self.eps = ft.get("eps", 1e-15)
         self.lambF = (self.beta / np.pi * self.cutoff - 1) / 2
-        self.lambB = self.beta * self.cutoff / (2 * np.pi)  
+        self.lambB = self.beta * self.cutoff / (2 * np.pi) * 2
         
         dF = dlr(lamb=self.lambF, eps=self.eps, dense_imfreq=False)
         dB = dlr(lamb=self.lambB, eps=self.eps, xi=1, dense_imfreq=False)
