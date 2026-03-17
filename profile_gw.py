@@ -84,8 +84,7 @@ lp.add_function(Dyson.BLocStc)
 def run_gw():
     """input.ini를 읽고 GWApproximation을 실행"""
     from QuantumAssemble import Run
-    runner = Run()
-    runner.RunDiagE()
+    runner = Run()  # Run.__init__() 내부에서 이미 RunDiagE()가 호출됨
 
 
 def run_gw_direct():
