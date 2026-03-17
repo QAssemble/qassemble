@@ -3,229 +3,163 @@ This module provides a set of static methods for solving the Dyson equation to c
 renormalized Green's functions from bare Green's functions and self-energies.
 """
 import numpy as np
-# import scipy
-from .Common import Common
+
 
 class Dyson:
-    """
-    A collection of static methods to solve the Dyson equation for various systems.
-
-    The Dyson equation relates the bare Green's function (G₀) and the full (or dressed)
-    Green's function (G) via the self-energy (Σ):
-    G = G₀ + G₀ Σ G
-    which can be rewritten as:
-    G = (G₀⁻¹ - Σ)⁻¹
-
-    This class provides methods to perform this calculation for fermionic and bosonic systems,
-    in both static (frequency-independent self-energy) and dynamic (frequency-dependent
-    self-energy) cases, and for both local and lattice Hamiltonians.
-    """
+    """Lightweight Dyson solvers with a focus on peak-memory efficiency."""
 
     @staticmethod
-    def FLocStc(ffin : np.ndarray, sig : np.ndarray) -> np.ndarray:
-        """
-        Solves the static Dyson equation for a local fermionic system.
+    def _allocate_output(reference, out):
+        """Return an output array matching *reference*, allocating if needed."""
 
-        Args:
-            ffin (np.ndarray): The bare local fermionic Green's function (norb, norb, ns).
-            sig (np.ndarray): The static self-energy (norb, norb, ns).
+        dtype = np.result_type(reference.dtype, np.complex128)
+        order = "F" if np.isfortran(reference) else "C"
 
-        Returns:
-            np.ndarray: The full local fermionic Green's function (norb, norb, ns).
-        """
+        if out is None:
+            return np.empty(reference.shape, dtype=dtype, order=order)
 
-        norb, _, ns = ffin.shape
-        ffout = np.zeros((norb, norb, ns), dtype=np.complex128, order='F')
+        if out.shape != reference.shape:
+            raise ValueError("Output array has incorrect shape.")
 
-        for js in range(ns):
-            tempmat = np.zeros((norb, norb), dtype=np.complex128, order='F')
-            tempmat2 = np.zeros((norb, norb), dtype=np.complex128, order='F')
-            tempmat = -np.dot(sig[..., js], ffin[..., js])
-            
-            for iorb in range(norb):
-                tempmat[iorb, iorb] += 1.0
-            
-            tempmat2 = Common.MatInv(tempmat)
+        if out.dtype != dtype:
+            return out.astype(dtype, copy=False)
 
-            ffout[..., js] = np.dot(ffin[...,js], tempmat2)
+        return out
 
-        return ffout
-    
     @staticmethod
-    def FLatStc(ffin : np.ndarray, sig : np.ndarray) -> np.ndarray:
-        """
-        Solves the static Dyson equation for a lattice fermionic system.
+    def _solve_fermionic(g0, sigma, out):
+        """Solve Dyson blocks for fermionic objects in-place on *out*."""
 
-        Args:
-            ffin (np.ndarray): The bare lattice fermionic Green's function (norb, norb, ns, nk).
-            sig (np.ndarray): The static self-energy (norb, norb, ns, nk).
+        g0_blocks = np.moveaxis(g0, (0, 1), (-2, -1))
+        sigma_blocks = np.moveaxis(sigma, (0, 1), (-2, -1))
+        out_blocks = np.moveaxis(out, (0, 1), (-2, -1))
 
-        Returns:
-            np.ndarray: The full lattice fermionic Green's function (norb, norb, ns, nk).
-        """
+        Dyson._solve_blockwise(g0_blocks, sigma_blocks, out_blocks)
 
-        norb, _, ns, nk = ffin.shape
-        ffout = np.zeros((norb, norb, ns, nk),dtype=np.complex128, order='F')
-
-        for ik in range(nk):
-            ffout[..., ik] = Dyson.FLocStc(ffin[..., ik], sig[...,ik])
-        
-        return ffout
-    
     @staticmethod
-    def FLocDyn(ffin : np.ndarray, sig : np.ndarray) -> np.ndarray:
-        """
-        Solves the dynamic Dyson equation for a local fermionic system.
+    def _solve_blockwise(g0_blocks, sigma_blocks, out_blocks):
+        """Iterate over stacked matrices and solve the Dyson equation."""
 
-        Args:
-            ffin (np.ndarray): The bare local fermionic Green's function (norb, norb, ns, nfreq).
-            sig (np.ndarray): The dynamic self-energy (norb, norb, ns, nfreq).
+        norb = g0_blocks.shape[-1]
+        diag_idx = np.diag_indices(norb)
 
-        Returns:
-            np.ndarray: The full local fermionic Green's function (norb, norb, ns, nfreq).
-        """
+        for multi_idx in np.ndindex(g0_blocks.shape[:-2]):
+            g0_block = g0_blocks[multi_idx]
+            sigma_block = sigma_blocks[multi_idx]
 
-        nfreq = ffin.shape[3]
-        ffout = np.zeros_like(ffin, dtype=np.complex128, order='F')
+            temp = -sigma_block @ g0_block
+            temp[diag_idx] += 1.0
 
-        for ifreq in range(nfreq):
-            ffout[...,ifreq] = Dyson.FLocStc(ffin[..., ifreq], sig[..., ifreq])
-        
-        return ffout
-    
+            solved_t = np.linalg.solve(temp.T, g0_block.T)
+            out_blocks[multi_idx] = solved_t.T
+
     @staticmethod
-    def FLatDyn(ffin : np.ndarray, sig : np.ndarray) -> np.ndarray:
-        """
-        Solves the dynamic Dyson equation for a lattice fermionic system.
+    def _solve_boson_block(g0_block, sigma_block, out_block, diag_idx):
+        """Solve a single bosonic Dyson block."""
 
-        Args:
-            ffin (np.ndarray): The bare lattice fermionic Green's function (norb, norb, ns, nk, nfreq).
-            sig (np.ndarray): The dynamic self-energy (norb, norb, ns, nk, nfreq).
+        norb = g0_block.shape[0]
+        ns = g0_block.shape[2]
+        dim = norb * ns
 
-        Returns:
-            np.ndarray: The full lattice fermionic Green's function (norb, norb, ns, nk, nfreq).
-        """
+        g0_comp = g0_block.transpose(0, 2, 1, 3).reshape(dim, dim)
+        sigma_comp = sigma_block.transpose(0, 2, 1, 3).reshape(dim, dim)
 
-        nfreq = ffin.shape[4]
-        ffout = np.zeros_like(ffin, dtype=np.complex128, order='F')
+        temp = -sigma_comp @ g0_comp
+        temp[diag_idx] += 1.0
 
-        for ifreq in range(nfreq):
-            ffout[..., ifreq] = Dyson.FLatStc(ffin[..., ifreq], sig[..., ifreq])
+        solved_t = np.linalg.solve(temp.T, g0_comp.T)
+        result = solved_t.T.reshape(norb, ns, norb, ns).transpose(0, 2, 1, 3)
+        out_block[...] = result
 
-        return ffout
-    
     @staticmethod
-    def BLocStc(ffin : np.ndarray, sig : np.ndarray) -> np.ndarray:
-        """
-        Solves the static Dyson equation for a local bosonic system.
+    def _solve_bosonic(g0, sigma, out):
+        """Solve Dyson blocks for bosonic objects in-place on *out*."""
 
-        Args:
-            ffin (np.ndarray): The bare local bosonic Green's function (norb, norb, ns, ns).
-            sig (np.ndarray): The static self-energy (norb, norb, ns, ns).
+        norb = g0.shape[0]
+        ns = g0.shape[2]
+        dim = norb * ns
+        diag_idx = np.diag_indices(dim)
 
-        Returns:
-            np.ndarray: The full local bosonic Green's function (norb, norb, ns, ns).
-        """
+        # Remaining axes enumerate k-points, frequencies, etc.
+        extra_shape = g0.shape[4:]
 
-        ndim, _ = ffin.shape
+        if not extra_shape:
+            Dyson._solve_boson_block(g0, sigma, out, diag_idx)
+            return
 
-        ffout = np.zeros((ndim, ndim), dtype=np.complex128, order='F')
-        # tempmat = np.zeros((norb*ns, norb*ns), dtype=np.complex128, order='F')
-        # tempmat2 = np.zeros((norb*ns, norb*ns), dtype=np.complex128, order='F')
-        # ffintemp = np.zeros((norb*ns, norb*ns), dtype=np.complex128, order='F')
-        # sigtemp = np.zeros((norb*ns, norb*ns), dtype=np.complex128, order='F')
+        leading = (slice(None),) * 4  # preserve (norb, norb, ns, ns) layout
 
-        # ndim = norb*ns
+        for multi_idx in np.ndindex(extra_shape):
+            idx = leading + multi_idx
+            Dyson._solve_boson_block(
+                g0[idx],
+                sigma[idx],
+                out[idx],
+                diag_idx,
+            )
 
-        # for ks in range(ns):
-        #     for jorb in range(norb):
-        #         nn2 = [jorb, ks]
-        #         ind2, nn2 = Common.Indexing(ndim, 2, [norb, ns], 1, 0, nn2)
-        #         for js in range(ns):
-        #             for iorb in range(norb):
-        #                 nn1 = [iorb ,js]
-        #                 ind1, nn1 = Common.Indexing(ndim, 2, [norb, ns], 1, 0, nn1)
-        #                 sigtemp[ind1, ind2] = sig[iorb, jorb, js, ks]
-        #                 ffintemp[ind1, ind2] = ffin[iorb, jorb, js, ks]
+    # Public API ---------------------------------------------------------
 
-        tempmat = -np.dot(sig, ffin)
-        for ind in range(ndim):
-            tempmat[ind, ind] += 1.0
-        
-        tempmat2 = Common.MatInv(tempmat)
-        ffout = np.dot(ffin, tempmat2)
-
-        # for ks in range(ns):
-        #     for jorb in range(norb):
-        #         nn2 = [jorb, ks]
-        #         ind2, nn2 = Common.Indexing(ndim, 2, [norb, ns], 1, 0, nn2)
-        #         for js in range(ns):
-        #             for iorb in range(norb):
-        #                 nn1 = [iorb ,js]
-        #                 ind1, nn1 = Common.Indexing(ndim, 2, [norb, ns], 1, 0, nn1)
-        #                 ffout[iorb, jorb, js, ks] = tempmat3[ind1, ind2]
-
-        return ffout
-    
     @staticmethod
-    def BLocDyn(ffin : np.ndarray, sig : np.ndarray) -> np.ndarray:
-        """
-        Solves the dynamic Dyson equation for a local bosonic system.
+    def FLocStc(ffin, sig, out=None):
+        """Static fermionic Dyson on local blocks."""
 
-        Args:
-            ffin (np.ndarray): The bare local bosonic Green's function (norb, norb, ns, ns, nfreq).
-            sig (np.ndarray): The dynamic self-energy (norb, norb, ns, ns, nfreq).
+        result = Dyson._allocate_output(ffin, out)
+        Dyson._solve_fermionic(ffin, sig, result)
+        return result
 
-        Returns:
-            np.ndarray: The full local bosonic Green's function (norb, norb, ns, ns, nfreq).
-        """
-
-        nfreq = ffin.shape[2]
-        ffout = np.zeros_like(ffin, dtype=np.complex128, order='F')
-
-        for ifreq in range(nfreq):
-            ffout[...,ifreq] = Dyson.BLocStc(ffin[...,ifreq], sig[...,ifreq])
-
-        return ffout
-    
     @staticmethod
-    def BLatStc(ffin : np.ndarray, sig : np.ndarray) -> np.ndarray:
-        """
-        Solves the static Dyson equation for a lattice bosonic system.
+    def FLatStc(ffin, sig, out=None):
+        """Static fermionic Dyson on lattice blocks."""
 
-        Args:
-            ffin (np.ndarray): The bare lattice bosonic Green's function (norb, norb, ns, ns, nk).
-            sig (np.ndarray): The static self-energy (norb, norb, ns, ns, nk).
+        result = Dyson._allocate_output(ffin, out)
+        Dyson._solve_fermionic(ffin, sig, result)
+        return result
 
-        Returns:
-            np.ndarray: The full lattice bosonic Green's function (norb, norb, ns, ns, nk).
-        """
-
-        nk = ffin.shape[2]
-        ffout = np.zeros_like(ffin, dtype=np.complex128, order='F')
-
-        for ik in range(nk):
-            ffout[...,ik] = Dyson.BLocStc(ffin[..., ik], sig[..., ik])
-
-        return ffout
-    
     @staticmethod
-    def BLatDyn(ffin : np.ndarray, sig : np.ndarray) -> np.ndarray:
-        """
-        Solves the dynamic Dyson equation for a lattice bosonic system.
+    def FLocDyn(ffin, sig, out=None):
+        """Dynamic fermionic Dyson on local blocks."""
 
-        Args:
-            ffin (np.ndarray): The bare lattice bosonic Green's function (norb, norb, ns, ns, nk, nfreq).
-            sig (np.ndarray): The dynamic self-energy (norb, norb, ns, ns, nk, nfreq).
+        result = Dyson._allocate_output(ffin, out)
+        Dyson._solve_fermionic(ffin, sig, result)
+        return result
 
-        Returns:
-            np.ndarray: The full lattice bosonic Green's function (norb, norb, ns, ns, nk, nfreq).
-        """
+    @staticmethod
+    def FLatDyn(ffin, sig, out=None):
+        """Dynamic fermionic Dyson on lattice blocks."""
 
-        nfreq = ffin.shape[3]
-        ffout = np.zeros_like(ffin, dtype=np.complex128, order='F')
+        result = Dyson._allocate_output(ffin, out)
+        Dyson._solve_fermionic(ffin, sig, result)
+        return result
 
-        for ifreq in range(nfreq):
-            ffout[..., ifreq] = Dyson.BLatStc(ffin[..., ifreq], sig[..., ifreq])
+    @staticmethod
+    def BLocStc(ffin, sig, out=None):
+        """Static bosonic Dyson on local blocks."""
 
-        return ffout
+        result = Dyson._allocate_output(ffin, out)
+        Dyson._solve_bosonic(ffin, sig, result)
+        return result
+
+    @staticmethod
+    def BLocDyn(ffin, sig, out=None):
+        """Dynamic bosonic Dyson on local blocks."""
+
+        result = Dyson._allocate_output(ffin, out)
+        Dyson._solve_bosonic(ffin, sig, result)
+        return result
+
+    @staticmethod
+    def BLatStc(ffin, sig, out=None):
+        """Static bosonic Dyson on lattice blocks."""
+
+        result = Dyson._allocate_output(ffin, out)
+        Dyson._solve_bosonic(ffin, sig, result)
+        return result
+
+    @staticmethod
+    def BLatDyn(ffin, sig, out=None):
+        """Dynamic bosonic Dyson on lattice blocks."""
+
+        result = Dyson._allocate_output(ffin, out)
+        Dyson._solve_bosonic(ffin, sig, result)
+        return result

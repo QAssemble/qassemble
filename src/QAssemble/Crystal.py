@@ -5,6 +5,7 @@ import itertools
 import copy
 from .utility.Common import Common
 
+
 # Ask to professor for change variables
 class Crystal(object):
     """Handles lattice geometry, orbitals, and basis indexing for quantum assembly calculations.
@@ -85,12 +86,14 @@ class Crystal(object):
         # 
         # self.b2f = None
         self.c2b = None
-        self.bc2os = None
         self.probspace = {}
         self.fimpdict = {}
         self.bimpdict = {}
         self.fprojector = None
         self.bprojector = None
+
+        self.forb2atom = None
+        self.borb2atom = None
 
         self.mappingidx = []
         self.mappingkp = []
@@ -106,7 +109,6 @@ class Crystal(object):
         self.Boson2Fermion()
         self.SetFullBasis()
         self.Boson2Full()
-        self.SetBosonCompositeOrbSpin()
         self.RVec()
 
         return None
@@ -140,6 +142,17 @@ class Crystal(object):
             for iorb in range(borb,borb+val**2):
                 self.bind[iorb] = bind[jj]
                 jj+=1
+
+            self.forb2atom = np.empty(len(self.find), dtype=np.int32)
+            self.borb2atom = np.empty(len(self.bind), dtype=np.int32)
+
+            for iorb in range(len(self.find)):
+                a, _ = self.FAtomOrb(iorb)
+                self.forb2atom[iorb] = a
+            
+            for iorb in range(len(self.bind)):
+                a, _ = self.BAtomOrb(iorb)
+                self.borb2atom[iorb] = a
 
         return None
 
@@ -252,8 +265,6 @@ class Crystal(object):
 
         self.c2b = c2b
 
-        return None
-
     def SetFullBasis(self):
 
         norbc = len(self.find)
@@ -271,23 +282,6 @@ class Crystal(object):
 
         self.pbasis = copy.deepcopy(pbasis)
         self.full = copy.deepcopy(full)
-
-        return None
-    
-    def SetBosonCompositeOrbSpin(self):
-
-        norb = len(self.bind)
-        ns = self.ns
-
-        ndim = norb * ns
-
-        # bc2os[ind] = [iorb, js] where ind = iorb + js * norb
-        bc2os = np.zeros((ndim, 2), dtype=int)
-        for ind in range(ndim):
-            bc2os[ind, 0] = ind % norb   # iorb
-            bc2os[ind, 1] = ind // norb   # js
-
-        self.bc2os = bc2os
 
         return None
 
@@ -355,53 +349,79 @@ class Crystal(object):
                     c2b.append([borb,ind])
         self.c2b = c2b
 
-    def Composite2OrbSpin(self, matin: np.ndarray):
+    def Composite2OrbSpin(self, mat: np.ndarray):
         """Reshape a composite matrix into orbital-spin representation.
 
         Args:
-            matin (np.ndarray): Composite matrix of shape (norb*ns, norb*ns).
+            mat (np.ndarray): Composite matrix of shape (norb*ns, norb*ns).
 
         Returns:
             np.ndarray: Array of shape (norb, norb, ns, ns).
         """
 
-        norb = len(self.full)
-        ndim = matin.shape[0]
-        ns = ndim // norb
+        # norb = len(self.bind)
+        # ns = self.ns
+        # matout = np.zeros((norb,norb,ns,ns),dtype=np.complex64,order='F')
+        # ndim = mat.shape[0]
 
-        # ind = iorb + js * norb (column-major)
+        # for ind1 in range(ndim):
+        #     nn1 = [0]*2
+        #     ind1, [iorb,js] = self.indexing(ndim,2,[norb,ns],0,ind1,nn1)
+        #     for ind2 in range(ndim):
+        #         nn2 = [0]*2
+        #         ind2, [jorb,ks] = self.indexing(ndim,2,[norb,ns],0,ind2,nn2)
+        #         matout[iorb,jorb,js,ks] = mat[ind1,ind2]
+
+        norb = len(self.full)
+        ndim = mat.shape[0]
+        ns = self.ns
+
         idx = np.arange(ndim)
         iorb_arr = idx % norb
-        js_arr   = idx // norb
+        js_arr = idx // norb
 
-        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
-        matout[iorb_arr[:, None], iorb_arr[None, :],
-               js_arr[:, None],   js_arr[None, :]] = matin
+        matout = np.zeros((norb, norb, ns, ns), dtype=np.complex128, order='F')
+
+        matout[iorb_arr[:, None], iorb_arr[None, :], 
+               js_arr[:, None], js_arr[None, :]] = mat
 
         return matout
 
-    def OrbSpin2Composite(self, matin: np.ndarray):
+    def OrbSpin2Composite(self, mat: np.ndarray):
         """Reshape an orbital-spin matrix into composite matrix form.
 
         Args:
-            matin (np.ndarray): Array of shape (norb, norb, ns, ns).
+            mat (np.ndarray): Array of shape (norb, norb, ns, ns).
 
         Returns:
             np.ndarray: Composite matrix of shape (norb*ns, norb*ns).
         """
 
-        norb = matin.shape[0]
-        ns = matin.shape[2]
+        # norb = mat.shape[0]
+        # ns = mat.shape[2]
+        # matout = np.zeros((norb*ns,norb*ns),dtype=np.complex64,order='F')
+
+        # for js in range(ns):
+        #     for iorb in range(norb):
+        #         nn1 = [iorb,js]
+        #         ind1, nn1 = self.indexing(norb*ns,2,[norb,ns],1,0,nn1)
+        #         for ks in range(ns):
+        #             for jorb in range(norb):
+        #                 nn2 = [jorb,ks]
+        #                 ind2, nn2 = self.indexing(norb*ns,2,[norb,ns],1,0,nn2)
+        #                 matout[ind1,ind2] = mat[iorb,jorb,js,ks]
+
+        norb = mat.shape[0]
+        ns = self.ns
         ndim = norb * ns
 
-        # ind = iorb + js * norb (column-major)
         idx = np.arange(ndim)
         iorb_arr = idx % norb
-        js_arr   = idx // norb
+        js_arr = idx // norb
 
-        matout = matin[iorb_arr[:, None], iorb_arr[None, :],
-                       js_arr[:, None],   js_arr[None, :]]
-
+        matout = mat[iorb_arr[:, None], iorb_arr[None, :],
+                     js_arr[:, None], js_arr[None, :]]
+        
         return np.array(matout, dtype=np.complex128, order='F')
 
     def Quad2Double(self, matin: np.ndarray) -> np.ndarray:
@@ -524,33 +544,23 @@ class Crystal(object):
 
         return matret
 
-    def Full2Double(self, matin: np.ndarray) -> np.ndarray:
+    def Full2Double(self, mat: np.ndarray) -> np.ndarray:
         """Convert a full composite matrix to a boson basis 2-index matrix.
 
         Args:
-            matin (np.ndarray): 2D array of shape (n^2, n^2).
+            mat (np.ndarray): 2D array of shape (n^2, n^2).
 
         Returns:
             np.ndarray: 2D array of shape (norb, norb).
         """
 
-        # norb = len(self.bind)
+        c2b = np.asarray(self.c2b)
 
-        # matret = np.zeros((norb,norb),dtype=np.complex64,order='F')
-
-        # for jorb in range(norb):
-        #     for iorb in range(norb):
-        #         ind1 = self.c2b[iorb]
-        #         ind2 = self.c2b[jorb]
-        #         matret[iorb,jorb] = mat[ind1,ind2]
-
-        c2b = np.asarray(self.c2b, dtype=np.int64)
-
-        matret = matin[np.ix_(c2b, c2b)]
+        matret = mat[np.ix_(c2b, c2b)]
 
         return np.array(matret, dtype=np.complex128, order='F')
 
-    def Double2Full(self, matin: np.ndarray) -> np.ndarray:
+    def Double2Full(self, mat: np.ndarray) -> np.ndarray:
         """Convert a boson basis 2-index matrix to a full composite matrix.
 
         Args:
@@ -561,20 +571,14 @@ class Crystal(object):
         """
 
         nind = len(self.find)**2
-        norb = len(self.bind)
-
+        
         c2b = np.asarray(self.c2b, dtype=np.int64)
-        matret = np.zeros((nind,nind),dtype=np.complex128,order='F')
+        matret = np.zeros((nind,nind),dtype=np.complex128, order='F')
 
-        # for jorb in range(norb):
-        #     for iorb in range(norb):
-        #         ind1 = self.c2b[iorb]
-        #         ind2 = self.c2b[jorb]
-        #         matret[ind1,ind2] = mat[iorb,jorb]
-
-        rhs = np.asarray(matin, dtype=np.complex128).astype(np.complex128)
+        rhs = np.asarray(mat, dtype=np.complex128, order='F')
 
         matret[np.ix_(c2b, c2b)] = rhs
+
         return matret ## construct
 
     def Kpath(self, kpath: list = None, nk: int = None) -> np.ndarray:
@@ -720,48 +724,48 @@ class Crystal(object):
         return None
 
 
-    # def indexing(self, ntot, ndivision, divisionarray, flag, n1, n2):
-    #     """Map between flat index and multi-dimensional indices.
+    def indexing(self, ntot, ndivision, divisionarray, flag, n1, n2):
+        """Map between flat index and multi-dimensional indices.
 
-    #     Args:
-    #         ntot (int): Total number of elements.
-    #         ndivision (int): Number of dimensions.
-    #         divisionarray (list of int): Size of each dimension.
-    #         flag (int): Mode flag (1 for encode, 0 for decode).
-    #         n1 (int): Input or output flat index.
-    #         n2 (list of int): Input or output multi-dimensional index list.
+        Args:
+            ntot (int): Total number of elements.
+            ndivision (int): Number of dimensions.
+            divisionarray (list of int): Size of each dimension.
+            flag (int): Mode flag (1 for encode, 0 for decode).
+            n1 (int): Input or output flat index.
+            n2 (list of int): Input or output multi-dimensional index list.
 
-    #     Returns:
-    #         tuple: (n1, n2) updated by the indexing operation.
-    #     """
-    #     tmpsize = 1
-    #     for size in divisionarray:
-    #         tmpsize *= size
+        Returns:
+            tuple: (n1, n2) updated by the indexing operation.
+        """
+        tmpsize = 1
+        for size in divisionarray:
+            tmpsize *= size
 
-    #     if tmpsize != ntot:
-    #         print('array_division wrong')
-    #         return
+        if tmpsize != ntot:
+            print('array_division wrong')
+            return
 
-    #     if flag == 1:
-    #         n1 = n2[0]
-    #         for ii in range(1, ndivision):
-    #             tempcnt = 1
-    #             for jj in range(ii):
-    #                 tempcnt *= divisionarray[jj]
-    #             n1 += (n2[ii] ) * tempcnt
-    #     else:
-    #         n2_array = [0] * ndivision
-    #         tempcnt = n1
-    #         for ii in range(ndivision - 1):
-    #             n2_array[ii] = tempcnt - ((tempcnt) // divisionarray[ii]) * divisionarray[ii]
-    #             tempcnt = (tempcnt - n2_array[ii])//divisionarray[ii]
-    #         n2_array[ndivision - 1] = tempcnt
+        if flag == 1:
+            n1 = n2[0]
+            for ii in range(1, ndivision):
+                tempcnt = 1
+                for jj in range(ii):
+                    tempcnt *= divisionarray[jj]
+                n1 += (n2[ii] ) * tempcnt
+        else:
+            n2_array = [0] * ndivision
+            tempcnt = n1
+            for ii in range(ndivision - 1):
+                n2_array[ii] = tempcnt - ((tempcnt) // divisionarray[ii]) * divisionarray[ii]
+                tempcnt = (tempcnt - n2_array[ii])//divisionarray[ii]
+            n2_array[ndivision - 1] = tempcnt
 
-    #         # Copy the values from the temporary array to the n2 output array
-    #         for i in range(ndivision):
-    #             n2[i] = n2_array[i]
+            # Copy the values from the temporary array to the n2 output array
+            for i in range(ndivision):
+                n2[i] = n2_array[i]
 
-    #     return n1, n2
+        return n1, n2
 
     def FindPositions(self, array, value):
         """Find all positions of a value in a 2D array.
@@ -995,7 +999,7 @@ class Crystal(object):
         self.mappingrvec = mapping
 
         return None
-
+    
     def MappingBosonFermion(self, iorb):
 
         [a, [m1, m4]] = self.BAtomOrb(iorb)

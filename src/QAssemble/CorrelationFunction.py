@@ -2,7 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys, os
 import gc
-import time
 import h5py
 from .Crystal import Crystal
 # from .FTGrid import FTGrid
@@ -15,11 +14,10 @@ from .BLatDyn import *
 from .BLatStc import *
 from .BLocDyn import *
 from .BLocStc import *
-from .utility.MPIManager import MPIManager
 
 class CorrelationFunction(object):
 
-    def __init__(self, control : dict = None, c = 1.0, mpimanager : MPIManager = None):
+    def __init__(self, cry : dict = None, ft : dict = None, c = 1.0):
 
         self.c = c
         self.niham = None
@@ -33,27 +31,16 @@ class CorrelationFunction(object):
         self.vbare = None
         self.pol = None
         self.w = None
-        self.control = control
-        
-        cry = control["crystal"]
-        ft = control["dlr"]
+
+        # cry = Crystal(latt=latt,basisposition=basisposition,ns=ns,soc=soc,rkgrid=rkgrid,orboption=orboption,N=N)
+        #cry = Crystal#(Rvec=Rvec,CorF=CorF,Basis=Basis,Nspin=Nspin,SOC=SOC,Nelec=Nelec,#KGrid=KGrid)
+        #self.cry = cry
+        #ft = FTGrid(T=T,beta=beta,cutoff=cutoff)
+        #self.ft = ft
         self.crystal = Crystal(cry=cry)
-        
+        # self.ft = FTGrid(ft=ft)
         self.dlr = DLR(ft)
 
-        if mpimanager is not None:
-            node_input = {}
-            node_input['nk'] = self.crystal.nk
-            node_input['nf'] = len(self.dlr.omega)
-            node_input['ntau'] = len(self.dlr.tauF)
-            node_input['shape'] = self.crystal.rkgrid
-
-            node_input['nprock'] = control['run']['nprock']
-            node_input['nprocf'] = control['run']['nprocf']
-            
-        
-
-            self.nodedict = mpimanager.Query(node_input)
         # if os.path.exists('work'):
         #     pass
         # else:
@@ -198,9 +185,9 @@ class CorrelationFunction(object):
             print(errmessage)
             sys.exit()
         
-        niham = NIHamiltonian(control=self.control,hopping=hoppinglist,onsite=onsitelist,hdf5file=hdf5file,group=group)
-        gbare = GreenBare(control=self.control,hamtb=niham.k,hdf5file=hdf5file,group=group)
-        vbare = VBare(control=self.control,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,ohnoyuka=ohnoyuka,hdf5file=hdf5file,group=group)
+        niham = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,hdf5file=hdf5file,group=group)
+        gbare = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham.k,hdf5file=hdf5file,group=group)
+        vbare = VBare(crystal=self.crystal,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,ohnoyuka=ohnoyuka,hdf5file=hdf5file,group=group)
 
         self.gw_object_times = []
         for iter in range(1,itermax+1):
@@ -208,11 +195,11 @@ class CorrelationFunction(object):
             if iter == 1:
                 # niham_temp = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin, valley=valley, hdf5file=hdf5file,group='test') 
                 # niham_temp = NIHamiltonian(self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin,aferro=aferro, valley=valley,site=site,hdf5file=hdf5file,group='test_gw')
-                # gbare_temp = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham_temp.k,hdf5file=hdf5file,group='test') 
-                t0 = time.perf_counter()
-                gold = GreenInt(control=self.control,greenbare=gbare.kf,hdf5file=hdf5file,group=group)
-                iter_timing["GreenInt_init"] = time.perf_counter() - t0
+                # gbare_temp = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham_temp.k,hdf5file=hdf5file,group='test')
+                t0 = time.perf_counter() 
+                gold = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,hdf5file=hdf5file,group=group)
                 print(f"Initial chemical potential : {gold.mu}")
+                iter_timing["GreenInt_init"] = time.perf_counter() - t0
                 gold.Save(f'gkf_ini')
                 pkfold = None
                 ckfold = None
@@ -222,18 +209,18 @@ class CorrelationFunction(object):
             print("Density Matrix :")
             print(gold.occ)
             # print("Hartree calculation start")
-            sigmah = SigmaHartree(control=self.control,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
+            sigmah = SigmaHartree(crystal=self.crystal,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
             # if (iter % 50 == 0)or(iter == 1):
             sigmah.Save(f'sigmah.{iter}')
             # print("Hartree calculation finish")
             # print("Fock calculation start")
-            sigmaf = SigmaFock(control=self.control,occr=gold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
+            sigmaf = SigmaFock(crystal=self.crystal,occr=gold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
             # if (iter % 50 == 0)or(iter == 1):
             sigmaf.Save(f'sigmaf.{iter}')
             # print("Fock calculation finish")
             # print("Polarizability calculation start")
             t0 = time.perf_counter()
-            pol = PolLat(control=self.control,green=gold.rt,hdf5file=hdf5file,group=group)
+            pol = PolLat(crystal=self.crystal,dlr=self.dlr,green=gold.rt,hdf5file=hdf5file,group=group)
             iter_timing["Polarizability"] = time.perf_counter() - t0
             # pol.kf = pol.Mixing(iter=iter,mix=mix,Bb=pol.kf,Bold=pkfold)
             # if (iter % 50 == 0)or(iter == 1):
@@ -241,7 +228,7 @@ class CorrelationFunction(object):
             # print("Polarizability calculation finish")
             # print("Screened coulomb interaction calculation start")
             t0 = time.perf_counter()
-            w = WLat(control = self.control,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
+            w = WLat(crystal=self.crystal,dlr=self.dlr,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
             iter_timing["WLat"] = time.perf_counter() - t0
             # if (iter % 50 == 0)or(iter == 1):
             w.Save(f'wkf.{iter}')
@@ -249,7 +236,7 @@ class CorrelationFunction(object):
             # print("Screened coulomb interaction calculation finish")
             # print("GW self-energy calculation start")
             t0 = time.perf_counter()
-            sigmagwc = SigmaGWC(control=self.control,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group)
+            sigmagwc = SigmaGWC(crystal=self.crystal,dlr=self.dlr,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group)
             iter_timing["SigmaGW"] = time.perf_counter() - t0
             # sigmagwc.kf = sigmagwc.Mixing(iter=iter,mix=mix,Fb=sigmagwc.kf,Fm=ckfold)
             # if (iter % 50 == 0)or(iter == 1):
@@ -257,7 +244,8 @@ class CorrelationFunction(object):
             # print("GW self-energy calculation finish")
             # print("GW green's function calculation start")
             t0 = time.perf_counter()
-            gnew = GreenInt(control=self.control,greenbare=gbare.kf,sigmah=sigmah.k,sigmaf=sigmaf.k,sigmagwc=sigmagwc.kf,hdf5file=hdf5file,group=group)
+
+            gnew = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,sigmah=sigmah.k,sigmaf=sigmaf.k,sigmagwc=sigmagwc.kf,hdf5file=hdf5file,group=group)
             iter_timing["GreenInt"] = time.perf_counter() - t0
             # if (iter % 50 == 0)or(iter == 1):
             gnew.Save(f'gkf.{iter}')
@@ -325,141 +313,3 @@ class CorrelationFunction(object):
 
                 del gnew, sigmah, sigmaf, sigmagwc, pol, w
                 gc.collect()
-
-    # def GWApproximation_new(self, itermax : int, mix : float, hoppinglist : list = None, onsitelist : list = None, spin : bool = False, valley : bool = False, site : bool = False, aferro : bool = False, loccoulomb : dict = None, nonloccoulomb : list = None,ohno : bool = False, jth : bool = False, ohnoyuka : bool = False, hdf5file : str = 'glob.h5', group : str = 'gw'):
-
-    #     errmessage = "missing input for GW calculation"
-    #     if (hoppinglist==None):
-    #         print(errmessage)
-    #         sys.exit()
-    #     elif (loccoulomb==None):
-    #         print(errmessage)
-    #         sys.exit()
-
-    #     start = time.time()
-    #     niham = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,hdf5file=hdf5file,group=group)
-    #     end = time.time()
-    #     print(f"NIHamiltonian      - {round(end-start,5)} seconds")
-
-    #     start = time.time()
-    #     gbare = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham.k,hdf5file=hdf5file,group=group)
-    #     end = time.time()
-    #     print(f"GreenBare          - {round(end-start,5)} seconds")
-
-    #     start = time.time()
-    #     vbare = VBare(crystal=self.crystal,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,ohnoyuka=ohnoyuka,hdf5file=hdf5file,group=group)
-    #     self.vbare = vbare
-    #     end = time.time()
-    #     print(f"VBare              - {round(end-start,5)} seconds")
-
-    #     self.gw_object_times = []
-    #     for iter in range(1,itermax+1):
-    #         iter_timing = {"iter": iter}
-    #         if iter == 1:
-    #             niham_temp = NIHamiltonian(self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin,aferro=aferro, valley=valley,site=site,hdf5file=hdf5file,group='test_gw')
-    #             gbare_temp = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham_temp.k,hdf5file=hdf5file,group='test')
-    #             t0 = time.perf_counter()
-    #             gold = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare_temp.kf,hdf5file=hdf5file,group=group)
-    #             iter_timing["GreenInt_init"] = time.perf_counter() - t0
-    #             print(f"Initial chemical potential : {gold.mu}")
-    #             gold.Save(f'gkf_ini')
-    #             pkfold = None
-    #             ckfold = None
-    #             wold = 0
-
-    #         print("Density Matrix :")
-    #         print(gold.occ)
-    #         sigmah = SigmaHartree(crystal=self.crystal,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
-    #         if (iter % 50 == 0):
-    #             sigmah.Save(f'sigmah.{iter}')
-    #         sigmaf = SigmaFock(crystal=self.crystal,occr=gold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
-    #         if (iter % 50 == 0):
-    #             sigmaf.Save(f'sigmaf.{iter}')
-
-    #         t0 = time.perf_counter()
-    #         pol = PolLat(crystal=self.crystal,dlr=self.dlr,green=gold.rt,hdf5file=hdf5file,group=group)
-    #         iter_timing["Polarizability"] = time.perf_counter() - t0
-    #         pol.kf = pol.Mixing(iter=iter,mix=mix,Bb=pol.kf,Bold=pkfold)
-    #         if (iter % 50 == 0):
-    #             pol.Save(f'pkf.{iter}')
-
-    #         t0 = time.perf_counter()
-    #         w = WLat(crystal=self.crystal,dlr=self.dlr,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
-    #         iter_timing["WLat"] = time.perf_counter() - t0
-    #         if (iter % 50 == 0):
-    #             w.Save(f'wkf.{iter}')
-
-    #         t0 = time.perf_counter()
-    #         sigmagwc = SigmaGWC(crystal=self.crystal,dlr=self.dlr,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group)
-    #         iter_timing["SigmaGW"] = time.perf_counter() - t0
-    #         sigmagwc.kf = sigmagwc.Mixing(iter=iter,mix=mix,Fb=sigmagwc.kf,Fm=ckfold)
-    #         if (iter % 50 == 0):
-    #             sigmagwc.Save(f'sigmagwckf.{iter}')
-
-    #         t0 = time.perf_counter()
-    #         gnew = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,sigmah=sigmah.k,sigmaf=sigmaf.k,sigmagwc=sigmagwc.kf,hdf5file=hdf5file,group=group)
-    #         iter_timing["GreenInt"] = time.perf_counter() - t0
-    #         if (iter % 50 == 0):
-    #             gnew.Save(f'gkf.{iter}')
-
-    #         self.gw_object_times.append(iter_timing)
-    #         init_msg = ""
-    #         if "GreenInt_init" in iter_timing:
-    #             init_msg = f", GreenInt_init: {iter_timing['GreenInt_init']:.4f}s"
-    #         print(
-    #             f"[GW timing][iter {iter}] GreenInt: {iter_timing['GreenInt']:.4f}s, "
-    #             f"Polarizability: {iter_timing['Polarizability']:.4f}s, "
-    #             f"WLat: {iter_timing['WLat']:.4f}s, "
-    #             f"SigmaGW: {iter_timing['SigmaGW']:.4f}s{init_msg}"
-    #         )
-
-    #         fcheck = self.SCFCheck(gnew.kf,gold.kf)
-    #         mucheck = abs(gnew.mu-gold.mu)
-
-    #         print(f"iteration : {iter} \nfcriteria : {fcheck} \nchemicalpotential : {gnew.mu}")
-
-    #         if (fcheck <=1.0e-6)and(mucheck<=0.01):
-    #             print(f"Self-consistency is achived with {iter}-th")
-    #             self.greenbare = gbare
-    #             self.green = gnew
-    #             self.pol = pol
-    #             self.w = w
-    #             self.sigmagwc = sigmagwc
-    #             self.sigmaf = sigmaf
-    #             self.sigmah = sigmah
-    #             gnew.Save('gkf',chem=True)
-    #             sigmah.Save('sigmah')
-    #             sigmaf.Save('sigmaf')
-    #             sigmagwc.Save('sigmagwckf')
-    #             pol.Save('pkf')
-    #             w.Save('wkf')
-    #             del niham, vbare, gbare, gnew, gold, sigmaf, sigmah, sigmagwc, pol, w
-    #             gc.collect()
-    #             break
-    #         elif (iter==itermax):
-    #             print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
-    #             self.greenbare = gbare
-    #             self.green = gnew
-    #             self.pol = pol
-    #             self.w = w
-    #             self.sigmagwc = sigmagwc
-    #             self.sigmaf = sigmaf
-    #             self.sigmah = sigmah
-    #             gnew.Save('gkf',chem=True)
-    #             sigmah.Save('sigmah')
-    #             sigmaf.Save('sigmaf')
-    #             sigmagwc.Save('sigmagwckf')
-    #             pol.Save('pkf')
-    #             w.Save('wkf')
-    #             del niham, vbare, gbare, gnew, gold, sigmaf, sigmah, sigmagwc, pol, w
-    #             gc.collect()
-    #         else:
-    #             gold = gnew
-    #             ckfold = sigmagwc.kf
-    #             pkfold = pol.kf
-    #             wold = w.kf
-
-    #             del gnew, sigmah, sigmaf, sigmagwc, pol, w
-    #             gc.collect()
-
-    #     return None

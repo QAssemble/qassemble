@@ -1,15 +1,30 @@
 import copy
 import itertools
+import json
+import os
+import re as re
+import shutil
+import string as string
+import subprocess
 import sys
+from collections import OrderedDict
+from typing import Any
 
 import h5py
+import matplotlib as mat
+import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.linalg
 import scipy.optimize
+from pylab import cm
+from pymatgen.core import Lattice, Structure
+from pymatgen.transformations.standard_transformations import \
+    SupercellTransformation
+from scipy.fftpack import fftn, ifftn
+from sympy.physics.wigner import gaunt, wigner_3j
 
 from .Crystal import Crystal
-from .utility.Common import Common
 from .utility.Dyson import Dyson
 from .utility.Fourier import Fourier
 
@@ -19,15 +34,11 @@ from .utility.Fourier import Fourier
 # import QAFort
 
 
-class FLatStc(Crystal):
+class FLatStc(object):
 
-    def __init__(self, control):
+    def __init__(self, crystal: Crystal):
 
-        if isinstance(control, dict):
-            Crystal.__init__(self, control['crystal'])
-        else:
-            # If a Crystal instance is passed, copy its attributes directly
-            self.__dict__.update(control.__dict__)
+        self.crystal = crystal
 
     def Inverse(self, mat: np.ndarray):
 
@@ -39,15 +50,15 @@ class FLatStc(Crystal):
 
         for irk in range(nrk):
             for js in range(ns):
-                matinv[:, :, js, irk] = Common.MatInv(mat[:, :, js, irk])
+                matinv[:, :, js, irk] = np.linalg.inv(mat[:, :, js, irk])
 
         return matinv
 
-    def K2R(self, matk: np.ndarray = None, rkgrid: list = None, nodedict: dict = None) -> np.ndarray:
+    def K2R(self, matk: np.ndarray = None, rkgrid: list = None) -> np.ndarray:
 
-        if rkgrid is None:
-            rkgrid = self.rkgrid
-        rkvec = self.kpoint
+        if rkgrid == None:
+            rkgrid = self.crystal.rkgrid
+        rkvec = self.crystal.kpoint
 
         norb = matk.shape[0]
         ns = matk.shape[2]
@@ -59,46 +70,44 @@ class FLatStc(Crystal):
             for js in range(ns):
                 for iorb in range(norb):
                     for jorb in range(norb):
-                        [a, m1] = self.FAtomOrb(iorb)
-                        [b, m2] = self.FAtomOrb(jorb)
+                        [a, m1] = self.crystal.FAtomOrb(iorb)
+                        [b, m2] = self.crystal.FAtomOrb(jorb)
 
-                        delta = self.basisf[a, :] - self.basisf[b, :]
+                        delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
 
                         phase = np.exp(2.0j * np.pi * np.dot(rkvec[irk], delta))
 
+                        # matk[iorb,jorb,js,irk] *= phase
                         tempmat[iorb, jorb, js, irk] *= phase
 
-        if nodedict is not None:
-            matr = Fourier.FLatStcK2R_MPI(tempmat, nodedict)
-        else:
-            matr = Fourier.FLatStcK2R(tempmat, rkgrid)
+        # matr = QAFort.fourier.flatstc_k2r(rkgrid, tempmat)
+        matr = Fourier.FLatStcK2R(tempmat, rkgrid)
 
         return matr
 
-    def R2K(self, matr: np.ndarray = None, rkgrid: list = None, nodedict: dict = None) -> np.ndarray:
+    def R2K(self, matr: np.ndarray = None, rkgrid: list = None) -> np.ndarray:
 
-        if rkgrid is None:
-            rkgrid = self.rkgrid
-        rkvec = self.kpoint
+        if rkgrid == None:
+            rkgrid = self.crystal.rkgrid
+        rkvec = self.crystal.kpoint
 
         norb = matr.shape[0]
         ns = matr.shape[2]
         nrk = matr.shape[3]
 
+        matk = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
         tempmat = copy.deepcopy(matr)
-        if nodedict is not None:
-            matk = Fourier.FLatStcR2K_MPI(tempmat, nodedict)
-        else:
-            matk = Fourier.FLatStcR2K(tempmat, rkgrid)
+        # matk = QAFort.fourier.flatstc_r2k(rkgrid, tempmat)
+        matk = Fourier.FLatStcR2K(tempmat, rkgrid)
 
         for irk in range(nrk):
             for js in range(ns):
                 for iorb in range(norb):
                     for jorb in range(norb):
-                        [a, m1] = self.FAtomOrb(iorb)
-                        [b, m2] = self.FAtomOrb(jorb)
+                        [a, m1] = self.crystal.FAtomOrb(iorb)
+                        [b, m2] = self.crystal.FAtomOrb(jorb)
 
-                        delta = self.basisf[a, :] - self.basisf[b, :]
+                        delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
                         phase = np.exp(-2.0j * np.pi * np.dot(rkvec[irk], delta))
 
                         matk[iorb, jorb, js, irk] = matk[iorb, jorb, js, irk] * phase
@@ -124,23 +133,23 @@ class FLatStc(Crystal):
                 for iorb in range(norb):
                     energyplot[iorb, js, ik] = energy[iorb, iorb, js, ik]
         if plotoption:
-            if self.ns == 1:
+            if self.crystal.ns == 1:
                 fig, ax = plt.subplots()
-                ax.set_xlim(self.knode[0], self.knode[-1])
-                ax.set_xticks(self.knode)
+                ax.set_xlim(self.crystal.knode[0], self.crystal.knode[-1])
+                ax.set_xticks(self.crystal.knode)
                 if label == None:
                     pass
                 else:
                     ax.set_xticklabels(label)
-                for i in range(len(self.knode)):
+                for i in range(len(self.crystal.knode)):
                     ax.axvline(
-                        x=self.knode[i],
+                        x=self.crystal.knode[i],
                         linewidth=0.5,
                         color="r",
                         linestyle="--",
                     )
                 for iorb in range(norb):
-                    ax.plot(self.kdist, energyplot[iorb, 0, :].T, "k-")
+                    ax.plot(self.crystal.kdist, energyplot[iorb, 0, :].T, "k-")
                 ax.set_ylabel("E (eV)")
                 ax.set_title("Band")
                 # plt.plot(energyplot.T[:,0,:])
@@ -161,7 +170,7 @@ class FLatStc(Crystal):
             with open("band.dat", "w") as f:
                 for js in range(ns):
                     for ik in range(nk):
-                        linedata = [self.kdist[ik]] + energyplot[
+                        linedata = [self.crystal.kdist[ik]] + energyplot[
                             :, js, ik
                         ].tolist()
                         line = " ".join(map(str, linedata))
@@ -195,14 +204,13 @@ class FLatStc(Crystal):
         if eigvec == False:
             for ik in range(nk):
                 for js in range(ns):
-                    # e, v, info = scipy.linalg.lapack.zheev(matk[:, :, js, ik])
-                    e, v  = Common.HermitianEigenCmplx(matk[:, :, js, ik])
+                    e, v, info = scipy.linalg.lapack.zheev(matk[:, :, js, ik])
                     energy[:, :, js, ik] = np.diag(e)
             return energy
         else:
             for ik in range(nk):
                 for js in range(ns):
-                    e, v  = Common.HermitianEigenCmplx(matk[:, :, js, ik])
+                    e, v, info = scipy.linalg.lapack.zheev(matk[:, :, js, ik])
                     energy[:, :, js, ik] = np.diag(e)
                     evec[:, :, js, ik] = v
 
@@ -223,8 +231,8 @@ class FLatStc(Crystal):
     ):
 
         print("***** DOS Calculation Start *****")
-        norb = len(self.find)
-        ns = self.ns
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
         if type(kgrid) == list:
             nk = kgrid[0] * kgrid[1] * kgrid[2]
             kpointtemp = np.array(
@@ -304,55 +312,55 @@ class FLatStc(Crystal):
         print("***** DOS Calculation Finish *****")
         return None
 
-    # def Visualization(self, energy: np.ndarray, grid : list = None, fn: str = None):
+    def Visualization(self, energy: np.ndarray, grid : list = None, fn: str = None):
 
-    #     if grid is None:
-    #         grid = self.rkgrid
-    #         kpoint = self.kpoint
-    #     else:
-    #         kpoint = self.KPoint(grid)
+        if grid is None:
+            grid = self.crystal.rkgrid
+            kpoint = self.crystal.kpoint
+        else:
+            kpoint = self.crystal.KPoint(grid)
 
-    #     # if grid[2] != 1:
-    #     #     print("Energy surface for only 2D case")
-    #     #     sys.exit()
-    #     # else:
+        # if grid[2] != 1:
+        #     print("Energy surface for only 2D case")
+        #     sys.exit()
+        # else:
             
-    #     norb = energy.shape[0]
-    #     ns = energy.shape[2]
-    #     fig = plt.figure()
-    #     ax = fig.add_subplot(projection="3d")
-    #     kx = kpoint[:, 0].reshape(
-    #         grid[0], grid[1], grid[2]
-    #     )
-    #     ky = kpoint[:, 1].reshape(
-    #         grid[0], grid[1], grid[2]
-    #     )
-    #     energy = energy.T
-    #     energy = energy.reshape(
-    #         grid[0],
-    #         grid[1],
-    #         grid[2],
-    #         ns,
-    #         norb,
-    #         norb,
-    #     )
+        norb = energy.shape[0]
+        ns = energy.shape[2]
+        fig = plt.figure()
+        ax = fig.add_subplot(projection="3d")
+        kx = kpoint[:, 0].reshape(
+            grid[0], grid[1], grid[2]
+        )
+        ky = kpoint[:, 1].reshape(
+            grid[0], grid[1], grid[2]
+        )
+        energy = energy.T
+        energy = energy.reshape(
+            grid[0],
+            grid[1],
+            grid[2],
+            ns,
+            norb,
+            norb,
+        )
 
-    #     for js in range(ns):
-    #         for iorb in range(norb):
-    #             ax.plot_surface(
-    #                 kx[:, :, 0], ky[:, :, 0], energy[:, :, 0, js, iorb, iorb]
-    #             )
+        for js in range(ns):
+            for iorb in range(norb):
+                ax.plot_surface(
+                    kx[:, :, 0], ky[:, :, 0], energy[:, :, 0, js, iorb, iorb]
+                )
 
-    #     ax.view_init(azim=-120, elev=0)
-    #     ax.set_xlabel("kx")
-    #     ax.set_ylabel("ky")
-    #     ax.set_zlabel("Energy eV")
-    #     if fn is None:
-    #         plt.show()
-    #     elif fn is not None:
-    #         fig.savefig(fn)
+        ax.view_init(azim=-120, elev=0)
+        ax.set_xlabel("kx")
+        ax.set_ylabel("ky")
+        ax.set_zlabel("Energy eV")
+        if fn is None:
+            plt.show()
+        elif fn is not None:
+            fig.savefig(fn)
 
-    #     return None
+        return None
 
     def Mixing(
         self, iter: int, mix: float, Fb: np.ndarray, Fm: np.ndarray
@@ -361,9 +369,9 @@ class FLatStc(Crystal):
         # norb = Fb.shape[0]
         # ns = Fb.shape[2]
         # nrk = Fb.shape[3]
-        norb = len(self.find)
-        ns = self.ns
-        nrk = len(self.kpoint)
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
 
         Fnew = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
         # print(Fnew.shape)
@@ -383,9 +391,9 @@ class FLatStc(Crystal):
 
     def ChemEmbedding(self, mu: float) -> np.ndarray:
 
-        norb = len(self.find)
-        ns = self.ns
-        nrk = len(self.kpoint)
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
 
         chem = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
 
@@ -446,12 +454,12 @@ class FLatStc(Crystal):
         #     print("Error, kpath doesn't generate")
         #     sys.exit()
         # kpoint = self.crystal.kpath
-        norb = len(self.find)
-        ns = self.ns
-        nr = self.rkgrid[0] * self.rkgrid[1] * self.rkgrid[2]
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nr = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
         nk = len(kpoint)
 
-        self.RVec()
+        self.crystal.RVec()
         tempmat = copy.deepcopy(matr)
         matk = np.zeros((norb, norb, ns, nk), dtype=complex, order="F")
 
@@ -462,11 +470,11 @@ class FLatStc(Crystal):
                         temp = 0
                         for ir in range(nr):
                             temp += tempmat[iorb, jorb, js, ir] * np.exp(
-                                -2.0j * np.pi * (kpoint[ik] @ self.rvec[ir])
+                                -2.0j * np.pi * (kpoint[ik] @ self.crystal.rvec[ir])
                             )
-                        [a, m1] = self.FAtomOrb(iorb)
-                        [b, m2] = self.FAtomOrb(jorb)
-                        delta = self.basisf[a, :] - self.basisf[b, :]
+                        [a, m1] = self.crystal.FAtomOrb(iorb)
+                        [b, m2] = self.crystal.FAtomOrb(jorb)
+                        delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
                         phase = np.exp(-2.0j * np.pi * (kpoint[ik] @ delta))
                         matk[iorb, jorb, js, ik] = temp * phase
 
@@ -474,9 +482,9 @@ class FLatStc(Crystal):
 
     def HermitianCheck(self, matin: np.ndarray):
 
-        norb = len(self.find)
-        ns = self.ns
-        nk = self.rkgrid[0] * self.rkgrid[1] * self.rkgrid[2]
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nk = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
 
         errmessage = "The matrix is not hermitian. Check the input file again"
         for ik in range(nk):
@@ -513,7 +521,7 @@ class FLatStc(Crystal):
         kminus = []
         kpoint_temp=np.array(list(itertools.product(np.linspace(0,1,num=kgrid[2],endpoint=False),np.linspace(0,1,num=kgrid[1],endpoint=False),np.linspace(0,1,num=kgrid[0],endpoint=False))))
         kpoint=np.fliplr(kpoint_temp)
-        bk = kpoint@self.bvec
+        bk = kpoint@self.crystal.bvec
         bk2 = bk.reshape((kgrid[0],kgrid[1],kgrid[2],3),order='F')
 
         for ik in range(len(bk)):
@@ -528,9 +536,13 @@ class FLatStc(Crystal):
 
 class NIHamiltonian(FLatStc):
 
-    def __init__(self, control : dict, hopping: dict = None, onsite: dict = None, spin : bool = False, ferro : bool = False, aferro : bool = False, valley: bool = False, avalley : bool = False, site : bool = False, asite : bool = False, hdf5file: h5py.File = None, group: str = None,):
+    def __init__(
+        self, crystal: Crystal = None, hopping: dict = None, onsite: dict = None, spin : bool = False, 
+        ferro : bool = False, aferro : bool = False, valley: bool = False, avalley : bool = False, site : bool = False, 
+        asite : bool = False, hdf5file: h5py.File = None, group: str = None,
+    ):
 
-        super().__init__(control)
+        super().__init__(crystal)
 
         print("Non-interacting Hamiltonian Calculation Start")
         hopplist = []
@@ -570,14 +582,14 @@ class NIHamiltonian(FLatStc):
 
     def Cal(self):  # GenHam
 
-        norb = len(self.find)
-        ns = self.ns
-        nk = len(self.kpoint)
-        kvec = self.kpoint
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nk = len(self.crystal.kpoint)
+        kvec = self.crystal.kpoint
 
         hamtb = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order="F")
         tempmat = np.zeros(
-            (norb, norb, ns, self.rkgrid[0], self.rkgrid[1], self.rkgrid[2]),
+            (norb, norb, ns, self.crystal.rkgrid[0], self.crystal.rkgrid[1], self.crystal.rkgrid[2]),
             dtype=np.complex128,
             order="F",
         )
@@ -590,8 +602,8 @@ class NIHamiltonian(FLatStc):
 
                 (a, m) = hopp[1]
                 (b, mp) = hopp[2]
-                iorb = self.FIndex([a, m])
-                jorb = self.FIndex([b, mp])
+                iorb = self.crystal.FIndex([a, m])
+                jorb = self.crystal.FIndex([b, mp])
                 R = hopp[3]
 
                 # tempmat[iorb,jorb,js,R[0],R[1],R[2]] += -tij
@@ -638,7 +650,7 @@ class NIHamiltonian(FLatStc):
         if self.onsite != None:
             for js, value in self.onsite.items():
                 for orb, val in value.items():
-                    iorb = self.FIndex(list(orb))
+                    iorb = self.crystal.FIndex(list(orb))
                     tempmat[iorb, iorb, js, 0, 0, 0] += val
         #           for js in range(ns):
         #               for orb, val in self.onsite.items():
@@ -780,8 +792,15 @@ class NIHamiltonian(FLatStc):
 
 class SigmaHartree(FLatStc):
 
-    def __init__(self, control : dict, occ=None, vbare: np.ndarray = None, hdf5file: str = "glob.h5", group: str = None,):  # green -> occ
-        super().__init__(control)
+    def __init__(
+        self,
+        crystal: Crystal,
+        occ=None,
+        vbare: np.ndarray = None,
+        hdf5file: str = "glob.h5",
+        group: str = None,
+    ):  # green -> occ
+        super().__init__(crystal)
         self.r = None
         self.k = None
         self.vbare = vbare
@@ -799,15 +818,15 @@ class SigmaHartree(FLatStc):
         # vbare = self.vbare.k
         occ = self.occ
         # vk = self.vbare.Double2Quad(self.vbare.k)
-        norbc = len(self.find)  # occk.shape[0]
-        ns = self.ns  # occk.shape[2]
-        nk = len(self.kpoint)  # occk.shape[3]
-        norb = len(self.bind)  # vbare.shape[0]
+        norbc = len(self.crystal.find)  # occk.shape[0]
+        ns = self.crystal.ns  # occk.shape[2]
+        nk = len(self.crystal.kpoint)  # occk.shape[3]
+        norb = len(self.crystal.bind)  # vbare.shape[0]
 
         # onsite = self.R2K(self.onsiter)
         h = np.zeros((norbc, norbc, ns, nk), dtype=np.complex128, order="F")
 
-        if self.ns != 1:
+        if self.crystal.ns != 1:
             #     for ik in range(nk):
             #         tempmat[...,ik] = self.crystal.OrbSpin2Composite(vbare[...,ik])
 
@@ -827,27 +846,27 @@ class SigmaHartree(FLatStc):
             for ik in range(nk):
                 for ind1 in range(norb * ns):
                     nn1 = [0] * 2
-                    ind1, [iorb, js] = Common.Indexing(
+                    ind1, [iorb, js] = self.crystal.indexing(
                         norb * ns, 2, [norb, ns], 0, ind1, nn1
                     )
-                    [a, [m1, m2]] = self.BAtomOrb(iorb)
-                    iorbc1 = self.FIndex([a, m1])
-                    iorbc2 = self.FIndex([a, m2])
+                    [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
+                    iorbc1 = self.crystal.FIndex([a, m1])
+                    iorbc2 = self.crystal.FIndex([a, m2])
                     for ind2 in range(norb * ns):
                         nn2 = [0] * 2
-                        ind2, [jorb, ks] = Common.Indexing(
+                        ind2, [jorb, ks] = self.crystal.indexing(
                             norb * ns, 2, [norb, ns], 0, ind2, nn2
                         )
-                        [b, [m3, m4]] = self.BAtomOrb(jorb)
-                        iorbc3 = self.FIndex([b, m3])
-                        iorbc4 = self.FIndex([b, m4])
+                        [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
+                        iorbc3 = self.crystal.FIndex([b, m3])
+                        iorbc4 = self.crystal.FIndex([b, m4])
                         # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]
                         h[iorbc1, iorbc2, js, ik] += (
                             self.vbare[iorb, jorb, js, ks, 0] * occ[iorbc4, iorbc3, ks]
                         )
 
         else:
-            if self.soc == True:
+            if self.crystal.soc == True:
                 C = 1
                 # for ik in range(nk):
                 #     for iorb in range(norb):
@@ -861,20 +880,20 @@ class SigmaHartree(FLatStc):
                 for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
-                        ind1, [iorb, js] = Common.Indexing(
+                        ind1, [iorb, js] = self.crystal.indexing(
                             norb * ns, 2, [norb, ns], 0, ind1, nn1
                         )
-                        [a, [m1, m2]] = self.BAtomOrb(iorb)
-                        iorbc1 = self.FIndex([a, m1])
-                        iorbc2 = self.FIndex([a, m2])
+                        [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
+                        iorbc1 = self.crystal.FIndex([a, m1])
+                        iorbc2 = self.crystal.FIndex([a, m2])
                         for ind2 in range(norb * ns):
                             nn2 = [0] * 2
-                            ind2, [jorb, ks] = Common.Indexing(
+                            ind2, [jorb, ks] = self.crystal.indexing(
                                 norb * ns, 2, [norb, ns], 0, ind2, nn2
                             )
-                            [b, [m3, m4]] = self.BAtomOrb(jorb)
-                            iorbc3 = self.FIndex([b, m3])
-                            iorbc4 = self.FIndex([b, m4])
+                            [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
+                            iorbc3 = self.crystal.FIndex([b, m3])
+                            iorbc4 = self.crystal.FIndex([b, m4])
                             h[iorbc1, iorbc2, js, ik] = (
                                 self.vbare[iorb, jorb, js, ks, 0]
                                 * occ[iorbc4, iorbc3, ks]
@@ -894,20 +913,20 @@ class SigmaHartree(FLatStc):
                 for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
-                        ind1, [iorb, js] = Common.Indexing(
+                        ind1, [iorb, js] = self.crystal.indexing(
                             norb * ns, 2, [norb, ns], 0, ind1, nn1
                         )
-                        [a, [m1, m2]] = self.BAtomOrb(iorb)
-                        iorbc1 = self.FIndex([a, m1])
-                        iorbc2 = self.FIndex([a, m2])
+                        [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
+                        iorbc1 = self.crystal.FIndex([a, m1])
+                        iorbc2 = self.crystal.FIndex([a, m2])
                         for ind2 in range(norb * ns):
                             nn2 = [0] * 2
-                            ind2, [jorb, ks] = Common.Indexing(
+                            ind2, [jorb, ks] = self.crystal.indexing(
                                 norb * ns, 2, [norb, ns], 0, ind2, nn2
                             )
-                            [b, [m3, m4]] = self.BAtomOrb(jorb)
-                            iorbc3 = self.FIndex([b, m3])
-                            iorbc4 = self.FIndex([b, m4])
+                            [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
+                            iorbc3 = self.crystal.FIndex([b, m3])
+                            iorbc4 = self.crystal.FIndex([b, m4])
                             # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]*C
                             h[iorbc1, iorbc2, js, ik] += (
                                 self.vbare[iorb, jorb, js, ks, 0]
@@ -951,8 +970,15 @@ class SigmaHartree(FLatStc):
 
 class SigmaFock(FLatStc):
 
-    def __init__(self,control : dict, occr : np.ndarray =None, vbare: np.ndarray = None, hdf5file: str = "glob.h5", group: str = None,):  # green -> occ
-        super().__init__(control)
+    def __init__(
+        self,
+        crystal: Crystal,
+        occr=None,
+        vbare: np.ndarray = None,
+        hdf5file: str = "glob.h5",
+        group: str = None,
+    ):  # green -> occ
+        super().__init__(crystal)
         self.r = None
         self.k = None
         self.hdf5file = hdf5file
@@ -973,10 +999,10 @@ class SigmaFock(FLatStc):
         occr = self.occr
         # vr = self.vbare.Double2Quad(self.vbare.r)
 
-        norbc = len(self.find)
+        norbc = len(self.crystal.find)
         ns = occr.shape[2]
         nr = occr.shape[3]
-        norb = len(self.bind)
+        norb = len(self.crystal.bind)
 
         fr = np.zeros((norbc, norbc, ns, nr), dtype=np.complex128, order="F")
 
@@ -990,20 +1016,20 @@ class SigmaFock(FLatStc):
         for ir in range(nr):
             for ind1 in range(norb * ns):
                 nn1 = [0] * 2
-                ind1, [iorb, js] = Common.Indexing(
+                ind1, [iorb, js] = self.crystal.indexing(
                     norb * ns, 2, [norb, ns], 0, ind1, nn1
                 )
-                [a, [m1, m4]] = self.BAtomOrb(iorb)
-                iorbc1 = self.FIndex([a, m1])
-                iorbc4 = self.FIndex([a, m4])
+                [a, [m1, m4]] = self.crystal.BAtomOrb(iorb)
+                iorbc1 = self.crystal.FIndex([a, m1])
+                iorbc4 = self.crystal.FIndex([a, m4])
                 for ind2 in range(norb * ns):
                     nn2 = [0] * 2
-                    ind2, [jorb, ks] = Common.Indexing(
+                    ind2, [jorb, ks] = self.crystal.indexing(
                         norb * ns, 2, [norb, ns], 0, ind2, nn2
                     )
-                    [b, [m3, m2]] = self.BAtomOrb(jorb)
-                    iorbc3 = self.FIndex([b, m3])
-                    iorbc2 = self.FIndex([b, m2])
+                    [b, [m3, m2]] = self.crystal.BAtomOrb(jorb)
+                    iorbc3 = self.crystal.FIndex([b, m3])
+                    iorbc2 = self.crystal.FIndex([b, m2])
                     if js == ks:
                         # fr[iorbc1,iorbc2,js,ir] += -occr[iorbc4,iorbc3,js,ir]*vr[iorbc1,iorbc3,iorbc2,iorbc4,js,ks,ir]
                         fr[iorbc1, iorbc2, js, ir] += (
@@ -1051,8 +1077,19 @@ class SigmaFock(FLatStc):
 
 class Hamiltonian(FLatStc):
 
-    def __init__(self, control : dict, ham: np.ndarray = None, beta: float = None, sigmah: np.ndarray = None, sigmaf: np.ndarray = None, sigmac: np.ndarray = None, z : np.ndarray = None,hdf5file: str = "glob.h5",group: str = None,):
-        super().__init__(control)
+    def __init__(
+        self,
+        crystal: Crystal,
+        ham: np.ndarray = None,
+        beta: float = None,
+        sigmah: np.ndarray = None,
+        sigmaf: np.ndarray = None,
+        sigmac: np.ndarray = None,
+        z : np.ndarray = None,
+        hdf5file: str = "glob.h5",
+        group: str = None,
+    ):
+        super().__init__(crystal)
 
         self.occ = None
         self.occk = None
@@ -1078,9 +1115,9 @@ class Hamiltonian(FLatStc):
 
     def CalMu0(self) -> np.ndarray:
 
-        norb = len(self.find)
-        ns = self.ns
-        nrk = len(self.kpoint)
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
 
         tempmat = np.array(self.ham, dtype=np.complex128, order="F", copy=True)
 
@@ -1118,9 +1155,9 @@ class Hamiltonian(FLatStc):
 
     def NumOfE(self, mu: float) -> np.ndarray:
 
-        norb = len(self.find)
-        ns = self.ns
-        nk = len(self.kpoint)
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nk = len(self.crystal.kpoint)
 
         energy = self.Diagonalize(self.hkmu0)
 
@@ -1134,7 +1171,7 @@ class Hamiltonian(FLatStc):
                     )
 
         Ne /= nk
-        N = self.nume
+        N = self.crystal.nume
 
         return N - Ne
 
@@ -1162,9 +1199,9 @@ class Hamiltonian(FLatStc):
 
     def Occ(self) -> np.ndarray:
 
-        norb = len(self.find)
-        ns = self.ns
-        nrk = len(self.kpoint)
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
 
         # energy = self.Diagonalize(self.hk)
 
@@ -1291,9 +1328,9 @@ class HamiltonianAB(FLatStc):
     
 class ZFactor(FLatStc):
 
-    def __init__(self, control : dict, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
+    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
 
-        super().__init__(control)
+        super().__init__(crystal)
 
         self.sigmac = sigmac
         self.beta = beta
@@ -1359,9 +1396,9 @@ class ZFactor(FLatStc):
 
 class SigmaStc(FLatStc):
 
-    def __init__(self, control : dict, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
+    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
 
-        super().__init__(control)
+        super().__init__(crystal)
 
         self.sigmac = sigmac
         self.beta = beta
