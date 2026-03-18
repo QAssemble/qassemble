@@ -359,7 +359,7 @@ class Crystal(object):
 
         norb = len(self.bind)
         ns = self.ns
-        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex64,order='F')
+        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
         ndim = mat.shape[0]
 
         for ind1 in range(ndim):
@@ -384,7 +384,7 @@ class Crystal(object):
 
         norb = mat.shape[0]
         ns = mat.shape[2]
-        matout = np.zeros((norb*ns,norb*ns),dtype=np.complex64,order='F')
+        matout = np.zeros((norb*ns,norb*ns),dtype=np.complex128,order='F')
 
         for js in range(ns):
             for iorb in range(norb):
@@ -409,7 +409,7 @@ class Crystal(object):
 
         norb = len(self.bind)
         norbc = len(self.find)
-        matout = np.zeros((norb,norb),dtype=np.complex64)
+        matout = np.zeros((norb,norb),dtype=np.complex128)
 
         # for lorbc in range(norbc):
         #     for korbc in range(norbc):
@@ -444,7 +444,7 @@ class Crystal(object):
         norbc = len(self.find)
         norb = len(self.bind)
 
-        matout = np.zeros((norbc,norbc,norbc,norbc),dtype=np.complex64,order='F')
+        matout = np.zeros((norbc,norbc,norbc,norbc),dtype=np.complex128,order='F')
 
         # for jorb in range(norb):
         #     for iorb in range(norb):
@@ -475,7 +475,7 @@ class Crystal(object):
 
         norbc = len(self.find)
 
-        matout = np.zeros((norbc,norbc,norbc,norbc),dtype=np.complex64,order='F')
+        matout = np.zeros((norbc,norbc,norbc,norbc),dtype=np.complex128,order='F')
 
         # for lorbc in range(norbc):
         #     for korbc in range(norbc):
@@ -529,7 +529,7 @@ class Crystal(object):
 
         norb = len(self.bind)
 
-        matret = np.zeros((norb,norb),dtype=np.complex64,order='F')
+        matret = np.zeros((norb,norb),dtype=np.complex128,order='F')
 
         for jorb in range(norb):
             for iorb in range(norb):
@@ -551,7 +551,7 @@ class Crystal(object):
 
         nind = len(self.find)**2
         norb = len(self.bind)
-        matret = np.zeros((nind,nind),dtype=np.complex64,order='F')
+        matret = np.zeros((nind,nind),dtype=np.complex128,order='F')
 
         for jorb in range(norb):
             for iorb in range(norb):
@@ -816,7 +816,7 @@ class Crystal(object):
         nr = G.shape[3]
         ntau = G.shape[4]
 
-        GmRmT = np.zeros((norb,norb,ns,nr,ntau),dtype=np.complex64,order='F')
+        GmRmT = np.zeros((norb,norb,ns,nr,ntau),dtype=np.complex128,order='F')
 
         for itau in range(ntau):
             for rp in self.mappingidx:
