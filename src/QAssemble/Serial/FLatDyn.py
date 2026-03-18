@@ -687,8 +687,8 @@ class GreenInt(FLatDyn):
         
         Ne = 0
         tau_uniform = self.dlr.TauUniform()
-        tau_beta = np.array([tau_uniform[-1]], dtype=np.float64)
-        # tau_beta = np.array([self.dlr.beta], dtype=np.float64)
+        # tau_beta = np.array([tau_uniform[-1]], dtype=np.float64)
+        tau_beta = np.array([self.dlr.beta], dtype=np.float64)
         
         for irk in range(nrk):
             for js in range(ns):
