@@ -142,7 +142,7 @@ class BLatDyn(object):
         tempmat = matk.copy()
         tempmat *= self._boson_phase_cache_k2r[:, :, None, None, :, None]
 
-        matr = Fourier.BLatDynK2R(matk, self.crystal.rkgrid)
+        matr = Fourier.BLatDynK2R(tempmat, self.crystal.rkgrid)
 
 
         return matr
