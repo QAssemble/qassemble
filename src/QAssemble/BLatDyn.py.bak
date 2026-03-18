@@ -287,23 +287,42 @@ class BLatDyn(object):
 
     def Double2Full(self, matin: np.ndarray) -> np.ndarray:
         norb = len(self.crystal.find)
+        # ns = self.crystal.ns
+        # nrk = len(self.crystal.kpoint)
+        # nft = len(self.dlr.nu)#self.ft.size
         _, _, ns, _, nrk, nft = matin.shape
-        nind = norb * norb
-        c2b = np.asarray(self.crystal.c2b, dtype=np.int64)
 
         matout = np.zeros(
-            (nind, nind, ns, ns, nrk, nft), dtype=np.complex128, order="F"
+            (norb * norb, norb * norb, ns, ns, nrk, nft), dtype=np.complex128, order="F"
         )
-        matout[np.ix_(c2b, c2b)] = matin
 
+        for ift in range(nft):
+            for irk in range(nrk):
+                for ks, js in itertools.product(range(ns), repeat=2):
+                    matout[:, :, js, ks, irk, ift] = self.crystal.Double2Full(
+                        matin[:, :, js, ks, irk, ift]
+                    )
         del matin
         gc.collect()
         return matout
 
     def Full2Double(self, matin: np.ndarray) -> np.ndarray:
-        c2b = np.asarray(self.crystal.c2b, dtype=np.int64)
+        norb = len(self.crystal.bind)
+        # ns = self.crystal.ns
+        # nrk = len(self.crystal.kpoint)
+        # nft = len(self.dlr.nu)#self.ft.size
+        _, _, ns, _, nrk, nft = matin.shape
 
-        matout = np.asarray(matin[np.ix_(c2b, c2b)], dtype=np.complex128, order="F")
+        matout = np.zeros(
+            (norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F"
+        )
+
+        for ift in range(nft):
+            for irk in range(nrk):
+                for ks, js in itertools.product(range(ns), repeat=2):
+                    matout[:, :, js, ks, irk, ift] = self.crystal.Full2Double(
+                        matin[:, :, js, ks, irk, ift]
+                    )
 
         return matout
 
