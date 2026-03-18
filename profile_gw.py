@@ -69,7 +69,7 @@ lp.add_function(BLatDyn.T2F)
 lp.add_function(BLatDyn.F2T)
 lp.add_function(BLatDyn.K2R)
 lp.add_function(BLatDyn.R2K)
-lp.add_function(BLatDyn.RT2mRmTDLR)
+lp.add_function(BLatDyn.RT2mRmT)
 lp.add_function(BLatDyn.TauF2TauB)
 
 # 4) Dyson solver
@@ -85,7 +85,7 @@ def run_gw():
     """input.ini를 읽고 GWApproximation을 실행"""
     from QuantumAssemble import Run
     runner = Run()
-    runner.RunDiagE()
+    # runner.RunDiagE()
 
 
 def run_gw_direct():
