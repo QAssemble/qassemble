@@ -482,26 +482,6 @@ class GreenBare(FLatDyn):
 
         return None
     
-    # def Load(self):
-
-    #     os.chdir('work')
-
-    #     filepath = 'flatdyn.h5'
-    #     groupname = 'gbare'
-    #     errmessage = 'There is no calculation data. Please perform the calculation again.'
-    #     with h5py.File(filepath,'r') as file:
-    #         if self.CheckGroup(filepath,groupname):
-    #             group = file[groupname]
-    #         else:
-    #             print(errmessage)
-    #             sys.exit()
-            
-    #         g0kf = group['g0kf'][:]
-
-    #     os.chdir('..')
-
-    #     return g0kf
-    
 class GreenInt(FLatDyn):
 
     def __init__(self, crystal: Crystal, dlr : DLR, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
@@ -653,38 +633,54 @@ class GreenInt(FLatDyn):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
         nfreq = len(self.dlr.omega)
-        chem = self.ChemEmbedding(mu)
-        
-        gcalf = self.Dyson(self.gkfmu0, -chem)
 
-        tempmat2 = self.F2T(gcalf)
-        
-
-        tau_beta = np.array([self._tau_beta], dtype=np.float64)
-        
-        gcalf_perm = np.ascontiguousarray(gcalf.transpose(4, 0, 1, 2, 3))
-        batch_shape = gcalf_perm.shape[1:]
-        gcalf_flat = gcalf_perm.reshape(nfreq, -1, 1) 
-        fxx = self.dlr.dF.dlr_from_matsubara(gcalf_flat, beta=self.dlr.beta, xi=-1)
-        fout = self.dlr.dF.eval_dlr_tau(fxx, tau_beta, beta=self.dlr.beta)
-
-        gtau_beta = fout[0, :, 0].reshape(batch_shape)
-
+        # Use cached G0inv: G(mu) = (G0inv + mu*I)^{-1}
+        mat = self._g0inv_cache.copy()
         diag = np.arange(norb)
+        mat[diag, diag, :, :, :] += mu
 
-        Ne = -np.real(gtau_beta[diag, diag, :, :].sum()) / nrk
+        # Batch invert: reshape (norb,norb,ns,nk,nfreq) -> (ns*nk*nfreq, norb,norb)
+        mat_batch = np.moveaxis(mat, (0, 1), (-2, -1))  # (ns,nk,nfreq,norb,norb)
+        orig_shape = mat_batch.shape[:-2]
+        mat_flat = mat_batch.reshape(-1, norb, norb)
+        gcalf_flat = np.linalg.inv(mat_flat)
+        gcalf_batch = gcalf_flat.reshape(orig_shape + (norb, norb))
+        gcalf = np.moveaxis(gcalf_batch, (-2, -1), (0, 1))  # (norb,norb,ns,nk,nfreq)
+
+        # Extract diagonal elements only for DLR: shape (norb, ns, nk, nfreq)
+        gdiag = gcalf[diag, diag, :, :, :]  # (norb, ns, nk, nfreq)
+
+        # Batch DLR: Matsubara -> single tau point
+        # Reshape to (nfreq, norb*ns*nk, 1) for dlr API
+        gdiag_perm = np.ascontiguousarray(np.moveaxis(gdiag, -1, 0))  # (nfreq, norb, ns, nk)
+        batch_shape = gdiag_perm.shape[1:]
+        gdiag_flat = gdiag_perm.reshape(nfreq, -1, 1)
+        fxx = self.dlr.dF.dlr_from_matsubara(gdiag_flat, beta=self.dlr.beta, xi=-1)
+        fout = self.dlr.dF.eval_dlr_tau(fxx, self._tau_beta_cache, beta=self.dlr.beta)
+        gtau_beta = fout[0, :, 0].reshape(batch_shape)  # (norb, ns, nk)
+
+        Ne = -np.real(gtau_beta.sum()) / nrk
 
         return (self.crystal.nume - Ne)
 
     def SearchMu(self):
-        
+
         print("Finding chemical potential start")
-        # omega = self.dlr.MatsubaraFermionUniform()
-        # mumin = -self.dlr.omega[-1]*0.6
-        # mumax = self.dlr.omega[-1]*0.6
         mumin = self.dlr.omega[0]
         mumax = self.dlr.omega[-1]
         print(f"minimum : {mumin}, maximum : {mumax}")
+
+        # Precompute G0^{-1} for vectorized NumOfE
+        norb = len(self.crystal.find)
+        g0 = self.gkfmu0  # (norb, norb, ns, nk, nfreq)
+        g0_batch = np.moveaxis(g0, (0, 1), (-2, -1))  # (..., norb, norb)
+        orig_shape = g0_batch.shape[:-2]
+        g0_flat = g0_batch.reshape(-1, norb, norb)
+        g0inv_flat = np.linalg.inv(g0_flat)
+        g0inv_batch = g0inv_flat.reshape(orig_shape + (norb, norb))
+        self._g0inv_cache = np.moveaxis(g0inv_batch, (-2, -1), (0, 1))  # (norb, norb, ns, nk, nfreq)
+        self._tau_beta_cache = np.array([self._tau_beta], dtype=np.float64)
+
         nmin = self.NumOfE(mumin)
         nmax = self.NumOfE(mumax)
         if (nmin < 0) or (nmax>0):
@@ -694,6 +690,10 @@ class GreenInt(FLatDyn):
         sol = scipy.optimize.brentq(self.NumOfE,mumin,mumax,xtol=1.0e-6)
         self.mu = sol
         print("Finding chemical potential finish")
+
+        # Clean up caches
+        del self._g0inv_cache
+        del self._tau_beta_cache
 
         self.UpdateMu()
         return None
