@@ -786,24 +786,29 @@ class SigmaGWC(FLatDyn):
         tempmat = np.zeros((norbc,norbc,ns,nr,ntau),dtype=np.complex128,order='F')
 
         
-        for itau in range(ntau):
-            for ir in range(nr):
-                for ind2 in range(norb*ns):
-                    nn2 = [0]*2
-                    ind2, [jorb,ks] = Common.Indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
-                    # ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
-                    [b,[m3,m2]] = self.crystal.BAtomOrb(jorb)
-                    iorbc3 = self.crystal.FIndex([b,m3])
-                    iorbc2 = self.crystal.FIndex([b,m2])
-                    for ind1 in range(norb*ns):
-                        nn1 = [0]*2
-                        # ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
-                        ind1, [iorb,js] = Common.Indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
-                        [a,[m1,m4]] = self.crystal.BAtomOrb(iorb)
-                        iorbc1 = self.crystal.FIndex([a,m1])
-                        iorbc4 = self.crystal.FIndex([a,m4])
-                        if js==ks:
-                            tempmat[iorbc1,iorbc2,js,ir,itau] += -G[iorbc4,iorbc3,js,ir,itau]*Wc[iorb,jorb,js,ks,ir,itau]
+        bbasis = self.crystal.bbasis
+        s_idx = np.arange(ns)
+        Wc_diag = Wc[:, :, s_idx, s_idx, :, :]  # (norb, norb, ns, nr, ntau)
+
+        # Group fermion orbitals by atom
+        atom_groups = {}
+        for i in range(norbc):
+            a = int(self.crystal.forb2atom[i])
+            atom_groups.setdefault(a, []).append(i)
+
+        for orbs_a in atom_groups.values():
+            oa = np.array(orbs_a)
+            bb_a = bbasis[np.ix_(oa, oa)]  # (na, na) boson indices for atom a
+
+            for orbs_b in atom_groups.values():
+                ob = np.array(orbs_b)
+                bb_b = bbasis[np.ix_(ob, ob)]  # (nb, nb) boson indices for atom b
+
+                G_block = G[np.ix_(oa, ob)]  # (na, nb, ns, nr, ntau)
+                Wc_4d = Wc_diag[bb_a[:, :, None, None], bb_b[None, None, :, :]]
+                # Wc_4d shape: (na, na, nb, nb, ns, nr, ntau)
+
+                tempmat[np.ix_(oa, ob)] -= np.einsum('ijsrt, kijpsrt -> kpsrt', G_block, Wc_4d)
                 
                                        
         # for ir in range(nr):
