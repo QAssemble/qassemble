@@ -762,45 +762,60 @@ class SigmaGWC(FLatDyn):
 
         return : crtau, crfreq, cktau, ckfreq
         '''
-        
-        
+
         norbc = self.green.shape[0]
         ns = self.green.shape[2]
         nr = self.green.shape[3]
-        # ntau = 5000
         ntau = len(self.dlr.tauF)
         norb = self.wlat.shape[0]
-        # G = np.zeros((norbc, norbc, ns, nr, ntau), dtype=np.complex128, order='F')
-        # Wc = np.zeros((norb, norb, ns, ns, nr, ntau), dtype=np.complex128, order='F')
-        
-        # for ir in range(nr):
-        #     for js in range(ns):
-        #         G[:, :, js, ir] = self.dlr.TauDLR2Uniform(self.green[:, :, js, ir], ntau)
-        #         for ks in range(ns):
-        #             Wc[:, :, js, ks, ir] = self.dlr.TauDLR2Uniform(self.wlat[:, :, js, ks, ir], ntau)
+
         G = self.green
-        # Wc = self.wlat
         Wc = self.TauB2TauF(self.wlat)
 
-        crtau = np.zeros((norbc,norbc,ns,nr,len(self.dlr.tauF)),dtype=np.complex128,order='F')
-        tempmat = np.zeros((norbc,norbc,ns,nr,ntau),dtype=np.complex128,order='F')
-
-        
-        map0 = np.array([self.crystal.MappingBosonFermion(i)[0] for i in range(norb)])
-        map1 = np.array([self.crystal.MappingBosonFermion(i)[1] for i in range(norb)])
-
+        bbasis = self.crystal.bbasis
         s_idx = np.arange(ns)
-        Wc_diag = Wc[:, :, s_idx, s_idx, :, :]
-        G_mapped = G[map1[:, None], map0[None, :], :, :, :]
-        product = -G_mapped * Wc_diag
+        Wc_diag = Wc[:, :, s_idx, s_idx, :, :]  # (norb, norb, ns, nr, ntau)
 
-        np.add.at(tempmat, (map0[:, None], map1[None, :]), product)
-                
-                                       
-        # for ir in range(nr):
-        #     for js in range(ns):
-        #         crtau[:, :, js, ir] = self.dlr.TauUniform2DLR(tempmat[:, :, js, ir])
-        crtau = tempmat
+        # Flatten (ns, nr, ntau) into single batch dim S for efficient BLAS dispatch
+        S = ns * nr * ntau
+        Wc_flat = Wc_diag.reshape(norb, norb, S)
+        G_flat = np.ascontiguousarray(G).reshape(norbc, norbc, S)
+        out_flat = np.zeros((norbc, norbc, S), dtype=np.complex128)
+
+        # Group fermion orbitals by atom
+        atom_groups = {}
+        for i in range(norbc):
+            a = int(self.crystal.forb2atom[i])
+            atom_groups.setdefault(a, []).append(i)
+
+        for orbs_a in atom_groups.values():
+            oa = np.array(orbs_a)
+            na = len(oa)
+            bb_a = bbasis[np.ix_(oa, oa)]  # (na, na)
+
+            for orbs_b in atom_groups.values():
+                ob = np.array(orbs_b)
+                nb = len(ob)
+                bb_b = bbasis[np.ix_(ob, ob)]  # (nb, nb)
+
+                # Flatten G block to (ij, S) for batched matvec
+                G_block = G_flat[np.ix_(oa, ob)].reshape(na * nb, S)
+
+                # Build W in (kp, ij, S) layout directly
+                # W[k,p,i,j] = Wc_flat[bb_a[k,i], bb_b[j,p]]
+                # Index arrays: k=axis0, p=axis1, i=axis2, j=axis3
+                kk, pp, ii, jj = np.ix_(np.arange(na), np.arange(nb),
+                                        np.arange(na), np.arange(nb))
+                alpha = np.broadcast_to(bb_a[kk, ii], (na, nb, na, nb)).ravel()
+                beta  = np.broadcast_to(bb_b[jj, pp], (na, nb, na, nb)).ravel()
+                W_mat = Wc_flat[alpha, beta].reshape(na * nb, na * nb, S)
+
+                # Batched matvec: result[kp, S] = sum_ij W[kp, ij, S] * G[ij, S]
+                result = np.einsum('abS,bS->aS', W_mat, G_block, optimize=True)
+
+                out_flat[np.ix_(oa, ob)] -= result.reshape(na, nb, S)
+
+        crtau = np.asfortranarray(out_flat.reshape(norbc, norbc, ns, nr, ntau))
         cktau = self.R2K(crtau)
         ckfreq = self.T2F(cktau)
         crfreq = self.T2F(crtau)
