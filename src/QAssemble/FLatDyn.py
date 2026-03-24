@@ -80,17 +80,17 @@ class FLatDyn(object):
         ntau = ftau.shape[4]
 
         # Batch DLR transform: pydlr expects (ntau, n1, n2)
-        # Move tau axis to front, flatten the rest into batch
-        # (norb, norb, ns, nk, ntau) -> (ntau, norb, norb, ns, nk) -> (ntau, batch, 1)
+        # Move tau axis to front, flatten the rest into batch B
+        # (norb, norb, ns, nk, ntau) -> (ntau, B, 1)
         ftau_t = np.moveaxis(ftau, -1, 0)  # (ntau, norb, norb, ns, nk)
         batch = norb * norb * ns * nk
         ftau_3d = np.ascontiguousarray(ftau_t).reshape(ntau, batch, 1)
 
         fxx = self.dlr.dF.dlr_from_tau(ftau_3d)
         ff_3d = self.dlr.dF.matsubara_from_dlr(fxx, beta=self.dlr.beta, xi=-1)
-        # ff_3d shape: (nfreq, batch, 1)
+        # matsubara_from_dlr transposes: (ndlr, B, 1) -> (nfreq, 1, B)
         nfreq = ff_3d.shape[0]
-        ff = ff_3d[:, :, 0].reshape(nfreq, norb, norb, ns, nk)
+        ff = ff_3d[:, 0, :].reshape(nfreq, norb, norb, ns, nk)
         ff = np.moveaxis(ff, 0, -1)  # (norb, norb, ns, nk, nfreq)
         ff = np.asfortranarray(ff)
 
@@ -104,16 +104,16 @@ class FLatDyn(object):
         nfreq = ff.shape[4]
 
         # Batch DLR transform: pydlr expects (nfreq, n1, n2)
-        # Move freq axis to front, flatten the rest into batch
+        # dlr_from_matsubara expects same layout as matsubara_from_dlr output: (nfreq, 1, B)
         ff_t = np.moveaxis(ff, -1, 0)  # (nfreq, norb, norb, ns, nk)
         batch = norb * norb * ns * nk
-        ff_3d = np.ascontiguousarray(ff_t).reshape(nfreq, batch, 1)
+        ff_3d = np.ascontiguousarray(ff_t).reshape(nfreq, 1, batch)
 
         fxx = self.dlr.dF.dlr_from_matsubara(ff_3d, beta=self.dlr.beta, xi=-1)
         ftau_3d = self.dlr.dF.tau_from_dlr(fxx)
-        # ftau_3d shape: (ntau, batch, 1)
+        # tau_from_dlr preserves shape: (ntau, 1, B)
         ntau = ftau_3d.shape[0]
-        ftau = ftau_3d[:, :, 0].reshape(ntau, norb, norb, ns, nk)
+        ftau = ftau_3d[:, 0, :].reshape(ntau, norb, norb, ns, nk)
         ftau = np.moveaxis(ftau, 0, -1)  # (norb, norb, ns, nk, ntau)
         ftau = np.asfortranarray(ftau)
 
