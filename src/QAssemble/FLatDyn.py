@@ -73,23 +73,23 @@ class FLatDyn(object):
 
     
     def T2F(self,ftau : np.ndarray) -> np.ndarray:
-        
 
         norb = ftau.shape[0]
         ns = ftau.shape[2]
         nk = ftau.shape[3]
         ntau = ftau.shape[4]
-        nfreq = len(self.dlr.omega)
-        ff = np.zeros((norb,norb,ns,nk,nfreq),dtype=np.complex128,order='F')
-        tempmat = np.zeros((ntau), dtype=np.complex128, order='F')
 
-        for ik in range(nk):
-            for js in range(ns):
-                
-                for jorb, iorb in itertools.product(range(norb), repeat=2):
-                    tempmat = ftau[iorb, jorb, js, ik]
-                    tempmat2 = self.dlr.FT2F(tempmat)
-                    ff[iorb, jorb, js, ik] = tempmat2
+        # Batch DLR transform: pydlr expects (ntau, n1, n2)
+        batch = norb * norb * ns * nk
+        ftau_flat = ftau.reshape(batch, ntau).T  # (ntau, batch)
+        ftau_3d = ftau_flat[:, :, np.newaxis]  # (ntau, batch, 1)
+
+        fxx = self.dlr.dF.dlr_from_tau(ftau_3d)
+        ff_3d = self.dlr.dF.matsubara_from_dlr(fxx, beta=self.dlr.beta, xi=-1)
+        # ff_3d shape: (nfreq, batch, 1)
+        nfreq = ff_3d.shape[0]
+        ff = ff_3d[:, :, 0].T.reshape(norb, norb, ns, nk, nfreq)
+        ff = np.asfortranarray(ff)
 
         return ff
     
@@ -99,17 +99,18 @@ class FLatDyn(object):
         ns = ff.shape[2]
         nk = ff.shape[3]
         nfreq = ff.shape[4]
-        ntau = len(self.dlr.tauF)
 
-        ftau = np.zeros((norb,norb,ns,nk,ntau),dtype=np.complex128,order='F')
-        tempmat = np.zeros((nfreq), dtype=np.complex128, order='F')
-        
-        for ik in range(nk):
-            for js in range(ns):
-                for jorb, iorb in itertools.product(range(norb), repeat=2):
-                    tempmat = ff[iorb, jorb, js, ik]
-                    tempmat2 = self.dlr.FF2T(tempmat)
-                    ftau[iorb, jorb, js, ik] = tempmat2
+        # Batch DLR transform: pydlr expects (nfreq, n1, n2)
+        batch = norb * norb * ns * nk
+        ff_flat = ff.reshape(batch, nfreq).T  # (nfreq, batch)
+        ff_3d = ff_flat[:, :, np.newaxis]  # (nfreq, batch, 1)
+
+        fxx = self.dlr.dF.dlr_from_matsubara(ff_3d, beta=self.dlr.beta, xi=-1)
+        ftau_3d = self.dlr.dF.tau_from_dlr(fxx)
+        # ftau_3d shape: (ntau, batch, 1)
+        ntau = ftau_3d.shape[0]
+        ftau = ftau_3d[:, :, 0].T.reshape(norb, norb, ns, nk, ntau)
+        ftau = np.asfortranarray(ftau)
 
         return ftau
 
@@ -387,15 +388,20 @@ class FLatDyn(object):
 
     def TauB2TauF(self, ftau : np.ndarray) -> np.ndarray:
 
-        norb, _, ns, ns, nk, _ = ftau.shape
-        ntau = len(self.dlr.tauF)
-        fout = np.zeros((norb, norb, ns, ns, nk, ntau), dtype=np.complex128, order='F')  
+        norb, _, ns, ns2, nk, ntauB = ftau.shape
+        # Reshape: move tau axis first, flatten all other dims into batch
+        # ftau shape: (norb, norb, ns, ns, nk, ntauB)
+        # pydlr expects: (ntauB, n1, n2) — batch over n1, n2
+        batch = norb * norb * ns * ns2 * nk
+        ftau_flat = ftau.reshape(batch, ntauB).T  # (ntauB, batch)
+        ftau_3d = ftau_flat[:, :, np.newaxis]  # (ntauB, batch, 1)
 
-        for ik in range(nk):
-            for ks, js in itertools.product(range(ns), repeat=2):
-                for jorb, iorb in itertools.product(range(norb), repeat=2):
-                    tempmat = ftau[iorb, jorb, js, ks, ik]
-                    fout[iorb, jorb, js, ks, ik] = self.dlr.TauB2TauF(tempmat)
+        fxx = self.dlr.dB.dlr_from_tau(ftau_3d)
+        fout_3d = self.dlr.dB.eval_dlr_tau(fxx, self.dlr.tauF, self.dlr.beta)
+        # fout_3d shape: (ntauF, batch, 1)
+        ntauF = len(self.dlr.tauF)
+        fout = fout_3d[:, :, 0].T.reshape(norb, norb, ns, ns2, nk, ntauF)
+        fout = np.asfortranarray(fout)
 
         return fout
     
@@ -798,22 +804,38 @@ class SigmaGWC(FLatDyn):
                 nb = len(ob)
                 bb_b = bbasis[np.ix_(ob, ob)]  # (nb, nb)
 
-                # Flatten G block to (ij, S) for batched matvec
-                G_block = G_flat[np.ix_(oa, ob)].reshape(na * nb, S)
+                G_block = G_flat[np.ix_(oa, ob)]  # (na, nb, S)
 
-                # Build W in (kp, ij, S) layout directly
-                # W[k,p,i,j] = Wc_flat[bb_a[k,i], bb_b[j,p]]
-                # Index arrays: k=axis0, p=axis1, i=axis2, j=axis3
-                kk, pp, ii, jj = np.ix_(np.arange(na), np.arange(nb),
-                                        np.arange(na), np.arange(nb))
-                alpha = np.broadcast_to(bb_a[kk, ii], (na, nb, na, nb)).ravel()
-                beta  = np.broadcast_to(bb_b[jj, pp], (na, nb, na, nb)).ravel()
-                W_mat = Wc_flat[alpha, beta].reshape(na * nb, na * nb, S)
+                # out[k,p,S] = sum_{a,b} Wc[a,b,S] * (sum_{i:bb_a[k,i]=a} G[i,:,S])
+                #                                     * (sum_{j:bb_b[j,p]=b} delta)
+                # Precompute indicator matrices (small, orbital-sized):
+                #   Ma[a, k, i] = delta(bb_a[k,i], a)
+                #   Mb[b, j, p] = delta(bb_b[j,p], b)
+                # Only allocate for boson indices that actually appear.
 
-                # Batched matvec: result[kp, S] = sum_ij W[kp, ij, S] * G[ij, S]
-                result = np.einsum('abS,bS->aS', W_mat, G_block, optimize=True)
+                unique_a = np.unique(bb_a)
+                unique_b = np.unique(bb_b)
 
-                out_flat[np.ix_(oa, ob)] -= result.reshape(na, nb, S)
+                # Ma_dict[a] -> (na, na) indicator: Ma[k,i] = delta(bb_a[k,i], a)
+                # Contract: temp_a[a][k, j, S] = sum_i Ma[k,i] * G[i, j, S]
+                temp_a = {}
+                for a in unique_a:
+                    mask = (bb_a == a).astype(np.float64)  # (na, na)
+                    # mask[k,i] * G[i,j,S] -> [k,j,S]
+                    temp_a[a] = np.einsum('ki,ijS->kjS', mask, G_block)  # (na, nb, S)
+
+                # For each (a,b) pair, accumulate:
+                # out[k,p,S] -= Wc[a,b,S] * sum_j temp_a[a][k,j,S] * Mb[j,p]
+                result = np.zeros((na, nb, S), dtype=np.complex128)
+                for a in unique_a:
+                    for b in unique_b:
+                        Wc_ab = Wc_flat[a, b]  # (S,)
+                        mask_b = (bb_b == b).astype(np.float64)  # (nb, nb) where mask_b[j,p]
+                        # sum_j temp_a[a][k,j,S] * mask_b[j,p] -> (na, nb, S)
+                        contracted = np.einsum('kjS,jp->kpS', temp_a[a], mask_b)  # (na, nb, S)
+                        result += Wc_ab[np.newaxis, np.newaxis, :] * contracted
+
+                out_flat[np.ix_(oa, ob)] -= result
 
         crtau = np.asfortranarray(out_flat.reshape(norbc, norbc, ns, nr, ntau))
         cktau = self.R2K(crtau)
