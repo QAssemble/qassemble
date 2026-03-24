@@ -80,15 +80,18 @@ class FLatDyn(object):
         ntau = ftau.shape[4]
 
         # Batch DLR transform: pydlr expects (ntau, n1, n2)
+        # Move tau axis to front, flatten the rest into batch
+        # (norb, norb, ns, nk, ntau) -> (ntau, norb, norb, ns, nk) -> (ntau, batch, 1)
+        ftau_t = np.moveaxis(ftau, -1, 0)  # (ntau, norb, norb, ns, nk)
         batch = norb * norb * ns * nk
-        ftau_flat = ftau.reshape(batch, ntau).T  # (ntau, batch)
-        ftau_3d = ftau_flat[:, :, np.newaxis]  # (ntau, batch, 1)
+        ftau_3d = np.ascontiguousarray(ftau_t).reshape(ntau, batch, 1)
 
         fxx = self.dlr.dF.dlr_from_tau(ftau_3d)
         ff_3d = self.dlr.dF.matsubara_from_dlr(fxx, beta=self.dlr.beta, xi=-1)
         # ff_3d shape: (nfreq, batch, 1)
         nfreq = ff_3d.shape[0]
-        ff = ff_3d[:, :, 0].T.reshape(norb, norb, ns, nk, nfreq)
+        ff = ff_3d[:, :, 0].reshape(nfreq, norb, norb, ns, nk)
+        ff = np.moveaxis(ff, 0, -1)  # (norb, norb, ns, nk, nfreq)
         ff = np.asfortranarray(ff)
 
         return ff
@@ -101,15 +104,17 @@ class FLatDyn(object):
         nfreq = ff.shape[4]
 
         # Batch DLR transform: pydlr expects (nfreq, n1, n2)
+        # Move freq axis to front, flatten the rest into batch
+        ff_t = np.moveaxis(ff, -1, 0)  # (nfreq, norb, norb, ns, nk)
         batch = norb * norb * ns * nk
-        ff_flat = ff.reshape(batch, nfreq).T  # (nfreq, batch)
-        ff_3d = ff_flat[:, :, np.newaxis]  # (nfreq, batch, 1)
+        ff_3d = np.ascontiguousarray(ff_t).reshape(nfreq, batch, 1)
 
         fxx = self.dlr.dF.dlr_from_matsubara(ff_3d, beta=self.dlr.beta, xi=-1)
         ftau_3d = self.dlr.dF.tau_from_dlr(fxx)
         # ftau_3d shape: (ntau, batch, 1)
         ntau = ftau_3d.shape[0]
-        ftau = ftau_3d[:, :, 0].T.reshape(norb, norb, ns, nk, ntau)
+        ftau = ftau_3d[:, :, 0].reshape(ntau, norb, norb, ns, nk)
+        ftau = np.moveaxis(ftau, 0, -1)  # (norb, norb, ns, nk, ntau)
         ftau = np.asfortranarray(ftau)
 
         return ftau
@@ -389,18 +394,19 @@ class FLatDyn(object):
     def TauB2TauF(self, ftau : np.ndarray) -> np.ndarray:
 
         norb, _, ns, ns2, nk, ntauB = ftau.shape
-        # Reshape: move tau axis first, flatten all other dims into batch
-        # ftau shape: (norb, norb, ns, ns, nk, ntauB)
+        # Move tau axis to front, flatten the rest into batch
+        # ftau shape: (norb, norb, ns, ns2, nk, ntauB)
         # pydlr expects: (ntauB, n1, n2) — batch over n1, n2
+        ftau_t = np.moveaxis(ftau, -1, 0)  # (ntauB, norb, norb, ns, ns2, nk)
         batch = norb * norb * ns * ns2 * nk
-        ftau_flat = ftau.reshape(batch, ntauB).T  # (ntauB, batch)
-        ftau_3d = ftau_flat[:, :, np.newaxis]  # (ntauB, batch, 1)
+        ftau_3d = np.ascontiguousarray(ftau_t).reshape(ntauB, batch, 1)
 
         fxx = self.dlr.dB.dlr_from_tau(ftau_3d)
         fout_3d = self.dlr.dB.eval_dlr_tau(fxx, self.dlr.tauF, self.dlr.beta)
         # fout_3d shape: (ntauF, batch, 1)
         ntauF = len(self.dlr.tauF)
-        fout = fout_3d[:, :, 0].T.reshape(norb, norb, ns, ns2, nk, ntauF)
+        fout = fout_3d[:, :, 0].reshape(ntauF, norb, norb, ns, ns2, nk)
+        fout = np.moveaxis(fout, 0, -1)  # (norb, norb, ns, ns2, nk, ntauF)
         fout = np.asfortranarray(fout)
 
         return fout
