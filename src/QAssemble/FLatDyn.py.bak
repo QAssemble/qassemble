@@ -786,15 +786,29 @@ class SigmaGWC(FLatDyn):
         tempmat = np.zeros((norbc,norbc,ns,nr,ntau),dtype=np.complex128,order='F')
 
         
-        map0 = np.array([self.crystal.MappingBosonFermion(i)[0] for i in range(norb)])
-        map1 = np.array([self.crystal.MappingBosonFermion(i)[1] for i in range(norb)])
-
+        bbasis = self.crystal.bbasis
         s_idx = np.arange(ns)
-        Wc_diag = Wc[:, :, s_idx, s_idx, :, :]
-        G_mapped = G[map1[:, None], map0[None, :], :, :, :]
-        product = -G_mapped * Wc_diag
+        Wc_diag = Wc[:, :, s_idx, s_idx, :, :]  # (norb, norb, ns, nr, ntau)
 
-        np.add.at(tempmat, (map0[:, None], map1[None, :]), product)
+        # Group fermion orbitals by atom
+        atom_groups = {}
+        for i in range(norbc):
+            a = int(self.crystal.forb2atom[i])
+            atom_groups.setdefault(a, []).append(i)
+
+        for orbs_a in atom_groups.values():
+            oa = np.array(orbs_a)
+            bb_a = bbasis[np.ix_(oa, oa)]  # (na, na) boson indices for atom a
+
+            for orbs_b in atom_groups.values():
+                ob = np.array(orbs_b)
+                bb_b = bbasis[np.ix_(ob, ob)]  # (nb, nb) boson indices for atom b
+
+                G_block = G[np.ix_(oa, ob)]  # (na, nb, ns, nr, ntau)
+                Wc_4d = Wc_diag[bb_a[:, :, None, None], bb_b[None, None, :, :]]
+                # Wc_4d shape: (na, na, nb, nb, ns, nr, ntau)
+
+                tempmat[np.ix_(oa, ob)] -= np.einsum('ijsrt, kijpsrt -> kpsrt', G_block, Wc_4d)
                 
                                        
         # for ir in range(nr):
