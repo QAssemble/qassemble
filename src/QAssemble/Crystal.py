@@ -1,18 +1,8 @@
-import string as string
-from typing import Any
-import matplotlib as mat
-import re as re
-import matplotlib.pyplot as plt
 import numpy as np
-from pylab import cm
-import matplotlib.font_manager as fm
-from collections import OrderedDict
-import json, os, shutil, sys
+import sys
 import itertools
 # import scipy.optimize
-from sympy.physics.wigner import gaunt, wigner_3j
-from scipy.fftpack import fftn, ifftn
-import copy, gc
+import copy
 # qapath = os.environ.get('QAssemble','')
 # sys.path.append(qapath+'/src/QAssemble/modules')
 # import QAFort

@@ -5,23 +5,22 @@ from .Common import Common
 
 
 class DLR(object):
-    def __init__(self, ft: dict = None) -> object:
-        # self.T = ft.get('T',300) #ft['T']
-        # self.beta = ft['beta']
-        if "T" not in ft:
-            self.beta = ft["beta"]
+    def __init__(self, dlropt : dict) -> object:
+        
+        if "T" not in dlropt:
+            self.beta = dlropt["beta"]
             self.T = 1 / (self.beta * 8.6173303 * 10**-5)
 
-        elif "beta" not in ft:
-            self.T = ft["T"]
+        elif "beta" not in dlropt:
+            self.T = dlropt["T"]
             self.beta = 1 / (self.T * 8.6173303 * 10**-5)
         else:
-            self.T = ft["T"]
-            self.beta = ft["beta"]
-        self.cutoff = ft.get("cutoff", 10.0)
-        self.eps = ft.get("eps", 1e-15)
+            self.T = dlropt["T"]
+            self.beta = dlropt["beta"]
+        self.cutoff = dlropt.get("cutoff", 10.0)
+        self.eps = dlropt.get("eps", 1e-15)
         self.lambF = (self.beta / np.pi * self.cutoff - 1) / 2
-        self.lambB = self.beta * self.cutoff / (2 * np.pi)  
+        self.lambB = self.beta * self.cutoff / (2 * np.pi) * 2  
         
         dF = dlr(lamb=self.lambF, eps=self.eps, dense_imfreq=False)
         dB = dlr(lamb=self.lambB, eps=self.eps, xi=1, dense_imfreq=False)
@@ -33,6 +32,8 @@ class DLR(object):
         self.tauB = dB.get_tau(self.beta)
         self.omega = dF.get_matsubara_frequencies(self.beta).imag
         self.nu = dB.get_matsubara_frequencies(self.beta).imag
+
+        return None
 
     def TauUniform(self) -> np.ndarray:
         ntau = int((self.beta / np.pi * self.cutoff - 1) / 2) * 2
@@ -50,8 +51,8 @@ class DLR(object):
         Emax = self.omega[-1]
         Emin = self.omega[0]
         # nomega = int((self.beta/np.pi*Emax - 1)/2)
-        if Emax is None:
-            Emax = self.cutoff
+        # if Emax is None:
+        #     Emax = self.cutoff
         if beta is None:
             beta = self.beta
         nstart = int((beta / np.pi * Emin - 1) / 2) * 0
