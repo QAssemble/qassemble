@@ -479,23 +479,3 @@ class Common:
                         R = Rtemp
         
         return R
-
-    @staticmethod
-    def KIdx2KVec(grid : list) -> dict:
-
-        nk = grid[0]*grid[1]*grid[2]
-        kidx = {}
-        for ik in range(nk):
-            n1, n2 = Common.Indexing(nk, 3, grid, 0, ik, [0, 0, 0])
-            # print(n1, n2)
-            kidx[ik] = n2
-
-        return kidx
-
-    @staticmethod
-    def KVec2KIdx(klist : list, kidx : dict) -> int:
-        
-        for key, val in kidx.items():
-            if val == klist:
-                return key
-    

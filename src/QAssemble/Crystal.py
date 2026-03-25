@@ -1,12 +1,10 @@
 import numpy as np
 import sys
 import itertools
-# import scipy.optimize
+
 import copy
-# qapath = os.environ.get('QAssemble','')
-# sys.path.append(qapath+'/src/QAssemble/modules')
-# import QAFort
-# from .modules.Common import Common
+from .utility.Common import Common
+
 
 # Ask to professor for change variables
 class Crystal(object):
@@ -94,6 +92,9 @@ class Crystal(object):
         self.fprojector = None
         self.bprojector = None
 
+        self.forb2atom = None
+        self.borb2atom = None
+
         self.mappingidx = []
         self.mappingkp = []
 #       templist = []
@@ -141,6 +142,17 @@ class Crystal(object):
             for iorb in range(borb,borb+val**2):
                 self.bind[iorb] = bind[jj]
                 jj+=1
+
+            self.forb2atom = np.empty(len(self.find), dtype=np.int32)
+            self.borb2atom = np.empty(len(self.bind), dtype=np.int32)
+
+            for iorb in range(len(self.find)):
+                a, _ = self.FAtomOrb(iorb)
+                self.forb2atom[iorb] = a
+            
+            for iorb in range(len(self.bind)):
+                a, _ = self.BAtomOrb(iorb)
+                self.borb2atom[iorb] = a
 
         return None
 
@@ -264,7 +276,7 @@ class Crystal(object):
                 (a,m1) = self.FAtomOrb(iorbc)
                 (b,m2) = self.FAtomOrb(jorbc)
                 nn = [iorbc,jorbc]
-                ind, nn = self.indexing(norbc*norbc,2,[norbc,norbc],1,0,nn)
+                ind, nn = Common.Indexing(norbc*norbc,2,[norbc,norbc],1,0,nn)
                 full[ind] = [[a,m1],[b,m2]]
                 pbasis[iorbc,jorbc] = ind
 
@@ -311,7 +323,7 @@ class Crystal(object):
         for iorbc in range(norbc):
             for jorbc in range(norbc):
                 nn1 = [iorbc,jorbc]
-                iorb, nn1 = self.indexing(norb,2,[norbc,norbc],1,0,nn1)
+                iorb, nn1 = Common.Indexing(norb,2,[norbc,norbc],1,0,nn1)
                 c2f.append([iorbc,jorbc])
         self.c2f = c2f
 
@@ -328,7 +340,7 @@ class Crystal(object):
 
         for ind in range(ndim):
             nn1 = [0]*2
-            ind,[iorbc,jorbc] = self.indexing(ndim,2,[norbc,norbc],0,ind,nn1)
+            ind,[iorbc,jorbc] = Common.Indexing(ndim,2,[norbc,norbc],0,ind,nn1)
             [a,m1] = self.FAtomOrb(iorbc)
             [a_p,m2] = self.FAtomOrb(jorbc)
             if a==a_p:
@@ -347,18 +359,31 @@ class Crystal(object):
             np.ndarray: Array of shape (norb, norb, ns, ns).
         """
 
-        norb = len(self.bind)
-        ns = self.ns
-        matout = np.zeros((norb,norb,ns,ns),dtype=np.complex64,order='F')
-        ndim = mat.shape[0]
+        # norb = len(self.bind)
+        # ns = self.ns
+        # matout = np.zeros((norb,norb,ns,ns),dtype=np.complex64,order='F')
+        # ndim = mat.shape[0]
 
-        for ind1 in range(ndim):
-            nn1 = [0]*2
-            ind1, [iorb,js] = self.indexing(ndim,2,[norb,ns],0,ind1,nn1)
-            for ind2 in range(ndim):
-                nn2 = [0]*2
-                ind2, [jorb,ks] = self.indexing(ndim,2,[norb,ns],0,ind2,nn2)
-                matout[iorb,jorb,js,ks] = mat[ind1,ind2]
+        # for ind1 in range(ndim):
+        #     nn1 = [0]*2
+        #     ind1, [iorb,js] = self.indexing(ndim,2,[norb,ns],0,ind1,nn1)
+        #     for ind2 in range(ndim):
+        #         nn2 = [0]*2
+        #         ind2, [jorb,ks] = self.indexing(ndim,2,[norb,ns],0,ind2,nn2)
+        #         matout[iorb,jorb,js,ks] = mat[ind1,ind2]
+
+        norb = len(self.full)
+        ndim = mat.shape[0]
+        ns = self.ns
+
+        idx = np.arange(ndim)
+        iorb_arr = idx % norb
+        js_arr = idx // norb
+
+        matout = np.zeros((norb, norb, ns, ns), dtype=np.complex128, order='F')
+
+        matout[iorb_arr[:, None], iorb_arr[None, :], 
+               js_arr[:, None], js_arr[None, :]] = mat
 
         return matout
 
@@ -372,20 +397,32 @@ class Crystal(object):
             np.ndarray: Composite matrix of shape (norb*ns, norb*ns).
         """
 
-        norb = mat.shape[0]
-        ns = mat.shape[2]
-        matout = np.zeros((norb*ns,norb*ns),dtype=np.complex64,order='F')
+        # norb = mat.shape[0]
+        # ns = mat.shape[2]
+        # matout = np.zeros((norb*ns,norb*ns),dtype=np.complex64,order='F')
 
-        for js in range(ns):
-            for iorb in range(norb):
-                nn1 = [iorb,js]
-                ind1, nn1 = self.indexing(norb*ns,2,[norb,ns],1,0,nn1)
-                for ks in range(ns):
-                    for jorb in range(norb):
-                        nn2 = [jorb,ks]
-                        ind2, nn2 = self.indexing(norb*ns,2,[norb,ns],1,0,nn2)
-                        matout[ind1,ind2] = mat[iorb,jorb,js,ks]
-        return matout
+        # for js in range(ns):
+        #     for iorb in range(norb):
+        #         nn1 = [iorb,js]
+        #         ind1, nn1 = self.indexing(norb*ns,2,[norb,ns],1,0,nn1)
+        #         for ks in range(ns):
+        #             for jorb in range(norb):
+        #                 nn2 = [jorb,ks]
+        #                 ind2, nn2 = self.indexing(norb*ns,2,[norb,ns],1,0,nn2)
+        #                 matout[ind1,ind2] = mat[iorb,jorb,js,ks]
+
+        norb = mat.shape[0]
+        ns = self.ns
+        ndim = norb * ns
+
+        idx = np.arange(ndim)
+        iorb_arr = idx % norb
+        js_arr = idx // norb
+
+        matout = mat[iorb_arr[:, None], iorb_arr[None, :],
+                     js_arr[:, None], js_arr[None, :]]
+        
+        return np.array(matout, dtype=np.complex128, order='F')
 
     def Quad2Double(self, matin: np.ndarray) -> np.ndarray:
         """Convert a 4-index tensor to 2-index matrix in boson basis.
@@ -517,17 +554,11 @@ class Crystal(object):
             np.ndarray: 2D array of shape (norb, norb).
         """
 
-        norb = len(self.bind)
+        c2b = np.asarray(self.c2b)
 
-        matret = np.zeros((norb,norb),dtype=np.complex64,order='F')
+        matret = mat[np.ix_(c2b, c2b)]
 
-        for jorb in range(norb):
-            for iorb in range(norb):
-                ind1 = self.c2b[iorb]
-                ind2 = self.c2b[jorb]
-                matret[iorb,jorb] = mat[ind1,ind2]
-
-        return matret
+        return np.array(matret, dtype=np.complex128, order='F')
 
     def Double2Full(self, mat: np.ndarray) -> np.ndarray:
         """Convert a boson basis 2-index matrix to a full composite matrix.
@@ -540,14 +571,13 @@ class Crystal(object):
         """
 
         nind = len(self.find)**2
-        norb = len(self.bind)
-        matret = np.zeros((nind,nind),dtype=np.complex64,order='F')
+        
+        c2b = np.asarray(self.c2b, dtype=np.int64)
+        matret = np.zeros((nind,nind),dtype=np.complex128, order='F')
 
-        for jorb in range(norb):
-            for iorb in range(norb):
-                ind1 = self.c2b[iorb]
-                ind2 = self.c2b[jorb]
-                matret[ind1,ind2] = mat[iorb,jorb]
+        rhs = np.asarray(mat, dtype=np.complex128, order='F')
+
+        matret[np.ix_(c2b, c2b)] = rhs
 
         return matret ## construct
 
@@ -879,7 +909,7 @@ class Crystal(object):
         nk = grid[0]*grid[1]*grid[2]
         kind = {}
         for ik in range(nk):
-            [n1, n2] = self.indexing(nk, 3, grid, 0, ik, [0, 0, 0])
+            [n1, n2] = Common.Indexing(nk, 3, grid, 0, ik, [0, 0, 0])
             kind[n1] = n2
         
         if grid == self.rkgrid:
@@ -969,3 +999,12 @@ class Crystal(object):
         self.mappingrvec = mapping
 
         return None
+    
+    def MappingBosonFermion(self, iorb):
+
+        [a, [m1, m4]] = self.BAtomOrb(iorb)
+
+        iorbc = self.FIndex([a, m1])
+        lorbc = self.FIndex([a, m4])
+
+        return iorbc, lorbc
