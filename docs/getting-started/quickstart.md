@@ -69,9 +69,17 @@ Control = {
 ```
 QAssemble/
 ├── src/
-│   ├── QAssemble.py            # Main entry point
+│   ├── QAssemble.py      # Main entry point (Run class)
 │   └── QAssemble/
-│       ├── Serial/             # Serial implementations
-│       └── utility/            # Shared numerics (DLR, Dyson, Fourier, etc.)
+│       ├── CorrelationFunction.py
+│       ├── Crystal.py
+│       ├── FLatDyn.py          # Fermionic dynamic lattice (GreenBare, GreenInt, SigmaGWC, ...)
+│       ├── FLatStc.py          # Fermionic static lattice (NIHamiltonian, Hamiltonian, SigmaH, SigmaF, ...)
+│       ├── BLatDyn.py          # Bosonic dynamic lattice (PolLat, WLat)
+│       ├── BLatStc.py          # Bosonic static lattice (VBare)
+│       ├── BLocStc.py          # Bosonic local static (VLoc)
+│       ├── FPathDyn.py / FPathStc.py   # k-path post-processing
+│       ├── BPathDyn.py / BPathStc.py
+│       └── utility/            # Shared numerics (DLR, Dyson, Fourier, Bare, Common)
 └── docs/                       # Documentation
 ```
