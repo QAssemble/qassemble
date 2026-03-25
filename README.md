@@ -119,13 +119,13 @@ Control = {
 Serial execution:
 
 ```bash
-python3 src/QuantumAssemble.py
+python3 src/QAssemble.py
 ```
 
 Parallel execution with MPI:
 
 ```bash
-mpirun -n <num_processors> python3 src/QuantumAssemble.py
+mpirun -n <num_processors> python3 src/QAssemble.py
 ```
 
 ## Directory Structure
@@ -133,7 +133,7 @@ mpirun -n <num_processors> python3 src/QuantumAssemble.py
 ```
 QAssemble/
 ├── src/
-│   ├── QuantumAssemble.py      # Main entry point
+│   ├── QAssemble.py             # Main entry point
 │   └── QAssemble/
 │       ├── MPI/                # MPI-parallelized implementations
 │       ├── Serial/             # Serial implementations

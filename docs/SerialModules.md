@@ -1,8 +1,8 @@
 # Serial Module Reference
 
-This guide summarises the serial implementation that lives under `src/QuantumAssemble.py` and `src/QAssemble`. Use it as a map when extending the solver, plumbing new data into the HDF5 workflow, or coordinating work between the Python and Fortran layers.
+This guide summarises the serial implementation that lives under `src/QAssemble.py` and `src/QAssemble`. Use it as a map when extending the solver, plumbing new data into the HDF5 workflow, or coordinating work between the Python and Fortran layers.
 
-## Top-Level Driver (`src/QuantumAssemble.py`)
+## Top-Level Driver (`src/QAssemble.py`)
 - **Run lifecycle**
   The `Run` class bootstraps the calculation. Instantiating `Run(test=False)` calls `ReadInput`, stores the parsed control dictionary, and dispatches to `RunDiagE` for methods `tb`, `hf`, or `gw`. Passing `test=True` builds a lightweight `CorrelationFunction` instance without launching a full run.
 - **Input discovery**
@@ -16,7 +16,7 @@ This guide summarises the serial implementation that lives under `src/QuantumAss
 
 ## Core Entry Points
 - `src/QAssemble/CorrelationFunction.py`
-  `CorrelationFunction` orchestrates the full workflow. It parses the control dictionary produced in `src/QuantumAssemble.py` and exposes `TightBinding`, `HartreeFock`, and `GWApproximation`. Each solver builds crystal data (`Crystal`), frequency grids (`DLR`), then calls into the fermionic/bosonic lattice helpers to compute self-energies, mix them, and persist results to `<prefix>.h5`. The helper `SCFCheck` evaluates self-consistency convergence between iterations.
+  `CorrelationFunction` orchestrates the full workflow. It parses the control dictionary produced in `src/QAssemble.py` and exposes `TightBinding`, `HartreeFock`, and `GWApproximation`. Each solver builds crystal data (`Crystal`), frequency grids (`DLR`), then calls into the fermionic/bosonic lattice helpers to compute self-energies, mix them, and persist results to `<prefix>.h5`. The helper `SCFCheck` evaluates self-consistency convergence between iterations.
 - `src/QAssemble/Crystal.py`
   Holds lattice metadata: lattice vectors, basis positions, spin count, and index maps between composite, fermionic, and bosonic spaces. Key helpers such as `FAtomOrb`, `BAtomOrb`, `OrbSpin2Composite`, `Composite2OrbSpin`, and `Quad2Double` convert between different orbital labellings. Methods like `Kpath`, `KPoint`, and `MappingRVec` generate momentum grids that downstream modules reuse. Additional methods include `Boson2Fermion`, `Boson2Full`, `SetFullBasis`, `Projector` for projection setup, and symmetry helpers `R2mRMapping`, `R2mR`, `RT2mRmT`, `T2mT`.
 
