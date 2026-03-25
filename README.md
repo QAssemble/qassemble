@@ -1,6 +1,6 @@
 # QAssemble
 
-**QAssemble** is a pure-Python quantum simulation package for calculating electronic properties of materials using diagrammatic many-body perturbation theory. Built entirely with the Python standard library and a minimal set of well-established scientific packages — no compiled extensions or domain-specific frameworks required.
+**QAssemble** is a pure-Python quantum simulation package for calculating electronic properties of materials using free energy functional approaches. Built entirely with the Python standard library and a minimal set of well-established scientific packages — no compiled extensions or domain-specific frameworks required.
 
 ## Why Pure Python?
 

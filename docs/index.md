@@ -8,7 +8,7 @@ hide:
   <h1>QAssemble</h1>
   <p class="hero-subtitle">
     A pure-Python quantum simulation package for calculating electronic properties
-    of materials using diagrammatic many-body perturbation theory.
+    of materials using free energy functional approaches.
   </p>
   <div class="hero-buttons">
     <a href="getting-started/installation/" class="hero-btn hero-btn-primary">Get Started</a>
