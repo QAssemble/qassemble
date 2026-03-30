@@ -86,21 +86,22 @@ class BLatDyn(object):
         ns = bf.shape[2]
         nrk = bf.shape[4]
         nfreq = bf.shape[5]
-        ntau = len(self.dlr.tauB)
 
-        btau = np.zeros((norb, norb, ns, ns, nrk, ntau), dtype=np.complex128, order="F")
-        tempmat = np.zeros((nfreq), dtype=np.complex128, order="F")
+        bf_t = np.moveaxis(bf, -1, 0)  # (nfreq, norb, norb, ns, ns, nrk)
+        batch = norb * norb * ns * ns * nrk
+        bf_2d = np.ascontiguousarray(bf_t).reshape(nfreq, batch)
 
-        for ik in range(nrk):
-            for ks, js in itertools.product(range(ns), repeat=2):
-                # tempmat = np.transpose(bf[:, :, js, ks, ik], (2, 0, 1))
-                # tempmat2 = self.dlr.BF2T(tempmat)
-                for jorb, iorb in itertools.product(range(norb), repeat=2):
-                    tempmat = bf[iorb, jorb, js, ks, ik]
-                    tempmat2 = self.dlr.BF2T(tempmat)
-                    # btau[:, :, js, ks, ik] = np.transpose(tempmat2, (1, 2, 0))
-                    # for jorb, iorb in itertools.product(range(norb), repeat=2):
-                    btau[iorb, jorb, js, ks, ik] = tempmat2
+        # Boson: dlr_from_matsubara uses bosonic_corr_x[:, None, None]
+        # which requires 3D input. Solve lu_solve in 2D, then apply correction.
+        from scipy.linalg import lu_solve
+        G_xaa = lu_solve((self.dlr.dB.dlrmf2cf, self.dlr.dB.mf2cfpiv), bf_2d / self.dlr.beta)
+        G_xaa /= self.dlr.dB.bosonic_corr_x[:, None]
+
+        btau_2d = np.tensordot(self.dlr.dB.T_lx, G_xaa, axes=(1, 0))
+        ntau = btau_2d.shape[0]
+        btau = btau_2d.reshape(ntau, norb, norb, ns, ns, nrk)
+        btau = np.moveaxis(btau, 0, -1)  # (norb, norb, ns, ns, nrk, ntau)
+        btau = np.asfortranarray(btau)
 
         return btau
 
@@ -109,22 +110,20 @@ class BLatDyn(object):
         ns = btau.shape[2]
         nrk = btau.shape[4]
         ntau = btau.shape[5]
-        nfreq = len(self.dlr.nu)
 
-        bf = np.zeros((norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128, order="F")
-        tempmat = np.zeros((ntau), dtype=np.complex128, order="F")
+        btau_t = np.moveaxis(btau, -1, 0)  # (ntau, norb, norb, ns, ns, nrk)
+        batch = norb * norb * ns * ns * nrk
+        btau_2d = np.ascontiguousarray(btau_t).reshape(ntau, batch)
 
-        for ik in range(nrk):
-            for ks, js in itertools.product(range(ns), repeat=2):
-                # tempmat = np.transpose(btau[:, :, js, ks, ik], (2, 0, 1))
-                # tempmat2 = self.dlr.BT2F(tempmat)
-                # bf[:, :, js, ks, ik] = np.transpose(tempmat2, (1, 2, 0))
-                # bf[:, :, js, ks, ik, :] = self.dlr.BT2F(btau[:, :, js, ks, ik, :])
-                for jorb, iorb in itertools.product(range(norb), repeat=2):
-                    tempmat = btau[iorb, jorb, js, ks, ik]
-                    tempmat2 = self.dlr.BT2F(tempmat)
-                    # for jorb, iorb in itertools.product(range(norb), repeat=2):
-                    bf[iorb, jorb, js, ks, ik] = tempmat2
+        # Boson: lu_solve in 2D, then matsubara_from_dlr manually
+        from scipy.linalg import lu_solve
+        fxx = lu_solve((self.dlr.dB.dlrit2cf, self.dlr.dB.it2cfpiv), btau_2d)
+        bf_2d = self.dlr.beta * np.tensordot(
+            self.dlr.dB.T_qx * self.dlr.dB.bosonic_corr_x[None, :], fxx, axes=(1, 0))
+        nfreq = bf_2d.shape[0]
+        bf = bf_2d.reshape(nfreq, norb, norb, ns, ns, nrk)
+        bf = np.moveaxis(bf, 0, -1)  # (norb, norb, ns, ns, nrk, nfreq)
+        bf = np.asfortranarray(bf)
 
         return bf
 
