@@ -1,7 +1,6 @@
 import copy
 import gc
 import itertools
-import os
 import sys
 
 import h5py
@@ -9,7 +8,6 @@ import numpy as np
 
 from .BLocStc import VLoc
 from .Crystal import Crystal
-from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 
 

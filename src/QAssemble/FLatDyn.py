@@ -1,5 +1,5 @@
 import numpy as np
-import sys, itertools
+import sys
 import scipy.optimize
 import scipy.linalg.lapack
 import copy
