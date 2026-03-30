@@ -8,15 +8,14 @@ from .BLatStc import VBare
 from .utility.DLR import DLR
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
-# qapath = os.environ.get("QAssemble", "")
-# sys.path.append(qapath + "/src/QAssemble/modules")
-# import QAFort
+from .utility.Mixing import Mixing
 
 
 class BLatDyn(object):
-    def __init__(self, crystal: Crystal, dlr: DLR):
+    def __init__(self, crystal: Crystal, dlr: DLR, mixing_method: str = "pulay", npulay: int = 5):
         self.crystal = crystal
         self.dlr = dlr
+        self.mixer = Mixing(method=mixing_method, npulay=npulay)
         # self.flatdyn = flatdyn
         self._boson_phase_cache_k2r = self._get_boson_phaseK2R()
         self._boson_phase_cache_r2k = self._get_boson_phaseR2K()
@@ -56,9 +55,7 @@ class BLatDyn(object):
         nrk = matin.shape[4]
         nft = matin.shape[5]
 
-        matout = np.zeros(
-            (norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F"
-        )
+        matout = np.zeros((norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F")
         tempmat = np.zeros((norb * ns, norb * ns), dtype=np.complex128)
         tempmat2 = np.zeros((norb * ns, norb * ns), dtype=np.complex128)
 
@@ -202,25 +199,10 @@ class BLatDyn(object):
 
         return ynew
 
-    def Mixing(
-        self, iter: int, mix: float, Bb: np.ndarray, Bold: np.ndarray
-    ) -> np.ndarray:
-        norb = Bb.shape[0]
-        ns = Bb.shape[2]
-        nrk = Bb.shape[4]
-        nft = Bb.shape[5]
-
-        Bnew = np.zeros((norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F")
-
+    def Mixing(self, iter: int, mix: float, Bb: np.ndarray, Bold: np.ndarray) -> np.ndarray:
         if iter == 1:
-            mix = 1.0
-            Bold = np.zeros(
-                (norb, norb, ns, ns, nrk, nft), dtype=np.complex128, order="F"
-            )
-
-        Bnew = mix * Bb + (1 - mix) * Bold
-
-        return Bnew
+            Bold = np.zeros_like(Bb)
+        return self.mixer(iter=iter, mix=mix, Fnew=Bb, Fold=Bold)
 
     def Dyson(self, mat1: np.ndarray, mat2: np.ndarray) -> np.ndarray:
         # matout = QAFort.dyson.blatdyn(mat1, mat2)
@@ -501,6 +483,7 @@ class PolLat(BLatDyn):
         end = time.time()
         print("Polarizability Calculation Done")
         print(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
+        
     def Cal(self):
         
         ns = self.crystal.ns

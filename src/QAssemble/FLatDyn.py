@@ -11,14 +11,16 @@ from .utility.DLR import DLR
 from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
+from .utility.Mixing import Mixing
 # qapath = os.environ.get('QAssemble','')
 # sys.path.append(qapath+'/src/QAssemble/modules')
 # import QAFort
 
 class FLatDyn(object):
-    def __init__(self,crystal : Crystal, dlr : DLR) -> object:
+    def __init__(self,crystal : Crystal, dlr : DLR, mixing_method: str = "pulay", npulay: int = 5) -> object:
         self.crystal = crystal
         self.dlr = dlr
+        self._mixer = Mixing(method=mixing_method, npulay=npulay)
         self.mappingidx = None
         self._fermion_phase_cache_k2r = self._get_fermion_phaseK2R()
         self._fermion_phase_cache_r2k = self._get_fermion_phaseR2K()
@@ -225,21 +227,9 @@ class FLatDyn(object):
         return ynew
     
     def Mixing(self, iter : int, mix : float, Fb : np.ndarray, Fm : np.ndarray) -> np.ndarray:
-
-        norb = Fb.shape[0]
-        ns = Fb.shape[2]
-        nrk = Fb.shape[3]
-        nft = Fb.shape[4]
-
-        Fnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
-
         if iter == 1:
-            mix = 1.0
-            Fm = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
-        
-        Fnew = mix*Fb + (1.0-mix)*Fm
-
-        return Fnew
+            Fm = np.zeros_like(Fb)
+        return self._mixer(iter=iter, mix=mix, Fnew=Fb, Fold=Fm)
     
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
 
