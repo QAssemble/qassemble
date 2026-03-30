@@ -8,6 +8,7 @@ import numpy as np
 
 from .BLocStc import VLoc
 from .Crystal import Crystal
+from .utility import Fourier
 from .utility.Dyson import Dyson
 
 
