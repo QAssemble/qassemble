@@ -369,10 +369,15 @@ class FLatDyn(object):
 
         for irk in range(nrk):
             for js in range(ns):
-                fxx = self.dlr.dF.dlr_from_tau(ftau[:, :, js, irk,:].T)
-                fout[:, :, js, irk, :] = (self.dlr.dF.eval_dlr_tau(fxx, taum, self.dlr.beta)).T
+                block = ftau[:, :, js, irk, :].T  # (ntau, norb, norb)
+                ntau_b = block.shape[0]
+                block_2d = block.reshape(ntau_b, -1)
 
-        return fout      
+                fxx = self.dlr.dF.dlr_from_tau(block_2d)
+                fout_3d = self.dlr.dF.eval_dlr_tau(fxx[:, :, None], taum, self.dlr.beta)
+                fout[:, :, js, irk, :] = fout_3d[:, :, 0].reshape(-1, norb, norb).T
+
+        return fout
 
     def TauB2TauF(self, ftau : np.ndarray) -> np.ndarray:
 
@@ -574,13 +579,15 @@ class GreenInt(FLatDyn):
 
         for irk in range(nrk):
             for js in range(ns):
-                
-                block = self.kt[:, :, js, irk, :].T
 
-                fxx = self.dlr.dF.dlr_from_tau(block)
-                fout = self.dlr.dF.eval_dlr_tau(fxx, tau_beta, beta=self.dlr.beta)
+                block = self.kt[:, :, js, irk, :].T  # (ntau, norb, norb)
+                ntau_b = block.shape[0]
+                block_2d = block.reshape(ntau_b, -1)
 
-                occk[:, :, js, irk] = -fout[0]
+                fxx = self.dlr.dF.dlr_from_tau(block_2d)
+                fout = self.dlr.dF.eval_dlr_tau(fxx[:, :, None], tau_beta, beta=self.dlr.beta)
+
+                occk[:, :, js, irk] = -fout[0, :, 0].reshape(norb, norb)
 
 
         
