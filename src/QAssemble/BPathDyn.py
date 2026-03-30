@@ -17,7 +17,6 @@ import subprocess
 import copy
 import h5py
 from .Crystal import Crystal
-from .FTGrid import FTGrid
 from .BLatDyn import BLatDyn
 
 class BPathDyn(object):
