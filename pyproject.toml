@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "QAssemble"
+version = "0.1.0"
+description = "Pure-Python quantum simulation package for electronic structure calculations"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "scipy",
+    "h5py",
+    "mpi4py",
+    "matplotlib",
+    "pydlr",
+    "sympy",
+    "pymatgen",
+]
+
+[project.scripts]
+qassemble = "QAssemble.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,10 +1,12 @@
-#!/usr/bin/env python3.9
-import time, datetime
-import os, sys, copy
+import copy
+import datetime
+import os
+import sys
+import time
+
 import h5py
 
-
-from QAssemble.CorrelationFunction import CorrelationFunction
+from .CorrelationFunction import CorrelationFunction
 
 
 class Run:
@@ -264,14 +266,6 @@ class Run:
 
         self.control = control
 
-        # if os.path.exists(control['run']['fn']+'.h5'):
-        #     pass
-        # else:
-        #     with h5py.File(control['run']['fn']+'.h5','w') as file:
-        #         group = file.create_group('input')
-        #         for key, val in control.items():
-        #             group.create_dataset(key,data=val)
-
         return None
 
     def Dict2Hdf5(self, d: dict, h5file: h5py.File):
@@ -378,7 +372,6 @@ class Run:
         cry = control["crystal"]
         ft = control["ft"]
         func = CorrelationFunction(cry=cry, ft=ft)
-        # func = CorrelationFunction(latt=control['crystal']['lattice'], basisposition=control['crystal']['basispos'], ns=control['crystal']['ns'],soc=control['crystal']['soc'],rkgrid=control['crystal']['rkgrid'],orboption=control['crystal']['orbital'],N=control['crystal']['nume'],T=control['ft']['T'],beta=control['ft']['beta'],size=control['ft']['size'],c=control['run']['cw'])
 
         itermax = control["run"]["nscf"]
         mix = control["run"]["mix"]
@@ -392,15 +385,10 @@ class Run:
             spin = control["ham"]["spin"]
             valley = control["ham"]["valley"]
             site = control["ham"]["site"]
-            # func.TightBinding(hoppinglist=hoppinglist,onsitelist=onsitelist)
             func.TightBinding(
                 hopping=hopping, onsite=onsite, spin=spin, valley=valley, site = site, hdf5file=fn + ".h5"
             )
             print("Tight-Binding calculation finish")
-            # flatstc = FLatStc(crystal=func.cry)
-            # energy = flatstc.Diagonalize(hamtb)
-            # FLatStcSave(hamtb,'hamtb')
-            # FLatStcSave(energy,'energy')
         if method == "hf":
             print("Hartree-Fock calculation start")
 
@@ -419,7 +407,6 @@ class Run:
             oy = control["ham"]["coulomb"]["ohnoyuka"]
             mode = control["run"]["mode"]
             start = time.time()
-            # func.HartreeFock(itermax=itermax,mix=mix,hoppinglist=hoppinglist,onsitelist=onsitelist,loccoulomb=vloc,nonloccoulomb=vnonloc,ohno=ohno)
             func.HartreeFock(
                 itermax=itermax,
                 mix=mix,
@@ -444,30 +431,6 @@ class Run:
             delta = datetime.timedelta(seconds=(end - start))
             print(f"Hartree-Fock loop time = {delta}")
 
-            # FLatStcSave(hamhf,'hamhf')
-            # FLatStcSave(sigmah.hk,'sigmahk')
-            # FLatStcSave(sigmaf.fk,'sigmafk')
-            # BLatStcSave(func.vbare.k,'vk')
-        # if (method=="gw"):
-        #     print("Hartree-Fock calculation start")
-
-        #     hoppinglist = control['ham']['hoppinglist']
-        #     onsitelist = control['ham']['onsitelist']
-        #     vloc = control['ham']['coulomb']['local']
-        #     vnonloc = control['ham']['coulomb']['nonlocal']
-        #     ohno = control['ham']['coulomb']['ohno']
-        #     start = time.time()
-        #     func.HartreeFock(itermax=itermax,mix=mix,hoppinglist=hoppinglist,onsitelist=onsitelist,loccoulomb=vloc,nonloccoulomb=vnonloc,ohno=ohno)
-        #     end = time.time()
-        #     print("Hartree-Fock calculation finish")
-        #     delta = datetime.timedelta(seconds=(end-start))
-        #     print(f"Hartree-Fock loop time = {delta}")
-
-        # FLatDynSave(func.green.gkf,'gkfhf')
-        # FLatStcSave(func.hamhf,'hamhf')
-        # FLatStcSave(func.sigmah.hk,'sigmahk')
-        # FLatStcSave(func.sigmaf.fk,'sigmafk')
-        # BLatStcSave(func.vbare.k,'vk')
         if method == "gw":
             print("GW calculation start")
 
@@ -502,27 +465,4 @@ class Run:
             delta = datetime.timedelta(seconds=(end - start))
             print(f"GW loop time = {delta}")
 
-            # FLatDynSave(func.green.gkf,'gkf')
-            # FLatStcSave(func.sigmah.hk,'sigmahk')
-            # FLatStcSave(func.sigmaf.fk,'sigmafk')
-            # FLatDynSave(func.sigmac.kf,'sigmackf')
-            # BLatDynSave(func.w.wkf,'wkf')
-            # BLatDynSave(func.pol.polkf,'pkf')
-            # BLatStcSave(func.vbare.k,'vk')
         return None
-
-    # def OhnoParameter(self):
-    #     '''
-    #     Set the non-loc bare coulomb interaction by using Ohno parameterization
-
-    #     V = U/{\kappa_ij(1+cR_{ij}^2)}^{1/2}
-    #     '''
-    #     kappa = 2.0
-    #     vlist = []
-    #     rkgrid = self.control["crystal"]['rkgrid']
-
-
-if __name__ == "__main__":
-    print("Calculation Start")
-    run = Run()
-    print("Calculation Finish")

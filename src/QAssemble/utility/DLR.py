@@ -1,4 +1,3 @@
-from tempfile import tempdir
 import numpy as np
 from pydlr import dlr
 from .Common import Common

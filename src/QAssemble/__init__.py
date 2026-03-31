@@ -1,5 +1,7 @@
 # __init__.py
 
+__version__ = "0.1.0"
+
 from .Crystal import Crystal
 from .FLatDyn import *
 from .FLatStc import *

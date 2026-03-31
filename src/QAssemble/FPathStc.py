@@ -7,7 +7,6 @@ import shutil
 import string as string
 import subprocess
 import sys
-from collections import OrderedDict
 from typing import Any
 
 import h5py
@@ -17,8 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.linalg
 import scipy.optimize
-from pylab import cm
-from scipy.fftpack import fftn, ifftn
+from matplotlib import cm
 from sympy.physics.wigner import gaunt, wigner_3j
 
 # qapath = os.environ.get("QAssemble", "")

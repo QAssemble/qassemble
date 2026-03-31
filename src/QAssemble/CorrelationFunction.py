@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import sys, os
+import sys, os, time
 import gc
 import h5py
 from .Crystal import Crystal
