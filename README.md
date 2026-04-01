@@ -130,12 +130,12 @@ Using Python module execution:
 python -m QAssemble
 ```
 
-Parallel execution with MPI:
+<!-- Parallel execution with MPI:
 
 ```bash
 mpirun -n <num_processors> qassemble
 mpirun -n <num_processors> python -m QAssemble
-```
+``` -->
 
 ## Directory Structure
 
