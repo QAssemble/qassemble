@@ -178,13 +178,13 @@ QAssemble/
 
 | Prefix | Meaning |
 |---|---|
-| `F` | Fermionic (electronic) |
-| `B` | Bosonic (collective excitations) |
-| `Lat` | Lattice (k-space) |
-| `Loc` | Local (real-space site) |
-| `Path` | Path (band structure path) |
-| `Stc` | Static (frequency-independent) |
-| `Dyn` | Dynamic (frequency-dependent) |
+| `F` | Fermionic |
+| `B` | Bosonic  |
+| `Lat` | Lattice  |
+| `Loc` | Local  |
+| `Path` | Path  |
+| `Stc` | Static |
+| `Dyn` | Dynamic |
 
 ## Configuration Reference
 
