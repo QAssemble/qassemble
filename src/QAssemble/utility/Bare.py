@@ -70,11 +70,11 @@ class Bare:
             taunew = tau[itau] - beta * unitnum
 
             if (energy > 0):
-                gtau[itau] = complex(-1)**(unitnum+1)*np.exp(-energy*taunew, dtype=np.complex128) \
-                    * (1 - 1/(np.exp(energy*beta, dtype=np.complex128) + 1))
+                gtau[itau] = complex(-1)**(unitnum+1)*np.exp(np.complex128(-energy*taunew)) \
+                    * (1 - 1/(np.exp(np.complex128(energy*beta)) + 1))
             else:
-                gtau[itau] = complex(-1)**(unitnum+1)* np.exp(-energy*(taunew-beta), dtype=np.complex128) \
-                    * (1.0/(np.exp(energy*beta, dtype=np.complex128) + 1))
+                gtau[itau] = complex(-1)**(unitnum+1)* np.exp(np.complex128(-energy*(taunew-beta))) \
+                    * (1.0/(np.exp(np.complex128(energy*beta)) + 1))
 
         return gtau
 
@@ -131,11 +131,11 @@ class Bare:
             taunew = tau[itau] - beta*unitnum
 
             if (energy > 0):
-                wtau[itau] = -np.exp(-energy*beta, dtype=np.complex128)\
-                    * (1.0 - 1.0/(np.exp(energy*beta, dtype=np.complex128) - 1))
+                wtau[itau] = -np.exp(np.complex128(-energy*beta))\
+                    * (1.0 - 1.0/(np.exp(np.complex128(energy*beta)) - 1))
             else:
-                wtau[itau] = -np.exp(-energy*(taunew-beta), dtype=np.complex128)\
-                    * (1.0/np.exp(energy*beta, dtype=np.complex128) - 1)
+                wtau[itau] = -np.exp(np.complex128(-energy*(taunew-beta)))\
+                    * (1.0/np.exp(np.complex128(energy*beta)) - 1)
         return wtau
 
 

@@ -1,6 +1,6 @@
 # Serial Class Diagram
 
-The following diagrams capture the main classes and composition relationships in the serial pipeline (`src/QAssemble.py` and `src/QAssemble`). Solid arrows point from an owner to the component it instantiates or calls directly. Dashed arrows highlight helper utilities that are passed in or referenced for numerical work.
+The following diagrams capture the main classes and composition relationships in the serial pipeline (`src/QAssemble/`). Solid arrows point from an owner to the component it instantiates or calls directly. Dashed arrows highlight helper utilities that are passed in or referenced for numerical work.
 
 ## High-Level Flow
 
@@ -49,15 +49,6 @@ classDiagram
         +FT2F()
         +BF2T()
         +TauDLR2Uniform()
-    }
-
-    class FTGrid {
-        +omega
-        +nu
-        +tau
-        +Omega()
-        +Nu()
-        +Tau()
     }
 
     Run --> CorrelationFunction : builds
@@ -363,6 +354,13 @@ classDiagram
         +MinDistance()
     }
 
+    class Mixing {
+        +method: str
+        +npulay: int
+        +reset()
+        +__call__(iter, mix, Fnew, Fold)
+    }
+
     FLatDyn ..> Fourier
     FLatStc ..> Fourier
     FPathDyn ..> Fourier
@@ -377,6 +375,7 @@ classDiagram
     BLocStc ..> Dyson
     CorrelationFunction ..> Bare
     CorrelationFunction ..> Common
+    CorrelationFunction ..> Mixing
 ```
 
 Use the diagrams alongside `docs/SerialModules.md` for deeper descriptions of each class and the numerical responsibilities they own.

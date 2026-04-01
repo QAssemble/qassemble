@@ -1,7 +1,8 @@
 # __init__.py
 
+__version__ = "0.1.0"
+
 from .Crystal import Crystal
-from .FTGrid import FTGrid
 from .FLatDyn import *
 from .FLatStc import *
 from .FLocDyn import *

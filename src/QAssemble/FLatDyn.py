@@ -1,5 +1,5 @@
 import numpy as np
-import sys, itertools
+import sys
 import scipy.optimize
 import scipy.linalg.lapack
 import copy
@@ -11,14 +11,16 @@ from .utility.DLR import DLR
 from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
+from .utility.Mixing import Mixing
 # qapath = os.environ.get('QAssemble','')
 # sys.path.append(qapath+'/src/QAssemble/modules')
 # import QAFort
 
 class FLatDyn(object):
-    def __init__(self,crystal : Crystal, dlr : DLR) -> object:
+    def __init__(self,crystal : Crystal, dlr : DLR, mixing_method: str = "pulay", npulay: int = 5) -> object:
         self.crystal = crystal
         self.dlr = dlr
+        self._mixer = Mixing(method=mixing_method, npulay=npulay)
         self.mappingidx = None
         self._fermion_phase_cache_k2r = self._get_fermion_phaseK2R()
         self._fermion_phase_cache_r2k = self._get_fermion_phaseR2K()
@@ -79,23 +81,19 @@ class FLatDyn(object):
         nk = ftau.shape[3]
         ntau = ftau.shape[4]
 
-        # Batch DLR transform: pydlr expects (ntau, n1, n2)
-        # Move tau axis to front, flatten the rest into batch B
-        # (norb, norb, ns, nk, ntau) -> (ntau, B, 1)
         ftau_t = np.moveaxis(ftau, -1, 0)  # (ntau, norb, norb, ns, nk)
         batch = norb * norb * ns * nk
-        ftau_3d = np.ascontiguousarray(ftau_t).reshape(ntau, batch, 1)
+        ftau_2d = np.ascontiguousarray(ftau_t).reshape(ntau, batch)
 
-        fxx = self.dlr.dF.dlr_from_tau(ftau_3d)
-        ff_3d = self.dlr.dF.matsubara_from_dlr(fxx, beta=self.dlr.beta, xi=-1)
-        # matsubara_from_dlr transposes: (ndlr, B, 1) -> (nfreq, 1, B)
-        nfreq = ff_3d.shape[0]
-        ff = ff_3d[:, 0, :].reshape(nfreq, norb, norb, ns, nk)
+        fxx = self.dlr.dF.dlr_from_tau(ftau_2d)
+        ff_2d = self.dlr.dF.matsubara_from_dlr(fxx, beta=self.dlr.beta, xi=-1)
+        nfreq = ff_2d.shape[0]
+        ff = ff_2d.reshape(nfreq, norb, norb, ns, nk)
         ff = np.moveaxis(ff, 0, -1)  # (norb, norb, ns, nk, nfreq)
         ff = np.asfortranarray(ff)
 
         return ff
-    
+
     def F2T(self,ff : np.ndarray) -> np.ndarray:
 
         norb = ff.shape[0]
@@ -103,17 +101,14 @@ class FLatDyn(object):
         nk = ff.shape[3]
         nfreq = ff.shape[4]
 
-        # Batch DLR transform: pydlr expects (nfreq, n1, n2)
-        # dlr_from_matsubara expects same layout as matsubara_from_dlr output: (nfreq, 1, B)
         ff_t = np.moveaxis(ff, -1, 0)  # (nfreq, norb, norb, ns, nk)
         batch = norb * norb * ns * nk
-        ff_3d = np.ascontiguousarray(ff_t).reshape(nfreq, 1, batch)
+        ff_2d = np.ascontiguousarray(ff_t).reshape(nfreq, batch)
 
-        fxx = self.dlr.dF.dlr_from_matsubara(ff_3d, beta=self.dlr.beta, xi=-1)
-        ftau_3d = self.dlr.dF.tau_from_dlr(fxx)
-        # tau_from_dlr preserves shape: (ntau, 1, B)
-        ntau = ftau_3d.shape[0]
-        ftau = ftau_3d[:, 0, :].reshape(ntau, norb, norb, ns, nk)
+        fxx = self.dlr.dF.dlr_from_matsubara(ff_2d, beta=self.dlr.beta, xi=-1)
+        ftau_2d = self.dlr.dF.tau_from_dlr(fxx)
+        ntau = ftau_2d.shape[0]
+        ftau = ftau_2d.reshape(ntau, norb, norb, ns, nk)
         ftau = np.moveaxis(ftau, 0, -1)  # (norb, norb, ns, nk, ntau)
         ftau = np.asfortranarray(ftau)
 
@@ -225,21 +220,9 @@ class FLatDyn(object):
         return ynew
     
     def Mixing(self, iter : int, mix : float, Fb : np.ndarray, Fm : np.ndarray) -> np.ndarray:
-
-        norb = Fb.shape[0]
-        ns = Fb.shape[2]
-        nrk = Fb.shape[3]
-        nft = Fb.shape[4]
-
-        Fnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
-
         if iter == 1:
-            mix = 1.0
-            Fm = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
-        
-        Fnew = mix*Fb + (1.0-mix)*Fm
-
-        return Fnew
+            Fm = np.zeros_like(Fb)
+        return self._mixer(iter=iter, mix=mix, Fnew=Fb, Fold=Fm)
     
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
 
@@ -386,24 +369,25 @@ class FLatDyn(object):
 
         for irk in range(nrk):
             for js in range(ns):
-                fxx = self.dlr.dF.dlr_from_tau(ftau[:, :, js, irk,:].T)
-                fout[:, :, js, irk, :] = (self.dlr.dF.eval_dlr_tau(fxx, taum, self.dlr.beta)).T
+                block = ftau[:, :, js, irk, :].T  # (ntau, norb, norb)
+                ntau_b = block.shape[0]
+                block_2d = block.reshape(ntau_b, -1)
 
-        return fout      
+                fxx = self.dlr.dF.dlr_from_tau(block_2d)
+                fout_3d = self.dlr.dF.eval_dlr_tau(fxx[:, :, None], taum, self.dlr.beta)
+                fout[:, :, js, irk, :] = fout_3d[:, :, 0].reshape(-1, norb, norb).T
+
+        return fout
 
     def TauB2TauF(self, ftau : np.ndarray) -> np.ndarray:
 
         norb, _, ns, ns2, nk, ntauB = ftau.shape
-        # Move tau axis to front, flatten the rest into batch
-        # ftau shape: (norb, norb, ns, ns2, nk, ntauB)
-        # pydlr expects: (ntauB, n1, n2) — batch over n1, n2
         ftau_t = np.moveaxis(ftau, -1, 0)  # (ntauB, norb, norb, ns, ns2, nk)
         batch = norb * norb * ns * ns2 * nk
-        ftau_3d = np.ascontiguousarray(ftau_t).reshape(ntauB, batch, 1)
+        ftau_2d = np.ascontiguousarray(ftau_t).reshape(ntauB, batch)
 
-        fxx = self.dlr.dB.dlr_from_tau(ftau_3d)
-        fout_3d = self.dlr.dB.eval_dlr_tau(fxx, self.dlr.tauF, self.dlr.beta)
-        # fout_3d shape: (ntauF, batch, 1)
+        fxx = self.dlr.dB.dlr_from_tau(ftau_2d)
+        fout_3d = self.dlr.dB.eval_dlr_tau(fxx[:, :, None], self.dlr.tauF, self.dlr.beta)
         ntauF = len(self.dlr.tauF)
         fout = fout_3d[:, :, 0].reshape(ntauF, norb, norb, ns, ns2, nk)
         fout = np.moveaxis(fout, 0, -1)  # (norb, norb, ns, ns2, nk, ntauF)
@@ -595,13 +579,15 @@ class GreenInt(FLatDyn):
 
         for irk in range(nrk):
             for js in range(ns):
-                
-                block = self.kt[:, :, js, irk, :].T
 
-                fxx = self.dlr.dF.dlr_from_tau(block)
-                fout = self.dlr.dF.eval_dlr_tau(fxx, tau_beta, beta=self.dlr.beta)
+                block = self.kt[:, :, js, irk, :].T  # (ntau, norb, norb)
+                ntau_b = block.shape[0]
+                block_2d = block.reshape(ntau_b, -1)
 
-                occk[:, :, js, irk] = -fout[0]
+                fxx = self.dlr.dF.dlr_from_tau(block_2d)
+                fout = self.dlr.dF.eval_dlr_tau(fxx[:, :, None], tau_beta, beta=self.dlr.beta)
+
+                occk[:, :, js, irk] = -fout[0, :, 0].reshape(norb, norb)
 
 
         
@@ -664,12 +650,11 @@ class GreenInt(FLatDyn):
         gdiag = gcalf[diag, diag, :, :, :]  # (norb, ns, nk, nfreq)
 
         # Batch DLR: Matsubara -> single tau point
-        # Reshape to (nfreq, norb*ns*nk, 1) for dlr API
         gdiag_perm = np.ascontiguousarray(np.moveaxis(gdiag, -1, 0))  # (nfreq, norb, ns, nk)
         batch_shape = gdiag_perm.shape[1:]
-        gdiag_flat = gdiag_perm.reshape(nfreq, -1, 1)
+        gdiag_flat = gdiag_perm.reshape(nfreq, -1)
         fxx = self.dlr.dF.dlr_from_matsubara(gdiag_flat, beta=self.dlr.beta, xi=-1)
-        fout = self.dlr.dF.eval_dlr_tau(fxx, self._tau_beta_cache, beta=self.dlr.beta)
+        fout = self.dlr.dF.eval_dlr_tau(fxx[:, :, None], self._tau_beta_cache, beta=self.dlr.beta)
         gtau_beta = fout[0, :, 0].reshape(batch_shape)  # (norb, ns, nk)
 
         Ne = -np.real(gtau_beta.sum()) / nrk

@@ -1,7 +1,6 @@
 import copy
 import gc
 import itertools
-import os
 import sys
 
 import h5py

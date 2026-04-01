@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import sys, os
+import sys, os, time
 import gc
 import h5py
 from .Crystal import Crystal
@@ -189,20 +189,21 @@ class CorrelationFunction(object):
         gbare = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham.k,hdf5file=hdf5file,group=group)
         vbare = VBare(crystal=self.crystal,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,ohnoyuka=ohnoyuka,hdf5file=hdf5file,group=group)
 
+        pol_mixer = Mixing()
+        sig_mixer = Mixing()
+
         self.gw_object_times = []
         for iter in range(1,itermax+1):
             iter_timing = {"iter": iter}
             if iter == 1:
-                # niham_temp = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin, valley=valley, hdf5file=hdf5file,group='test') 
+                # niham_temp = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin, valley=valley, hdf5file=hdf5file,group='test')
                 # niham_temp = NIHamiltonian(self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin,aferro=aferro, valley=valley,site=site,hdf5file=hdf5file,group='test_gw')
                 # gbare_temp = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham_temp.k,hdf5file=hdf5file,group='test')
-                t0 = time.perf_counter() 
+                t0 = time.perf_counter()
                 gold = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,hdf5file=hdf5file,group=group)
                 print(f"Initial chemical potential : {gold.mu}")
                 iter_timing["GreenInt_init"] = time.perf_counter() - t0
                 gold.Save(f'gkf_ini')
-                pkfold = None
-                ckfold = None
                 wold = 0
                 # gbare.Save('gbare')
 
@@ -222,8 +223,9 @@ class CorrelationFunction(object):
             t0 = time.perf_counter()
             pol = PolLat(crystal=self.crystal,dlr=self.dlr,green=gold.rt,hdf5file=hdf5file,group=group)
             iter_timing["Polarizability"] = time.perf_counter() - t0
-            # pol.kf = pol.Mixing(iter=iter,mix=mix,Bb=pol.kf,Bold=pkfold)
-            # if (iter % 50 == 0)or(iter == 1):
+            if iter == 1:
+                pkfold = np.zeros_like(pol.kf)
+            pol.kf = pol_mixer(iter=iter, mix=mix, Fnew=pol.kf, Fold=pkfold)
             pol.Save(f'pkf.{iter}')
             # print("Polarizability calculation finish")
             # print("Screened coulomb interaction calculation start")
@@ -238,8 +240,9 @@ class CorrelationFunction(object):
             t0 = time.perf_counter()
             sigmagwc = SigmaGWC(crystal=self.crystal,dlr=self.dlr,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group)
             iter_timing["SigmaGW"] = time.perf_counter() - t0
-            # sigmagwc.kf = sigmagwc.Mixing(iter=iter,mix=mix,Fb=sigmagwc.kf,Fm=ckfold)
-            # if (iter % 50 == 0)or(iter == 1):
+            if iter == 1:
+                ckfold = np.zeros_like(sigmagwc.kf)
+            sigmagwc.kf = sig_mixer(iter=iter, mix=mix, Fnew=sigmagwc.kf, Fold=ckfold)
             sigmagwc.Save(f'sigmagwckf.{iter}')
             # print("GW self-energy calculation finish")
             # print("GW green's function calculation start")
@@ -268,7 +271,7 @@ class CorrelationFunction(object):
             print(f"iteration : {iter} \nfcriteria : {fcheck} \nbcriteria : {bcheck} \nchemicalpotential : {gnew.mu+gnew.c}")
             # print(f"iteration : {iter} \nfcriteria : {fcheck} \nchemicalpotential : {gnew.mu}")
 
-            if (fcheck <=1.0e-6)and(mucheck<=0.01)and(bcheck<=1.0e-4):
+            if (iter > pol_mixer.npulay)and(fcheck <=1.0e-6)and(mucheck<=0.01)and(bcheck<=1.0e-4):
                 print(f"Self-consistency is achived with {iter}-th")
                 self.green = gnew
                 self.pol = pol

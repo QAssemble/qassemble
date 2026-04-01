@@ -1,32 +1,18 @@
 import copy
 import itertools
-import json
-import os
-import re as re
-import shutil
-import string as string
-import subprocess
 import sys
-from collections import OrderedDict
-from typing import Any
 
 import h5py
 import matplotlib as mat
-import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.linalg
 import scipy.optimize
-from pylab import cm
-from pymatgen.core import Lattice, Structure
-from pymatgen.transformations.standard_transformations import \
-    SupercellTransformation
-from scipy.fftpack import fftn, ifftn
-from sympy.physics.wigner import gaunt, wigner_3j
 
 from .Crystal import Crystal
 from .utility.Dyson import Dyson
 from .utility.Fourier import Fourier
+from .utility.Mixing import Mixing
 
 # from .FLatDyn import SigmaGWC
 # qapath = os.environ.get("QAssemble", "")
@@ -36,9 +22,10 @@ from .utility.Fourier import Fourier
 
 class FLatStc(object):
 
-    def __init__(self, crystal: Crystal):
+    def __init__(self, crystal: Crystal, mixing_method: str = "pulay", npulay: int = 5):
 
         self.crystal = crystal
+        self._mixer = Mixing(method=mixing_method, npulay=npulay)
 
     def Inverse(self, mat: np.ndarray):
 
@@ -365,29 +352,9 @@ class FLatStc(object):
     def Mixing(
         self, iter: int, mix: float, Fb: np.ndarray, Fm: np.ndarray
     ) -> np.ndarray:
-
-        # norb = Fb.shape[0]
-        # ns = Fb.shape[2]
-        # nrk = Fb.shape[3]
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
-
-        Fnew = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
-        # print(Fnew.shape)
         if iter == 1:
-            mix = 1.0
-            Fm = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
-        for irk in range(nrk):
-            for js in range(ns):
-                for iorb in range(norb):
-                    for jorb in range(norb):
-                        Fnew[iorb, jorb, js, irk] = (
-                            mix * Fb[iorb, jorb, js, irk]
-                            + (1.0 - mix) * Fm[iorb, jorb, js, irk]
-                        )
-
-        return Fnew
+            Fm = np.zeros_like(Fb)
+        return self._mixer(iter=iter, mix=mix, Fnew=Fb, Fold=Fm)
 
     def ChemEmbedding(self, mu: float) -> np.ndarray:
 

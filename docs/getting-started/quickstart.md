@@ -57,10 +57,23 @@ Control = {
 
 ## 2. Run
 
-=== "Serial"
+=== "CLI (recommended)"
 
     ```bash
-    python src/QAssemble.py
+    qassemble
+    ```
+
+=== "Module execution"
+
+    ```bash
+    python -m QAssemble
+    ```
+
+=== "MPI parallel"
+
+    ```bash
+    mpirun -n <num_processors> qassemble
+    mpirun -n <num_processors> python -m QAssemble
     ```
 
 
@@ -68,18 +81,31 @@ Control = {
 
 ```
 QAssemble/
-├── src/
-│   ├── QAssemble.py      # Main entry point (Run class)
-│   └── QAssemble/
-│       ├── CorrelationFunction.py
-│       ├── Crystal.py
-│       ├── FLatDyn.py          # Fermionic dynamic lattice (GreenBare, GreenInt, SigmaGWC, ...)
-│       ├── FLatStc.py          # Fermionic static lattice (NIHamiltonian, Hamiltonian, SigmaH, SigmaF, ...)
-│       ├── BLatDyn.py          # Bosonic dynamic lattice (PolLat, WLat)
-│       ├── BLatStc.py          # Bosonic static lattice (VBare)
-│       ├── BLocStc.py          # Bosonic local static (VLoc)
-│       ├── FPathDyn.py / FPathStc.py   # k-path post-processing
-│       ├── BPathDyn.py / BPathStc.py
-│       └── utility/            # Shared numerics (DLR, Dyson, Fourier, Bare, Common)
-└── docs/                       # Documentation
+├── pyproject.toml              # Package configuration and dependencies
+├── README.md
+└── src/
+    ├── QAssemble.py            # Legacy entry point (backward compatible)
+    └── QAssemble/
+        ├── __init__.py         # Package exports and version
+        ├── __main__.py         # python -m QAssemble support
+        ├── cli.py              # CLI entry point (qassemble command)
+        ├── run.py              # Run class (input parsing and execution)
+        ├── Crystal.py          # Lattice geometry, k-point grids, index mappings
+        ├── CorrelationFunction.py  # Top-level workflow coordinator (TB / HF / GW)
+        ├── FLatStc.py          # Static fermionic lattice (Hamiltonian, HF self-energy)
+        ├── FLatDyn.py          # Dynamic fermionic lattice (Green's functions via DLR)
+        ├── FPathStc.py         # Static fermionic path
+        ├── FPathDyn.py         # Dynamic fermionic path
+        ├── BLatStc.py          # Static bosonic lattice (bare/screened Coulomb)
+        ├── BLatDyn.py          # Dynamic bosonic lattice (polarization, screened W)
+        ├── BLocStc.py          # Static bosonic local site
+        ├── BPathStc.py         # Static bosonic path
+        ├── BPathDyn.py         # Dynamic bosonic path
+        └── utility/
+            ├── DLR.py          # Discrete Lehmann Representation transforms
+            ├── Dyson.py        # Dyson equation solver
+            ├── Fourier.py      # Lattice Fourier transforms
+            ├── Common.py       # Shared utilities
+            ├── Bare.py         # Bare Green's functions
+            └── Mixing.py       # Mixing parameter control
 ```

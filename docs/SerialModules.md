@@ -1,10 +1,12 @@
 # Serial Module Reference
 
-This guide summarises the serial implementation that lives under `src/QAssemble.py` and `src/QAssemble`. Use it as a map when extending the solver, plumbing new data into the HDF5 workflow, or coordinating work between the Python and Fortran layers.
+This guide summarises the serial implementation that lives under `src/QAssemble/`. Use it as a map when extending the solver, plumbing new data into the HDF5 workflow, or coordinating work between modules.
 
-## Top-Level Driver (`src/QAssemble.py`)
+## Top-Level Driver (`src/QAssemble/run.py`)
+- **Entry points**
+  The `Run` class is the main driver. It can be invoked via the CLI command `qassemble` (defined in `src/QAssemble/cli.py`) or via `python -m QAssemble` (defined in `src/QAssemble/__main__.py`). The legacy script `src/QAssemble.py` is retained for backward compatibility.
 - **Run lifecycle**
-  The `Run` class bootstraps the calculation. Instantiating `Run(test=False)` calls `ReadInput`, stores the parsed control dictionary, and dispatches to `RunDiagE` for methods `tb`, `hf`, or `gw`. Passing `test=True` builds a lightweight `CorrelationFunction` instance without launching a full run.
+  Instantiating `Run(test=False)` calls `ReadInput`, stores the parsed control dictionary, and dispatches to `RunDiagE` for methods `tb`, `hf`, or `gw`. Passing `test=True` builds a lightweight `CorrelationFunction` instance without launching a full run.
 - **Input discovery**
   `ReadInput` executes `input.ini`, expecting `Crystal`, `Hamiltonian`, and `Control` sections. It writes a canonicalised copy to `<prefix>.h5` under `/input` (creating the file on first run) and compares subsequent executions to guard against stale prefixes.
 - **Derived dictionaries**
@@ -12,18 +14,13 @@ This guide summarises the serial implementation that lives under `src/QAssemble.
 - **HDF5 bookkeeping**
   When an existing `<prefix>.h5` is present, `ReadInput` mirrors the new settings against the stored `/input` group. It aborts if values diverge, forcing the user to pick a new prefix. Fresh runs dump the executed Python objects into the HDF5 tree through `Dict2Hdf5`. Additional helpers `Hdf52Dict`, `CheckInput`, `ChangeInput`, and `CompareDict` manage round-trip serialisation and input validation.
 - **Environment expectations**
-  The script requires the root directory in `$QAssemble` so that dynamic imports and native extensions resolve. Ensure dependencies such as `h5py`, `numpy`, and `mpi4py` are available; MPI-specific packages are no-ops in serial mode but must still import cleanly.
+  Ensure dependencies such as `h5py`, `numpy`, and `mpi4py` are available; MPI-specific packages are no-ops in serial mode but must still import cleanly.
 
 ## Core Entry Points
 - `src/QAssemble/CorrelationFunction.py`
-  `CorrelationFunction` orchestrates the full workflow. It parses the control dictionary produced in `src/QAssemble.py` and exposes `TightBinding`, `HartreeFock`, and `GWApproximation`. Each solver builds crystal data (`Crystal`), frequency grids (`DLR`), then calls into the fermionic/bosonic lattice helpers to compute self-energies, mix them, and persist results to `<prefix>.h5`. The helper `SCFCheck` evaluates self-consistency convergence between iterations.
+  `CorrelationFunction` orchestrates the full workflow. It parses the control dictionary produced by the `Run` class and exposes `TightBinding`, `HartreeFock`, and `GWApproximation`. Each solver builds crystal data (`Crystal`), frequency grids (`DLR`), then calls into the fermionic/bosonic lattice helpers to compute self-energies, mix them, and persist results to `<prefix>.h5`. The helper `SCFCheck` evaluates self-consistency convergence between iterations.
 - `src/QAssemble/Crystal.py`
   Holds lattice metadata: lattice vectors, basis positions, spin count, and index maps between composite, fermionic, and bosonic spaces. Key helpers such as `FAtomOrb`, `BAtomOrb`, `OrbSpin2Composite`, `Composite2OrbSpin`, and `Quad2Double` convert between different orbital labellings. Methods like `Kpath`, `KPoint`, and `MappingRVec` generate momentum grids that downstream modules reuse. Additional methods include `Boson2Fermion`, `Boson2Full`, `SetFullBasis`, `Projector` for projection setup, and symmetry helpers `R2mRMapping`, `R2mR`, `RT2mRmT`, `T2mT`.
-
-## Frequency / Temperature Grids
-- `src/QAssemble/FTGrid.py`
-  `FTGrid` generates uniform Matsubara and imaginary-time grids from temperature (or beta) and an energy cutoff. Properties `Omega`, `Nu`, and `Tau` provide fermionic Matsubara frequencies, bosonic Matsubara frequencies, and imaginary-time points respectively. Used as a fallback when `DLR` grids are not required.
-
 
 ## Fermionic Lattice Modules
 - `src/QAssemble/FLatDyn.py`
@@ -72,12 +69,13 @@ This guide summarises the serial implementation that lives under `src/QAssemble.
   Static methods for bare propagator construction. Scalar versions: `FFreq`, `FTau`, `BFreq`, `BTau`. Matrix versions for local and lattice: `FLocFreq`, `FLatFreq`, `FLocTau`, `FLatTau`, `BLocFreq`, `BLatFreq`, `BLocTau`, `BLatTau`.
 - `src/QAssemble/utility/Common.py`
   General numerical helpers: `MatInv` (matrix inversion), `HermitianEigenCmplx` (Hermitian diagonalisation), `SplineCmplx` / `FderivCmplx` (complex spline interpolation and derivatives), `BernoulliPolynomial`, `EulerPolynomial`, `FactorialInt`, `Ttind` (Chebyshev-node index mapping for tau grids), `Gcoeff` (high-frequency expansion coefficients), and `MinDistance`.
+- `src/QAssemble/utility/Mixing.py`
+  `Mixing` class supporting linear and Pulay (DIIS) mixing for self-consistent field iterations. Callable interface with automatic history management. Maintains input and residual vectors for DIIS extrapolation with configurable history depth (`npulay`). Methods: `reset`, `_linear`, `_pulay`.
 
 ## Stub / Placeholder Modules
 The following modules exist but contain only placeholder or fully commented-out code:
 - `src/QAssemble/utility/Embedding.py` — empty `Embedding` class for future bath-embedding support.
 - `src/QAssemble/utility/Projection.py` — empty `Projection` class for future basis-projection support.
-- `src/QAssemble/utility/Mixing.py` — empty `Mixing` class.
 - `src/QAssemble/Projector.py` — fully commented-out MPI projector code.
 - `src/QAssemble/FLocStc.py`, `FLocDyn.py`, `BLocDyn.py` — entirely commented out.
 

@@ -4,14 +4,12 @@ import matplotlib as mat
 import re as re
 import matplotlib.pyplot as plt
 import numpy as np
-from pylab import cm
+from matplotlib import cm
 import matplotlib.font_manager as fm
-from collections import OrderedDict
 import json, os, shutil, sys
 import itertools
 import scipy.optimize
 from sympy.physics.wigner import gaunt, wigner_3j
-from scipy.fftpack import fftn, ifftn
 import scipy.linalg
 import subprocess
 import copy
