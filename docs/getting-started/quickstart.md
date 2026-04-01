@@ -69,12 +69,12 @@ Control = {
     python -m QAssemble
     ```
 
-=== "MPI parallel"
+<!-- === "MPI parallel"
 
     ```bash
     mpirun -n <num_processors> qassemble
     mpirun -n <num_processors> python -m QAssemble
-    ```
+    ``` -->
 
 
 ## Directory Structure
