@@ -10,6 +10,7 @@ import scipy.linalg
 import scipy.optimize
 
 from .Crystal import Crystal
+from .utility.Common import Common
 from .utility.Dyson import Dyson
 from .utility.Fourier import Fourier
 from .utility.Mixing import Mixing
@@ -800,12 +801,12 @@ class SigmaHartree(FLatStc):
             # for ik in range(nk):
             #     for ind1 in range(norb*ns):
             #         nn1 = [0]*2
-            #         ind1, [iorb,js] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
+            #         ind1, [iorb,js] = Common.Indexing(norb*ns,2,[norb,ns],0,ind1,nn1)
             #         [iorbc1,iorbc2] = self.crystal.b2f[iorb]
 
             #         for ind2 in range(norb*ns):
             #             nn2 = [0]*2
-            #             ind2, [jorb,ks] = self.crystal.indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
+            #             ind2, [jorb,ks] = Common.Indexing(norb*ns,2,[norb,ns],0,ind2,nn2)
             #             [iorbc3,iorbc4] = self.crystal.b2f[jorb]
             #             h[iorbc1,iorbc2,js,ik] += tempmat[ind1,ind2,0]*occ[iorbc4,iorbc3,ks]
             # for jk in range(nk):
@@ -813,7 +814,7 @@ class SigmaHartree(FLatStc):
             for ik in range(nk):
                 for ind1 in range(norb * ns):
                     nn1 = [0] * 2
-                    ind1, [iorb, js] = self.crystal.indexing(
+                    ind1, [iorb, js] = Common.Indexing(
                         norb * ns, 2, [norb, ns], 0, ind1, nn1
                     )
                     [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
@@ -821,7 +822,7 @@ class SigmaHartree(FLatStc):
                     iorbc2 = self.crystal.FIndex([a, m2])
                     for ind2 in range(norb * ns):
                         nn2 = [0] * 2
-                        ind2, [jorb, ks] = self.crystal.indexing(
+                        ind2, [jorb, ks] = Common.Indexing(
                             norb * ns, 2, [norb, ns], 0, ind2, nn2
                         )
                         [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
@@ -847,7 +848,7 @@ class SigmaHartree(FLatStc):
                 for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
-                        ind1, [iorb, js] = self.crystal.indexing(
+                        ind1, [iorb, js] = Common.Indexing(
                             norb * ns, 2, [norb, ns], 0, ind1, nn1
                         )
                         [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
@@ -855,7 +856,7 @@ class SigmaHartree(FLatStc):
                         iorbc2 = self.crystal.FIndex([a, m2])
                         for ind2 in range(norb * ns):
                             nn2 = [0] * 2
-                            ind2, [jorb, ks] = self.crystal.indexing(
+                            ind2, [jorb, ks] = Common.Indexing(
                                 norb * ns, 2, [norb, ns], 0, ind2, nn2
                             )
                             [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
@@ -880,7 +881,7 @@ class SigmaHartree(FLatStc):
                 for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
-                        ind1, [iorb, js] = self.crystal.indexing(
+                        ind1, [iorb, js] = Common.Indexing(
                             norb * ns, 2, [norb, ns], 0, ind1, nn1
                         )
                         [a, [m1, m2]] = self.crystal.BAtomOrb(iorb)
@@ -888,7 +889,7 @@ class SigmaHartree(FLatStc):
                         iorbc2 = self.crystal.FIndex([a, m2])
                         for ind2 in range(norb * ns):
                             nn2 = [0] * 2
-                            ind2, [jorb, ks] = self.crystal.indexing(
+                            ind2, [jorb, ks] = Common.Indexing(
                                 norb * ns, 2, [norb, ns], 0, ind2, nn2
                             )
                             [b, [m3, m4]] = self.crystal.BAtomOrb(jorb)
@@ -983,7 +984,7 @@ class SigmaFock(FLatStc):
         for ir in range(nr):
             for ind1 in range(norb * ns):
                 nn1 = [0] * 2
-                ind1, [iorb, js] = self.crystal.indexing(
+                ind1, [iorb, js] = Common.Indexing(
                     norb * ns, 2, [norb, ns], 0, ind1, nn1
                 )
                 [a, [m1, m4]] = self.crystal.BAtomOrb(iorb)
@@ -991,7 +992,7 @@ class SigmaFock(FLatStc):
                 iorbc4 = self.crystal.FIndex([a, m4])
                 for ind2 in range(norb * ns):
                     nn2 = [0] * 2
-                    ind2, [jorb, ks] = self.crystal.indexing(
+                    ind2, [jorb, ks] = Common.Indexing(
                         norb * ns, 2, [norb, ns], 0, ind2, nn2
                     )
                     [b, [m3, m2]] = self.crystal.BAtomOrb(jorb)

@@ -3,6 +3,7 @@
 __version__ = "0.1.0"
 
 from .Crystal import Crystal
+from .BasisIndex import BasisIndex
 from .FLatDyn import *
 from .FLatStc import *
 from .FLocDyn import *

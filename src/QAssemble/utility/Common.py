@@ -479,3 +479,123 @@ class Common:
                         R = Rtemp
         
         return R
+
+    @staticmethod
+    def FindPositions(array, value):
+        """Find all positions of a value in a 2D array.
+
+        Args:
+            array (iterable of iterable): 2D array to search.
+            value: Value to search for.
+
+        Returns:
+            list of [int, int]: List of [row_index, col_index] where value matches.
+        """
+        positions = []
+        for row_index, row in enumerate(array):
+            for col_index, col_value in enumerate(row):
+                if col_value == value:
+                    positions.append([row_index, col_index])
+        return positions
+
+    @staticmethod
+    def R2mRMapping(kpoint: np.ndarray) -> list:
+        """Compute mapping indices from k-point grid to its complement (1 - k).
+
+        Args:
+            kpoint (np.ndarray): Array of k-point coordinates, shape (nk, 3).
+
+        Returns:
+            list: List of [ik, jk] index pairs mapping k to -k.
+        """
+        rkvec = kpoint
+        mrkvec = np.array(1.0 - rkvec, dtype=float)
+
+        for ii in range(mrkvec.shape[0]):
+            for jj in range(mrkvec.shape[1]):
+                if mrkvec[ii, jj] == 1.0:
+                    mrkvec[ii, jj] = 0.0
+
+        mappingidx = []
+
+        for ii in range(rkvec.shape[0]):
+            for jj in range(mrkvec.shape[0]):
+                if (abs(rkvec[ii, 0] - mrkvec[jj, 0]) <= 1.0e-6) and \
+                   (abs(rkvec[ii, 1] - mrkvec[jj, 1]) <= 1.0e-6) and \
+                   (abs(rkvec[ii, 2] - mrkvec[jj, 2]) <= 1.0e-6):
+                    mappingidx.append([ii, jj])
+
+        return mappingidx
+
+    @staticmethod
+    def R2mR(matin: np.ndarray, kpoint: np.ndarray) -> np.ndarray:
+        """Apply R to -R mapping to an array using k-point grid.
+
+        Args:
+            matin (np.ndarray): Input array.
+            kpoint (np.ndarray): Array of k-point coordinates, shape (nk, 3).
+
+        Returns:
+            np.ndarray: Transformed array with R mapped to -R.
+        """
+        mappingidx = Common.R2mRMapping(kpoint)
+
+        matout = np.zeros_like(matin, dtype=np.complex128, order='F')
+
+        for rp in mappingidx:
+            matout[..., rp[0], :] = matin[..., rp[1], :]
+
+        return matout
+
+    @staticmethod
+    def RT2mRmT(G: np.ndarray, kpoint: np.ndarray) -> np.ndarray:
+        """Apply the time-reversed and space-reversed mapping to Green's function tensor.
+
+        Args:
+            G (np.ndarray): Green's function of shape (norb, norb, ns, nr, ntau).
+            kpoint (np.ndarray): Array of k-point coordinates, shape (nk, 3).
+
+        Returns:
+            np.ndarray: Transformed Green's function with same shape.
+        """
+        mappingidx = Common.R2mRMapping(kpoint)
+
+        norb = G.shape[0]
+        ns = G.shape[2]
+        nr = G.shape[3]
+        ntau = G.shape[4]
+
+        GmRmT = np.zeros((norb, norb, ns, nr, ntau), dtype=np.complex128, order='F')
+
+        for itau in range(ntau):
+            for rp in mappingidx:
+                for js in range(ns):
+                    for iorb in range(norb):
+                        for jorb in range(norb):
+                            GmRmT[iorb, jorb, js, rp[0], itau] = -G[iorb, jorb, js, rp[1], ntau - itau - 1]
+
+        return GmRmT
+
+    @staticmethod
+    def T2mT(G: np.ndarray) -> np.ndarray:
+        """Apply tau to -tau transformation on a Green's function tensor.
+
+        Args:
+            G (np.ndarray): Green's function of shape (norb, norb, ns, ntau).
+
+        Returns:
+            np.ndarray: Transformed Green's function with same shape.
+        """
+        norb = G.shape[0]
+        ns = G.shape[2]
+        ntau = G.shape[3]
+
+        tempmat = np.zeros((norb, norb, ns, ntau), dtype=np.complex128, order='F')
+
+        for itau in range(ntau):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        tempmat[iorb, jorb, js, itau] = -G[iorb, jorb, js, ntau - itau - 1]
+
+        return tempmat

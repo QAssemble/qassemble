@@ -1,20 +1,7 @@
-import string as string
-from typing import Any
-import matplotlib as mat
-import re as re
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib import cm
-import matplotlib.font_manager as fm
-import json, os, shutil, sys
+import os, sys
 import itertools
-import scipy.optimize
-from sympy.physics.wigner import gaunt, wigner_3j
-import scipy.linalg
-from pymatgen.core import Lattice, Structure
-from pymatgen.transformations.standard_transformations import SupercellTransformation
-import subprocess
-import copy
+from sympy.physics.wigner import gaunt
 # import Crystal, FTGrid
 from .Crystal import Crystal
 from .utility.Common import Common
@@ -104,7 +91,7 @@ class BLocStc(object):
         
         for ind in range(nind):
             matdict[ind+1] = []
-            pos = self.crystal.FindPositions(equiv,ind+1)
+            pos = Common.FindPositions(equiv,ind+1)
             for js in range(ns):
                 for ks in range(ns):
                     e = 0
@@ -125,7 +112,7 @@ class BLocStc(object):
         for js in range(ns):
             for ks in range(ns):
                 for ind in range(nind):
-                    pos = self.crystal.FindPositions(equiv,ind+1)
+                    pos = Common.FindPositions(equiv,ind+1)
                     for ii,jj in pos:
                         matout[ii,jj,js,ks] = matdict[str(ind+1)]
 

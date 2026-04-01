@@ -5,6 +5,7 @@ import copy, gc, time, datetime
 import h5py
 from .Crystal import Crystal
 from .BLatStc import VBare
+from .utility.Common import Common
 from .utility.DLR import DLR
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
@@ -414,7 +415,7 @@ class BLatDyn(object):
             return group in file
 
     def RT2mRmT(self, ftau: np.ndarray):
-        ftau_mr = self.crystal.R2mR(ftau)
+        ftau_mr = Common.R2mR(ftau, self.crystal.kpoint)
         norb, _, ns, nr, ntau = ftau_mr.shape
         fmtau_mr = np.zeros((norb, norb, ns, nr, ntau), dtype=np.complex128, order="F")
 

@@ -350,14 +350,7 @@ class FLatDyn(object):
     
     def R2mR(self, matin : np.ndarray) -> np.ndarray:
 
-        self.crystal.R2mR()
-
-        matout = np.zeros_like(matin, dtype=np.complex128, order='F')
-
-        for rp in self.crystal.mappingidx:
-            matout[..., rp[0],:] = matin[..., rp[1], :]
-
-        return matout
+        return Common.R2mR(matin, self.crystal.kpoint)
     
     def T2mT(self, ftau : np.ndarray) -> np.ndarray:
 
