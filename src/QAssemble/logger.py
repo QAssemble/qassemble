@@ -1,13 +1,15 @@
 import logging
+import os
 import sys
 
 
 def setup_logger(logfile="stdout.log", level=logging.INFO):
     """Setup the QAssemble package-wide logger.
 
-    Creates a logger named 'QAssemble' with two handlers:
-    - FileHandler: writes to `logfile` (default: stdout.log)
-    - StreamHandler: writes to sys.stdout (console)
+    Creates a logger named 'QAssemble' with separate handlers:
+    - FileHandler (INFO): writes info/debug messages to `logfile`
+    - FileHandler (WARNING): writes error/warning messages to `stderr.log`
+    - StreamHandler: writes all messages to sys.stdout (console)
 
     Parameters
     ----------
@@ -28,21 +30,27 @@ def setup_logger(logfile="stdout.log", level=logging.INFO):
     if logger.handlers:
         logger.handlers.clear()
 
-    formatter = logging.Formatter(
-        "[%(asctime)s] [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    info_formatter = logging.Formatter("%(message)s")
+    error_formatter = logging.Formatter("%(levelname)s: %(message)s")
 
-    # File handler
-    fh = logging.FileHandler(logfile, mode="w")
-    fh.setLevel(level)
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
+    # Info file handler — only INFO and DEBUG
+    fh_info = logging.FileHandler(logfile, mode="w")
+    fh_info.setLevel(level)
+    fh_info.addFilter(lambda record: record.levelno < logging.WARNING)
+    fh_info.setFormatter(info_formatter)
+    logger.addHandler(fh_info)
 
-    # Console handler
+    # Error file handler — WARNING and above
+    errfile = os.path.join(os.path.dirname(logfile) or ".", "stderr.log")
+    fh_err = logging.FileHandler(errfile, mode="w")
+    fh_err.setLevel(logging.WARNING)
+    fh_err.setFormatter(error_formatter)
+    logger.addHandler(fh_err)
+
+    # Console handler — all messages
     ch = logging.StreamHandler(sys.stdout)
     ch.setLevel(level)
-    ch.setFormatter(formatter)
+    ch.setFormatter(info_formatter)
     logger.addHandler(ch)
 
     return logger
