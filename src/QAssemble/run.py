@@ -1,5 +1,6 @@
 import copy
 import datetime
+import logging
 import os
 import sys
 import time
@@ -7,6 +8,8 @@ import time
 import h5py
 
 from .CorrelationFunction import CorrelationFunction
+
+logger = logging.getLogger("QAssemble")
 
 
 class Run:
@@ -42,7 +45,7 @@ class Run:
     def CheckKeyinString(self, key: str, dictionary: dict):
 
         if key not in dictionary:
-            print("missing '" + key + "' in " + dictionary["name"], flush=True)
+            logger.error("missing '" + key + "' in " + dictionary["name"])
             sys.exit()
         return None
 
@@ -73,12 +76,12 @@ class Run:
             file = h5py.File(control["run"]["fn"] + ".h5", "r")
             group = file["input"]
             d1 = self.Hdf52Dict(group)
-            print(self.CheckInput(d1=d1, d2=loc))
+            logger.info(self.CheckInput(d1=d1, d2=loc))
             testloc = self.ChangeInput(copy.deepcopy(loc))
             if self.CheckInput(d1=d1, d2=testloc):
                 pass
             else:
-                print("Please change the prefix of hdf5 file")
+                logger.error("Please change the prefix of hdf5 file")
                 sys.exit()
         else:
             file = h5py.File(control["run"]["fn"] + ".h5", "w")
@@ -251,7 +254,7 @@ class Run:
         cutoff = ini.get("MatsubaraCutOff", 50)
         kb = 8.6173303 * 10**-5
         if ("T" not in ini) and ("beta" not in ini):
-            print("missing T and beta in '" + ini["name"])
+            logger.error("missing T and beta in '" + ini["name"])
             sys.exit()
         if ("T" not in ini) and ("beta" in ini):
             beta = ini.get("beta", 100)
@@ -317,7 +320,7 @@ class Run:
                     if str(val1, "utf-8") == str(val2):
                         return True
                     else:
-                        print(key, val1, val2)
+                        logger.warning(f"{key} {val1} {val2}")
                         return False
                 else:
                     if str(val1) == str(val2):
@@ -326,7 +329,7 @@ class Run:
                         if key == "Method":
                             continue
                         else:
-                            print(key, val1, val2)
+                            logger.warning(f"{key} {val1} {val2}")
                             return False
 
     def ChangeInput(self, d: dict):
@@ -379,7 +382,7 @@ class Run:
         fn = control["run"]["fn"]
 
         if method == "tb":
-            print("Tight-Binding calculation start")
+            logger.info("Tight-Binding calculation start")
             hopping = control["ham"]["hoppinglist"]
             onsite = control["ham"]["onsitelist"]
             spin = control["ham"]["spin"]
@@ -388,9 +391,9 @@ class Run:
             func.TightBinding(
                 hopping=hopping, onsite=onsite, spin=spin, valley=valley, site = site, hdf5file=fn + ".h5"
             )
-            print("Tight-Binding calculation finish")
+            logger.info("Tight-Binding calculation finish")
         if method == "hf":
-            print("Hartree-Fock calculation start")
+            logger.info("Hartree-Fock calculation start")
 
             hoppinglist = control["ham"]["hoppinglist"]
             onsitelist = control["ham"]["onsitelist"]
@@ -427,12 +430,12 @@ class Run:
                 hdf5file=fn + ".h5",
             )
             end = time.time()
-            print("Hartree-Fock calculation finish")
+            logger.info("Hartree-Fock calculation finish")
             delta = datetime.timedelta(seconds=(end - start))
-            print(f"Hartree-Fock loop time = {delta}")
+            logger.info(f"Hartree-Fock loop time = {delta}")
 
         if method == "gw":
-            print("GW calculation start")
+            logger.info("GW calculation start")
 
             hoppinglist = control["ham"]["hoppinglist"]
             onsitelist = control["ham"]["onsitelist"]
@@ -461,8 +464,8 @@ class Run:
                 hdf5file=fn + ".h5",
             )
             end = time.time()
-            print("GW calculation finish")
+            logger.info("GW calculation finish")
             delta = datetime.timedelta(seconds=(end - start))
-            print(f"GW loop time = {delta}")
+            logger.info(f"GW loop time = {delta}")
 
         return None

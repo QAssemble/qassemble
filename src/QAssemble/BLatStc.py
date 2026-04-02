@@ -1,6 +1,7 @@
 import copy
 import gc
 import itertools
+import logging
 import sys
 
 import h5py
@@ -11,6 +12,7 @@ from .Crystal import Crystal
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 
+logger = logging.getLogger("QAssemble")
 
 
 class BLatStc(object):
@@ -282,7 +284,7 @@ class BLatStc(object):
                                 matin[jorb, iorb, js, ks, ik]
                             )
                             if abs(err) > 1.0e-6:
-                                print(errmessage)
+                                logger.error(errmessage)
                                 sys.exit()
         return None
 
@@ -364,14 +366,14 @@ class VBare(BLatStc):
         self.group = group
         self.subgroup = self.__class__.__name__
 
-        print("Bare Coulomb Interaction Calculation Start")
+        logger.info("Bare Coulomb Interaction Calculation Start")
         if (ohno == False) and (intamp == None) and (jth == False):
-            print("Only calculate the local coulomb interaction")
+            logger.info("Only calculate the local coulomb interaction")
         if vloc == None:
             if orboption != None:
                 self.vloc = VLoc(crystal, orboption)
             else:
-                print("Error, orboption is not exsist. v local can't generate in here")
+                logger.error("Error, orboption is not exsist. v local can't generate in here")
         else:
             self.vloc = vloc
 
@@ -379,13 +381,13 @@ class VBare(BLatStc):
             self.OhnoParameter()
             # self.Cal()
         elif jth:
-            print("JTH Potential calculation start")
+            logger.info("JTH Potential calculation start")
             self.JTHPotential()
-            print("JTH Potential calculation finish")
+            logger.info("JTH Potential calculation finish")
         elif ohnoyuka:
-            print("Ohno-Yukawa calculation start")
+            logger.info("Ohno-Yukawa calculation start")
             self.OhnoYukawa()
-            print("Ohno-Yukawa calculation finish")
+            logger.info("Ohno-Yukawa calculation finish")
         else:
             if intamp != None:
                 # self.InteractingAmplitue(intamp)
@@ -394,7 +396,7 @@ class VBare(BLatStc):
         if hdf5file != None:
             self.Save()
         # self.GetOnsiteEnergy()
-        print("Bare Coulomb Interaction Calculation Finish")
+        logger.info("Bare Coulomb Interaction Calculation Finish")
 
     def Cal(self):
 
@@ -426,7 +428,7 @@ class VBare(BLatStc):
 
                     if (iorb == jorb) and (R == [0, 0, 0]):
                         # tempmat[iorb,jorb,js,ks,R[0],R[1],R[2]] += vij
-                        print(errmessage)
+                        logger.error(errmessage)
                         sys.exit()
 
                     # else:
@@ -521,7 +523,7 @@ class VBare(BLatStc):
                         vloc[jorb, iorb, js, ks] = vij
 
         self.vloc.vloc = copy.deepcopy(vloc)
-        print("Ohno loop start")
+        logger.info("Ohno loop start")
         for ks in range(ns):
             for js in range(ns):
                 for jatom in range(natom):
@@ -607,7 +609,7 @@ class VBare(BLatStc):
         #                                             tempmat[iorb,jorb,js,ks,ix,iy,iz] = vij
         #                                             tempmat[jorb,iorb,js,ks,-ix,-iy,-iz] = vij
 
-        print("Ohno loop end")
+        logger.info("Ohno loop end")
         if self.intamp != None:
             for ks in range(ns):
                 for js in range(ns):

@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import sys, os, time
 import gc
 import h5py
+import logging
 from .Crystal import Crystal
 # from .FTGrid import FTGrid
 from .utility.DLR import DLR
@@ -14,6 +15,8 @@ from .BLatDyn import *
 from .BLatStc import *
 from .BLocDyn import *
 from .BLocStc import *
+
+logger = logging.getLogger("QAssemble")
 
 class CorrelationFunction(object):
 
@@ -61,7 +64,7 @@ class CorrelationFunction(object):
         group = 'tb'
         errmessage = "missing input for tight binding calculation"
         if (hopping == None):
-            print(errmessage)
+            logger.error(errmessage)
             sys.exit()
         # niham = NIHamiltonian(crystal=self.cry,hoppinglist=hoppinglist,onsitelist=onsitelist,hdf5file=tb)
         niham = NIHamiltonian(crystal=self.crystal,hopping=hopping,onsite=onsite,spin=spin,valley=valley,hdf5file=hdf5file,group=group)
@@ -74,10 +77,10 @@ class CorrelationFunction(object):
 
         errmessage = "missing input for HF calculation"
         if (hopping==None):
-            print(errmessage)
+            logger.error(errmessage)
             sys.exit()
         elif (loccoulomb==None):
-            print(errmessage)
+            logger.error(errmessage)
             sys.exit()
         
         if (mode == 'FromScratch'):
@@ -125,7 +128,7 @@ class CorrelationFunction(object):
                 hartreeold = None
                 fockold = None
 
-            print(hold.occ)
+            logger.debug(hold.occ)
             sigmah = SigmaHartree(crystal=self.crystal,occ=hold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
             sigmah.k = sigmah.Mixing(iter=iter,mix=mix,Fb=sigmah.k,Fm=hartreeold)
             if (iter % 50 == 0):
@@ -141,9 +144,9 @@ class CorrelationFunction(object):
 
             fcheck = self.SCFCheck(hnew.k,hold.k)
             mucheck = abs(hnew.mu-hold.mu)
-            print(f"iteration : {iter}\ncriteria : {fcheck}\nchemical potential : {hnew.mu}")
+            logger.info(f"iteration : {iter}\ncriteria : {fcheck}\nchemical potential : {hnew.mu}")
             if (fcheck<=1.0e-7)and(mucheck<=0.01):
-                print(f"Self-consistency is achived with {iter}-th")
+                logger.info(f"Self-consistency is achived with {iter}-th")
                 self.ham=hnew
                 self.sigmaf = sigmaf
                 self.sigmah = sigmah
@@ -155,7 +158,7 @@ class CorrelationFunction(object):
                 gc.collect()
                 break
             elif(iter==itermax):
-                print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
+                logger.info(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
                 self.ham=hnew
                 self.sigmaf = sigmaf
                 self.sigmah = sigmah
@@ -179,10 +182,10 @@ class CorrelationFunction(object):
 
         errmessage = "missing input for GW calculation"
         if (hoppinglist==None):
-            print(errmessage)
+            logger.error(errmessage)
             sys.exit()
         elif (loccoulomb==None):
-            print(errmessage)
+            logger.error(errmessage)
             sys.exit()
         
         niham = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,hdf5file=hdf5file,group=group)
@@ -201,14 +204,14 @@ class CorrelationFunction(object):
                 # gbare_temp = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham_temp.k,hdf5file=hdf5file,group='test')
                 t0 = time.perf_counter()
                 gold = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,hdf5file=hdf5file,group=group)
-                print(f"Initial chemical potential : {gold.mu}")
+                logger.info(f"Initial chemical potential : {gold.mu}")
                 iter_timing["GreenInt_init"] = time.perf_counter() - t0
                 gold.Save(f'gkf_ini')
                 wold = 0
                 # gbare.Save('gbare')
 
-            print("Density Matrix :")
-            print(gold.occ)
+            logger.debug("Density Matrix :")
+            logger.debug(gold.occ)
             # print("Hartree calculation start")
             sigmah = SigmaHartree(crystal=self.crystal,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
             if (iter % 50 == 0)or(iter == 1):
@@ -259,7 +262,7 @@ class CorrelationFunction(object):
             init_msg = ""
             if "GreenInt_init" in iter_timing:
                 init_msg = f", GreenInt_init: {iter_timing['GreenInt_init']:.4f}s"
-            print(
+            logger.info(
                 f"[GW timing][iter {iter}] GreenInt: {iter_timing['GreenInt']:.4f}s, "
                 f"Polarizability: {iter_timing['Polarizability']:.4f}s, "
                 f"WLat: {iter_timing['WLat']:.4f}s, "
@@ -270,11 +273,11 @@ class CorrelationFunction(object):
             bcheck = self.SCFCheck(w.kf,wold)
             mucheck = abs(gnew.mu-gold.mu)
 
-            print(f"iteration : {iter} \nfcriteria : {fcheck} \nbcriteria : {bcheck} \nchemicalpotential : {gnew.mu+gnew.c}")
+            logger.info(f"iteration : {iter} \nfcriteria : {fcheck} \nbcriteria : {bcheck} \nchemicalpotential : {gnew.mu+gnew.c}")
             # print(f"iteration : {iter} \nfcriteria : {fcheck} \nchemicalpotential : {gnew.mu}")
 
             if (iter > pol_mixer.npulay)and(fcheck <=1.0e-6)and(mucheck<=0.01)and(bcheck<=1.0e-4):
-                print(f"Self-consistency is achived with {iter}-th")
+                logger.info(f"Self-consistency is achived with {iter}-th")
                 self.green = gnew
                 self.pol = pol
                 self.w = w
@@ -293,7 +296,7 @@ class CorrelationFunction(object):
                 gc.collect()
                 break
             elif (iter==itermax):
-                print(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
+                logger.info(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
                 self.green = gnew
                 self.pol = pol
                 self.w = w

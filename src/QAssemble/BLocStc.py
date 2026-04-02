@@ -1,11 +1,14 @@
 import numpy as np
 import os, sys
 import itertools
+import logging
 from sympy.physics.wigner import gaunt
 # import Crystal, FTGrid
 from .Crystal import Crystal
 from .utility.Common import Common
 from .utility.Dyson import Dyson
+
+logger = logging.getLogger("QAssemble")
 
 class BLocStc(object):
 
@@ -258,7 +261,7 @@ class VLoc(BLocStc):
         self.onsitelist = None
         self.vloc = np.zeros((norb,norb,ns,ns),dtype=float,order='F')
         if voption is None:
-            print("voption does not exist")
+            logger.error("voption does not exist")
             sys.exit()
         self.SetLocalInteracting(voption)
         # self.GenOnsite()
@@ -272,7 +275,7 @@ class VLoc(BLocStc):
                 atom = int(key-1)
                 norbc = len(val["orbitals"])
                 if norbc > len(self.crystal.find):
-                    print("Invalid l value set")
+                    logger.error("Invalid l value set")
                     sys.exit()
                 tempmat = self.KanamoriParameter(norb=norbc,val=val["value"])
                 for js in range(ns):
@@ -287,7 +290,7 @@ class VLoc(BLocStc):
                 atom = int(key-1)
                 norbc = len(val["orbitals"])
                 if norbc > len(self.crystal.find):
-                    print("Invalid l value set")
+                    logger.error("Invalid l value set")
                     sys.exit()
                 tempmat = self.SlaterParameter(l=val["l"],norbc=norbc,val=val["value"])
                 for js, ks in itertools.product(list(range(ns)),list(range(ns))):
@@ -301,7 +304,7 @@ class VLoc(BLocStc):
                 atom = int(key-1)
                 norbc = len(val["orbitals"])
                 if norbc > len(self.crystal.find):
-                    print("Invalid l value set")
+                    logger.error("Invalid l value set")
                     sys.exit()
                 tempmat = self.SlaterKanamori(l=val["l"],norb=norbc,val=val["value"])
                 for js, ks in itertools.product(list(range(ns)),list(range(ns))):
@@ -645,7 +648,7 @@ class VLoc(BLocStc):
                                                         U[idx] = val
                                                 idx += 1
         else:
-            print("SOC is not False")
+            logger.error("SOC is not False")
             sys.exit()
         self.u_ctqmc = U
 

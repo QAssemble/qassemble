@@ -1,10 +1,13 @@
 import numpy as np
 import sys
 import itertools
+import logging
 
 import copy
 from .utility.Common import Common
 from .BasisIndex import BasisIndex
+
+logger = logging.getLogger("QAssemble")
 
 class Crystal(object):
     """Handles lattice geometry, orbitals, and basis indexing for quantum assembly calculations.
@@ -419,8 +422,8 @@ class Crystal(object):
         try:
             from pymatgen.core import Lattice, Structure
         except (ImportError, Exception) as e:
-            print(f"Warning: pymatgen is not available ({e}). "
-                  "Install/fix pymatgen for symmetry analysis.")
+            logger.warning(f"pymatgen is not available ({e}). "
+                           "Install/fix pymatgen for symmetry analysis.")
             return None
 
         lattice = Lattice(self.avec)
@@ -458,7 +461,7 @@ class Crystal(object):
         try:
             from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
         except (ImportError, Exception) as e:
-            print(f"Warning: pymatgen.symmetry is not available ({e}).")
+            logger.warning(f"pymatgen.symmetry is not available ({e}).")
             return None
 
         analyzer = SpacegroupAnalyzer(structure, symprec=symprec)
@@ -502,26 +505,26 @@ class Crystal(object):
         info = self.GetSymmetryInfo(symprec=symprec)
 
         if info is None:
-            print("Symmetry analysis unavailable (pymatgen not installed).")
+            logger.info("Symmetry analysis unavailable (pymatgen not installed).")
             return
 
-        print("=" * 55)
-        print("  Crystal Symmetry Analysis")
-        print("=" * 55)
-        print(f"  Space group : {info['spacegroup_symbol']} (No. {info['spacegroup_number']})")
-        print(f"  Point group : {info['pointgroup']}")
-        print(f"  Crystal sys : {info['crystal_system']}")
-        print(f"  Lattice type: {info['lattice_type']}")
-        print(f"  # Sym. ops  : {info['nsymops']}")
-        print("-" * 55)
-        print(f"  {'Atom':>4}  {'Species':>8}  {'Wyckoff':>8}  {'Equiv':>5}  {'Orbitals':>8}")
-        print("-" * 55)
+        logger.info("=" * 55)
+        logger.info("  Crystal Symmetry Analysis")
+        logger.info("=" * 55)
+        logger.info(f"  Space group : {info['spacegroup_symbol']} (No. {info['spacegroup_number']})")
+        logger.info(f"  Point group : {info['pointgroup']}")
+        logger.info(f"  Crystal sys : {info['crystal_system']}")
+        logger.info(f"  Lattice type: {info['lattice_type']}")
+        logger.info(f"  # Sym. ops  : {info['nsymops']}")
+        logger.info("-" * 55)
+        logger.info(f"  {'Atom':>4}  {'Species':>8}  {'Wyckoff':>8}  {'Equiv':>5}  {'Orbitals':>8}")
+        logger.info("-" * 55)
         for i in range(len(info['species_used'])):
-            print(f"  {i:>4}  {info['species_used'][i]:>8}  "
-                  f"{info['wyckoff_symbols'][i]:>8}  "
-                  f"{info['equivalent_atoms'][i]:>5}  "
-                  f"{self.orboption[i]:>8}")
-        print("-" * 55)
+            logger.info(f"  {i:>4}  {info['species_used'][i]:>8}  "
+                        f"{info['wyckoff_symbols'][i]:>8}  "
+                        f"{info['equivalent_atoms'][i]:>5}  "
+                        f"{self.orboption[i]:>8}")
+        logger.info("-" * 55)
         if info['dummy_species']:
-            print("  Note: Dummy species 'X' used (no Species provided).")
-        print("=" * 55)
+            logger.info("  Note: Dummy species 'X' used (no Species provided).")
+        logger.info("=" * 55)

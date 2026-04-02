@@ -3,9 +3,12 @@ This module provides a collection of static methods to calculate bare Green's fu
 for fermionic and bosonic systems in various representations (frequency/imaginary time,
 local/lattice).
 """
+import logging
 from .Common import Common
 from sys import exit
 import numpy as np
+
+logger = logging.getLogger("QAssemble")
 
 class Bare:
     """
@@ -120,7 +123,7 @@ class Bare:
         machep = np.finfo(np.float64).eps
 
         if (abs(energy) < 1.0e-12):
-            print("Zero energy in Bare.BTau. impossible")
+            logger.error("Zero energy in Bare.BTau. impossible")
             exit()
 
         for itau in range(ntau):

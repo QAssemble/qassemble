@@ -1,6 +1,7 @@
 import copy
 import itertools
 import json
+import logging
 import os
 import re as re
 import shutil
@@ -27,6 +28,8 @@ from .Crystal import Crystal
 from .FLatStc import FLatStc
 from .utility.Common import Common
 from .utility.Fourier import Fourier
+
+logger = logging.getLogger("QAssemble")
 
 
 class FPathStc(object):
@@ -61,7 +64,7 @@ class FPathStc(object):
                 crystal = Crystal(cry=cry)
                 glob.close()
             else:
-                print(f"Error : Check the {self.__class__.__name__} input again")
+                logger.error(f"Error : Check the {self.__class__.__name__} input again")
                 sys.exit()
 
         self.crystal = crystal
@@ -136,7 +139,7 @@ class FPathStc(object):
         (norb, norb, ns, nk) = matk.shape
 
         if (nk != len(kpoint)):
-            print('Put the wrong kpoint, Please check again')
+            logger.error('Put the wrong kpoint, Please check again')
             sys.exit()
 
         nr = len(rvec)
@@ -164,9 +167,9 @@ class FPathStc(object):
         (norb, norb, ns, nk) = matk.shape
         kgrid = self.crystal.rkgrid
         if (nk != kgrid[0]*kgrid[1]*kgrid[2]):
-            print('Put the wrong kpoint, Please check again')
+            logger.error('Put the wrong kpoint, Please check again')
             sys.exit()
-        
+
         kpoint = self.SlabKpoint()
         tempmat = self.Reshape(matk=matk, kpoint=kpoint)
 
@@ -242,7 +245,7 @@ class FPathStc(object):
         energyrange: list = None,
     ):
 
-        print("***** DOS Calculation Start *****")
+        logger.info("***** DOS Calculation Start *****")
         norb = matr.shape[0]
         ns = matr.shape[2]
         if type(kgrid) is list:
@@ -261,12 +264,12 @@ class FPathStc(object):
             nk = len(kgrid)
             kpoint = kgrid
 
-        print("***** Fourier transfrom R2K Start *****")
+        logger.info("***** Fourier transfrom R2K Start *****")
         matk = self.R2K(matr=matr, kpoint=kpoint)
-        print("***** Fourier transfrom R2K Finish *****")
-        print("***** Hamiltonian Diagonalization Start *****")
+        logger.info("***** Fourier transfrom R2K Finish *****")
+        logger.info("***** Hamiltonian Diagonalization Start *****")
         (energy, eigvec) = self.flatstc.Diagonalize(matk=matk, eigvec=True)
-        print("***** Hamiltonian Diagonalization Finish *****")
+        logger.info("***** Hamiltonian Diagonalization Finish *****")
 
         if energyrange == None:
             emin = -10
@@ -278,13 +281,13 @@ class FPathStc(object):
         dos = np.zeros((norb, ns, nk), dtype=complex)
         tempmat = np.zeros((norb, ns, nk), dtype=float)
 
-        print("***** Gaussian Approach Start *****")
+        logger.info("***** Gaussian Approach Start *****")
         for ik in range(nk):
             for js in range(ns):
                 for iorb in range(norb):
                     e = energy[iorb, iorb, js, ik]
                     tempmat[iorb, js] += self.Gaussian(E, e, sigma) / nk
-        print("***** Gaussian Approach Finish *****")
+        logger.info("***** Gaussian Approach Finish *****")
 
         eiginv = self.Inverse(eigvec)
 
@@ -295,14 +298,14 @@ class FPathStc(object):
                 for iorb in range(norb):
                     dos[iorb, js, ik] = tempmat2[iorb, iorb]
 
-        print(f"Integration gaussian : {np.trapz(self.Gaussian(E,0),E)}")
+        logger.debug(f"Integration gaussian : {np.trapz(self.Gaussian(E,0),E)}")
 
         temp = 0
         for js in range(ns):
             for iorb in range(norb):
                 temp += np.trapz(dos[iorb, js], E)
 
-        print(f"Integration dos : {temp}")
+        logger.debug(f"Integration dos : {temp}")
 
         if plotoption:
             fig, ax = plt.subplots()
@@ -335,7 +338,7 @@ class FPathStc(object):
         label: list = None,
     ):
         if (self.crystal.kpath == None).all():
-            print("Error: K-path not created, please check your K-path options")
+            logger.error("Error: K-path not created, please check your K-path options")
             sys.exit()
 
         hmatk = self.R2K(matr=hmat, kpoint=self.crystal.kpath)

@@ -1,5 +1,6 @@
 import copy
 import itertools
+import logging
 import sys
 
 import h5py
@@ -14,6 +15,8 @@ from .utility.Common import Common
 from .utility.Dyson import Dyson
 from .utility.Fourier import Fourier
 from .utility.Mixing import Mixing
+
+logger = logging.getLogger("QAssemble")
 
 # from .FLatDyn import SigmaGWC
 # qapath = os.environ.get("QAssemble", "")
@@ -218,7 +221,7 @@ class FLatStc(object):
         emin: float = -10,
     ):
 
-        print("***** DOS Calculation Start *****")
+        logger.info("***** DOS Calculation Start *****")
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         if type(kgrid) == list:
@@ -237,12 +240,12 @@ class FLatStc(object):
             nk = len(kgrid)
             kpoint = kgrid
 
-        print("***** Fourier transfrom R2K Start")
+        logger.info("***** Fourier transfrom R2K Start")
         hamk = self.R2KArb(hamr, kpoint)
-        print("***** Fourier transfrom R2K Finish")
-        print("***** Hamiltonian Diagonalization Start *****")
+        logger.info("***** Fourier transfrom R2K Finish")
+        logger.info("***** Hamiltonian Diagonalization Start *****")
         (energy, eigvec) = self.Diagonalize(matk=hamk, eigvec=True)
-        print("***** Hamiltonian Diagonalization Finish *****")
+        logger.info("***** Hamiltonian Diagonalization Finish *****")
         emin = emin  # energy[0,0,0].min()
         emax = emax  # energy[-1,-1,0].max()
         energyrange = np.linspace(emin, emax, nk)
@@ -250,13 +253,13 @@ class FLatStc(object):
         dos = np.zeros((norb, ns, nk), dtype=float)
         tempmat = np.zeros((norb, ns, nk), dtype=float)
 
-        print("***** Gaussian Approach Start *****")
+        logger.info("***** Gaussian Approach Start *****")
         for ik in range(nk):
             for js in range(ns):
                 for iorb in range(norb):
                     e = energy[iorb, iorb, js, ik]
                     tempmat[iorb, js] += self.Gaussian(energyrange, e, sigma) / nk
-        print("***** Gaussian Approach Finish *****")
+        logger.info("***** Gaussian Approach Finish *****")
 
         for ik in range(nk):
             for js in range(ns):
@@ -272,7 +275,7 @@ class FLatStc(object):
                 #         # dos[iorb,js,ik] = tempmat3[iorb,jorb]*tempmat[jorb,js,ik]
                 #         dos[iorb,js,ik] = eigvec[jorb,iorb,js,ik]*tempmat[jorb,js,ik]*tempmat2[jorb,iorb]
 
-        print(
+        logger.debug(
             f"Integration gaussian : {np.trapz(self.Gaussian(energyrange,0),energyrange)}"
         )
         temp = 0
@@ -280,7 +283,7 @@ class FLatStc(object):
             for iorb in range(norb):
                 temp += np.trapz(dos[iorb, js], energyrange)
 
-        print(f"Integration dos : {temp}")
+        logger.debug(f"Integration dos : {temp}")
         if plotoption:
             fig, ax = plt.subplots()
             ax.set_xlim(energyrange[0], energyrange[-1])
@@ -297,7 +300,7 @@ class FLatStc(object):
             with open("dos.dat", "w") as f:
                 for i in range(len(energyrange)):
                     f.write(f"{energyrange[i]}  {dos[i]}")
-        print("***** DOS Calculation Finish *****")
+        logger.info("***** DOS Calculation Finish *****")
         return None
 
     def Visualization(self, energy: np.ndarray, grid : list = None, fn: str = None):
@@ -463,7 +466,7 @@ class FLatStc(object):
                             matin[jorb, iorb, js, ik]
                         )
                         if abs(err) > 1.0e-6:
-                            print(errmessage)
+                            logger.error(errmessage)
                             sys.exit()
         return None
 
@@ -512,7 +515,7 @@ class NIHamiltonian(FLatStc):
 
         super().__init__(crystal)
 
-        print("Non-interacting Hamiltonian Calculation Start")
+        logger.info("Non-interacting Hamiltonian Calculation Start")
         hopplist = []
         for orb, val in hopping.items():
             for t, lat in val.items():
@@ -546,7 +549,7 @@ class NIHamiltonian(FLatStc):
         if hdf5file != None:
             self.Save()
 
-        print("Non-interacting Hamiltonian Calculation Finish")
+        logger.info("Non-interacting Hamiltonian Calculation Finish")
 
     def Cal(self):  # GenHam
 
@@ -576,7 +579,7 @@ class NIHamiltonian(FLatStc):
 
                 # tempmat[iorb,jorb,js,R[0],R[1],R[2]] += -tij
                 if (iorb == jorb) and (R == [0, 0, 0]):
-                    print("Wrong value entered, please check the input.ini file")
+                    logger.error("Wrong value entered, please check the input.ini file")
                     sys.exit()
                 else:
                     tempmat[iorb, jorb, js, R[0], R[1], R[2]] += -tij
@@ -777,10 +780,10 @@ class SigmaHartree(FLatStc):
         self.subgroup = self.__class__.__name__
         self.occ = occ
 
-        print("Hartree Self-energy Calculation Start")
+        logger.info("Hartree Self-energy Calculation Start")
         self.Cal()
         # self.MakeDyn()
-        print("Hartree Self-energy Calculation Finish")
+        logger.info("Hartree Self-energy Calculation Finish")
 
     def Cal(self):
         # vbare = self.vbare.k
@@ -956,9 +959,9 @@ class SigmaFock(FLatStc):
         self.occr = occr
         self.vbare = vbare
 
-        print("Fock Self-energy Calculation Start")
+        logger.info("Fock Self-energy Calculation Start")
         self.Cal()
-        print("Fock Self-energy Calculation Finish")
+        logger.info("Fock Self-energy Calculation Finish")
         # self.MakeDyn()
 
     def Cal(self):
@@ -1076,10 +1079,10 @@ class Hamiltonian(FLatStc):
         self.group = group
         self.subgroup = self.__class__.__name__
         # self.muold = mu
-        print("Hamiltonian with Self-energy Calculation Start")
+        logger.info("Hamiltonian with Self-energy Calculation Start")
         self.CalMu0()
         self.SearchMu()
-        print("Hamiltonian with Self-energy Calculation Finish")
+        logger.info("Hamiltonian with Self-energy Calculation Finish")
 
     def CalMu0(self) -> np.ndarray:
 
@@ -1107,8 +1110,8 @@ class Hamiltonian(FLatStc):
                 for js in range(ns):
                     diag_vals = np.diag(eigval[:, :, js, ik])
                     if np.any((diag_vals < 0.0) | (diag_vals > 1.0)):
-                        print("Error : The z-factor was calculated incorrectly. Please rerun the code.")
-                        print(diag_vals)
+                        logger.error("Error : The z-factor was calculated incorrectly. Please rerun the code.")
+                        logger.error(diag_vals)
                         sys.exit()
 
                     sqrt_diag = np.sqrt(diag_vals)
@@ -1153,7 +1156,7 @@ class Hamiltonian(FLatStc):
         nmin = self.NumOfE(mumin)
         nmax = self.NumOfE(mumax)
         if (nmin < 0) or (nmax > 0):
-            print("Chemical potential is out of the bisection range")
+            logger.error("Chemical potential is out of the bisection range")
             sys.exit()
         sol = scipy.optimize.brentq(self.NumOfE, mumin, mumax)
         # try:
@@ -1308,9 +1311,9 @@ class ZFactor(FLatStc):
         self.group = group
         self.subgroup = self.__class__.__name__
 
-        print("Z-factor Calculation Start")
+        logger.info("Z-factor Calculation Start")
         self.Cal()
-        print("Z-factor Calculation Finish")
+        logger.info("Z-factor Calculation Finish")
 
     def Cal(self):
 
@@ -1376,9 +1379,9 @@ class SigmaStc(FLatStc):
         self.group = group
         self.subgroup = self.__class__.__name__
 
-        print("Static Self-energy Calculation Start")
+        logger.info("Static Self-energy Calculation Start")
         self.Cal()
-        print("Static Self-energy Calculation Finish")
+        logger.info("Static Self-energy Calculation Finish")
     
     def Cal(self):
 
