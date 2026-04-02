@@ -118,23 +118,14 @@ Control = {
 
 ### 2. Run Simulation
 
-Using the installed CLI command:
-
 ```bash
 qassemble
-```
-
-Using Python module execution:
-
-```bash
-python -m QAssemble
 ```
 
 Parallel execution with MPI:
 
 ```bash
 mpirun -n <num_processors> qassemble
-mpirun -n <num_processors> python -m QAssemble
 ```
 
 ## Directory Structure
@@ -144,10 +135,8 @@ QAssemble/
 ├── pyproject.toml              # Package configuration and dependencies
 ├── README.md
 └── src/
-    ├── QAssemble.py            # Legacy entry point (backward compatible)
     └── QAssemble/
         ├── __init__.py         # Package exports and version
-        ├── __main__.py         # python -m QAssemble support
         ├── cli.py              # CLI entry point (qassemble command)
         ├── run.py              # Run class (input parsing and execution)
         ├── Crystal.py          # Lattice geometry, k-point grids, index mappings
