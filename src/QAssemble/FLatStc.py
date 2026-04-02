@@ -1299,12 +1299,12 @@ class HamiltonianAB(FLatStc):
     
 class ZFactor(FLatStc):
 
-    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
+    def __init__(self, crystal : Crystal, sigmagwc = None, hdf5file : str = 'glob.h5',group : str = None):
 
         super().__init__(crystal)
 
-        self.sigmac = sigmac
-        self.beta = beta
+        self.sigmagwc = sigmagwc
+        self.beta = sigmagwc.dlr.beta
         self.r = None
         self.k = None
         self.hdf5file = hdf5file
@@ -1317,9 +1317,23 @@ class ZFactor(FLatStc):
 
     def Cal(self):
 
-        norb, _, ns, nk, nomega = self.sigmac.shape
+        norb, _, ns, nk, nfreq = self.sigmagwc.kf.shape
+        dlr = self.sigmagwc.dlr
+        beta = self.beta
 
-        iw = 1j * self.beta / (2.0 * np.pi)
+        # DLR Matsubara -> evaluate at lowest uniform Matsubara frequency
+        sigma0 = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
+        iw0 = np.array([np.pi / beta]) * 1j
+        for iorb in range(norb):
+            for jorb in range(norb):
+                for js in range(ns):
+                    for ik in range(nk):
+                        ff = self.sigmagwc.kf[iorb, jorb, js, ik, :]
+                        fxx = dlr.dF.dlr_from_matsubara(ff, beta=beta, xi=-1)
+                        val = dlr.dF.eval_dlr_freq(fxx[:, None, None], iw0, beta=beta, xi=-1)
+                        sigma0[iorb, jorb, js, ik] = val[0, 0, 0]
+
+        iw = 1j * beta / (2.0 * np.pi)
 
         tempmat = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
 
@@ -1327,13 +1341,13 @@ class ZFactor(FLatStc):
             for iorb in range(norb):
                 if (iorb == jorb):
                     tempmat[iorb, jorb, :, :] = 1.0 - iw * (
-                        self.sigmac[iorb, jorb, ..., 0] 
-                        - np.conjugate(self.sigmac[jorb, iorb, ..., 0])
+                        sigma0[iorb, jorb, :, :]
+                        - np.conjugate(sigma0[jorb, iorb, :, :])
                     )
                 else:
                     tempmat[iorb, jorb, :, :] = - iw * (
-                        self.sigmac[iorb, jorb, ..., 0] 
-                        - np.conjugate(self.sigmac[jorb, iorb, ..., 0])
+                        sigma0[iorb, jorb, :, :]
+                        - np.conjugate(sigma0[jorb, iorb, :, :])
                     )
 
         z = self.Inverse(tempmat)
@@ -1367,12 +1381,12 @@ class ZFactor(FLatStc):
 
 class SigmaStc(FLatStc):
 
-    def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
+    def __init__(self, crystal : Crystal, sigmagwc = None, hdf5file : str = 'glob.h5',group : str = None):
 
         super().__init__(crystal)
 
-        self.sigmac = sigmac
-        self.beta = beta
+        self.sigmagwc = sigmagwc
+        self.beta = sigmagwc.dlr.beta
         self.r = None
         self.k = None
         self.hdf5file = hdf5file
@@ -1382,25 +1396,39 @@ class SigmaStc(FLatStc):
         logger.info("Static Self-energy Calculation Start")
         self.Cal()
         logger.info("Static Self-energy Calculation Finish")
-    
+
     def Cal(self):
 
-        norb, _, ns, nk, nomega = self.sigmac.shape
+        norb, _, ns, nk, nfreq = self.sigmagwc.kf.shape
+        dlr = self.sigmagwc.dlr
+        beta = self.beta
+
+        # DLR Matsubara -> evaluate at lowest uniform Matsubara frequency
+        sigma0 = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
+        iw0 = np.array([np.pi / beta]) * 1j
+        for iorb in range(norb):
+            for jorb in range(norb):
+                for js in range(ns):
+                    for ik in range(nk):
+                        ff = self.sigmagwc.kf[iorb, jorb, js, ik, :]
+                        fxx = dlr.dF.dlr_from_matsubara(ff, beta=beta, xi=-1)
+                        val = dlr.dF.eval_dlr_freq(fxx[:, None, None], iw0, beta=beta, xi=-1)
+                        sigma0[iorb, jorb, js, ik] = val[0, 0, 0]
 
         tempmat = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
 
         for jorb in range(norb):
             for iorb in range(norb):
                 tempmat[iorb, jorb] = 1/2 * (
-                    self.sigmac[iorb, jorb, ..., 0]
-                    + np.conjugate(self.sigmac[jorb, iorb, ..., 0])
+                    sigma0[iorb, jorb, :, :]
+                    + np.conjugate(sigma0[jorb, iorb, :, :])
                 )
-        
+
         self.k = tempmat
         self.r = self.K2R(tempmat)
 
         del tempmat
-        
+
         return None
     
     def Save(self, fn: str, obj : np.ndarray = None):
