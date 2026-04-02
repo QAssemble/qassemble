@@ -210,8 +210,9 @@ class CorrelationFunction(object):
                 wold = 0
                 # gbare.Save('gbare')
 
-            logger.debug("Density Matrix :")
-            logger.debug(gold.occ)
+            logger.info("Density Matrix :")
+            # logger.debug(gold.occ)
+            logger.info(f"{gold.occ}")
             # print("Hartree calculation start")
             sigmah = SigmaHartree(crystal=self.crystal,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
             if (iter % 50 == 0)or(iter == 1):

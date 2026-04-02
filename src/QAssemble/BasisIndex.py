@@ -138,6 +138,10 @@ class BasisIndex(object):
     def Boson2Fermion(self):
         """Populate bbasis mapping from fermion indices to boson composite indices.
 
+        bbasis uses 1-based indexing so that 0 unambiguously marks
+        cross-atom (invalid) pairs.  All consumers must subtract 1
+        before using the value as an array index.
+
         Returns:
             None
         """
@@ -149,7 +153,7 @@ class BasisIndex(object):
                 [ap,mp] = self.FAtomOrb(jorbc)
                 if (a==ap):
                     iorb = self.BIndex([a,[m,mp]])
-                    bbasis[iorbc,jorbc] = iorb
+                    bbasis[iorbc,jorbc] = iorb + 1  # 1-based
 
         self.bbasis = bbasis
 
@@ -316,8 +320,8 @@ class BasisIndex(object):
         matout = np.zeros((norb,norb),dtype=np.complex64)
 
         for l, k, j, i in itertools.product(range(norbc), repeat=4):
-            iorb = self.bbasis[i, l]
-            jorb = self.bbasis[j, k]
+            iorb = self.bbasis[i, l] - 1  # bbasis is 1-based
+            jorb = self.bbasis[j, k] - 1
             matout[iorb, jorb] = matin[i, j, k, l]
 
         return matout
@@ -338,8 +342,8 @@ class BasisIndex(object):
         matout = np.zeros((norbc,norbc,norbc,norbc),dtype=np.complex64,order='F')
 
         for l, k, j, i in itertools.product(range(norbc), repeat=4):
-            iorb = self.bbasis[i, l]
-            jorb = self.bbasis[j, k]
+            iorb = self.bbasis[i, l] - 1  # bbasis is 1-based
+            jorb = self.bbasis[j, k] - 1
             matout[i, j, k, l] = matin[iorb, jorb]
 
         return matout
@@ -485,7 +489,7 @@ class BasisIndex(object):
                         [a,m1] = self.FAtomOrb(iorb)
                         [b,m2] = self.FAtomOrb(jorb)
                         if a==b:
-                            bind = self.bbasis[iorb, jorb]
+                            bind = self.bbasis[iorb, jorb] - 1  # bbasis is 1-based
                             templist.append(bind)
                 bimpdict[key].append(templist)
         for val in bimpdict.values():

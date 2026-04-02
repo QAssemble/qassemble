@@ -537,18 +537,18 @@ class GreenInt(FLatDyn):
                 # print(const)
                 sigma += self.StcEmbedding(self.sigmah)
                 sigma += self.ChemEmbedding(-const)
-                logger.info('Hartree')
-                logger.debug(sigma[:,:,0,0,0])
+                # logger.info('Hartree')
+                # logger.debug(sigma[:,:,0,0,0])
             if (self.sigmaf is not None):
                 # print(sigma[:,:,0,0,0])
                 sigma += self.StcEmbedding(self.sigmaf)
-                logger.info('Fock')
-                logger.debug(sigma[:,:,0,0,0])
+                # logger.info('Fock')
+                # logger.debug(sigma[:,:,0,0,0])
             if (self.sigmac is not None):
                 # print(sigma[:,:,0,0,0])
                 sigma += self.sigmac
-                logger.info('GWC')
-                logger.debug(sigma[:,:,0,0,0])
+                # logger.info('GWC')
+                # logger.debug(sigma[:,:,0,0,0])
             self.gkfmu0 = self.Dyson(self.gbare,sigma) 
         
 
@@ -753,6 +753,12 @@ class SigmaGWC(FLatDyn):
         Generate correlated self-energy
         input : Wc(R,t), G(R,t)
 
+        Sigma[k,p,S] = -sum_{i,j} Wc[bb[k,i], bb[j,p], S] * G[i,j,S]
+
+        where bb = bbasis maps fermion orbital pairs to boson indices.
+        The inner loops over unique boson indices are replaced by
+        direct fancy-indexing lookup of Wc via bbasis.
+
         return : crtau, crfreq, cktau, ckfreq
         '''
 
@@ -765,7 +771,7 @@ class SigmaGWC(FLatDyn):
         G = self.green
         Wc = self.TauB2TauF(self.wlat)
 
-        bbasis = self.crystal.bbasis
+        bbasis = self.crystal.bbasis - 1  # bbasis is 1-based, convert to 0-based
         s_idx = np.arange(ns)
         Wc_diag = Wc[:, :, s_idx, s_idx, :, :]  # (norb, norb, ns, nr, ntau)
 
@@ -784,7 +790,7 @@ class SigmaGWC(FLatDyn):
         for orbs_a in atom_groups.values():
             oa = np.array(orbs_a)
             na = len(oa)
-            bb_a = bbasis[np.ix_(oa, oa)]  # (na, na)
+            bb_a = bbasis[np.ix_(oa, oa)]  # (na, na) — valid 0-based boson indices
 
             for orbs_b in atom_groups.values():
                 ob = np.array(orbs_b)
@@ -793,34 +799,14 @@ class SigmaGWC(FLatDyn):
 
                 G_block = G_flat[np.ix_(oa, ob)]  # (na, nb, S)
 
-                # out[k,p,S] = sum_{a,b} Wc[a,b,S] * (sum_{i:bb_a[k,i]=a} G[i,:,S])
-                #                                     * (sum_{j:bb_b[j,p]=b} delta)
-                # Precompute indicator matrices (small, orbital-sized):
-                #   Ma[a, k, i] = delta(bb_a[k,i], a)
-                #   Mb[b, j, p] = delta(bb_b[j,p], b)
-                # Only allocate for boson indices that actually appear.
+                # Fancy-index Wc to get W4[k,i,j,p,S] = Wc[bb_a[k,i], bb_b[j,p], S]
+                # bb_a[k,i] -> (na, na), bb_b[j,p] -> (nb, nb)
+                # Broadcast to (na, na, nb, nb, S)
+                W4 = Wc_flat[bb_a[:, :, None, None],
+                             bb_b[None, None, :, :]]  # (na, na, nb, nb, S)
 
-                unique_a = np.unique(bb_a)
-                unique_b = np.unique(bb_b)
-
-                # Ma_dict[a] -> (na, na) indicator: Ma[k,i] = delta(bb_a[k,i], a)
-                # Contract: temp_a[a][k, j, S] = sum_i Ma[k,i] * G[i, j, S]
-                temp_a = {}
-                for a in unique_a:
-                    mask = (bb_a == a).astype(np.float64)  # (na, na)
-                    # mask[k,i] * G[i,j,S] -> [k,j,S]
-                    temp_a[a] = np.einsum('ki,ijS->kjS', mask, G_block)  # (na, nb, S)
-
-                # For each (a,b) pair, accumulate:
-                # out[k,p,S] -= Wc[a,b,S] * sum_j temp_a[a][k,j,S] * Mb[j,p]
-                result = np.zeros((na, nb, S), dtype=np.complex128)
-                for a in unique_a:
-                    for b in unique_b:
-                        Wc_ab = Wc_flat[a, b]  # (S,)
-                        mask_b = (bb_b == b).astype(np.float64)  # (nb, nb) where mask_b[j,p]
-                        # sum_j temp_a[a][k,j,S] * mask_b[j,p] -> (na, nb, S)
-                        contracted = np.einsum('kjS,jp->kpS', temp_a[a], mask_b)  # (na, nb, S)
-                        result += Wc_ab[np.newaxis, np.newaxis, :] * contracted
+                # Sigma[k,p,S] = -sum_{i,j} W4[k,i,j,p,S] * G[i,j,S]
+                result = np.einsum('kijpS,ijS->kpS', W4, G_block)
 
                 out_flat[np.ix_(oa, ob)] -= result
 
