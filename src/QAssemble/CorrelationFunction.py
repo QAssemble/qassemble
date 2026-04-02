@@ -211,13 +211,13 @@ class CorrelationFunction(object):
             print(gold.occ)
             # print("Hartree calculation start")
             sigmah = SigmaHartree(crystal=self.crystal,occ=gold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
-            # if (iter % 50 == 0)or(iter == 1):
-            sigmah.Save(f'sigmah.{iter}')
+            if (iter % 50 == 0)or(iter == 1):
+                sigmah.Save(f'sigmah.{iter}')
             # print("Hartree calculation finish")
             # print("Fock calculation start")
             sigmaf = SigmaFock(crystal=self.crystal,occr=gold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
-            # if (iter % 50 == 0)or(iter == 1):
-            sigmaf.Save(f'sigmaf.{iter}')
+            if (iter % 50 == 0)or(iter == 1):
+                sigmaf.Save(f'sigmaf.{iter}')
             # print("Fock calculation finish")
             # print("Polarizability calculation start")
             t0 = time.perf_counter()
@@ -226,14 +226,15 @@ class CorrelationFunction(object):
             if iter == 1:
                 pkfold = np.zeros_like(pol.kf)
             pol.kf = pol_mixer(iter=iter, mix=mix, Fnew=pol.kf, Fold=pkfold)
-            pol.Save(f'pkf.{iter}')
+            if (iter % 50 == 0)or(iter == 1):
+                pol.Save(f'pkf.{iter}')
             # print("Polarizability calculation finish")
             # print("Screened coulomb interaction calculation start")
             t0 = time.perf_counter()
             w = WLat(crystal=self.crystal,dlr=self.dlr,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
             iter_timing["WLat"] = time.perf_counter() - t0
-            # if (iter % 50 == 0)or(iter == 1):
-            w.Save(f'wkf.{iter}')
+            if (iter % 50 == 0)or(iter == 1):
+                w.Save(f'wkf.{iter}')
             # w.Save(w.ckf,f'wckf.{iter}')
             # print("Screened coulomb interaction calculation finish")
             # print("GW self-energy calculation start")
@@ -243,15 +244,16 @@ class CorrelationFunction(object):
             if iter == 1:
                 ckfold = np.zeros_like(sigmagwc.kf)
             sigmagwc.kf = sig_mixer(iter=iter, mix=mix, Fnew=sigmagwc.kf, Fold=ckfold)
-            sigmagwc.Save(f'sigmagwckf.{iter}')
+            if (iter % 50 == 0)or(iter == 1):
+                sigmagwc.Save(f'sigmagwckf.{iter}')
             # print("GW self-energy calculation finish")
             # print("GW green's function calculation start")
             t0 = time.perf_counter()
 
             gnew = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,sigmah=sigmah.k,sigmaf=sigmaf.k,sigmagwc=sigmagwc.kf,hdf5file=hdf5file,group=group)
             iter_timing["GreenInt"] = time.perf_counter() - t0
-            # if (iter % 50 == 0)or(iter == 1):
-            gnew.Save(f'gkf.{iter}')
+            if (iter % 50 == 0)or(iter == 1):
+                gnew.Save(f'gkf.{iter}')
             # print("GW green's function calculation start")
             self.gw_object_times.append(iter_timing)
             init_msg = ""
