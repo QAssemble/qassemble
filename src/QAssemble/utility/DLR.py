@@ -156,6 +156,8 @@ class DLR(object):
 
     def MatsubaraDLR2Uniform(self, ff: np.ndarray, sign: int = -1):
         from scipy.linalg import lu_solve
+
+        ff = ff.reshape(len(ff), 1, 1)
         if sign == -1:
             fxx = self.dF.dlr_from_matsubara(ff, beta=self.beta, xi=sign)
             z = self.MatsubaraFermionUniform() * 1j
