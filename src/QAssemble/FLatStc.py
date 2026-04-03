@@ -1313,6 +1313,7 @@ class ZFactor(FLatStc):
 
         logger.info("Z-factor Calculation Start")
         self.Cal()
+        self.Check(self.k)
         logger.info("Z-factor Calculation Finish")
 
     def Cal(self):
@@ -1351,10 +1352,28 @@ class ZFactor(FLatStc):
                     )
 
         z = self.Inverse(tempmat)
+
+        # Validate z-factor: eigenvalues must be in (0, 1]
+        
+
         self.k = z
         self.r = self.K2R(z)
         del z, tempmat
 
+        return None
+    
+    def Check(self, z : np.ndarray):
+
+        norb, _, ns, nk = z.shape
+        eigval, eigvec = self.Diagonalize(z, True)
+        for ik in range(nk):
+            for js in range(ns):
+                for iorb in range(norb):
+                    if not (0 < eigval[iorb, iorb, js, ik] <= 1):
+                        logger.error("Error : The z-factor was calculated incorrectly. "
+                                     f"eigval[{iorb},{iorb},{js},{ik}] = {eigval[iorb, iorb, js, ik]:.6f}")
+                        logger.error("Please rerun the code.")
+        
         return None
     
     def Save(self, fn: str, obj : np.ndarray = None):
