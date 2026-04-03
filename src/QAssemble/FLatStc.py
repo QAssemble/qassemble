@@ -41,7 +41,7 @@ class FLatStc(object):
 
         for irk in range(nrk):
             for js in range(ns):
-                matinv[:, :, js, irk] = np.linalg.inv(mat[:, :, js, irk])
+                matinv[:, :, js, irk] = Common.MatInv(mat[:, :, js, irk])
 
         return matinv
 
@@ -1354,7 +1354,7 @@ class ZFactor(FLatStc):
 
         sigma0_dag = np.transpose(np.conjugate(sigma0), (1, 0, 2, 3))
 
-        tempmat = np.asfortranarray(iw * (sigma0 - sigma0_dag), dtype=np.complex128)
+        tempmat = np.asfortranarray(-iw * (sigma0 - sigma0_dag), dtype=np.complex128)
         diag_idx = np.arange(norb)
         tempmat[diag_idx, diag_idx, :, :] += 1.0
 
