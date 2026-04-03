@@ -1324,15 +1324,15 @@ class ZFactor(FLatStc):
 
         # DLR Matsubara -> evaluate at lowest uniform Matsubara frequency
         sigma0 = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
-        # iw0 = np.array([np.pi / beta]) * 1j
-        omega = dlr.MatsubaraFermionUniform(dlr.cutoff, beta=beta) * 1j
+        iw0 = np.array([np.pi / beta]) * 1j 
+        # omega = dlr.MatsubaraFermionUniform(dlr.cutoff, beta=beta) * 1j
         for iorb in range(norb):
             for jorb in range(norb):
                 for js in range(ns):
                     for ik in range(nk):
                         ff = self.sigmagwc.kf[iorb, jorb, js, ik, :]
                         fxx = dlr.dF.dlr_from_matsubara(ff, beta=beta, xi=-1)
-                        val = dlr.dF.eval_dlr_freq(fxx[:, None, None], omega[0], beta=beta, xi=-1)
+                        val = dlr.dF.eval_dlr_freq(fxx[:, None, None], iw0, beta=beta, xi=-1)
                         sigma0[iorb, jorb, js, ik] = val[0, 0, 0]
 
         iw = 1j * beta / (2.0 * np.pi)
