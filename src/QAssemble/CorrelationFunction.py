@@ -29,6 +29,8 @@ class CorrelationFunction(object):
         self.sigmah = None
         self.sigmaf = None
         self.sigmagwc = None
+        self.zfactor = None
+        self.sigmastc = None
         self.ham = None
         self.occ = None
         self.vbare = None
@@ -291,9 +293,13 @@ class CorrelationFunction(object):
                 sigmagwc.Save('sigmagwckf')
                 pol.Save('pkf')
                 w.Save('wkf')
-                # self.sigmagwc.SigmaStc()
-                # self.sigmagwc.Zfactor()
-                del niham, vbare, gbare, gnew, gold, sigmaf, sigmah, sigmagwc, pol, w
+                zfactor = ZFactor(crystal=self.crystal, sigmagwc=sigmagwc, hdf5file=hdf5file, group=group)
+                sigmastc = SigmaStc(crystal=self.crystal, sigmagwc=sigmagwc, hdf5file=hdf5file, group=group)
+                zfactor.Save('zfactor')
+                sigmastc.Save('sigmastc')
+                self.zfactor = zfactor
+                self.sigmastc = sigmastc
+                del niham, vbare, gbare, gnew, gold, sigmaf, sigmah, sigmagwc, pol, w, zfactor, sigmastc
                 gc.collect()
                 break
             elif (iter==itermax):
@@ -304,15 +310,19 @@ class CorrelationFunction(object):
                 self.sigmagwc = sigmagwc
                 self.sigmaf = sigmaf
                 self.sigmah = sigmah
+                zfactor = ZFactor(crystal=self.crystal, sigmagwc=sigmagwc, hdf5file=hdf5file, group=group)
+                sigmastc = SigmaStc(crystal=self.crystal, sigmagwc=sigmagwc, hdf5file=hdf5file, group=group)
+                zfactor.Save('zfactor')
+                sigmastc.Save('sigmastc')
+                self.zfactor = zfactor
+                self.sigmastc = sigmastc
                 gnew.Save('gkf',chem=True)
                 sigmah.Save('sigmah')
                 sigmaf.Save('sigmaf')
                 sigmagwc.Save('sigmagwckf')
                 pol.Save('pkf')
                 w.Save('wkf')
-                # self.sigmagwc.SigmaStc()
-                # self.sigmagwc.Zfactor()
-                del niham, vbare, gbare, gnew, gold, sigmaf, sigmah, sigmagwc, pol, w
+                del niham, vbare, gbare, gnew, gold, sigmaf, sigmah, sigmagwc, pol, w, zfactor, sigmastc
                 gc.collect()
             else:
                 gold = gnew
