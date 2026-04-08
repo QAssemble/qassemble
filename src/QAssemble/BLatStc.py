@@ -17,8 +17,9 @@ logger = logging.getLogger("QAssemble")
 
 class BLatStc(object):
 
-    def __init__(self, crystal: Crystal):
+    def __init__(self, crystal: Crystal, nodedict : dict = None):
         self.crystal = crystal
+        self.nodedict = nodedict
         self._phase_cache = None
 
     def _get_phase(self) -> np.ndarray:
@@ -39,6 +40,23 @@ class BLatStc(object):
 
         self._phase_cache = phase
         return phase
+
+    def _kr_global_indices(self, loc2glob_key: str, nloc: int) -> list:
+        if self.nodedict is None:
+            return list(range(nloc))
+
+        from .utility.MPIManager import MPIFunction
+
+        mf = MPIFunction()
+        rank = self.nodedict["commk"].Get_rank()
+        loc2glob = self.nodedict[loc2glob_key]
+
+        idx = []
+        for iloc in range(nloc):
+            _, iglob = mf.KRLocal2Global([rank, iloc], loc2glob)
+            idx.append(iglob)
+
+        return idx
 
     def Inverse(self, matin: np.ndarray) -> np.ndarray:
 
@@ -62,16 +80,24 @@ class BLatStc(object):
         rkgrid = self.crystal.rkgrid
         norb = matk.shape[0]
         ns = self.crystal.ns
-        nrk = len(rkvec)
 
         phases = self._get_phase()
-        matr = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128)
-        tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128)
-        phase_view = phases[:, :, np.newaxis, np.newaxis, :]
-        np.multiply(matk, phase_view, out=tempmat)
 
-        # matr = QAFort.fourier.blatstc_k2r(rkgrid, tempmat)
-        matr = Fourier.BLatStcK2R(tempmat, rkgrid)
+        if self.nodedict is not None:
+            from .utility.Fourier import FourierMPI as Fourier
+            kglob = self._kr_global_indices("kloc2glob", matk.shape[4])
+            phases_local = phases[:, :, kglob]
+            phase_view = phases_local[:, :, np.newaxis, np.newaxis, :]
+            tempmat = np.empty_like(matk)
+            np.multiply(matk, phase_view, out=tempmat)
+            matr = Fourier.BLatStcK2R(tempmat, self.nodedict)
+        else:
+            from .utility.Fourier import Fourier
+            nrk = len(self.crystal.kpoint)
+            tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128)
+            phase_view = phases[:, :, np.newaxis, np.newaxis, :]
+            np.multiply(matk, phase_view, out=tempmat)
+            matr = Fourier.BLatStcK2R(tempmat, rkgrid)
 
         return matr
 
@@ -80,15 +106,24 @@ class BLatStc(object):
         rkgrid = self.crystal.rkgrid
         norb = matr.shape[0]
         ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
 
         phases = self._get_phase()
-        phase_conj = np.conjugate(phases)[:, :, np.newaxis, np.newaxis, :]
-        tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128)
 
-        # matk = QAFort.fourier.blatstc_r2k(rkgrid, matr)
-        tempk = Fourier.BLatStcR2K(matr, rkgrid)
-        np.multiply(tempk, phase_conj, out=tempmat)
+        if self.nodedict is not None:
+            from .utility.Fourier import FourierMPI as Fourier
+            tempk = Fourier.BLatStcR2K(matr, self.nodedict)
+            kglob = self._kr_global_indices("kloc2glob", tempk.shape[4])
+            phase_conj = np.conjugate(phases[:, :, kglob])[:, :, np.newaxis, np.newaxis, :]
+            tempmat = np.empty_like(tempk)
+            np.multiply(tempk, phase_conj, out=tempmat)
+        else:
+            from .utility.Fourier import Fourier
+            nrk = len(self.crystal.kpoint)
+            phase_conj = np.conjugate(phases)[:, :, np.newaxis, np.newaxis, :]
+            tempk = Fourier.BLatStcR2K(matr, rkgrid)
+            tempmat = np.empty((norb, norb, ns, ns, nrk), dtype=np.complex128)
+            np.multiply(tempk, phase_conj, out=tempmat)
+
         matk = tempmat
 
         return matk
@@ -331,19 +366,8 @@ class BLatStc(object):
 
 class VBare(BLatStc):
 
-    def __init__(
-        self,
-        crystal: Crystal,
-        vloc: VLoc = None,
-        orboption: dict = None,
-        intamp: dict = None,
-        ohno: bool = False,
-        jth: bool = False,
-        ohnoyuka: bool = False,
-        hdf5file: str = None,
-        group: str = None,
-    ):
-        super().__init__(crystal)
+    def __init__(self, crystal: Crystal, nodedict : dict = None, vloc: VLoc = None, orboption: dict = None, intamp: dict = None, ohno: bool = False, jth: bool = False, ohnoyuka: bool = False, hdf5file: str = None, group: str = None,):
+        super().__init__(crystal, nodedict)
         self.k = None
         self.r = None
         self.intamp = None
@@ -402,12 +426,10 @@ class VBare(BLatStc):
 
         errmessage = "Wrong value entered, please check the input.ini file"
         rkgrid = self.crystal.rkgrid
-        rkvec = self.crystal.kpoint
 
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
-        nk = len(rkvec)
-        vnlk = np.zeros((norb, norb, ns, ns, nk), dtype=np.complex128)
+        nk = rkgrid[0] * rkgrid[1] * rkgrid[2]
         tempmat = np.zeros(
             (norb, norb, ns, ns, rkgrid[0], rkgrid[1], rkgrid[2]),
             dtype=np.complex128,
@@ -423,19 +445,21 @@ class VBare(BLatStc):
                     jorb = self.crystal.BIndex([b, [mp, mp]])
                     R = ind[3]
 
-                    # tempmat[iorb,jorb,js,ks,R[0],R[1],R[2]] += vij
-
                     if (iorb == jorb) and (R == [0, 0, 0]):
-                        # tempmat[iorb,jorb,js,ks,R[0],R[1],R[2]] += vij
                         logger.error(errmessage)
                         sys.exit()
 
-                    # else:
                     tempmat[iorb, jorb, js, ks, R[0], R[1], R[2]] = vij
                     tempmat[jorb, iorb, js, ks, -R[0], -R[1], -R[2]] = vij
 
         vnlr = tempmat.reshape((norb, norb, ns, ns, nk))
+
+        # serial R2K (phase factor 포함)
+        saved_nodedict = self.nodedict
+        self.nodedict = None
         vnlk = self.R2K(vnlr)
+        self.nodedict = saved_nodedict
+
         self.HermitianCheck(vnlk)
 
         self.nonlocr = vnlr
@@ -450,28 +474,31 @@ class VBare(BLatStc):
     def LocPlusNonLoc(self):
 
         vloc = self.vloc.vloc
-        # print(vloc[:, :, 0, 0])
-        #       vnlk = self.nonlock
 
-        norb = len(self.crystal.bind)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        vbare_r = copy.deepcopy(self.nonlocr)
+        vbare_r[..., 0] += vloc
 
-        vbare = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128)
-        # if (self.nonlock == None):
-        #     for ik in range(nrk):
-        #         vbare[...,ik] = vloc
-        # else:
-        #     for ik in range(nrk):
-        #         vbare[...,ik] = vloc + vnlk[...,ik]
-        # for ik in range(nrk):
-        #     vbare[...,ik] = vloc + vnlk[...,ik]
-        vbare = copy.deepcopy(self.nonlocr)
-        vbare[..., 0] += vloc
-        #       self.k = vbare
-        #       self.r = self.K2R(vbare)
-        self.r = vbare
-        self.k = self.R2K(vbare)
+        # serial R2K (phase factor 포함)
+        saved_nodedict = self.nodedict
+        self.nodedict = None
+        vbare_k = self.R2K(vbare_r)
+        self.nodedict = saved_nodedict
+
+        # nodedict가 있으면 local k/r로 분산
+        if self.nodedict is not None:
+            commk = self.nodedict['commk']
+            rank = commk.Get_rank()
+
+            kloc2glob = self.nodedict['kloc2glob']
+            local_kidx = [kloc2glob[rank][i] for i in range(len(kloc2glob[rank]))]
+            self.k = vbare_k[..., local_kidx]
+
+            rloc2glob = self.nodedict['rloc2glob']
+            local_ridx = [rloc2glob[rank][i] for i in range(len(rloc2glob[rank]))]
+            self.r = vbare_r[..., local_ridx]
+        else:
+            self.r = vbare_r
+            self.k = vbare_k
 
         return None
 
@@ -626,10 +653,14 @@ class VBare(BLatStc):
                             tempmat[jorb, iorb, js, ks, -ix, -iy, -iz] = vij
 
         vr = tempmat.reshape((norb, norb, ns, ns, nr))
-        # self.intamp = V
 
         self.nonlocr = copy.deepcopy(vr)
+
+        # serial R2K (phase factor 포함)
+        saved_nodedict = self.nodedict
+        self.nodedict = None
         self.nonlock = self.R2K(vr)
+        self.nodedict = saved_nodedict
 
         return None
 
@@ -691,10 +722,14 @@ class VBare(BLatStc):
                                     # tempmat[jorb, iorb, js, ks, -ix, -iy, -iz] = vij
 
         vr = tempmat.reshape((norb, norb, ns, ns, nr))
-        # self.intamp = V
 
         self.nonlocr = copy.deepcopy(vr)
+
+        # serial R2K (phase factor 포함)
+        saved_nodedict = self.nodedict
+        self.nodedict = None
         self.nonlock = self.R2K(vr)
+        self.nodedict = saved_nodedict
 
         del (
             vr,
@@ -789,7 +824,12 @@ class VBare(BLatStc):
         vr = tempmat.reshape((norb, norb, ns, ns, nr))
 
         self.nonlocr = np.copy(vr)
+
+        # serial R2K (phase factor 포함)
+        saved_nodedict = self.nodedict
+        self.nodedict = None
         self.nonlock = self.R2K(vr)
+        self.nodedict = saved_nodedict
 
         del (
             vr,

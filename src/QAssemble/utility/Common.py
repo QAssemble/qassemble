@@ -56,7 +56,7 @@ class Common:
         return invmat
     
     @staticmethod
-    def Indexing(ntot, ndivision, divisionarray, flag, n1, n2):
+    def Indexing(ntot, ndivision, divisionarray, flag, n1, n2) -> tuple:
         """Map between a flat 1D index and a multi-dimensional index.
 
         Args:

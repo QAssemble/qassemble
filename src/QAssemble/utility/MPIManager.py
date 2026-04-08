@@ -214,6 +214,15 @@ class MPIFunction():
 
         return [rank, kloc[rank][loc_idx]]
 
+    def KRLocalOffset(self, rank : int, kloc : dict) -> tuple:
+
+        coords = np.array(list(kloc[rank].values()), dtype=int)
+
+        if coords.size == 0:
+            return (0, 0, 0)
+
+        return tuple(coords.min(axis=0))
+
     def KRIdx2Vec(self, rank, matin : np.ndarray, kloc : dict, localshapef : dict) -> np.ndarray:
 
         (nkx, nky, nkz) = localshapef[rank]
@@ -225,9 +234,20 @@ class MPIFunction():
             sys.exit()
 
         matout = np.zeros((nkx, nky, nkz), dtype=np.complex128)
+        (x0, y0, z0) = self.KRLocalOffset(rank, kloc)
 
         for ik in range(nkx*nky*nkz):
             _, [ikx, iky, ikz] = self.KRLocal2List([rank, ik], kloc)
+            ikx -= x0
+            iky -= y0
+            ikz -= z0
+
+            if not (0 <= ikx < nkx and 0 <= iky < nky and 0 <= ikz < nkz):
+                raise IndexError(
+                    f"Local k/r index {(ikx + x0, iky + y0, ikz + z0)} is outside "
+                    f"rank {rank} local shape {(nkx, nky, nkz)} with offset {(x0, y0, z0)}."
+                )
+
             matout[ikx, iky, ikz] = matin[ik]
 
         return matout
@@ -243,10 +263,11 @@ class MPIFunction():
             sys.exit()
 
         matout = np.zeros((nkx*nky*nkz), dtype=np.complex128)
+        (x0, y0, z0) = self.KRLocalOffset(rank, kloc)
 
         for ik in range(nkx*nky*nkz):
             _, [ikx, iky, ikz] = self.KRLocal2List([rank, ik], kloc)
-            matout[ik] = matin[ikx, iky, ikz]
+            matout[ik] = matin[ikx - x0, iky - y0, ikz - z0]
 
         return matout
 
@@ -298,4 +319,3 @@ class MPIFunction():
         loc_idx = self.bloc[rank].values()
 
         return A[loc_idx]
-

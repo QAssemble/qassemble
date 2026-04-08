@@ -20,7 +20,7 @@ logger = logging.getLogger("QAssemble")
 
 class CorrelationFunction(object):
 
-    def __init__(self, cry : dict = None, ft : dict = None, c = 1.0):
+    def __init__(self, cry : dict = None, ft : dict = None, c = 1.0, nodedict : dict = None):
 
         self.c = c
         self.niham = None
@@ -37,14 +37,9 @@ class CorrelationFunction(object):
         self.pol = None
         self.w = None
 
-        # cry = Crystal(latt=latt,basisposition=basisposition,ns=ns,soc=soc,rkgrid=rkgrid,orboption=orboption,N=N)
-        #cry = Crystal#(Rvec=Rvec,CorF=CorF,Basis=Basis,Nspin=Nspin,SOC=SOC,Nelec=Nelec,#KGrid=KGrid)
-        #self.cry = cry
-        #ft = FTGrid(T=T,beta=beta,cutoff=cutoff)
-        #self.ft = ft
         self.crystal = Crystal(cry=cry)
-        # self.ft = FTGrid(ft=ft)
         self.dlr = DLR(ft)
+        self.nodedict = nodedict
 
         # if os.path.exists('work'):
         #     pass

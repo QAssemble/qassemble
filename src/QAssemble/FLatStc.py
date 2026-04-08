@@ -22,9 +22,10 @@ logger = logging.getLogger("QAssemble")
 
 class FLatStc(object):
 
-    def __init__(self, crystal: Crystal, mixing_method: str = "pulay", npulay: int = 5):
+    def __init__(self, crystal: Crystal, nodedict : dict = None, mixing_method: str = "pulay", npulay: int = 5):
 
         self.crystal = crystal
+        self.nodedict = nodedict
         self._mixer = Mixing(method=mixing_method, npulay=npulay)
 
     def Inverse(self, mat: np.ndarray):
@@ -41,10 +42,39 @@ class FLatStc(object):
 
         return matinv
 
-    def K2R(self, matk: np.ndarray = None, rkgrid: list = None) -> np.ndarray:
+    def _kr_global_indices(self, loc2glob_key: str, nloc: int) -> list:
 
-        if rkgrid == None:
-            rkgrid = self.crystal.rkgrid
+        if self.nodedict is None:
+            return list(range(nloc))
+
+        from .utility.MPIManager import MPIFunction
+
+        mf = MPIFunction()
+        rank = self.nodedict["commk"].Get_rank()
+        loc2glob = self.nodedict[loc2glob_key]
+
+        idx = []
+        for iloc in range(nloc):
+            _, iglob = mf.KRLocal2Global([rank, iloc], loc2glob)
+            idx.append(iglob)
+
+        return idx
+
+    def _slice_local_kr(self, mat: np.ndarray, loc2glob_key: str) -> np.ndarray:
+
+        if self.nodedict is None:
+            return mat
+
+        rank = self.nodedict["commk"].Get_rank()
+        nloc = len(self.nodedict[loc2glob_key][rank])
+        idx = self._kr_global_indices(loc2glob_key, nloc)
+
+        return np.asfortranarray(np.take(mat, idx, axis=-1))
+
+    def K2R(self, matk: np.ndarray = None) -> np.ndarray:
+
+        
+        rkgrid = self.crystal.rkgrid
         rkvec = self.crystal.kpoint
 
         norb = matk.shape[0]
@@ -52,6 +82,7 @@ class FLatStc(object):
         nrk = matk.shape[3]
 
         tempmat = copy.deepcopy(matk)
+        kglob = self._kr_global_indices("kloc2glob", nrk)
 
         for irk in range(nrk):
             for js in range(ns):
@@ -62,20 +93,25 @@ class FLatStc(object):
 
                         delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
 
-                        phase = np.exp(2.0j * np.pi * np.dot(rkvec[irk], delta))
+                        phase = np.exp(2.0j * np.pi * np.dot(rkvec[kglob[irk]], delta))
 
                         # matk[iorb,jorb,js,irk] *= phase
                         tempmat[iorb, jorb, js, irk] *= phase
 
         # matr = QAFort.fourier.flatstc_k2r(rkgrid, tempmat)
-        matr = Fourier.FLatStcK2R(tempmat, rkgrid)
+        if self.nodedict is not None:
+            from .utility.Fourier import FourierMPI as Fourier
+            matr = Fourier.FLatStcK2R(tempmat, self.nodedict)
+        else:
+            from .utility.Fourier import Fourier
+            matr = Fourier.FLatStcK2R(tempmat, rkgrid)
 
         return matr
 
-    def R2K(self, matr: np.ndarray = None, rkgrid: list = None) -> np.ndarray:
+    def R2K(self, matr: np.ndarray = None) -> np.ndarray:
 
-        if rkgrid == None:
-            rkgrid = self.crystal.rkgrid
+        
+        rkgrid = self.crystal.rkgrid
         rkvec = self.crystal.kpoint
 
         norb = matr.shape[0]
@@ -85,9 +121,18 @@ class FLatStc(object):
         matk = np.zeros((norb, norb, ns, nrk), dtype=np.complex128)
         tempmat = copy.deepcopy(matr)
         # matk = QAFort.fourier.flatstc_r2k(rkgrid, tempmat)
-        matk = Fourier.FLatStcR2K(tempmat, rkgrid)
 
-        for irk in range(nrk):
+        if self.nodedict is not None:
+            from .utility.Fourier import FourierMPI as Fourier
+            matk = Fourier.FLatStcR2K(tempmat, self.nodedict)
+        else:
+            from .utility.Fourier import Fourier
+            matk = Fourier.FLatStcR2K(tempmat, rkgrid)
+
+        nkout = matk.shape[3]
+        kglob = self._kr_global_indices("kloc2glob", nkout)
+
+        for irk in range(nkout):
             for js in range(ns):
                 for iorb in range(norb):
                     for jorb in range(norb):
@@ -95,7 +140,7 @@ class FLatStc(object):
                         [b, m2] = self.crystal.FAtomOrb(jorb)
 
                         delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
-                        phase = np.exp(-2.0j * np.pi * np.dot(rkvec[irk], delta))
+                        phase = np.exp(-2.0j * np.pi * np.dot(rkvec[kglob[irk]], delta))
 
                         matk[iorb, jorb, js, irk] = matk[iorb, jorb, js, irk] * phase
 
@@ -449,9 +494,7 @@ class FLatStc(object):
 
     def HermitianCheck(self, matin: np.ndarray):
 
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nk = self.crystal.rkgrid[0] * self.crystal.rkgrid[1] * self.crystal.rkgrid[2]
+        norb, _, ns, nk = matin.shape
 
         errmessage = "The matrix is not hermitian. Check the input file again"
         for ik in range(nk):
@@ -504,12 +547,12 @@ class FLatStc(object):
 class NIHamiltonian(FLatStc):
 
     def __init__(
-        self, crystal: Crystal = None, hopping: dict = None, onsite: dict = None, spin : bool = False, 
+        self, crystal: Crystal = None, nodedict : dict = None, hopping: dict = None, onsite: dict = None, spin : bool = False, 
         ferro : bool = False, aferro : bool = False, valley: bool = False, avalley : bool = False, site : bool = False, 
         asite : bool = False, hdf5file: h5py.File = None, group: str = None,
     ):
 
-        super().__init__(crystal)
+        super().__init__(crystal, nodedict=nodedict)
 
         logger.info("Non-interacting Hamiltonian Calculation Start")
         hopplist = []
@@ -552,9 +595,7 @@ class NIHamiltonian(FLatStc):
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nk = len(self.crystal.kpoint)
-        kvec = self.crystal.kpoint
 
-        hamtb = np.zeros((norb, norb, ns, nk), dtype=np.complex128)
         tempmat = np.zeros(
             (norb, norb, ns, self.crystal.rkgrid[0], self.crystal.rkgrid[1], self.crystal.rkgrid[2]),
             dtype=np.complex128,
@@ -627,11 +668,12 @@ class NIHamiltonian(FLatStc):
         # for iorb in range(norb):
         #     tempmat[iorb,iorb,js,0,0,0] = +self.onsitelist[iorb]
         # Hermitian check
-        tempmat = tempmat.reshape((norb, norb, ns, nk))
-        self.r = tempmat
-        hamtb = self.R2K(tempmat)
-        self.HermitianCheck(hamtb)
+        tempmat = np.asfortranarray(tempmat.reshape((norb, norb, ns, nk)))
 
+        self.r = self._slice_local_kr(tempmat, "rloc2glob")
+        hamtb = self.R2K(self.r)
+
+        self.HermitianCheck(hamtb)
         self.k = hamtb
 
         return None
@@ -758,15 +800,8 @@ class NIHamiltonian(FLatStc):
 
 class SigmaHartree(FLatStc):
 
-    def __init__(
-        self,
-        crystal: Crystal,
-        occ=None,
-        vbare: np.ndarray = None,
-        hdf5file: str = "glob.h5",
-        group: str = None,
-    ):  # green -> occ
-        super().__init__(crystal)
+    def __init__(self,crystal: Crystal,nodedict : dict = None, occ:np.ndarray=None,vbare: np.ndarray = None,hdf5file: str = "glob.h5",group: str = None,):  # green -> occ
+        super().__init__(crystal, nodedict=nodedict)
         self.r = None
         self.k = None
         self.vbare = vbare
@@ -936,15 +971,8 @@ class SigmaHartree(FLatStc):
 
 class SigmaFock(FLatStc):
 
-    def __init__(
-        self,
-        crystal: Crystal,
-        occr=None,
-        vbare: np.ndarray = None,
-        hdf5file: str = "glob.h5",
-        group: str = None,
-    ):  # green -> occ
-        super().__init__(crystal)
+    def __init__(self,crystal: Crystal,nodedict : dict = None, occr:np.ndarray=None,vbare: np.ndarray = None,hdf5file: str = "glob.h5",group: str = None,):  # green -> occ
+        super().__init__(crystal, nodedict=nodedict)
         self.r = None
         self.k = None
         self.hdf5file = hdf5file
@@ -1043,19 +1071,8 @@ class SigmaFock(FLatStc):
 
 class Hamiltonian(FLatStc):
 
-    def __init__(
-        self,
-        crystal: Crystal,
-        ham: np.ndarray = None,
-        beta: float = None,
-        sigmah: np.ndarray = None,
-        sigmaf: np.ndarray = None,
-        sigmac: np.ndarray = None,
-        z : np.ndarray = None,
-        hdf5file: str = "glob.h5",
-        group: str = None,
-    ):
-        super().__init__(crystal)
+    def __init__(self, crystal: Crystal, nodedict : dict = None, ham: np.ndarray = None, beta: float = None, sigmah: np.ndarray = None, sigmaf: np.ndarray = None, sigmac: np.ndarray = None, z : np.ndarray = None, hdf5file: str = "glob.h5", group: str = None,):
+        super().__init__(crystal, nodedict)
 
         self.occ = None
         self.occk = None

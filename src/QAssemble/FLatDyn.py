@@ -18,21 +18,22 @@ from .utility.Mixing import Mixing
 logger = logging.getLogger("QAssemble")
 
 class FLatDyn(object):
-    def __init__(self,crystal : Crystal, dlr : DLR, mixing_method: str = "pulay", npulay: int = 5) -> object:
+    def __init__(self,crystal : Crystal, dlr : DLR, nodedict : dict = None, mixing_method: str = "pulay", npulay: int = 5) -> object:
         self.crystal = crystal
         self.dlr = dlr
+        self.nodedict = nodedict
         self._mixer = Mixing(method=mixing_method, npulay=npulay)
         self.mappingidx = None
         self._fermion_phase_cache_k2r = self._get_fermion_phaseK2R()
         self._fermion_phase_cache_r2k = self._get_fermion_phaseR2K()
 
     def _get_fermion_phaseK2R(self) -> np.ndarray:
-        
-        nrk = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
 
         basis_orb = self.crystal.basisf[self.crystal.forb2atom]
 
-        kv = self.crystal.kpoint[:nrk] @ basis_orb.T
+        kfrac = self._get_local_kfrac()
+
+        kv = kfrac @ basis_orb.T
 
         kv_delta = kv[:, :, None] - kv[:, None, :]
 
@@ -40,14 +41,14 @@ class FLatDyn(object):
 
         phases_T = np.transpose(phases, (1, 2, 0))
         return phases_T
-    
+
     def _get_fermion_phaseR2K(self) -> np.ndarray:
-        
-        nrk = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
 
         basis_orb = self.crystal.basisf[self.crystal.forb2atom]
 
-        kv = self.crystal.kpoint[:nrk] @ basis_orb.T
+        kfrac = self._get_local_kfrac()
+
+        kv = kfrac @ basis_orb.T
 
         kv_delta = kv[:, :, None] - kv[:, None, :]
 
@@ -137,27 +138,18 @@ class FLatDyn(object):
         return moment, high
     
     
-    def K2R(self,matk : np.ndarray, rkgrid : list = None) -> np.ndarray:
+    def K2R(self,matk : np.ndarray) -> np.ndarray:
+
+        
 
         rkvec = self.crystal.kpoint
-        if rkgrid == None:
-            rkgrid = self.crystal.rkgrid
+        rkgrid = self.crystal.rkgrid
 
         
         norb = matk.shape[0]
         ns = matk.shape[2]
         nrk = matk.shape[3]
         nft = matk.shape[4]
-
-        # basis_orb = self.crystal.basisf[self.crystal.forb2atom]
-
-        # kv = self.crystal.kpoint[:nrk] @ basis_orb.T
-
-        # kv_delta = kv[:, :, None] - kv[:, None, :]
-
-        # phases = np.exp(2.0j * np.pi * kv_delta)
-
-        # phases_T = np.transpose(phases, (1, 2, 0))
 
         matr = np.zeros((norb, norb, ns, nrk, nft), dtype=np.complex128)
         tempmat = np.empty((norb, norb, ns, nrk, nft), dtype=np.complex128)
@@ -166,7 +158,12 @@ class FLatDyn(object):
 
         tempmat *= self._fermion_phase_cache_k2r[:, :, None, :, None]
 
-        matr = Fourier.FLatDynK2R(tempmat, rkgrid)
+        if self.nodedict is not None:
+            from .utility.Fourier import FourierMPI as Fourier
+            matr = Fourier.FLatDynK2R(tempmat, self.nodedict)
+        else:
+            from .utility.Fourier import Fourier
+            matr = Fourier.FLatDynK2R(tempmat, rkgrid)
 
         return matr
     
@@ -184,7 +181,12 @@ class FLatDyn(object):
         matk = np.zeros((norb, norb, ns, nrk, nft), dtype=np.complex128)
         tempmat = np.empty((norb, norb, ns, nrk, nft), dtype=np.complex128)
 
-        tempmat = Fourier.FLatDynR2K(matr, rkgrid)
+        if self.nodedict is not None:
+            from .utility.Fourier import FourierMPI as Fourier
+            tempmat = Fourier.FLatDynR2K(matr, self.nodedict)
+        else:
+            from .utility.Fourier import Fourier
+            tempmat = Fourier.FLatDynR2K(matr, rkgrid)
 
         matk = tempmat * self._fermion_phase_cache_r2k[:, :, None, :, None]
 
@@ -408,9 +410,9 @@ class FLatDyn(object):
     
 class GreenBare(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
+    def __init__(self, crystal: Crystal, dlr : DLR, nodedict : dict = None, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
         
-        super().__init__(crystal, dlr)
+        super().__init__(crystal, dlr, nodedict)
         # print(self.niham.hamtb[...,0,0])
         self.hamtb = hamtb
         self.kt = None
@@ -474,12 +476,12 @@ class GreenBare(FLatDyn):
     
 class GreenInt(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
+    def __init__(self, crystal: Crystal, dlr : DLR, nodedict : dict = None, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
         
         if greenbare is None:
             logger.error("Bare Green's function doesn't exist")
             sys.exit()
-        super().__init__(crystal, dlr)
+        super().__init__(crystal, dlr, nodedict)
         self.flatstc = FLatStc(crystal=crystal)
         norb, _, ns, nk, nfreq = greenbare.shape
         ntau = len(self.dlr.tauF)
@@ -530,7 +532,7 @@ class GreenInt(FLatDyn):
             if (self.sigmah is not None):
                 # print(sigma[:,:,0,0,0])
                 diag = np.diagonal(self.sigmah[:,:,0,0])
-                const = np.mean(diag)
+                const = np.mean(diag, dtype=np.float64)
                 self.c = np.real(const)
                 # print(const)
                 sigma += self.StcEmbedding(self.sigmah)

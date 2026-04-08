@@ -911,99 +911,366 @@ class FourierMPI:
         
         return moment, high
     
-    @staticmethod
-    def _validate_kgrid(kgrid: Tuple[int, int, int], size: int) -> Tuple[int, int, int]:
-        if len(kgrid) != 3:
-            raise ValueError(f"kgrid must have three entries (nx, ny, nz), got {kgrid}.")
-        nx, ny, nz = (int(val) for val in kgrid)
-        if nx * ny * nz != size:
-            raise ValueError(
-                f"Incompatible kgrid {kgrid}: product {nx * ny * nz} "
-                f"does not match data size {size}."
-            )
-        return nx, ny, nz
+    # @staticmethod
+    # def _validate_kgrid(kgrid: Tuple[int, int, int], size: int) -> Tuple[int, int, int]:
+    #     if len(kgrid) != 3:
+    #         raise ValueError(f"kgrid must have three entries (nx, ny, nz), got {kgrid}.")
+    #     nx, ny, nz = (int(val) for val in kgrid)
+    #     if nx * ny * nz != size:
+    #         raise ValueError(
+    #             f"Incompatible kgrid {kgrid}: product {nx * ny * nz} "
+    #             f"does not match data size {size}."
+    #         )
+    #     return nx, ny, nz
 
-    @staticmethod
-    def _build_index_maps(rank, kloc):
-        npts = len(kloc[rank])
-        ix = np.empty(npts, dtype=int)
-        iy = np.empty(npts, dtype=int)
-        iz = np.empty(npts, dtype=int)
-        for ik in range(npts):
-            coords = kloc[rank][ik]
-            ix[ik], iy[ik], iz[ik] = coords
-        return ix, iy, iz
+    # @staticmethod
+    # def _build_index_maps(rank, kloc, local_slice=None):
+    #     npts = len(kloc[rank])
+    #     ix = np.empty(npts, dtype=int)
+    #     iy = np.empty(npts, dtype=int)
+    #     iz = np.empty(npts, dtype=int)
+    #     for ik in range(npts):
+    #         coords = kloc[rank][ik]
+    #         ix[ik], iy[ik], iz[ik] = coords
+    #     if local_slice is not None:
+    #         (x0, _), (y0, _), (z0, _) = local_slice[rank]
+    #         ix -= x0
+    #         iy -= y0
+    #         iz -= z0
+    #     return ix, iy, iz
 
-    @staticmethod
-    def FLatStcK2R(fin: np.ndarray, nodedict : dict) -> np.ndarray:
-        """
-        Transform fermionic static quantity from k-space to real-space.
+    # @staticmethod
+    # def FLatStcK2R(fin: np.ndarray, nodedict : dict) -> np.ndarray:
+    #     """
+    #     Transform fermionic static quantity from k-space to real-space.
         
-        Uses inverse FFT: f(R) = (1/N_k) Σ_k f(k) e^{ik·R}
+    #     Uses inverse FFT: f(R) = (1/N_k) Σ_k f(k) e^{ik·R}
         
-        Parameters
-        ----------
-        fin : ndarray[norb, norb, ns, nk], dtype=complex
-            k-space fermionic function
-        kgrid : tuple(nx, ny, nz)
-            k-point mesh dimensions
+    #     Parameters
+    #     ----------
+    #     fin : ndarray[norb, norb, ns, nk], dtype=complex
+    #         k-space fermionic function
+    #     kgrid : tuple(nx, ny, nz)
+    #         k-point mesh dimensions
             
-        Returns
-        -------
-        fout : ndarray[norb, norb, ns, nr], dtype=complex
-            Real-space fermionic function
-        """
-        norb, _, ns, nk = fin.shape
+    #     Returns
+    #     -------
+    #     fout : ndarray[norb, norb, ns, nr], dtype=complex
+    #         Real-space fermionic function
+    #     """
+    #     norb, _, ns, nk = fin.shape
+    #     commk = nodedict['commk']
+    #     rank = commk.Get_rank()
+    #     nr = len(nodedict['rloc'][rank])
+    #     rkgrid = nodedict['grid']
+    #     (nkx, nky, nkz) = nodedict['localshapek'][rank]
+    #     (nrx, nry, nrz) = nodedict['localshaper'][rank]
+    #     fft = nodedict['fft']
+    #     norm = 1.0 / (rkgrid[0] * rkgrid[1] * rkgrid[2])
+
+    #     kix, kiy, kiz = FourierMPI._build_index_maps(rank, nodedict['kloc'], nodedict['submatrixk'])
+    #     rix, riy, riz = FourierMPI._build_index_maps(rank, nodedict['rloc'], nodedict['submatrixr'])
+
+    #     # flat index -> 3D grid (batch scatter, forward layout)
+    #     fin_3d = np.zeros((norb, norb, ns, nkx, nky, nkz), dtype=np.complex128)
+    #     fin_3d[:, :, :, kix, kiy, kiz] = fin
+
+    #     # FFT per batch element (Backward: forward layout -> backward layout)
+    #     fout_3d = np.zeros((norb, norb, ns, nrx, nry, nrz), dtype=np.complex128)
+    #     nbatch = norb * norb * ns
+    #     fin_flat = fin_3d.reshape(nbatch, nkx, nky, nkz)
+    #     fout_flat = fout_3d.reshape(nbatch, nrx, nry, nrz)
+    #     for i in range(nbatch):
+    #         fout_flat[i] = fft.Backward(fin_flat[i]) * norm
+
+    #     # 3D grid -> flat index (batch gather, backward layout)
+    #     fout = np.asfortranarray(fout_3d[:, :, :, rix, riy, riz])
+
+    #     return fout
+    
+    # @staticmethod
+    # def FLatDynK2R(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+    #     """
+    #     Transform fermionic dynamic quantity from k-space to real-space.
+        
+    #     Parameters
+    #     ----------
+    #     fin : ndarray[norb, norb, ns, nk, nfreq], dtype=complex
+    #         k-space fermionic function at all frequencies
+    #     kgrid : tuple(nx, ny, nz)
+    #         k-point mesh dimensions
+            
+    #     Returns
+    #     -------
+    #     fout : ndarray[norb, norb, ns, nr, nfreq], dtype=complex
+    #         Real-space fermionic function at all frequencies
+    #     """
+    #     norb, _, ns, _, nfreq = fin.shape
+    #     commk = nodedict['commk']
+    #     rank = commk.Get_rank()
+    #     nr = len(nodedict['rloc'][rank])
+    #     fout = np.zeros((norb, norb, ns, nr, nfreq), dtype=np.complex128)
+
+    #     for ifreq in range(nfreq):
+    #         fout[..., ifreq] = FourierMPI.FLatStcK2R(fin[..., ifreq], nodedict)
+        
+    #     return fout
+    
+    # @staticmethod
+    # def FLatStcR2K(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+    #     """
+    #     Transform fermionic static quantity from real-space to k-space.
+        
+    #     Uses FFT: f(k) = Σ_R f(R) e^{-ik·R}
+        
+    #     Parameters
+    #     ----------
+    #     fin : ndarray[norb, norb, ns, nr], dtype=complex
+    #         Real-space fermionic function
+    #     kgrid : tuple(nx, ny, nz)
+    #         k-point mesh dimensions
+            
+    #     Returns
+    #     -------
+    #     fout : ndarray[norb, norb, ns, nk], dtype=complex
+    #         k-space fermionic function
+    #     """
+    #     norb, _, ns, nr = fin.shape
+    #     commk = nodedict['commk']
+    #     rank = commk.Get_rank()
+    #     nk = len(nodedict['kloc'][rank])
+    #     fft = nodedict['fft']
+    #     (nrx, nry, nrz) = nodedict['localshaper'][rank]
+    #     (nkx, nky, nkz) = nodedict['localshapek'][rank]
+
+    #     rix, riy, riz = FourierMPI._build_index_maps(rank, nodedict['rloc'], nodedict['submatrixr'])
+    #     kix, kiy, kiz = FourierMPI._build_index_maps(rank, nodedict['kloc'], nodedict['submatrixk'])
+
+    #     # flat index -> 3D grid (batch scatter, backward layout)
+    #     fin_3d = np.zeros((norb, norb, ns, nrx, nry, nrz), dtype=np.complex128)
+    #     fin_3d[:, :, :, rix, riy, riz] = fin
+
+    #     # FFT per batch element (Forward: backward layout -> forward layout)
+    #     fout_3d = np.zeros((norb, norb, ns, nkx, nky, nkz), dtype=np.complex128)
+    #     nbatch = norb * norb * ns
+    #     fin_flat = fin_3d.reshape(nbatch, nrx, nry, nrz)
+    #     fout_flat = fout_3d.reshape(nbatch, nkx, nky, nkz)
+    #     for i in range(nbatch):
+    #         fout_flat[i] = fft.Forward(fin_flat[i])
+
+    #     # 3D grid -> flat index (batch gather, forward layout)
+    #     fout = np.asfortranarray(fout_3d[:, :, :, kix, kiy, kiz])
+
+    #     return fout
+    
+    # @staticmethod
+    # def FLatDynR2K(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+    #     """
+    #     Transform fermionic dynamic quantity from real-space to k-space.
+        
+    #     Parameters
+    #     ----------
+    #     fin : ndarray[norb, norb, ns, nr, nfreq], dtype=complex
+    #         Real-space fermionic function at all frequencies
+    #     kgrid : tuple(nx, ny, nz)
+    #         k-point mesh dimensions
+            
+    #     Returns
+    #     -------
+    #     fout : ndarray[norb, norb, ns, nk, nfreq], dtype=complex
+    #         k-space fermionic function at all frequencies
+    #     """
+    #     norb, _, ns, _, nfreq = fin.shape
+    #     commk = nodedict['commk']
+    #     rank = commk.Get_rank()
+    #     nk = len(nodedict['kloc'][rank])
+    #     fout = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128)
+
+    #     for ifreq in range(nfreq):
+    #         fout[..., ifreq] = FourierMPI.FLatStcR2K(fin[..., ifreq], nodedict)
+        
+    #     return fout
+    
+    # @staticmethod
+    # def BLatStcK2R(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+    #     """
+    #     Transform bosonic static quantity from k-space to real-space.
+        
+    #     Parameters
+    #     ----------
+    #     fin : ndarray[norb, norb, ns, ns, nk], dtype=complex
+    #         k-space bosonic function
+    #     kgrid : tuple(nx, ny, nz)
+    #         k-point mesh dimensions
+            
+    #     Returns
+    #     -------
+    #     fout : ndarray[norb, norb, ns, ns, nr], dtype=complex
+    #         Real-space bosonic function
+    #     """
+    #     norb, _, ns, _, nk = fin.shape
+    #     commk = nodedict['commk']
+    #     rank = commk.Get_rank()
+    #     nr = len(nodedict['rloc'][rank])
+    #     rkgrid = nodedict['grid']
+    #     (nkx, nky, nkz) = nodedict['localshapek'][rank]
+    #     (nrx, nry, nrz) = nodedict['localshaper'][rank]
+    #     fft = nodedict['fft']
+    #     norm = 1.0 / (rkgrid[0] * rkgrid[1] * rkgrid[2])
+
+    #     kix, kiy, kiz = FourierMPI._build_index_maps(rank, nodedict['kloc'], nodedict['submatrixk'])
+    #     rix, riy, riz = FourierMPI._build_index_maps(rank, nodedict['rloc'], nodedict['submatrixr'])
+
+    #     # flat index -> 3D grid (batch scatter, forward layout)
+    #     fin_3d = np.zeros((norb, norb, ns, ns, nkx, nky, nkz), dtype=np.complex128)
+    #     fin_3d[:, :, :, :, kix, kiy, kiz] = fin
+
+    #     # FFT per batch element (Backward: forward layout -> backward layout)
+    #     fout_3d = np.zeros((norb, norb, ns, ns, nrx, nry, nrz), dtype=np.complex128)
+    #     nbatch = norb * norb * ns * ns
+    #     fin_flat = fin_3d.reshape(nbatch, nkx, nky, nkz)
+    #     fout_flat = fout_3d.reshape(nbatch, nrx, nry, nrz)
+    #     for i in range(nbatch):
+    #         fout_flat[i] = fft.Backward(fin_flat[i]) * norm
+
+    #     # 3D grid -> flat index (batch gather, backward layout)
+    #     fout = np.asfortranarray(fout_3d[:, :, :, :, rix, riy, riz])
+
+    #     return fout
+    
+    # @staticmethod
+    # def BLatDynK2R(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+    #     """
+    #     Transform bosonic dynamic quantity from k-space to real-space.
+        
+    #     Parameters
+    #     ----------
+    #     fin : ndarray[norb, norb, ns, ns, nk, nfreq], dtype=complex
+    #         k-space bosonic function at all frequencies
+    #     kgrid : tuple(nx, ny, nz)
+    #         k-point mesh dimensions
+            
+    #     Returns
+    #     -------
+    #     fout : ndarray[norb, norb, ns, ns, nr, nfreq], dtype=complex
+    #         Real-space bosonic function at all frequencies
+    #     """
+    #     norb, _, ns, _,  _, nfreq = fin.shape
+    #     commk = nodedict['commk']
+    #     rank = commk.Get_rank()
+    #     nr = len(nodedict['rloc'][rank])
+    #     fout = np.zeros((norb, norb, ns, ns, nr, nfreq), dtype=np.complex128)
+
+    #     for ifreq in range(nfreq):
+    #         fout[..., ifreq] = FourierMPI.BLatStcK2R(fin[..., ifreq], nodedict)
+        
+    #     return fout
+    
+    # @staticmethod
+    # def BLatStcR2K(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+    #     """
+    #     Transform bosonic static quantity from real-space to k-space.
+        
+    #     Parameters
+    #     ----------
+    #     fin : ndarray[norb, norb, ns, ns, nr], dtype=complex
+    #         Real-space bosonic function
+    #     kgrid : tuple(nx, ny, nz)
+    #         k-point mesh dimensions
+            
+    #     Returns
+    #     -------
+    #     fout : ndarray[norb, norb, ns, ns, nk], dtype=complex
+    #         k-space bosonic function
+    #     """
+    #     norb, _, ns, _, nr = fin.shape
+    #     commk = nodedict['commk']
+    #     rank = commk.Get_rank()
+    #     nk = len(nodedict['kloc'][rank])
+    #     fft = nodedict['fft']
+    #     (nrx, nry, nrz) = nodedict['localshaper'][rank]
+    #     (nkx, nky, nkz) = nodedict['localshapek'][rank]
+
+    #     rix, riy, riz = FourierMPI._build_index_maps(rank, nodedict['rloc'], nodedict['submatrixr'])
+    #     kix, kiy, kiz = FourierMPI._build_index_maps(rank, nodedict['kloc'], nodedict['submatrixk'])
+
+    #     # flat index -> 3D grid (batch scatter, backward layout)
+    #     fin_3d = np.zeros((norb, norb, ns, ns, nrx, nry, nrz), dtype=np.complex128)
+    #     fin_3d[:, :, :, :, rix, riy, riz] = fin
+
+    #     # FFT per batch element (Forward: backward layout -> forward layout)
+    #     fout_3d = np.zeros((norb, norb, ns, ns, nkx, nky, nkz), dtype=np.complex128)
+    #     nbatch = norb * norb * ns * ns
+    #     fin_flat = fin_3d.reshape(nbatch, nrx, nry, nrz)
+    #     fout_flat = fout_3d.reshape(nbatch, nkx, nky, nkz)
+    #     for i in range(nbatch):
+    #         fout_flat[i] = fft.Forward(fin_flat[i])
+
+    #     # 3D grid -> flat index (batch gather, forward layout)
+    #     fout = np.asfortranarray(fout_3d[:, :, :, :, kix, kiy, kiz])
+
+    #     return fout
+    
+    # @staticmethod
+    # def BLatDynR2K(fin: np.ndarray, nodedict: dict) -> np.ndarray:
+    #     """
+    #     Transform bosonic dynamic quantity from real-space to k-space.
+        
+    #     Parameters
+    #     ----------
+    #     fin : ndarray[norb, norb, ns, ns, nr, nfreq], dtype=complex
+    #         Real-space bosonic function at all frequencies
+    #     kgrid : tuple(nx, ny, nz)
+    #         k-point mesh dimensions
+            
+    #     Returns
+    #     -------
+    #     fout : ndarray[norb, norb, ns, ns, nk, nfreq], dtype=complex
+    #         k-space bosonic function at all frequencies
+    #     """
+    #     norb, _, ns, _, _, nfreq = fin.shape
+    #     commk = nodedict['commk']
+    #     rank = commk.Get_rank()
+    #     nk = len(nodedict['kloc'][rank])
+    #     fout = np.zeros((norb, norb, ns, ns, nk, nfreq), dtype=np.complex128)
+
+    #     for ifreq in range(nfreq):
+    #         fout[..., ifreq] = FourierMPI.BLatStcR2K(fin[..., ifreq], nodedict)
+        
+    #     return fout
+    @staticmethod
+    def FLatStcK2R(fin : np.ndarray, nodedict : dict) -> np.ndarray:
+
+        norb, _, ns, _ = fin.shape
         commk = nodedict['commk']
         rank = commk.Get_rank()
         nr = len(nodedict['rloc'][rank])
+        fout = np.zeros((norb, norb, ns, nr), dtype=np.complex128, order='F')
         rkgrid = nodedict['grid']
         (nx, ny, nz) = nodedict['localshaper'][rank]
+        tempmat = np.zeros((nx, ny, nz), dtype=np.complex128, order='F')
         fft = nodedict['fft']
-        norm = 1.0 / (rkgrid[0] * rkgrid[1] * rkgrid[2])
+    
+        mf = MPIFunction()
+        for js in range(ns):
+            for jorb in range(norb):
+                for iorb in range(norb):
+                    tempval = mf.KRIdx2Vec(rank, fin[iorb, jorb, js, :], nodedict['kloc'], nodedict['localshapek'])
+                    tempmat = fft.Backward(tempval)
+                    tempmat = tempmat*1/(rkgrid[0]*rkgrid[1]*rkgrid[2])
 
-        kix, kiy, kiz = FourierMPI._build_index_maps(rank, nodedict['kloc'])
-        rix, riy, riz = FourierMPI._build_index_maps(rank, nodedict['rloc'])
-
-        # flat index -> 3D grid (batch scatter)
-        fin_3d = np.zeros((norb, norb, ns, nx, ny, nz), dtype=np.complex128)
-        fin_3d[:, :, :, kix, kiy, kiz] = fin
-
-        # FFT per batch element
-        fout_3d = np.zeros_like(fin_3d)
-        nbatch = norb * norb * ns
-        fin_flat = fin_3d.reshape(nbatch, nx, ny, nz)
-        fout_flat = fout_3d.reshape(nbatch, nx, ny, nz)
-        for i in range(nbatch):
-            fout_flat[i] = fft.Backward(fin_flat[i]) * norm
-
-        # 3D grid -> flat index (batch gather)
-        fout = np.asfortranarray(fout_3d[:, :, :, rix, riy, riz])
+                    fout[iorb, jorb, js, :] = mf.KRVec2Idx(rank, tempmat, nodedict['rloc'])
 
         return fout
     
     @staticmethod
-    def FLatDynK2R(fin: np.ndarray, nodedict: dict) -> np.ndarray:
-        """
-        Transform fermionic dynamic quantity from k-space to real-space.
-        
-        Parameters
-        ----------
-        fin : ndarray[norb, norb, ns, nk, nfreq], dtype=complex
-            k-space fermionic function at all frequencies
-        kgrid : tuple(nx, ny, nz)
-            k-point mesh dimensions
-            
-        Returns
-        -------
-        fout : ndarray[norb, norb, ns, nr, nfreq], dtype=complex
-            Real-space fermionic function at all frequencies
-        """
+    def FLatDynK2R(fin : np.ndarray, nodedict : dict) -> np.ndarray:
+
         norb, _, ns, _, nfreq = fin.shape
         commk = nodedict['commk']
         rank = commk.Get_rank()
         nr = len(nodedict['rloc'][rank])
-        fout = np.zeros((norb, norb, ns, nr, nfreq), dtype=np.complex128)
+        fout = np.zeros((norb, norb, ns, nr, nfreq), dtype=np.complex128, order='F')
 
         for ifreq in range(nfreq):
             fout[..., ifreq] = FourierMPI.FLatStcK2R(fin[..., ifreq], nodedict)
@@ -1011,73 +1278,35 @@ class FourierMPI:
         return fout
     
     @staticmethod
-    def FLatStcR2K(fin: np.ndarray, nodedict: dict) -> np.ndarray:
-        """
-        Transform fermionic static quantity from real-space to k-space.
-        
-        Uses FFT: f(k) = Σ_R f(R) e^{-ik·R}
-        
-        Parameters
-        ----------
-        fin : ndarray[norb, norb, ns, nr], dtype=complex
-            Real-space fermionic function
-        kgrid : tuple(nx, ny, nz)
-            k-point mesh dimensions
-            
-        Returns
-        -------
-        fout : ndarray[norb, norb, ns, nk], dtype=complex
-            k-space fermionic function
-        """
-        norb, _, ns, nr = fin.shape
+    def FLatStcR2K(fin : np.ndarray, nodedict : dict) -> np.ndarray:
+
+        norb, _, ns, _ = fin.shape
         commk = nodedict['commk']
         rank = commk.Get_rank()
-        nk = len(nodedict['klocal'][rank])
-        fft = nodedict['fft']
+        nk = len(nodedict['kloc'][rank])
+        fout = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
         (nkx, nky, nkz) = nodedict['localshapek'][rank]
+        tempmat = np.zeros((nkx, nky, nkz), dtype=np.complex128, order='F')
+        fft = nodedict['fft']
 
-        rix, riy, riz = FourierMPI._build_index_maps(rank, nodedict['rloc'])
-        kix, kiy, kiz = FourierMPI._build_index_maps(rank, nodedict['kloc'])
-
-        # flat index -> 3D grid (batch scatter)
-        fin_3d = np.zeros((norb, norb, ns, nkx, nky, nkz), dtype=np.complex128)
-        fin_3d[:, :, :, rix, riy, riz] = fin
-
-        # FFT per batch element
-        fout_3d = np.zeros_like(fin_3d)
-        nbatch = norb * norb * ns
-        fin_flat = fin_3d.reshape(nbatch, nkx, nky, nkz)
-        fout_flat = fout_3d.reshape(nbatch, nkx, nky, nkz)
-        for i in range(nbatch):
-            fout_flat[i] = fft.Forward(fin_flat[i])
-
-        # 3D grid -> flat index (batch gather)
-        fout = np.asfortranarray(fout_3d[:, :, :, kix, kiy, kiz])
-
+        mf = MPIFunction()
+        for js in range(ns):
+            for jorb in range(norb):
+                for iorb in range(norb):
+                    tempval = mf.KRIdx2Vec(rank, fin[iorb, jorb, js, :], nodedict['rloc'], nodedict['localshaper'])
+                    tempmat = fft.Forward(tempval)
+                    fout[iorb, jorb, js, :] = mf.KRVec2Idx(rank, tempmat, nodedict['kloc'])
+        
         return fout
     
     @staticmethod
-    def FLatDynR2K(fin: np.ndarray, nodedict: dict) -> np.ndarray:
-        """
-        Transform fermionic dynamic quantity from real-space to k-space.
-        
-        Parameters
-        ----------
-        fin : ndarray[norb, norb, ns, nr, nfreq], dtype=complex
-            Real-space fermionic function at all frequencies
-        kgrid : tuple(nx, ny, nz)
-            k-point mesh dimensions
-            
-        Returns
-        -------
-        fout : ndarray[norb, norb, ns, nk, nfreq], dtype=complex
-            k-space fermionic function at all frequencies
-        """
+    def FLatDynR2K(fin : np.ndarray, nodedict : dict) -> np.ndarray:
+
         norb, _, ns, _, nfreq = fin.shape
         commk = nodedict['commk']
         rank = commk.Get_rank()
         nk = len(nodedict['kloc'][rank])
-        fout = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128)
+        fout = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
 
         for ifreq in range(nfreq):
             fout[..., ifreq] = FourierMPI.FLatStcR2K(fin[..., ifreq], nodedict)
@@ -1085,149 +1314,80 @@ class FourierMPI:
         return fout
     
     @staticmethod
-    def BLatStcK2R(fin: np.ndarray, nodedict: dict) -> np.ndarray:
-        """
-        Transform bosonic static quantity from k-space to real-space.
-        
-        Parameters
-        ----------
-        fin : ndarray[norb, norb, ns, ns, nk], dtype=complex
-            k-space bosonic function
-        kgrid : tuple(nx, ny, nz)
-            k-point mesh dimensions
-            
-        Returns
-        -------
-        fout : ndarray[norb, norb, ns, ns, nr], dtype=complex
-            Real-space bosonic function
-        """
-        norb, _, ns, _, nk = fin.shape
+    def BLatStcK2R(fin : np.ndarray, nodedict : dict) -> np.ndarray:
+
+        norb, _, ns, _, _ = fin.shape
         commk = nodedict['commk']
         rank = commk.Get_rank()
         nr = len(nodedict['rloc'][rank])
-        rkgrid = nodedict['grid']
+        fout = np.zeros((norb, norb, ns, ns, nr), dtype=np.complex128, order='F')
+        rkgrid = nodedict['rkgrid']
         (nx, ny, nz) = nodedict['localshaper'][rank]
+        tempmat = np.zeros((nx, ny, nz), dtype=np.complex128, order='F')
         fft = nodedict['fft']
-        norm = 1.0 / (rkgrid[0] * rkgrid[1] * rkgrid[2])
+        mf = MPIFunction()
 
-        kix, kiy, kiz = FourierMPI._build_index_maps(rank, nodedict['kloc'])
-        rix, riy, riz = FourierMPI._build_index_maps(rank, nodedict['rloc'])
+        for ks in range(ns):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        tempval = mf.KRIdx2Vec(rank, fin[iorb, jorb, js, ks, :], nodedict['kloc'], nodedict['localshapek'])
+                        tempmat = fft.Backward(tempval)
+                        tempmat = tempmat*1/(rkgrid[0]*rkgrid[1]*rkgrid[2])
 
-        # flat index -> 3D grid (batch scatter)
-        fin_3d = np.zeros((norb, norb, ns, ns, nx, ny, nz), dtype=np.complex128)
-        fin_3d[:, :, :, :, kix, kiy, kiz] = fin
-
-        # FFT per batch element
-        fout_3d = np.zeros_like(fin_3d)
-        nbatch = norb * norb * ns * ns
-        fin_flat = fin_3d.reshape(nbatch, nx, ny, nz)
-        fout_flat = fout_3d.reshape(nbatch, nx, ny, nz)
-        for i in range(nbatch):
-            fout_flat[i] = fft.Backward(fin_flat[i]) * norm
-
-        # 3D grid -> flat index (batch gather)
-        fout = np.asfortranarray(fout_3d[:, :, :, :, rix, riy, riz])
+                        fout[iorb, jorb, js, ks, :] = mf.KRVec2Idx(rank, tempmat, nodedict['rloc'])
 
         return fout
     
     @staticmethod
-    def BLatDynK2R(fin: np.ndarray, nodedict: dict) -> np.ndarray:
-        """
-        Transform bosonic dynamic quantity from k-space to real-space.
-        
-        Parameters
-        ----------
-        fin : ndarray[norb, norb, ns, ns, nk, nfreq], dtype=complex
-            k-space bosonic function at all frequencies
-        kgrid : tuple(nx, ny, nz)
-            k-point mesh dimensions
-            
-        Returns
-        -------
-        fout : ndarray[norb, norb, ns, ns, nr, nfreq], dtype=complex
-            Real-space bosonic function at all frequencies
-        """
-        norb, _, ns, _,  _, nfreq = fin.shape
+    def BLatDynK2R(fin : np.ndarray, nodedict : dict) -> np.ndarray:
+
+        norb, _, ns, _, _, nfreq = fin.shape
         commk = nodedict['commk']
         rank = commk.Get_rank()
         nr = len(nodedict['rloc'][rank])
-        fout = np.zeros((norb, norb, ns, ns, nr, nfreq), dtype=np.complex128)
+        fout = np.zeros((norb, norb, ns, ns, nr, nfreq), dtype=np.complex128, order='F')
 
         for ifreq in range(nfreq):
             fout[..., ifreq] = FourierMPI.BLatStcK2R(fin[..., ifreq], nodedict)
-        
+
         return fout
     
     @staticmethod
-    def BLatStcR2K(fin: np.ndarray, nodedict: dict) -> np.ndarray:
-        """
-        Transform bosonic static quantity from real-space to k-space.
-        
-        Parameters
-        ----------
-        fin : ndarray[norb, norb, ns, ns, nr], dtype=complex
-            Real-space bosonic function
-        kgrid : tuple(nx, ny, nz)
-            k-point mesh dimensions
-            
-        Returns
-        -------
-        fout : ndarray[norb, norb, ns, ns, nk], dtype=complex
-            k-space bosonic function
-        """
-        norb, _, ns, _, nr = fin.shape
+    def BLatStcR2K(fin : np.ndarray, nodedict : dict) -> np.ndarray:
+
+        norb, _, ns, _, _ = fin.shape
         commk = nodedict['commk']
         rank = commk.Get_rank()
-        nk = len(nodedict['klocal'][rank])
+        nk = len(nodedict['kloc'][rank])
+        fout = np.zeros((norb, norb, ns, ns, nk), dtype=np.complex128, order='F')
+        (nkx, nky, nkz) = nodedict['localshapef'][rank]
+        tempmat = np.zeros((nkx, nky, nkz), dtype=np.complex128, order='F')
         fft = nodedict['fft']
-        (nkx, nky, nkz) = nodedict['localshapek'][rank]
+        mf = MPIFunction()
 
-        rix, riy, riz = FourierMPI._build_index_maps(rank, nodedict['rloc'])
-        kix, kiy, kiz = FourierMPI._build_index_maps(rank, nodedict['kloc'])
-
-        # flat index -> 3D grid (batch scatter)
-        fin_3d = np.zeros((norb, norb, ns, ns, nkx, nky, nkz), dtype=np.complex128)
-        fin_3d[:, :, :, :, rix, riy, riz] = fin
-
-        # FFT per batch element
-        fout_3d = np.zeros_like(fin_3d)
-        nbatch = norb * norb * ns * ns
-        fin_flat = fin_3d.reshape(nbatch, nkx, nky, nkz)
-        fout_flat = fout_3d.reshape(nbatch, nkx, nky, nkz)
-        for i in range(nbatch):
-            fout_flat[i] = fft.Forward(fin_flat[i])
-
-        # 3D grid -> flat index (batch gather)
-        fout = np.asfortranarray(fout_3d[:, :, :, :, kix, kiy, kiz])
+        for ks in range(ns):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        tempval = mf.KRIdx2Vec(rank, fin[iorb, jorb, js, ks, :], nodedict['rloc'], nodedict['localshaper'])
+                        tempmat = fft.Forward(tempval)
+                        fout[iorb, jorb, js, ks, :] = mf.KRVec2Idx(rank, tempmat, nodedict['kloc'])
 
         return fout
     
     @staticmethod
-    def BLatDynR2K(fin: np.ndarray, nodedict: dict) -> np.ndarray:
-        """
-        Transform bosonic dynamic quantity from real-space to k-space.
-        
-        Parameters
-        ----------
-        fin : ndarray[norb, norb, ns, ns, nr, nfreq], dtype=complex
-            Real-space bosonic function at all frequencies
-        kgrid : tuple(nx, ny, nz)
-            k-point mesh dimensions
-            
-        Returns
-        -------
-        fout : ndarray[norb, norb, ns, ns, nk, nfreq], dtype=complex
-            k-space bosonic function at all frequencies
-        """
+    def BLatDynR2K(fin : np.ndarray, nodedict : dict) -> np.ndarray:
+
         norb, _, ns, _, _, nfreq = fin.shape
         commk = nodedict['commk']
         rank = commk.Get_rank()
         nk = len(nodedict['kloc'][rank])
-        fout = np.zeros((norb, norb, ns, ns, nk, nfreq), dtype=np.complex128)
+        fout = np.zeros((norb, norb, ns, ns, nk, nfreq), dtype=np.complex128, order='F')
 
         for ifreq in range(nfreq):
             fout[..., ifreq] = FourierMPI.BLatStcR2K(fin[..., ifreq], nodedict)
-        
+
         return fout
     
     @staticmethod

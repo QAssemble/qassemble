@@ -1,13 +1,11 @@
 import copy
-import datetime
 import logging
-import os
-import sys
-import time
-
-import h5py
-
+import os, sys, h5py
+import time, datetime
+import mpi4py
+from mpi4py import MPI
 from .CorrelationFunction import CorrelationFunction
+from .utility.MPIManager import MPIManager
 
 logger = logging.getLogger("QAssemble")
 
@@ -15,8 +13,9 @@ logger = logging.getLogger("QAssemble")
 class Run:
     def __init__(self, test=False) -> None:
 
-        self.control = None
+        self.control = {}
         self.func = None
+        
         self.ReadInput()
         if test:
             control = self.control
@@ -249,6 +248,8 @@ class Run:
         control["run"]["mix"] = ini.get("Mix", 0.1)
         control["run"]["nscf"] = ini.get("NSCF", 100)
         control["run"]["cw"] = ini.get("ConstantW", 1.0)
+        control["run"]["nprock"] = ini.get("NProck", 1)
+        control["run"]["nprocfermion"] = ini.get("NProcfermion", 1)
 
         # CheckKeyinString("MatsubaraMesh",ini)
         cutoff = ini.get("MatsubaraCutOff", 50)
@@ -374,7 +375,30 @@ class Run:
         control = self.control
         cry = control["crystal"]
         ft = control["ft"]
-        func = CorrelationFunction(cry=cry, ft=ft)
+
+        nprock = control["run"]["nprock"]
+        nprocf = control["run"]["nprocfermion"]
+
+        if (nprock * nprocf) > 1:
+            logger.info(
+                f"Parallel calculation start with {nprock} k-point processors and {nprocf} fermion processors"
+            )
+            comm = MPI.COMM_WORLD
+            self.mpimanager = MPIManager(comm)
+            kgrid = cry["KGrid"]
+            nk = kgrid[0] * kgrid[1] * kgrid[2]
+            nodedict = self.mpimanager.Query(
+                nk=nk,
+                nfermion=nprocf,
+                nboson=nprocf,
+                shape=kgrid,
+                nprock=nprock,
+                nprocf=nprocf,
+            )
+        else:
+            nodedict = None
+
+        func = CorrelationFunction(cry=cry, ft=ft, nodedict=nodedict)
 
         itermax = control["run"]["nscf"]
         mix = control["run"]["mix"]
