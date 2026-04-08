@@ -60,8 +60,8 @@ class MPIManager(object):
             bosonchunk = np.array_split(bosontemp, nprocf)
             submatrixboson = [(chunk[0], chunk[-1]+1) for chunk in bosonchunk]
             nodedict['submatrixboson'] = submatrixboson
-            tloc = self.mf.FTLocalGlobal(submatrixboson)
-            self.mf.bloc = tloc
+            bloc = self.mf.FTLocalGlobal(submatrixboson)
+            self.mf.bloc = bloc
 
             kidx = self.rank // nprock
             fidx = self.rank % nprock
@@ -102,7 +102,7 @@ class MPIManager(object):
             nodedict['kloc'] = klocal
             nodedict['rloc'] = rlocal
             nodedict['floc'] = floc
-            nodedict['tloc'] = tloc
+            nodedict['bloc'] = bloc
 
             # Store local to global indices
             nodedict['kloc2glob'] = kloc2glob

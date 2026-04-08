@@ -27,11 +27,55 @@ class FLatDyn(object):
         self._fermion_phase_cache_k2r = self._get_fermion_phaseK2R()
         self._fermion_phase_cache_r2k = self._get_fermion_phaseR2K()
 
-    def _get_fermion_phaseK2R(self) -> np.ndarray:
+    def _kr_global_indices(self, loc2glob_key: str, nloc: int) -> list:
+
+        if self.nodedict is None:
+            return list(range(nloc))
+
+        from .utility.MPIManager import MPIFunction
+
+        mf = MPIFunction()
+        rank = self.nodedict["commk"].Get_rank()
+        loc2glob = self.nodedict[loc2glob_key]
+
+        idx = []
+        for iloc in range(nloc):
+            _, iglob = mf.KRLocal2Global([rank, iloc], loc2glob)
+            idx.append(iglob)
+
+        return idx
+
+    def _get_local_kfrac(self, nk: int = None) -> np.ndarray:
+
+        nk_global = len(self.crystal.kpoint)
+
+        if self.nodedict is None:
+            if nk is None:
+                nk = nk_global
+            if nk != nk_global:
+                raise ValueError(
+                    f"Serial FLatDyn expected k-axis length {nk_global}, got {nk}."
+                )
+            return np.array(self.crystal.kpoint[:nk], dtype=float, copy=True)
+
+        rank = self.nodedict["commk"].Get_rank()
+        nk_local = len(self.nodedict["kloc2glob"][rank])
+
+        if nk is None:
+            nk = nk_local
+        if nk != nk_local:
+            raise ValueError(
+                f"Parallel FLatDyn expected local k-axis length {nk_local}, got {nk}."
+            )
+
+        kglob = self._kr_global_indices("kloc2glob", nk)
+        return np.array(self.crystal.kpoint[kglob], dtype=float, copy=True)
+
+    def _get_fermion_phaseK2R(self, nk: int = None) -> np.ndarray:
 
         basis_orb = self.crystal.basisf[self.crystal.forb2atom]
 
-        kfrac = self._get_local_kfrac()
+        kfrac = self._get_local_kfrac(nk)
 
         kv = kfrac @ basis_orb.T
 
@@ -42,11 +86,11 @@ class FLatDyn(object):
         phases_T = np.transpose(phases, (1, 2, 0))
         return phases_T
 
-    def _get_fermion_phaseR2K(self) -> np.ndarray:
+    def _get_fermion_phaseR2K(self, nk: int = None) -> np.ndarray:
 
         basis_orb = self.crystal.basisf[self.crystal.forb2atom]
 
-        kfrac = self._get_local_kfrac()
+        kfrac = self._get_local_kfrac(nk)
 
         kv = kfrac @ basis_orb.T
 
@@ -56,6 +100,70 @@ class FLatDyn(object):
 
         phases_T = np.transpose(phases, (1, 2, 0))
         return phases_T
+
+    def _phase_k2r(self, nk: int) -> np.ndarray:
+
+        if self._fermion_phase_cache_k2r.shape[2] == nk:
+            return self._fermion_phase_cache_k2r
+
+        return self._get_fermion_phaseK2R(nk)
+
+    def _phase_r2k(self, nk: int) -> np.ndarray:
+
+        if self._fermion_phase_cache_r2k.shape[2] == nk:
+            return self._fermion_phase_cache_r2k
+
+        return self._get_fermion_phaseR2K(nk)
+
+    def _t2f_serial(self, ftau: np.ndarray) -> np.ndarray:
+
+        norb = ftau.shape[0]
+        ns = ftau.shape[2]
+        nk = ftau.shape[3]
+        ntau = ftau.shape[4]
+        nfreq = len(self.dlr.omega)
+
+        ff = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128)
+        batch = norb * norb * ns
+
+        for ik in range(nk):
+            ftau_block = np.moveaxis(ftau[:, :, :, ik, :], -1, 0)
+            ftau_2d = np.ascontiguousarray(ftau_block).reshape(ntau, batch)
+
+            fxx = self.dlr.dF.dlr_from_tau(ftau_2d)
+            ff_2d = self.dlr.dF.matsubara_from_dlr(fxx, beta=self.dlr.beta, xi=-1)
+            ff[:, :, :, ik, :] = np.moveaxis(
+                ff_2d.reshape(nfreq, norb, norb, ns),
+                0,
+                -1,
+            )
+
+        return np.asfortranarray(ff)
+
+    def _f2t_serial(self, ff: np.ndarray) -> np.ndarray:
+
+        norb = ff.shape[0]
+        ns = ff.shape[2]
+        nk = ff.shape[3]
+        nfreq = ff.shape[4]
+        ntau = len(self.dlr.tauF)
+
+        ftau = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128)
+        batch = norb * norb * ns
+
+        for ik in range(nk):
+            ff_block = np.moveaxis(ff[:, :, :, ik, :], -1, 0)
+            ff_2d = np.ascontiguousarray(ff_block).reshape(nfreq, batch)
+
+            fxx = self.dlr.dF.dlr_from_matsubara(ff_2d, beta=self.dlr.beta, xi=-1)
+            ftau_2d = self.dlr.dF.tau_from_dlr(fxx)
+            ftau[:, :, :, ik, :] = np.moveaxis(
+                ftau_2d.reshape(ntau, norb, norb, ns),
+                0,
+                -1,
+            )
+
+        return np.asfortranarray(ftau)
         
     def Inverse(self, mat : np.ndarray) -> np.ndarray:
 
@@ -78,43 +186,11 @@ class FLatDyn(object):
     
     def T2F(self,ftau : np.ndarray) -> np.ndarray:
 
-        norb = ftau.shape[0]
-        ns = ftau.shape[2]
-        nk = ftau.shape[3]
-        ntau = ftau.shape[4]
-
-        ftau_t = np.moveaxis(ftau, -1, 0)  # (ntau, norb, norb, ns, nk)
-        batch = norb * norb * ns * nk
-        ftau_2d = np.ascontiguousarray(ftau_t).reshape(ntau, batch)
-
-        fxx = self.dlr.dF.dlr_from_tau(ftau_2d)
-        ff_2d = self.dlr.dF.matsubara_from_dlr(fxx, beta=self.dlr.beta, xi=-1)
-        nfreq = ff_2d.shape[0]
-        ff = ff_2d.reshape(nfreq, norb, norb, ns, nk)
-        ff = np.moveaxis(ff, 0, -1)  # (norb, norb, ns, nk, nfreq)
-        ff = np.asfortranarray(ff)
-
-        return ff
+        return self._t2f_serial(np.asfortranarray(ftau))
 
     def F2T(self,ff : np.ndarray) -> np.ndarray:
 
-        norb = ff.shape[0]
-        ns = ff.shape[2]
-        nk = ff.shape[3]
-        nfreq = ff.shape[4]
-
-        ff_t = np.moveaxis(ff, -1, 0)  # (nfreq, norb, norb, ns, nk)
-        batch = norb * norb * ns * nk
-        ff_2d = np.ascontiguousarray(ff_t).reshape(nfreq, batch)
-
-        fxx = self.dlr.dF.dlr_from_matsubara(ff_2d, beta=self.dlr.beta, xi=-1)
-        ftau_2d = self.dlr.dF.tau_from_dlr(fxx)
-        ntau = ftau_2d.shape[0]
-        ftau = ftau_2d.reshape(ntau, norb, norb, ns, nk)
-        ftau = np.moveaxis(ftau, 0, -1)  # (norb, norb, ns, nk, ntau)
-        ftau = np.asfortranarray(ftau)
-
-        return ftau
+        return self._f2t_serial(np.asfortranarray(ff))
 
     
     def Moment(self,ff : np.ndarray, isgreen : bool, highzero : bool) -> tuple:
@@ -140,23 +216,28 @@ class FLatDyn(object):
     
     def K2R(self,matk : np.ndarray) -> np.ndarray:
 
-        
-
         rkvec = self.crystal.kpoint
         rkgrid = self.crystal.rkgrid
 
-        
         norb = matk.shape[0]
         ns = matk.shape[2]
         nrk = matk.shape[3]
         nft = matk.shape[4]
 
         matr = np.zeros((norb, norb, ns, nrk, nft), dtype=np.complex128)
-        tempmat = np.empty((norb, norb, ns, nrk, nft), dtype=np.complex128)
-        # phase_view = phases[:, :, np.newaxis, :]
-        tempmat = matk.copy()
+        tempmat = copy.deepcopy(matk)
+        kglob = self._kr_global_indices("kloc2glob", nrk)
 
-        tempmat *= self._fermion_phase_cache_k2r[:, :, None, :, None]
+        for irk in range(nrk):
+            for js in range(ns):
+                for iorb in range(norb):
+                    for jorb in range(norb):
+                        [a, m1] = self.crystal.FAtomOrb(iorb)
+                        [b, m2] = self.crystal.FAtomOrb(jorb)
+
+                        delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+                        phase = np.exp(2.0j * np.pi * np.dot(rkvec[kglob[irk]], delta))
+                        tempmat[iorb, jorb, js, irk, :] *= phase
 
         if self.nodedict is not None:
             from .utility.Fourier import FourierMPI as Fourier
@@ -169,6 +250,7 @@ class FLatDyn(object):
     
     def R2K(self, matr : np.ndarray) -> np.ndarray:
 
+        rkvec = self.crystal.kpoint
         rkgrid = self.crystal.rkgrid
 
         norb = matr.shape[0]
@@ -179,7 +261,6 @@ class FLatDyn(object):
         
         
         matk = np.zeros((norb, norb, ns, nrk, nft), dtype=np.complex128)
-        tempmat = np.empty((norb, norb, ns, nrk, nft), dtype=np.complex128)
 
         if self.nodedict is not None:
             from .utility.Fourier import FourierMPI as Fourier
@@ -188,7 +269,19 @@ class FLatDyn(object):
             from .utility.Fourier import Fourier
             tempmat = Fourier.FLatDynR2K(matr, rkgrid)
 
-        matk = tempmat * self._fermion_phase_cache_r2k[:, :, None, :, None]
+        nkout = tempmat.shape[3]
+        kglob = self._kr_global_indices("kloc2glob", nkout)
+
+        for irk in range(nkout):
+            for js in range(ns):
+                for iorb in range(norb):
+                    for jorb in range(norb):
+                        [a, m1] = self.crystal.FAtomOrb(iorb)
+                        [b, m2] = self.crystal.FAtomOrb(jorb)
+
+                        delta = self.crystal.basisf[a, :] - self.crystal.basisf[b, :]
+                        phase = np.exp(-2.0j * np.pi * np.dot(rkvec[kglob[irk]], delta))
+                        matk[iorb, jorb, js, irk, :] = tempmat[iorb, jorb, js, irk, :] * phase
 
         return matk
     
@@ -911,7 +1004,7 @@ class GreenAB(FLatDyn):
 
         self.kf = np.copy(tempmat)
 
-        self.kt = self.F2T(tempmat, 1, 1)
+        self.kt = self.F2T(tempmat)
         self.rf = self.K2R(tempmat)
         self.rt = self.K2R(self.kt)
 
