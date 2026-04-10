@@ -11,6 +11,7 @@ from .BLocStc import VLoc
 from .Crystal import Crystal
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
+from .utility.StagedHDF5 import save_distributed_dataset
 
 logger = logging.getLogger("QAssemble")
 
@@ -503,18 +504,16 @@ class VBare(BLatStc):
         return None
 
     def Save(self):
-
-        with h5py.File(self.hdf5file, "a") as file:
-            if self.CheckGroup(self.hdf5file, self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    vbare = group[self.subgroup]
-                else:
-                    vbare = group.create_group(self.subgroup)
-            else:
-                group = file.create_group(self.group)
-                vbare = group.create_group(self.subgroup)
-            vbare.create_dataset("vk", dtype=complex, data=self.k)
+        save_distributed_dataset(
+            hdf5file=self.hdf5file,
+            group=self.group,
+            subgroup=self.subgroup,
+            dataset_name="vk",
+            data=self.k,
+            nodedict=self.nodedict,
+            distributed_axes=[(4, "kloc2glob")],
+            replicated_comm_keys=["commboson"],
+        )
 
         return None
 

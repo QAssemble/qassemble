@@ -15,6 +15,7 @@ from .utility.Common import Common
 from .utility.Dyson import Dyson
 from .utility.Fourier import Fourier
 from .utility.Mixing import Mixing
+from .utility.StagedHDF5 import save_distributed_dataset
 
 logger = logging.getLogger("QAssemble")
 
@@ -700,18 +701,16 @@ class NIHamiltonian(FLatStc):
 
         #     group.create_dataset('h0k',dtype=complex,data=self.k)
         # os.chdir('..')
-        with h5py.File(self.hdf5file, "a") as file:
-            if self.CheckGroup(self.hdf5file, self.group):
-                tb = file[self.group]
-                if self.subgroup in tb:
-                    niham = tb[self.subgroup]
-                else:
-                    niham = tb.create_group(self.subgroup)
-            else:
-                tb = file.create_group(self.group)
-                niham = tb.create_group(self.subgroup)
-            niham.create_dataset("h0k", dtype=complex, data=self.k)
-        # self.hdf5file.create_dataset('h0k',dtype=float,data=self.k)
+        save_distributed_dataset(
+            hdf5file=self.hdf5file,
+            group=self.group,
+            subgroup=self.subgroup,
+            dataset_name="h0k",
+            data=self.k,
+            nodedict=self.nodedict,
+            distributed_axes=[(3, "kloc2glob")],
+            replicated_comm_keys=["commfermion"],
+        )
 
         return None
 
@@ -983,17 +982,16 @@ class SigmaHartree(FLatStc):
 
         #     group.create_dataset(fn,dtype=complex,data=self.k)
         # os.chdir('..')
-        with h5py.File(self.hdf5file, "a") as file:
-            if self.CheckGroup(self.hdf5file, self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    sigmah = group[self.subgroup]
-                else:
-                    sigmah = group.create_group(self.subgroup)
-            else:
-                group = file.create_group(self.group)
-                sigmah = group.create_group(self.subgroup)
-            sigmah.create_dataset(fn, dtype=complex, data=self.k)
+        save_distributed_dataset(
+            hdf5file=self.hdf5file,
+            group=self.group,
+            subgroup=self.subgroup,
+            dataset_name=fn,
+            data=self.k,
+            nodedict=self.nodedict,
+            distributed_axes=[(3, "kloc2glob")],
+            replicated_comm_keys=["commfermion"],
+        )
 
         return None
 
@@ -1105,17 +1103,16 @@ class SigmaFock(FLatStc):
 
         #     group.create_dataset(fn,dtype=complex,data=self.k)
         # os.chdir('..')
-        with h5py.File(self.hdf5file, "a") as file:
-            if self.CheckGroup(self.hdf5file, self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    sigmaf = group[self.subgroup]
-                else:
-                    sigmaf = group.create_group(self.subgroup)
-            else:
-                group = file.create_group(self.group)
-                sigmaf = group.create_group(self.subgroup)
-            sigmaf.create_dataset(fn, dtype=complex, data=self.k)
+        save_distributed_dataset(
+            hdf5file=self.hdf5file,
+            group=self.group,
+            subgroup=self.subgroup,
+            dataset_name=fn,
+            data=self.k,
+            nodedict=self.nodedict,
+            distributed_axes=[(3, "kloc2glob")],
+            replicated_comm_keys=["commfermion"],
+        )
 
         return None
 
@@ -1386,19 +1383,21 @@ class Hamiltonian(FLatStc):
 
         #     group.create_dataset(fn,dtype=complex,data=self.k)
         # os.chdir('..')
-        with h5py.File(self.hdf5file, "a") as file:
-            if self.CheckGroup(self.hdf5file, self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    ham = group[self.subgroup]
-                else:
-                    ham = group.create_group(self.subgroup)
-            else:
-                group = file.create_group(self.group)
-                ham = group.create_group(self.subgroup)
-            if chem:
-                ham.create_dataset("mu", dtype=float, data=self.mu)
-            ham.create_dataset(fn, dtype=complex, data=self.k)
+        scalar_datasets = None
+        if chem:
+            scalar_datasets = {"mu": self.mu}
+
+        save_distributed_dataset(
+            hdf5file=self.hdf5file,
+            group=self.group,
+            subgroup=self.subgroup,
+            dataset_name=fn,
+            data=self.k,
+            nodedict=self.nodedict,
+            distributed_axes=[(3, "kloc2glob")],
+            replicated_comm_keys=["commfermion"],
+            scalar_datasets=scalar_datasets,
+        )
 
         return None
     
@@ -1457,9 +1456,12 @@ class HamiltonianAB(FLatStc):
     
 class ZFactor(FLatStc):
 
-    def __init__(self, crystal : Crystal, sigmagwc = None, hdf5file : str = 'glob.h5',group : str = None):
+    def __init__(self, crystal : Crystal, sigmagwc = None, nodedict : dict = None, hdf5file : str = 'glob.h5',group : str = None):
 
-        super().__init__(crystal)
+        if nodedict is None and sigmagwc is not None:
+            nodedict = getattr(sigmagwc, "nodedict", None)
+
+        super().__init__(crystal, nodedict=nodedict)
 
         self.sigmagwc = sigmagwc
         self.beta = sigmagwc.dlr.beta
@@ -1542,32 +1544,30 @@ class ZFactor(FLatStc):
         return None
     
     def Save(self, fn: str, obj : np.ndarray = None):
+        data = self.k if obj is None else obj
 
-        with h5py.File(self.hdf5file,'a') as file:
-            if self.CheckGroup(self.hdf5file,self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    sigmac = group[self.subgroup]
-                else:
-                    sigmac = group.create_group(self.subgroup)
-            else:
-                group = file.create_group(self.group)
-                sigmac = group.create_group(self.subgroup)
-            
-
-            if obj != None:
-                sigmac.create_dataset(fn,dtype=complex,data=obj)
-            else:
-                sigmac.create_dataset(fn,dtype=complex,data=self.k)
+        save_distributed_dataset(
+            hdf5file=self.hdf5file,
+            group=self.group,
+            subgroup=self.subgroup,
+            dataset_name=fn,
+            data=data,
+            nodedict=self.nodedict,
+            distributed_axes=[(3, "kloc2glob")],
+            replicated_comm_keys=["commfermion"],
+        )
 
         return None
 
 
 class SigmaStc(FLatStc):
 
-    def __init__(self, crystal : Crystal, sigmagwc = None, hdf5file : str = 'glob.h5',group : str = None):
+    def __init__(self, crystal : Crystal, sigmagwc = None, nodedict : dict = None, hdf5file : str = 'glob.h5',group : str = None):
 
-        super().__init__(crystal)
+        if nodedict is None and sigmagwc is not None:
+            nodedict = getattr(sigmagwc, "nodedict", None)
+
+        super().__init__(crystal, nodedict=nodedict)
 
         self.sigmagwc = sigmagwc
         self.beta = sigmagwc.dlr.beta
@@ -1616,22 +1616,17 @@ class SigmaStc(FLatStc):
         return None
     
     def Save(self, fn: str, obj : np.ndarray = None):
+        data = self.k if obj is None else obj
 
-        with h5py.File(self.hdf5file,'a') as file:
-            if self.CheckGroup(self.hdf5file,self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    sigmac = group[self.subgroup]
-                else:
-                    sigmac = group.create_group(self.subgroup)
-            else:
-                group = file.create_group(self.group)
-                sigmac = group.create_group(self.subgroup)
-            
-
-            if obj != None:
-                sigmac.create_dataset(fn,dtype=complex,data=obj)
-            else:
-                sigmac.create_dataset(fn,dtype=complex,data=self.k)
+        save_distributed_dataset(
+            hdf5file=self.hdf5file,
+            group=self.group,
+            subgroup=self.subgroup,
+            dataset_name=fn,
+            data=data,
+            nodedict=self.nodedict,
+            distributed_axes=[(3, "kloc2glob")],
+            replicated_comm_keys=["commfermion"],
+        )
 
         return None

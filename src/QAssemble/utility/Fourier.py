@@ -1321,7 +1321,7 @@ class FourierMPI:
         rank = commk.Get_rank()
         nr = len(nodedict['rloc'][rank])
         fout = np.zeros((norb, norb, ns, ns, nr), dtype=np.complex128, order='F')
-        rkgrid = nodedict['rkgrid']
+        rkgrid = nodedict['grid']
         (nx, ny, nz) = nodedict['localshaper'][rank]
         tempmat = np.zeros((nx, ny, nz), dtype=np.complex128, order='F')
         fft = nodedict['fft']
@@ -1361,7 +1361,7 @@ class FourierMPI:
         rank = commk.Get_rank()
         nk = len(nodedict['kloc'][rank])
         fout = np.zeros((norb, norb, ns, ns, nk), dtype=np.complex128, order='F')
-        (nkx, nky, nkz) = nodedict['localshapef'][rank]
+        (nkx, nky, nkz) = nodedict['localshapek'][rank]
         tempmat = np.zeros((nkx, nky, nkz), dtype=np.complex128, order='F')
         fft = nodedict['fft']
         mf = MPIFunction()

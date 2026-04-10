@@ -13,6 +13,7 @@ from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Mixing import Mixing
+from .utility.StagedHDF5 import save_distributed_dataset
 
 
 logger = logging.getLogger("QAssemble")
@@ -114,6 +115,180 @@ class FLatDyn(object):
             return self._fermion_phase_cache_r2k
 
         return self._get_fermion_phaseR2K(nk)
+
+    def _nk_global(self) -> int:
+
+        return len(self.crystal.kpoint)
+
+    def _nk_local(self, matin: np.ndarray = None) -> int:
+
+        if matin is not None:
+            return matin.shape[3]
+
+        if self.nodedict is None:
+            return self._nk_global()
+
+        rank = self.nodedict["commk"].Get_rank()
+        return len(self.nodedict["kloc2glob"][rank])
+
+    def _allreduce_scalar(self, value: float, op=None) -> float:
+
+        if self.nodedict is None:
+            return value
+
+        return self.nodedict["commk"].allreduce(value, op=op)
+
+    def _allreduce_array(self, matin: np.ndarray) -> np.ndarray:
+
+        if self.nodedict is None:
+            return np.array(matin, dtype=np.complex128, copy=True)
+
+        from mpi4py import MPI
+
+        commk = self.nodedict["commk"]
+        matloc = np.ascontiguousarray(matin, dtype=np.complex128)
+        matout = np.zeros_like(matloc)
+        commk.Allreduce(matloc, matout, op=MPI.SUM)
+
+        return matout
+
+    def _slice_local_k(self, matin: np.ndarray) -> np.ndarray:
+
+        mat = np.array(matin, dtype=np.complex128, copy=True)
+
+        if self.nodedict is None:
+            return mat
+
+        nk_local = self._nk_local()
+        nk_global = self._nk_global()
+
+        if mat.shape[3] == nk_local:
+            return mat
+
+        if mat.shape[3] != nk_global:
+            raise ValueError(
+                f"Expected k-axis length {nk_local} (local) or {nk_global} (global), got {mat.shape[3]}."
+            )
+
+        kglob = self._kr_global_indices("kloc2glob", nk_local)
+        return np.asfortranarray(np.take(mat, kglob, axis=3))
+
+    def _gather_global_k(self, matin: np.ndarray) -> np.ndarray:
+
+        mat = np.array(matin, dtype=np.complex128, copy=True)
+
+        if self.nodedict is None:
+            return mat
+
+        commk = self.nodedict["commk"]
+        rank = commk.Get_rank()
+        idx_local = self._kr_global_indices("kloc2glob", mat.shape[3])
+
+        gathered_idx = commk.gather(idx_local, root=0)
+        gathered_mat = commk.gather(mat, root=0)
+
+        if rank != 0:
+            return None
+
+        shape_global = list(mat.shape)
+        shape_global[3] = self._nk_global()
+        matout = np.zeros(shape_global, dtype=np.complex128)
+
+        for idx_rank, mat_rank in zip(gathered_idx, gathered_mat):
+            matout[:, :, :, idx_rank, ...] = mat_rank
+
+        return matout
+
+    def _gather_ft_on_fermion_root(
+        self, matin: np.ndarray, ndim: int, loc_dict_key: str
+    ) -> np.ndarray:
+
+        mat = np.asfortranarray(matin, dtype=np.complex128)
+
+        if self.nodedict is None:
+            return mat
+
+        if "commfermion" not in self.nodedict or loc_dict_key not in self.nodedict:
+            return mat
+
+        commf = self.nodedict["commfermion"]
+        rankf = commf.Get_rank()
+        loc_dict = self.nodedict[loc_dict_key]
+        nloc = len(loc_dict[rankf])
+
+        if mat.shape[-1] == ndim:
+            if rankf == 0:
+                return mat
+            return None
+
+        if mat.shape[-1] != nloc:
+            raise ValueError(
+                f"Expected FT-axis length {nloc} (local) or {ndim} (global), got {mat.shape[-1]}."
+            )
+
+        idx_local = [loc_dict[rankf][iloc] for iloc in range(nloc)]
+        gathered_idx = commf.gather(idx_local, root=0)
+        gathered_mat = commf.gather(mat, root=0)
+
+        if rankf != 0:
+            return None
+
+        shape_global = list(mat.shape)
+        shape_global[-1] = ndim
+        matout = np.zeros(shape_global, dtype=np.complex128)
+
+        for idx_rank, mat_rank in zip(gathered_idx, gathered_mat):
+            matout[..., idx_rank] = mat_rank
+
+        return np.asfortranarray(matout)
+
+    def _gather_global_r_on_k_root(self, matin: np.ndarray) -> np.ndarray:
+
+        mat = np.asfortranarray(matin, dtype=np.complex128)
+
+        if self.nodedict is None:
+            return mat
+
+        commk = self.nodedict["commk"]
+        rankk = commk.Get_rank()
+        idx_local = self._kr_global_indices("rloc2glob", mat.shape[-2])
+
+        gathered_idx = commk.gather(idx_local, root=0)
+        gathered_mat = commk.gather(mat, root=0)
+
+        if rankk != 0:
+            return None
+
+        shape_global = list(mat.shape)
+        shape_global[-2] = len(self.crystal.kpoint)
+        matout = np.zeros(shape_global, dtype=np.complex128)
+
+        for idx_rank, mat_rank in zip(gathered_idx, gathered_mat):
+            matout[..., idx_rank, :] = mat_rank
+
+        return np.asfortranarray(matout)
+
+    def _scatter_global_r_from_k_root(self, matin: np.ndarray) -> np.ndarray:
+
+        if self.nodedict is None:
+            return np.asfortranarray(matin, dtype=np.complex128)
+
+        commk = self.nodedict["commk"]
+        rankk = commk.Get_rank()
+        payload = None
+
+        if rankk == 0:
+            payload = []
+            for irank in range(commk.Get_size()):
+                idx = [
+                    self.nodedict["rloc2glob"][irank][iloc]
+                    for iloc in range(len(self.nodedict["rloc2glob"][irank]))
+                ]
+                payload.append(np.asfortranarray(np.take(matin, idx, axis=-2)))
+
+        matloc = commk.scatter(payload, root=0)
+
+        return np.asfortranarray(matloc)
 
     def _t2f_serial(self, ftau: np.ndarray) -> np.ndarray:
 
@@ -329,30 +504,32 @@ class FLatDyn(object):
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        if hasattr(self, "gkfmu0") and self.gkfmu0 is not None:
+            nrk = self.gkfmu0.shape[3]
+        elif hasattr(self, "gbare") and self.gbare is not None:
+            nrk = self.gbare.shape[3]
+        else:
+            nrk = self._nk_local()
         nft = len(self.dlr.omega)#self.ft.size
 
         chem = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128)
-
-        for ift in range(nft):
-            for irk in range(nrk):
-                for js in range(ns):
-                    for iorb in range(norb):
-                        chem[iorb, iorb, js, irk, ift] = mu
+        diag = np.arange(norb)
+        chem[diag, diag, :, :, :] = mu
 
         return chem
     
     def StcEmbedding(self, matin : np.ndarray) -> np.ndarray:
 
+        matloc = self._slice_local_k(matin)
         norb = len(self.crystal.find)
         ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        nrk = matloc.shape[3]
         nft = len(self.dlr.omega)#self.ft.size
 
         matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128)
 
         for ift in range(nft):
-            matout[...,ift] = matin
+            matout[...,ift] = matloc
 
         return matout
     
@@ -470,19 +647,29 @@ class FLatDyn(object):
 
     def TauB2TauF(self, ftau : np.ndarray) -> np.ndarray:
 
-        norb, _, ns, ns2, nk, ntauB = ftau.shape
-        ftau_t = np.moveaxis(ftau, -1, 0)  # (ntauB, norb, norb, ns, ns2, nk)
-        batch = norb * norb * ns * ns2 * nk
-        ftau_2d = np.ascontiguousarray(ftau_t).reshape(ntauB, batch)
-
-        fxx = self.dlr.dB.dlr_from_tau(ftau_2d)
-        fout_3d = self.dlr.dB.eval_dlr_tau(fxx[:, :, None], self.dlr.tauF, self.dlr.beta)
+        ntauB = len(self.dlr.tauB)
         ntauF = len(self.dlr.tauF)
-        fout = fout_3d[:, :, 0].reshape(ntauF, norb, norb, ns, ns2, nk)
-        fout = np.moveaxis(fout, 0, -1)  # (norb, norb, ns, ns2, nk, ntauF)
-        fout = np.asfortranarray(fout)
+        ftau_full = np.asfortranarray(ftau, dtype=np.complex128)
 
-        return fout
+        norb, _, ns, ns2, nk, _ = ftau_full.shape
+        fout = np.zeros((norb, norb, ns, ns2, nk, ntauF), dtype=np.complex128)
+        batch = norb * norb * ns * ns2
+
+        for ik in range(nk):
+            ftau_block = np.moveaxis(ftau_full[:, :, :, :, ik, :], -1, 0)
+            ftau_2d = np.ascontiguousarray(ftau_block).reshape(ntauB, batch)
+
+            fxx = self.dlr.dB.dlr_from_tau(ftau_2d)
+            fout_2d = self.dlr.dB.eval_dlr_tau(
+                fxx[:, :, None], self.dlr.tauF, self.dlr.beta
+            )[:, :, 0]
+            fout[:, :, :, :, ik, :] = np.moveaxis(
+                fout_2d.reshape(ntauF, norb, norb, ns, ns2),
+                0,
+                -1,
+            )
+
+        return np.asfortranarray(fout)
     
     def Diagonalize(self, matk : np.ndarray):
 
@@ -548,22 +735,15 @@ class GreenBare(FLatDyn):
     
     def Save(self):
 
-        # if os.path.exists('gbare'):
-        #     pass
-        # else:
-        #     os.mkdir('gbare')
-
-        with h5py.File(self.hdf5file,'a') as file:
-            if self.CheckGroup(self.hdf5file,self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    gbare = group[self.subgroup]
-                else:
-                    gbare = group.create_group(self.subgroup)
-            else:
-                group = file.create_group(self.group)
-                gbare = group.create_group(self.subgroup)
-            gbare.create_dataset('g0kf',dtype=complex,data=self.kf)
+        save_distributed_dataset(
+            hdf5file=self.hdf5file,
+            group=self.group,
+            subgroup=self.subgroup,
+            dataset_name="g0kf",
+            data=self.kf,
+            nodedict=self.nodedict,
+            distributed_axes=[(3, "kloc2glob"), (4, "floc")],
+        )
 
         return None
     
@@ -575,8 +755,12 @@ class GreenInt(FLatDyn):
             logger.error("Bare Green's function doesn't exist")
             sys.exit()
         super().__init__(crystal, dlr, nodedict)
-        self.flatstc = FLatStc(crystal=crystal)
-        norb, _, ns, nk, nfreq = greenbare.shape
+        self.flatstc = FLatStc(crystal=crystal, nodedict=nodedict)
+        self.gbare = self._slice_local_k(greenbare)
+        self.sigmah = None if sigmah is None else self._slice_local_k(sigmah)
+        self.sigmaf = None if sigmaf is None else self._slice_local_k(sigmaf)
+        self.sigmac = None if sigmagwc is None else self._slice_local_k(sigmagwc)
+        norb, _, ns, nk, nfreq = self.gbare.shape
         ntau = len(self.dlr.tauF)
         self.kf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128)
         self.kt = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128)
@@ -586,10 +770,6 @@ class GreenInt(FLatDyn):
         self.gktmu0 = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128)
         self.grfmu0 = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128)
         self.grtmu0 = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128)
-        self.gbare = greenbare
-        self.sigmah = sigmah
-        self.sigmaf = sigmaf
-        self.sigmac = sigmagwc
         self.occ = None
         self.occk = None
         self.occr = None
@@ -613,14 +793,11 @@ class GreenInt(FLatDyn):
 
     def CalMu0(self):
 
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
-        nomega = len(self.dlr.omega)
+        norb, _, ns, nrk, nomega = self.gbare.shape
         sigma = np.zeros((norb,norb,ns,nrk,nomega),dtype=np.complex128)
         logger.info("Initialization start")
         if (self.sigmah is None)and(self.sigmaf is None)and(self.sigmac is None):
-            self.gkfmu0 = self.gbare
+            self.gkfmu0 = np.array(self.gbare, dtype=np.complex128, copy=True)
         else:
             if (self.sigmah is not None):
                 # print(sigma[:,:,0,0,0])
@@ -655,18 +832,18 @@ class GreenInt(FLatDyn):
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        nk_local = self.kt.shape[3]
+        nk_global = self._nk_global()
         
         
-        occk = np.zeros((norb,norb,ns,nrk),dtype=np.complex128)
-        occ = np.zeros((norb,norb,ns),dtype=np.complex128)
+        occk = np.zeros((norb,norb,ns,nk_local),dtype=np.complex128)
         
         logger.info("Density matrixy calculation start")
         # kt = np.copy(self.kt)
         # ntau = 5000
         tau_beta = np.array([self._tau_beta], dtype=np.float64)
 
-        for irk in range(nrk):
+        for irk in range(nk_local):
             for js in range(ns):
 
                 block = self.kt[:, :, js, irk, :].T  # (ntau, norb, norb)
@@ -680,8 +857,8 @@ class GreenInt(FLatDyn):
 
 
         
-            
-        occ = occk.sum(axis=3)/nrk
+        occ_local = occk.sum(axis=3)
+        occ = self._allreduce_array(occ_local) / nk_global
         self.occ = occ
         self.occk = occk
         
@@ -692,12 +869,6 @@ class GreenInt(FLatDyn):
     def UpdateMu(self) -> np.ndarray:
 
         logger.info("Chemical potential shift start")
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
-        nft = len(self.dlr.omega)
-
-        gkfnew = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128)
         chem = self.ChemEmbedding(self.mu)
     
     
@@ -715,15 +886,14 @@ class GreenInt(FLatDyn):
 
         return None
     
-    def NumOfE(self, mu : np.float64):
+    def _num_of_e_from_g0inv(self, g0inv_cache: np.ndarray, mu: np.float64) -> np.float64:
 
         norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
+        nk_global = self._nk_global()
         nfreq = len(self.dlr.omega)
 
         # Use cached G0inv: G(mu) = (G0inv + mu*I)^{-1}
-        mat = self._g0inv_cache.copy()
+        mat = np.array(g0inv_cache, dtype=np.complex128, copy=True)
         diag = np.arange(norb)
         mat[diag, diag, :, :, :] += mu
 
@@ -746,9 +916,23 @@ class GreenInt(FLatDyn):
         fout = self.dlr.dF.eval_dlr_tau(fxx[:, :, None], self._tau_beta_cache, beta=self.dlr.beta)
         gtau_beta = fout[0, :, 0].reshape(batch_shape)  # (norb, ns, nk)
 
-        Ne = -np.real(gtau_beta.sum()) / nrk
+        Ne = -np.real(gtau_beta.sum()) / nk_global
 
         return (self.crystal.nume - Ne)
+
+    def NumOfE(self, mu : np.float64):
+
+        if self.nodedict is None:
+            return self._num_of_e_from_g0inv(self._g0inv_cache, mu)
+
+        commk = self.nodedict["commk"]
+        rank = commk.Get_rank()
+        diff = None
+
+        if rank == 0:
+            diff = self._num_of_e_from_g0inv(self._g0inv_cache_root, mu)
+
+        return commk.bcast(diff, root=0)
 
     def SearchMu(self):
 
@@ -766,6 +950,7 @@ class GreenInt(FLatDyn):
         g0inv_flat = np.linalg.inv(g0_flat)
         g0inv_batch = g0inv_flat.reshape(orig_shape + (norb, norb))
         self._g0inv_cache = np.moveaxis(g0inv_batch, (-2, -1), (0, 1))  # (norb, norb, ns, nk, nfreq)
+        self._g0inv_cache_root = self._gather_global_k(self._g0inv_cache)
         self._tau_beta_cache = np.array([self._tau_beta], dtype=np.float64)
 
         nmin = self.NumOfE(mumin)
@@ -774,12 +959,14 @@ class GreenInt(FLatDyn):
             logger.error("Chemical potential is out of the bisection range")
             logger.error(f"nmin : {nmin}, nmax : {nmax}")
             sys.exit()
-        sol = scipy.optimize.brentq(self.NumOfE,mumin,mumax,xtol=1.0e-6)
+        sol = scipy.optimize.brentq(self.NumOfE,mumin,mumax,xtol=1.0e-10)
         self.mu = sol
         logger.info("Finding chemical potential finish")
 
         # Clean up caches
         del self._g0inv_cache
+        if hasattr(self, "_g0inv_cache_root"):
+            del self._g0inv_cache_root
         del self._tau_beta_cache
 
         self.UpdateMu()
@@ -787,42 +974,29 @@ class GreenInt(FLatDyn):
     
     def Save(self, fn: str, chem : bool = False):
 
-        
-        with h5py.File(self.hdf5file,'a') as file:
-            if self.CheckGroup(self.hdf5file,self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    green = group[self.subgroup]
-                else:
-                    green = group.create_group(self.subgroup)
-            else:
-                group = file.create_group(self.group)
-                green = group.create_group(self.subgroup)
-            green.create_dataset(fn,dtype=complex,data=self.kf)
-            
-            if chem:
-                mureal = np.real(self.mu+self.c)
-                green.create_dataset('mu',dtype=float,data=mureal)
+        scalar_datasets = None
+        if chem:
+            scalar_datasets = {"mu": np.real(self.mu + self.c)}
+
+        save_distributed_dataset(
+            hdf5file=self.hdf5file,
+            group=self.group,
+            subgroup=self.subgroup,
+            dataset_name=fn,
+            data=self.kf,
+            nodedict=self.nodedict,
+            distributed_axes=[(3, "kloc2glob"), (4, "floc")],
+            scalar_datasets=scalar_datasets,
+        )
 
         return None
 
     
 class SigmaGWC(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, green : np.ndarray = None, wlat : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None) -> object:
-        super().__init__(crystal, dlr)
-        self.flatstc = FLatStc(crystal=crystal)
-        norb, _, ns, nk, nfreq = green.shape
-        ntau = len(self.dlr.tauF)
-        self.rt = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128)
-        self.rf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128)
-        self.kt = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128)
-        self.kf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128)
-        self.stck = np.zeros((norb, norb, ns, nk), dtype=np.complex128)
-        self.z = np.zeros((norb, norb, ns, nk), dtype=np.complex128)
-        self.hdf5file = hdf5file
-        self.group = group
-        self.subgroup = self.__class__.__name__
+    def __init__(self, crystal: Crystal, dlr : DLR, nodedict : dict = None, green : np.ndarray = None, wlat : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None) -> object:
+        super().__init__(crystal, dlr, nodedict)
+        self.flatstc = FLatStc(crystal=crystal, nodedict=nodedict)
 
         if green is None:
             logger.error("Error, green doesn't exist")
@@ -831,6 +1005,35 @@ class SigmaGWC(FLatDyn):
         if wlat is None:
             logger.error("Error, wlat doesn't exist")
             sys.exit()
+
+        norb, _, ns, nr_local, nfreq = green.shape
+        nk_local = self._nk_local()
+        ntau = len(self.dlr.tauF)
+        self.rt = np.zeros((norb, norb, ns, nr_local, ntau), dtype=np.complex128)
+        self.rf = np.zeros((norb, norb, ns, nr_local, nfreq), dtype=np.complex128)
+        self.kt = np.zeros((norb, norb, ns, nk_local, ntau), dtype=np.complex128)
+        self.kf = np.zeros((norb, norb, ns, nk_local, nfreq), dtype=np.complex128)
+        self.stck = np.zeros((norb, norb, ns, nk_local), dtype=np.complex128)
+        self.z = np.zeros((norb, norb, ns, nk_local), dtype=np.complex128)
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+
+        if wlat.shape[4] != nr_local:
+            raise ValueError(
+                f"SigmaGWC expected wlat local r-axis length {nr_local}, got {wlat.shape[4]}."
+            )
+        if wlat.shape[2] != ns or wlat.shape[3] != ns:
+            raise ValueError(
+                f"SigmaGWC spin axes mismatch: green ns={ns}, wlat ns=({wlat.shape[2]}, {wlat.shape[3]})."
+            )
+        if self.nodedict is not None:
+            rank = self.nodedict["commk"].Get_rank()
+            nr_expected = len(self.nodedict["rloc2glob"][rank])
+            if nr_local != nr_expected:
+                raise ValueError(
+                    f"SigmaGWC expected local r-axis length {nr_expected} on rank {rank}, got {nr_local}."
+                )
         self.green = green
         self.wlat = wlat
 
@@ -862,7 +1065,28 @@ class SigmaGWC(FLatDyn):
         norb = self.wlat.shape[0]
 
         G = self.green
-        Wc = self.TauB2TauF(self.wlat)
+
+        if self.nodedict is None:
+            Wc = self.TauB2TauF(self.wlat)
+        else:
+            commf = self.nodedict["commfermion"]
+            rankf = commf.Get_rank()
+            wc_local = None
+
+            if rankf == 0:
+                wlat_full_tau = self._gather_ft_on_fermion_root(
+                    self.wlat, len(self.dlr.tauB), "bloc"
+                )
+                wlat_global = self._gather_global_r_on_k_root(wlat_full_tau)
+
+                if self.nodedict["commk"].Get_rank() == 0:
+                    wc_global = self.TauB2TauF(wlat_global)
+                else:
+                    wc_global = None
+
+                wc_local = self._scatter_global_r_from_k_root(wc_global)
+
+            Wc = np.asfortranarray(commf.bcast(wc_local, root=0))
 
         bbasis = self.crystal.bbasis - 1  # bbasis is 1-based, convert to 0-based
         s_idx = np.arange(ns)
@@ -905,8 +1129,8 @@ class SigmaGWC(FLatDyn):
 
         crtau = np.asfortranarray(out_flat.reshape(norbc, norbc, ns, nr, ntau))
         cktau = self.R2K(crtau)
-        ckfreq = self.T2F(cktau)
         crfreq = self.T2F(crtau)
+        ckfreq = self.R2K(crfreq)
 
         self.rt = crtau
         self.kt = cktau
@@ -919,8 +1143,7 @@ class SigmaGWC(FLatDyn):
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
-        nk = len(self.crystal.kpoint)
-        nfreq = len(self.dlr.omega)#self.ft.size
+        nk = self.kf.shape[3]
 
         sigma0 = self.kf[..., 0]
         sigma0_dag = np.transpose(np.conjugate(sigma0), (1, 0, 2, 3))
@@ -935,8 +1158,7 @@ class SigmaGWC(FLatDyn):
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
-        nk = len(self.crystal.kpoint)
-        nfreq = len(self.dlr.omega)#self.ft.size
+        nk = self.kf.shape[3]
         beta = self.dlr.beta
 
         sigma0 = self.kf[..., 0]
@@ -954,23 +1176,29 @@ class SigmaGWC(FLatDyn):
         return None
     
     def Save(self, fn: str, obj : np.ndarray = None):
+        data = self.kf if obj is None else obj
 
-        with h5py.File(self.hdf5file,'a') as file:
-            if self.CheckGroup(self.hdf5file,self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    sigmac = group[self.subgroup]
-                else:
-                    sigmac = group.create_group(self.subgroup)
-            else:
-                group = file.create_group(self.group)
-                sigmac = group.create_group(self.subgroup)
-            
+        distributed_axes = [(3, "kloc2glob")]
+        replicated_comm_keys = ["commfermion"]
 
-            if obj != None:
-                sigmac.create_dataset(fn,dtype=complex,data=obj)
-            else:
-                sigmac.create_dataset(fn,dtype=complex,data=self.kf)
+        if data.ndim == 5:
+            distributed_axes.append((4, "floc"))
+            replicated_comm_keys = None
+        elif data.ndim != 4:
+            raise ValueError(
+                f"SigmaGWC.Save expected rank-4 or rank-5 data, got shape {data.shape}."
+            )
+
+        save_distributed_dataset(
+            hdf5file=self.hdf5file,
+            group=self.group,
+            subgroup=self.subgroup,
+            dataset_name=fn,
+            data=data,
+            nodedict=self.nodedict,
+            distributed_axes=distributed_axes,
+            replicated_comm_keys=replicated_comm_keys,
+        )
 
         return None
 

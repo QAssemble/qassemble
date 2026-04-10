@@ -5,6 +5,7 @@ import time, datetime
 import mpi4py
 from mpi4py import MPI
 from .CorrelationFunction import CorrelationFunction
+from .utility.DLR import DLR
 from .utility.MPIManager import MPIManager
 
 logger = logging.getLogger("QAssemble")
@@ -15,8 +16,14 @@ class Run:
 
         self.control = {}
         self.func = None
-        
-        self.ReadInput()
+        self.mpimanager = None
+        self.comm = None
+        self.rank = 0
+        self.size = 1
+        self.ismpi = False
+
+        self.InitializeMPI()
+        self.InitializeControl()
         if test:
             control = self.control
             func = CorrelationFunction(
@@ -48,6 +55,39 @@ class Run:
             sys.exit()
         return None
 
+    def InitializeMPI(self):
+
+        self.ismpi = self.CheckMPI(warn=False)
+        if self.ismpi:
+            self.comm = MPI.COMM_WORLD
+            self.rank = self.comm.Get_rank()
+            self.size = self.comm.Get_size()
+
+        return None
+
+    def InitializeControl(self):
+
+        if not self.ismpi:
+            self.ReadInput()
+            return None
+
+        payload = {"control": None, "error": None}
+
+        if self.rank == 0:
+            try:
+                self.ReadInput()
+                payload["control"] = self.control
+            except BaseException as exc:
+                payload["error"] = f"{type(exc).__name__}: {exc}"
+
+        payload = self.comm.bcast(payload, root=0)
+
+        if payload["error"] is not None:
+            raise RuntimeError(f"ReadInput failed on rank 0. {payload['error']}")
+
+        self.control = payload["control"]
+        return None
+
     def ReadInput(self):
 
         loc = {}
@@ -72,22 +112,20 @@ class Run:
 
         # if control["run"}]
         if os.path.exists(control["run"]["fn"] + ".h5"):
-            file = h5py.File(control["run"]["fn"] + ".h5", "r")
-            group = file["input"]
-            d1 = self.Hdf52Dict(group)
-            logger.info(self.CheckInput(d1=d1, d2=loc))
-            testloc = self.ChangeInput(copy.deepcopy(loc))
-            if self.CheckInput(d1=d1, d2=testloc):
-                pass
-            else:
-                logger.error("Please change the prefix of hdf5 file")
-                sys.exit()
+            with h5py.File(control["run"]["fn"] + ".h5", "r") as file:
+                group = file["input"]
+                d1 = self.Hdf52Dict(group)
+                logger.info(self.CheckInput(d1=d1, d2=loc))
+                testloc = self.ChangeInput(copy.deepcopy(loc))
+                if self.CheckInput(d1=d1, d2=testloc):
+                    pass
+                else:
+                    logger.error("Please change the prefix of hdf5 file")
+                    sys.exit()
         else:
-            file = h5py.File(control["run"]["fn"] + ".h5", "w")
-            group = file.create_group("input")
-            self.Dict2Hdf5(loc, group)
-            file.close()
-        # file.close()
+            with h5py.File(control["run"]["fn"] + ".h5", "w") as file:
+                group = file.create_group("input")
+                self.Dict2Hdf5(loc, group)
 
         inicrystal["name"] = "Crystal"
         ham["name"] = "Hamiltonian"
@@ -370,33 +408,70 @@ class Run:
 
         return check
 
+    def BuildNodeDict(self):
+
+        control = self.control
+        cry = control["crystal"]
+
+        nprock = control["run"]["nprock"]
+        nprocf = control["run"]["nprocfermion"]
+        parallel_requested = (nprock * nprocf) > 1
+        
+        if not self.ismpi:
+            if parallel_requested:
+                logger.warning(
+                    "MPI decomposition was requested, but no MPI environment was detected. "
+                    "The calculation proceeds using the serial version."
+                )
+            return None
+
+        comm = self.comm
+        world_size = self.size
+
+        if (nprock * nprocf) == 1 and world_size > 1:
+            logger.info(
+                f"MPI environment detected with world size = {world_size}. "
+                f"Using {world_size} k-point processors and 1 fermion processor."
+            )
+            nprock = world_size
+            nprocf = 1
+            control["run"]["nprock"] = nprock
+            control["run"]["nprocfermion"] = nprocf
+        elif (nprock * nprocf) != world_size:
+            errmsg = (
+                f"MPI world size = {world_size}, but NProck*NProcfermion = {nprock*nprocf}. "
+                "Please fix the input decomposition or run with the matching number of MPI ranks."
+            )
+            logger.error(errmsg)
+            raise ValueError(errmsg)
+
+        logger.info(
+            f"Parallel calculation start with {nprock} k-point processors and {nprocf} fermion processors"
+        )
+
+        self.mpimanager = MPIManager(comm)
+        kgrid = cry["KGrid"]
+        nk = kgrid[0] * kgrid[1] * kgrid[2]
+        dlr = DLR(control["ft"])
+        nfermion = len(dlr.omega)
+        nboson = len(dlr.nu)
+
+        return self.mpimanager.Query(
+            nk=nk,
+            nfermion=nfermion,
+            nboson=nboson,
+            shape=kgrid,
+            nprock=nprock,
+            nprocf=nprocf,
+        )
+
     def RunDiagE(self):
 
         control = self.control
         cry = control["crystal"]
         ft = control["ft"]
 
-        nprock = control["run"]["nprock"]
-        nprocf = control["run"]["nprocfermion"]
-
-        if (nprock * nprocf) > 1:
-            logger.info(
-                f"Parallel calculation start with {nprock} k-point processors and {nprocf} fermion processors"
-            )
-            comm = MPI.COMM_WORLD
-            self.mpimanager = MPIManager(comm)
-            kgrid = cry["KGrid"]
-            nk = kgrid[0] * kgrid[1] * kgrid[2]
-            nodedict = self.mpimanager.Query(
-                nk=nk,
-                nfermion=nprocf,
-                nboson=nprocf,
-                shape=kgrid,
-                nprock=nprock,
-                nprocf=nprocf,
-            )
-        else:
-            nodedict = None
+        nodedict = self.BuildNodeDict()
 
         func = CorrelationFunction(cry=cry, ft=ft, nodedict=nodedict)
 
@@ -493,3 +568,25 @@ class Run:
             logger.info(f"GW loop time = {delta}")
 
         return None
+
+    def CheckMPI(self, warn=True):
+
+        ismpi = False
+        # for OpenMPI:
+        if os.environ.get('OMPI_COMM_WORLD_RANK'):
+            ismpi = True
+        # for MPICH and intel based MPI:
+        elif os.environ.get('PMI_RANK'):
+            ismpi = True
+        # for PMIx (used by srun/Slurm with PMIx support):
+        elif os.environ.get('PMIX_RANK'):
+            ismpi = True
+        elif os.environ.get('CRAY_MPICH_VERSION'):
+            ismpi = True
+        # to force the MPI init manually
+        else:
+            if warn:
+                logger.warning("Could not identify MPI environment!")
+                logger.warning("The calculation proceeds using the serial version.")
+
+        return ismpi

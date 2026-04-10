@@ -1,5 +1,7 @@
 import logging
 
+from mpi4py import MPI
+
 from .Logger import setup_logger
 from .Run import Run
 
@@ -16,7 +18,8 @@ def main():
     except FileNotFoundError:
         pass
 
-    logger = setup_logger(logfile=logfile)
+    rank = MPI.COMM_WORLD.Get_rank()
+    logger = setup_logger(logfile=logfile, enabled=(rank == 0))
     logger.info("Calculation Start")
     Run()
     logger.info("Calculation Finish")

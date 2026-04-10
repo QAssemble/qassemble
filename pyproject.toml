@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-qassemble = "QAssemble.cli:main"
+qassemble = "QAssemble.CLI:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

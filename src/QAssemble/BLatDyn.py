@@ -11,27 +11,70 @@ from .utility.DLR import DLR
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Mixing import Mixing
+from .utility.StagedHDF5 import save_distributed_dataset
 
 logger = logging.getLogger("QAssemble")
 
 
 class BLatDyn(object):
-    def __init__(self, crystal: Crystal, dlr: DLR, mixing_method: str = "pulay", npulay: int = 5):
+    def __init__(self, crystal: Crystal, dlr: DLR, nodedict : dict = None, mixing_method: str = "pulay", npulay: int = 5):
         self.crystal = crystal
         self.dlr = dlr
+        self.nodedict = nodedict
         self.mixer = Mixing(method=mixing_method, npulay=npulay)
         # self.flatdyn = flatdyn
         self._boson_phase_cache_k2r = self._get_boson_phaseK2R()
         self._boson_phase_cache_r2k = self._get_boson_phaseR2K()
 
-    def _get_boson_phaseK2R(self) -> np.ndarray:
-        
+    def _kr_global_indices(self, loc2glob_key: str, nloc: int) -> list:
 
-        nrk = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
+        if self.nodedict is None:
+            return list(range(nloc))
+
+        from .utility.MPIManager import MPIFunction
+
+        mf = MPIFunction()
+        rank = self.nodedict["commk"].Get_rank()
+        loc2glob = self.nodedict[loc2glob_key]
+
+        idx = []
+        for iloc in range(nloc):
+            _, iglob = mf.KRLocal2Global([rank, iloc], loc2glob)
+            idx.append(iglob)
+
+        return idx
+
+    def _get_local_kfrac(self, nk: int = None) -> np.ndarray:
+
+        nk_global = len(self.crystal.kpoint)
+
+        if self.nodedict is None:
+            if nk is None:
+                nk = nk_global
+            if nk != nk_global:
+                raise ValueError(
+                    f"Serial BLatDyn expected k-axis length {nk_global}, got {nk}."
+                )
+            return np.array(self.crystal.kpoint[:nk], dtype=float, copy=True)
+
+        rank = self.nodedict["commk"].Get_rank()
+        nk_local = len(self.nodedict["kloc2glob"][rank])
+
+        if nk is None:
+            nk = nk_local
+        if nk != nk_local:
+            raise ValueError(
+                f"Parallel BLatDyn expected local k-axis length {nk_local}, got {nk}."
+            )
+
+        kglob = self._kr_global_indices("kloc2glob", nk)
+        return np.array(self.crystal.kpoint[kglob], dtype=float, copy=True)
+
+    def _get_boson_phaseK2R(self, nk: int = None) -> np.ndarray:
 
         basis_orb = self.crystal.basisf[self.crystal.borb2atom]
-
-        kv = self.crystal.kpoint[:nrk] @ basis_orb.T
+        kfrac = self._get_local_kfrac(nk)
+        kv = kfrac @ basis_orb.T
 
         kv_delta = kv[:, :, None] - kv[:, None, :]
         phases = np.exp(2.0j * np.pi * kv_delta)
@@ -39,19 +82,307 @@ class BLatDyn(object):
 
         return phases_T
     
-    def _get_boson_phaseR2K(self) -> np.ndarray:
-
-        nrk = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
+    def _get_boson_phaseR2K(self, nk: int = None) -> np.ndarray:
 
         basis_orb = self.crystal.basisf[self.crystal.borb2atom]
-
-        kv = self.crystal.kpoint[:nrk] @ basis_orb.T
+        kfrac = self._get_local_kfrac(nk)
+        kv = kfrac @ basis_orb.T
 
         kv_delta = kv[:, :, None] - kv[:, None, :]
         phases = np.exp(-2.0j * np.pi * kv_delta)
         phases_T = np.transpose(phases, (1, 2, 0))
 
         return phases_T
+
+    def _phase_k2r(self, nk: int) -> np.ndarray:
+
+        if self._boson_phase_cache_k2r.shape[2] == nk:
+            return self._boson_phase_cache_k2r
+
+        return self._get_boson_phaseK2R(nk)
+
+    def _phase_r2k(self, nk: int) -> np.ndarray:
+
+        if self._boson_phase_cache_r2k.shape[2] == nk:
+            return self._boson_phase_cache_r2k
+
+        return self._get_boson_phaseR2K(nk)
+
+    def _allreduce_boson_ft(self, matin: np.ndarray, ndim: int) -> np.ndarray:
+
+        mat = np.asfortranarray(matin, dtype=np.complex128)
+
+        if self.nodedict is None:
+            return mat
+
+        if "commboson" not in self.nodedict or "bloc" not in self.nodedict:
+            return mat
+
+        commb = self.nodedict["commboson"]
+        rank = commb.Get_rank()
+        bloc = self.nodedict["bloc"]
+        nloc = len(bloc[rank])
+
+        if mat.shape[-1] == ndim:
+            return mat
+
+        if mat.shape[-1] != nloc:
+            raise ValueError(
+                f"Expected bosonic FT-axis length {nloc} (local) or {ndim} (global), got {mat.shape[-1]}."
+            )
+
+        from mpi4py import MPI
+
+        batch_shape = mat.shape[:-1]
+        mat2d = np.ascontiguousarray(np.moveaxis(mat, -1, 0).reshape(nloc, -1))
+        temp = np.zeros((ndim, mat2d.shape[1]), dtype=np.complex128)
+
+        for iloc in range(nloc):
+            iglob = bloc[rank][iloc]
+            temp[iglob, :] = mat2d[iloc, :]
+
+        out = np.zeros_like(temp)
+        commb.Allreduce(temp, out, op=MPI.SUM)
+
+        matout = out.reshape((ndim,) + batch_shape)
+        matout = np.moveaxis(matout, 0, -1)
+
+        return np.asfortranarray(matout)
+
+    def _slice_local_axis(self, matin: np.ndarray, axis: int, loc2glob_key: str) -> np.ndarray:
+
+        mat = np.asfortranarray(matin, dtype=np.complex128)
+
+        if self.nodedict is None:
+            return mat
+
+        rank = self.nodedict["commk"].Get_rank()
+        nloc = len(self.nodedict[loc2glob_key][rank])
+        nglob = len(self.crystal.kpoint)
+
+        if mat.shape[axis] == nloc:
+            return mat
+
+        if mat.shape[axis] != nglob:
+            raise ValueError(
+                f"Expected axis length {nloc} (local) or {nglob} (global), got {mat.shape[axis]}."
+            )
+
+        idx = self._kr_global_indices(loc2glob_key, nloc)
+        return np.asfortranarray(np.take(mat, idx, axis=axis))
+
+    def _gather_ft_on_boson_root(self, matin: np.ndarray, ndim: int, loc_dict_key: str) -> np.ndarray:
+
+        mat = np.asfortranarray(matin, dtype=np.complex128)
+
+        if self.nodedict is None:
+            return mat
+
+        commb = self.nodedict["commboson"]
+        rankb = commb.Get_rank()
+        loc_dict = self.nodedict[loc_dict_key]
+        nloc = len(loc_dict[rankb])
+
+        if mat.shape[-1] == ndim:
+            if rankb == 0:
+                return mat
+            return None
+
+        if mat.shape[-1] != nloc:
+            raise ValueError(
+                f"Expected FT-axis length {nloc} (local) or {ndim} (global), got {mat.shape[-1]}."
+            )
+
+        idx_local = [loc_dict[rankb][iloc] for iloc in range(nloc)]
+        gathered_idx = commb.gather(idx_local, root=0)
+        gathered_mat = commb.gather(mat, root=0)
+
+        if rankb != 0:
+            return None
+
+        shape_global = list(mat.shape)
+        shape_global[-1] = ndim
+        matout = np.zeros(shape_global, dtype=np.complex128)
+
+        for idx_rank, mat_rank in zip(gathered_idx, gathered_mat):
+            matout[..., idx_rank] = mat_rank
+
+        return np.asfortranarray(matout)
+
+    def _gather_global_r_on_k_root(self, matin: np.ndarray) -> np.ndarray:
+
+        mat = np.asfortranarray(matin, dtype=np.complex128)
+
+        if self.nodedict is None:
+            return mat
+
+        commk = self.nodedict["commk"]
+        rankk = commk.Get_rank()
+        idx_local = self._kr_global_indices("rloc2glob", mat.shape[-2])
+
+        gathered_idx = commk.gather(idx_local, root=0)
+        gathered_mat = commk.gather(mat, root=0)
+
+        if rankk != 0:
+            return None
+
+        shape_global = list(mat.shape)
+        shape_global[-2] = len(self.crystal.kpoint)
+        matout = np.zeros(shape_global, dtype=np.complex128)
+
+        for idx_rank, mat_rank in zip(gathered_idx, gathered_mat):
+            matout[..., idx_rank, :] = mat_rank
+
+        return np.asfortranarray(matout)
+
+    def _scatter_global_r_from_k_root(self, matin: np.ndarray) -> np.ndarray:
+
+        if self.nodedict is None:
+            return np.asfortranarray(matin, dtype=np.complex128)
+
+        commk = self.nodedict["commk"]
+        rankk = commk.Get_rank()
+        payload = None
+
+        if rankk == 0:
+            payload = []
+            for irank in range(commk.Get_size()):
+                idx = [
+                    self.nodedict["rloc2glob"][irank][iloc]
+                    for iloc in range(len(self.nodedict["rloc2glob"][irank]))
+                ]
+                payload.append(np.asfortranarray(np.take(matin, idx, axis=-2)))
+
+        matloc = commk.scatter(payload, root=0)
+
+        return np.asfortranarray(matloc)
+
+    def _gather_global_k_on_k_root(self, matin: np.ndarray) -> np.ndarray:
+
+        mat = np.asfortranarray(matin, dtype=np.complex128)
+
+        if self.nodedict is None:
+            return mat
+
+        commk = self.nodedict["commk"]
+        rankk = commk.Get_rank()
+        idx_local = self._kr_global_indices("kloc2glob", mat.shape[-2])
+
+        gathered_idx = commk.gather(idx_local, root=0)
+        gathered_mat = commk.gather(mat, root=0)
+
+        if rankk != 0:
+            return None
+
+        shape_global = list(mat.shape)
+        shape_global[-2] = len(self.crystal.kpoint)
+        matout = np.zeros(shape_global, dtype=np.complex128)
+
+        for idx_rank, mat_rank in zip(gathered_idx, gathered_mat):
+            matout[..., idx_rank, :] = mat_rank
+
+        return np.asfortranarray(matout)
+
+    def _scatter_global_k_from_k_root(self, matin: np.ndarray) -> np.ndarray:
+
+        if self.nodedict is None:
+            return np.asfortranarray(matin, dtype=np.complex128)
+
+        commk = self.nodedict["commk"]
+        rankk = commk.Get_rank()
+        payload = None
+
+        if rankk == 0:
+            payload = []
+            for irank in range(commk.Get_size()):
+                idx = [
+                    self.nodedict["kloc2glob"][irank][iloc]
+                    for iloc in range(len(self.nodedict["kloc2glob"][irank]))
+                ]
+                payload.append(np.asfortranarray(np.take(matin, idx, axis=-2)))
+
+        matloc = commk.scatter(payload, root=0)
+
+        return np.asfortranarray(matloc)
+
+    def _nk_local(self) -> int:
+
+        if self.nodedict is None:
+            return len(self.crystal.kpoint)
+
+        rank = self.nodedict["commk"].Get_rank()
+        return len(self.nodedict["kloc2glob"][rank])
+
+    def _nr_local(self) -> int:
+
+        if self.nodedict is None:
+            return len(self.crystal.kpoint)
+
+        rank = self.nodedict["commk"].Get_rank()
+        return len(self.nodedict["rloc2glob"][rank])
+
+    def _f2t_serial(self, bf: np.ndarray) -> np.ndarray:
+
+        norb = bf.shape[0]
+        ns = bf.shape[2]
+        nrk = bf.shape[4]
+        nfreq = bf.shape[5]
+        ntau = len(self.dlr.tauB)
+
+        btau = np.zeros((norb, norb, ns, ns, nrk, ntau), dtype=np.complex128)
+        batch = norb * norb * ns * ns
+
+        from scipy.linalg import lu_solve
+
+        for ik in range(nrk):
+            bf_block = np.moveaxis(bf[:, :, :, :, ik, :], -1, 0)
+            bf_2d = np.ascontiguousarray(bf_block).reshape(nfreq, batch)
+
+            G_xaa = lu_solve(
+                (self.dlr.dB.dlrmf2cf, self.dlr.dB.mf2cfpiv),
+                bf_2d / self.dlr.beta,
+            )
+            G_xaa /= self.dlr.dB.bosonic_corr_x[:, None]
+
+            btau_2d = np.tensordot(self.dlr.dB.T_lx, G_xaa, axes=(1, 0))
+            btau[:, :, :, :, ik, :] = np.moveaxis(
+                btau_2d.reshape(ntau, norb, norb, ns, ns),
+                0,
+                -1,
+            )
+
+        return np.asfortranarray(btau)
+
+    def _t2f_serial(self, btau: np.ndarray) -> np.ndarray:
+
+        norb = btau.shape[0]
+        ns = btau.shape[2]
+        nrk = btau.shape[4]
+        ntau = btau.shape[5]
+        nfreq = len(self.dlr.nu)
+
+        bf = np.zeros((norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128)
+        batch = norb * norb * ns * ns
+
+        from scipy.linalg import lu_solve
+
+        for ik in range(nrk):
+            btau_block = np.moveaxis(btau[:, :, :, :, ik, :], -1, 0)
+            btau_2d = np.ascontiguousarray(btau_block).reshape(ntau, batch)
+
+            fxx = lu_solve((self.dlr.dB.dlrit2cf, self.dlr.dB.it2cfpiv), btau_2d)
+            bf_2d = self.dlr.beta * np.tensordot(
+                self.dlr.dB.T_qx * self.dlr.dB.bosonic_corr_x[None, :],
+                fxx,
+                axes=(1, 0),
+            )
+            bf[:, :, :, :, ik, :] = np.moveaxis(
+                bf_2d.reshape(nfreq, norb, norb, ns, ns),
+                0,
+                -1,
+            )
+
+        return np.asfortranarray(bf)
 
     def Inverse(self, matin: np.ndarray) -> np.ndarray:
         norb = matin.shape[0]
@@ -86,81 +417,48 @@ class BLatDyn(object):
         return moment, high
 
     def F2T(self, bf: np.ndarray) -> np.ndarray:
-        norb = bf.shape[0]
-        ns = bf.shape[2]
-        nrk = bf.shape[4]
-        nfreq = bf.shape[5]
+        bf_full = self._allreduce_boson_ft(bf, len(self.dlr.nu))
 
-        bf_t = np.moveaxis(bf, -1, 0)  # (nfreq, norb, norb, ns, ns, nrk)
-        batch = norb * norb * ns * ns * nrk
-        bf_2d = np.ascontiguousarray(bf_t).reshape(nfreq, batch)
-
-        # Boson: dlr_from_matsubara uses bosonic_corr_x[:, None, None]
-        # which requires 3D input. Solve lu_solve in 2D, then apply correction.
-        from scipy.linalg import lu_solve
-        G_xaa = lu_solve((self.dlr.dB.dlrmf2cf, self.dlr.dB.mf2cfpiv), bf_2d / self.dlr.beta)
-        G_xaa /= self.dlr.dB.bosonic_corr_x[:, None]
-
-        btau_2d = np.tensordot(self.dlr.dB.T_lx, G_xaa, axes=(1, 0))
-        ntau = btau_2d.shape[0]
-        btau = btau_2d.reshape(ntau, norb, norb, ns, ns, nrk)
-        btau = np.moveaxis(btau, 0, -1)  # (norb, norb, ns, ns, nrk, ntau)
-        btau = np.asfortranarray(btau)
-
-        return btau
+        return self._f2t_serial(bf_full)
 
     def T2F(self, btau: np.ndarray) -> np.ndarray:
-        norb = btau.shape[0]
-        ns = btau.shape[2]
-        nrk = btau.shape[4]
-        ntau = btau.shape[5]
+        btau_full = self._allreduce_boson_ft(btau, len(self.dlr.tauB))
 
-        btau_t = np.moveaxis(btau, -1, 0)  # (ntau, norb, norb, ns, ns, nrk)
-        batch = norb * norb * ns * ns * nrk
-        btau_2d = np.ascontiguousarray(btau_t).reshape(ntau, batch)
-
-        # Boson: lu_solve in 2D, then matsubara_from_dlr manually
-        from scipy.linalg import lu_solve
-        fxx = lu_solve((self.dlr.dB.dlrit2cf, self.dlr.dB.it2cfpiv), btau_2d)
-        bf_2d = self.dlr.beta * np.tensordot(
-            self.dlr.dB.T_qx * self.dlr.dB.bosonic_corr_x[None, :], fxx, axes=(1, 0))
-        nfreq = bf_2d.shape[0]
-        bf = bf_2d.reshape(nfreq, norb, norb, ns, ns, nrk)
-        bf = np.moveaxis(bf, 0, -1)  # (norb, norb, ns, ns, nrk, nfreq)
-        bf = np.asfortranarray(bf)
-
-        return bf
+        return self._t2f_serial(btau_full)
 
     def K2R(self, matk: np.ndarray) -> np.ndarray:
         
-        norb = matk.shape[0]
-        ns = matk.shape[2]
+        rkgrid = self.crystal.rkgrid
         nrk = matk.shape[4]
-        nft = matk.shape[5]
-        
-        matr = np.zeros((norb, norb, ns, ns, nrk, nft), dtype=np.complex128)
-        tempmat = matk.copy()
-        tempmat *= self._boson_phase_cache_k2r[:, :, None, None, :, None]
 
-        matr = Fourier.BLatDynK2R(tempmat, self.crystal.rkgrid)
+        phase_view = self._phase_k2r(nrk)[:, :, np.newaxis, np.newaxis, :, np.newaxis]
+        tempmat = np.empty_like(matk)
+        np.multiply(matk, phase_view, out=tempmat)
 
+        if self.nodedict is not None:
+            from .utility.Fourier import FourierMPI as Fourier
+            matr = Fourier.BLatDynK2R(tempmat, self.nodedict)
+        else:
+            from .utility.Fourier import Fourier
+            matr = Fourier.BLatDynK2R(tempmat, rkgrid)
 
         return matr
 
     def R2K(self, matr: np.ndarray) -> np.ndarray:
-        norb = matr.shape[0]
-        ns = matr.shape[2]
-        nrk = matr.shape[4]
-        nft = matr.shape[5]
+
         rkgrid = self.crystal.rkgrid
-        
-        matk = np.zeros((norb, norb, ns, ns, nrk, nft), dtype=np.complex128)
-        tempmat = np.empty((norb, norb, ns, ns, nrk, nft), dtype=np.complex128)
 
-        tempmat = Fourier.BLatDynR2K(matr, rkgrid)
+        if self.nodedict is not None:
+            from .utility.Fourier import FourierMPI as Fourier
+            tempmat = Fourier.BLatDynR2K(matr, self.nodedict)
+        else:
+            from .utility.Fourier import Fourier
+            tempmat = Fourier.BLatDynR2K(matr, rkgrid)
 
-        matk = tempmat * self._boson_phase_cache_r2k[:, :, None, None, :, None]
-        
+        nkout = tempmat.shape[4]
+        phase_view = self._phase_r2k(nkout)[:, :, np.newaxis, np.newaxis, :, np.newaxis]
+        matk = np.empty_like(tempmat)
+        np.multiply(tempmat, phase_view, out=matk)
 
         return matk
 
@@ -449,24 +747,25 @@ class BLatDyn(object):
 
 
 class PolLat(BLatDyn):
-    def __init__(self,crystal: Crystal,dlr: DLR,green: np.ndarray = None,hdf5file: str = "glob.h5",group: str = None,):
-        super().__init__(crystal, dlr)
-        norb = len(self.crystal.find)
+    def __init__(self,crystal: Crystal,dlr: DLR,nodedict : dict = None,green: np.ndarray = None,hdf5file: str = "glob.h5",group: str = None,):
+        super().__init__(crystal, dlr, nodedict)
+        norb = len(self.crystal.bind)
         ns = self.crystal.ns
-        nrk = self.crystal.nk
+        nrk = self._nr_local()
+        nkk = self._nk_local()
         nfreq = len(self.dlr.nu)
         ntau = len(self.dlr.tauB)
         self.rt = np.zeros(
-            (norb*norb, norb*norb, ns, ns, nrk, ntau), dtype=np.complex128
+            (norb, norb, ns, ns, nrk, ntau), dtype=np.complex128
         )
         self.kt = np.zeros(
-            (norb*norb, norb*norb, ns, ns, nrk, ntau), dtype=np.complex128
+            (norb, norb, ns, ns, nkk, ntau), dtype=np.complex128
         )
         self.rf = np.zeros(
-            (norb*norb, norb*norb, ns, ns, nrk, nfreq), dtype=np.complex128
+            (norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128
         )
         self.kf = np.zeros(
-            (norb*norb, norb*norb, ns, ns, nrk, nfreq), dtype=np.complex128
+            (norb, norb, ns, ns, nkk, nfreq), dtype=np.complex128
         )
         self.hdf5file = hdf5file
         self.group = group
@@ -474,7 +773,7 @@ class PolLat(BLatDyn):
         if green is None:
             logger.error("Error, There is no Green's function.")
             sys.exit()
-        self.green = green
+        self.green = self._slice_local_axis(green, 3, "rloc2glob")
 
         logger.info("Polarizability Calculation Start")
         start = time.time()
@@ -486,29 +785,22 @@ class PolLat(BLatDyn):
         end = time.time()
         logger.info("Polarizability Calculation Done")
         logger.info(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
-        
-    def Cal(self):
-        
+
+    def _build_polrt(self, grt: np.ndarray, gmrt: np.ndarray) -> np.ndarray:
+
         ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
-        
+        nrk = grt.shape[3]
         ntau = len(self.dlr.tauB)
-        
-        grt = self.TauF2TauB(self.green)
-    
         norb = len(self.crystal.bind)
 
         polrt = np.zeros(
             (norb, norb, ns, ns, nrk, ntau), dtype=np.complex128
         )
 
-        # gmrt = self.crystal.RT2mRmT(grt)
-        gmrt = self.RT2mRmT(grt)
-
         if ns == 2:
             map0 = np.array([self.crystal.MappingBosonFermion(i)[0] for i in range(norb)])
             map1 = np.array([self.crystal.MappingBosonFermion(i)[1] for i in range(norb)])
-            
+
             term1_tensor = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], :, :, :]
             term2_tensor = grt[map1[:, np.newaxis], map0[np.newaxis, :], :, :, :]
             diagonal_product = term1_tensor * term2_tensor
@@ -518,81 +810,105 @@ class PolLat(BLatDyn):
 
         else:
             if self.crystal.soc == True:
-                C = 1
-                map0 = np.array([self.crystal.MappingBosonFermion(i)[0] for i in range(norb)])
-                map1 = np.array([self.crystal.MappingBosonFermion(i)[1] for i in range(norb)])
-
-                term1_slice = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], 0, :, :]
-                term2_slice = grt[map1[:, np.newaxis], map0[np.newaxis, :], 0, :, :]
-                result_slice = term1_slice * term2_slice * C
-                polrt[:, :, 0, 0, :, :] = result_slice
-
+                coeff = 1
             else:
-                C = 2
-                map0 = np.array([self.crystal.MappingBosonFermion(i)[0] for i in range(norb)])
-                map1 = np.array([self.crystal.MappingBosonFermion(i)[1] for i in range(norb)])
+                coeff = 2
 
-                term1_slice = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], 0, :, :]
-                term2_slice = grt[map1[:, np.newaxis], map0[np.newaxis, :], 0, :, :]
-                result_slice = term1_slice * term2_slice * C
-                polrt[:, :, 0, 0, :, :] = result_slice
+            map0 = np.array([self.crystal.MappingBosonFermion(i)[0] for i in range(norb)])
+            map1 = np.array([self.crystal.MappingBosonFermion(i)[1] for i in range(norb)])
 
-        self.rt = polrt
+            term1_slice = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], 0, :, :]
+            term2_slice = grt[map1[:, np.newaxis], map0[np.newaxis, :], 0, :, :]
+            result_slice = term1_slice * term2_slice * coeff
+            polrt[:, :, 0, 0, :, :] = result_slice
+
+        return np.asfortranarray(polrt)
         
+    def Cal(self):
+        
+        if self.nodedict is None:
+            grt = self.TauF2TauB(self.green)
+            gmrt = self.RT2mRmT(grt)
+            self.rt = self._build_polrt(grt, gmrt)
+            return None
+
+        commb = self.nodedict["commboson"]
+        rankb = commb.Get_rank()
+
+        green_full_tau = self._gather_ft_on_boson_root(
+            self.green, len(self.dlr.tauF), "floc"
+        )
+
+        polrt_local = None
+
+        if rankb == 0:
+            green_global = self._gather_global_r_on_k_root(green_full_tau)
+
+            if self.nodedict["commk"].Get_rank() == 0:
+                grt_global = self.TauF2TauB(green_global)
+                gmrt_global = self.RT2mRmT(grt_global)
+                polrt_global = self._build_polrt(grt_global, gmrt_global)
+            else:
+                polrt_global = None
+
+            polrt_local = self._scatter_global_r_from_k_root(polrt_global)
+
+        self.rt = np.asfortranarray(commb.bcast(polrt_local, root=0))
+
 
         return None
 
     def Save(self, fn: str):
-        with h5py.File(self.hdf5file, "a") as file:
-            if self.CheckGroup(self.hdf5file, self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    pol = group[self.subgroup]
-                else:
-                    pol = group.create_group(self.subgroup)
-            else:
-                group = file.create_group(self.group)
-                pol = group.create_group(self.subgroup)
-            pol.create_dataset(fn, dtype=complex, data=self.kf)
+        save_distributed_dataset(
+            hdf5file=self.hdf5file,
+            group=self.group,
+            subgroup=self.subgroup,
+            dataset_name=fn,
+            data=self.kf,
+            nodedict=self.nodedict,
+            distributed_axes=[(4, "kloc2glob"), (5, "bloc")],
+        )
 
         return None
 
 
 class WLat(BLatDyn):
-    def __init__(self,crystal: Crystal,dlr: DLR,pol: np.ndarray = None,vbare: VBare = None,c: float = 1.0,hdf5file: str = "glob.h5", group: str = None,):
-        super().__init__(crystal, dlr)
+    def __init__(self,crystal: Crystal,dlr: DLR,nodedict : dict = None,pol: np.ndarray = None,vbare: np.ndarray = None,c: float = 1.0,hdf5file: str = "glob.h5", group: str = None,):
+        super().__init__(crystal, dlr, nodedict)
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
-        nrk = self.crystal.nk
+        nr_local = self._nr_local()
+        nk_local = self._nk_local()
+        nk_expected = nk_local if self.nodedict is not None else len(self.crystal.kpoint)
         nfreq = len(self.dlr.nu)
         ntau = len(self.dlr.tauB)
 
         # W quantity
         self.rt = np.zeros(
-            (norb, norb, ns, ns, nrk, ntau), dtype=np.complex128
+            (norb, norb, ns, ns, nr_local, ntau), dtype=np.complex128
         )
         self.kt = np.zeros(
-            (norb, norb, ns, ns, nrk, ntau), dtype=np.complex128
+            (norb, norb, ns, ns, nk_local, ntau), dtype=np.complex128
         )
         self.rf = np.zeros(
-            (norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128
+            (norb, norb, ns, ns, nr_local, nfreq), dtype=np.complex128
         )
         self.kf = np.zeros(
-            (norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128
+            (norb, norb, ns, ns, nk_local, nfreq), dtype=np.complex128
         )
 
         # Wc quantity
         self.crt = np.zeros(
-            (norb, norb, ns, ns, nrk, ntau), dtype=np.complex128
+            (norb, norb, ns, ns, nr_local, ntau), dtype=np.complex128
         )  # rt to kf
         self.ckt = np.zeros(
-            (norb, norb, ns, ns, nrk, ntau), dtype=np.complex128
+            (norb, norb, ns, ns, nk_local, ntau), dtype=np.complex128
         )
         self.crf = np.zeros(
-            (norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128
+            (norb, norb, ns, ns, nr_local, nfreq), dtype=np.complex128
         )
         self.ckf = np.zeros(
-            (norb, norb, ns, ns, nrk, nfreq), dtype=np.complex128
+            (norb, norb, ns, ns, nk_local, nfreq), dtype=np.complex128
         )
 
         self.c = c
@@ -605,8 +921,29 @@ class WLat(BLatDyn):
         if vbare is None:
             logger.error("Error, bare coulomb interaction doesn't exist")
             sys.exit()
-        self.pol = pol
-        self.vbare = vbare
+        self.pol = np.asfortranarray(pol, dtype=np.complex128)
+        self.vbare_k = np.asfortranarray(vbare, dtype=np.complex128)
+
+        if self.pol.ndim != 6:
+            raise ValueError(
+                f"Polarizability must be rank-6, got shape {self.pol.shape}."
+            )
+        if self.vbare_k.ndim != 5:
+            raise ValueError(
+                f"Bare Coulomb interaction must be rank-5, got shape {self.vbare_k.shape}."
+            )
+        if self.pol.shape[4] != nk_expected:
+            raise ValueError(
+                f"Polarizability k-axis length {self.pol.shape[4]} does not match expected nk {nk_expected}."
+            )
+        if self.vbare_k.shape[4] != nk_expected:
+            raise ValueError(
+                f"VBare k-axis length {self.vbare_k.shape[4]} does not match expected nk {nk_expected}."
+            )
+        if self.pol.shape[5] != nfreq:
+            raise ValueError(
+                f"Polarizability frequency-axis length {self.pol.shape[5]} does not match DLR size {nfreq}."
+            )
 
         logger.info("Screened Coulomb Interaction Calculation Start")
         start = time.time()
@@ -629,30 +966,16 @@ class WLat(BLatDyn):
         norb = len(self.crystal.bind)
         norbc = len(self.crystal.find)
         ns = self.crystal.ns
-        nk = len(self.crystal.kpoint)
-        nfreq = len(self.dlr.nu)
+        nk = self.pol.shape[4]
+        nfreq = self.pol.shape[5]
         ####### Initialization #######
-        tempmat = np.zeros(
-            (norbc * norbc, norbc * norbc, ns, ns, nk, nfreq),
-            dtype=np.complex128,
-        )
         wkf = np.zeros((norb, norb, ns, ns, nk, nfreq), dtype=np.complex128)
-        wckf = np.zeros((norb, norb, ns, ns, nk, nfreq), dtype=np.complex128)
-        vdyn = np.zeros((norb, norb, ns, ns, nk, nfreq), dtype=np.complex128)
 
         # for ifreq in range(nfreq):
         #     vdyn[...,ifreq] = self.vbare.k
         logger.info("Make dynamic bare Coulomb interaction start")
-        vdyn = self.StcEmbedding(self.vbare.k)
+        vdyn = self.StcEmbedding(self.vbare_k)
         logger.info("Make dynamic bare Coulomb interaction finish")
-        polcomp = np.zeros(
-            (norbc * norbc, norbc * norbc, ns, ns, nk, nfreq),
-            dtype=np.complex128,
-        )
-        vcomp = np.zeros(
-            (norbc * norbc, norbc * norbc, ns, ns, nk, nfreq),
-            dtype=np.complex128,
-        )
         ####### Initialization #######
         polcomp = self.Double2Full(self.pol) * self.c
         # del self.pol
@@ -660,35 +983,45 @@ class WLat(BLatDyn):
 
         logger.info("Dyson equation solving start")
         start = time.time()
-        tempmat = self.Dyson(vcomp, polcomp)
-        wkf = self.Full2Double(tempmat)
+
+        if self.nodedict is None:
+            tempmat = self.Dyson(vcomp, polcomp)
+            wkf = self.Full2Double(tempmat)
+            wckf = wkf - vdyn
+        else:
+            vdyn_global = self._gather_global_k_on_k_root(vdyn)
+            polcomp_global = self._gather_global_k_on_k_root(polcomp)
+            vcomp_global = self._gather_global_k_on_k_root(vcomp)
+
+            wkf_global = None
+            wckf_global = None
+
+            if self.nodedict["commk"].Get_rank() == 0:
+                tempmat = self.Dyson(vcomp_global, polcomp_global)
+                wkf_global = self.Full2Double(tempmat)
+                wckf_global = wkf_global - vdyn_global
+
+            wkf = self._scatter_global_k_from_k_root(wkf_global)
+            wckf = self._scatter_global_k_from_k_root(wckf_global)
+
         end = time.time()
-        # print(f"Dyson equation solving use time: {end - start} s")
         logger.info("Dyson equation solving finish")
         logger.info(f"Dyson equation solving use time : {datetime.timedelta(seconds=end - start)} s")
 
         self.kf = wkf
-
-        wckf = wkf - vdyn
-
         self.ckf = wckf
 
         return None
 
     def Save(self, fn: str):
-        with h5py.File(self.hdf5file, "a") as file:
-            if self.CheckGroup(self.hdf5file, self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    w = group[self.subgroup]
-                else:
-                    w = group.create_group(self.subgroup)
-            else:
-                group = file.create_group(self.group)
-                w = group.create_group(self.subgroup)
-
-            w.create_dataset(fn, dtype=complex, data=self.kf)
+        save_distributed_dataset(
+            hdf5file=self.hdf5file,
+            group=self.group,
+            subgroup=self.subgroup,
+            dataset_name=fn,
+            data=self.kf,
+            nodedict=self.nodedict,
+            distributed_axes=[(4, "kloc2glob"), (5, "bloc")],
+        )
 
         return None
-
-

@@ -3,7 +3,7 @@ import os
 import sys
 
 
-def setup_logger(logfile="stdout.log", level=logging.INFO):
+def setup_logger(logfile="stdout.log", level=logging.INFO, enabled=True):
     """Setup the QAssemble package-wide logger.
 
     Creates a logger named 'QAssemble' with separate handlers:
@@ -17,6 +17,9 @@ def setup_logger(logfile="stdout.log", level=logging.INFO):
         Path to the log file. Default is 'stdout.log'.
     level : int
         Logging level. Default is logging.INFO.
+    enabled : bool
+        Whether to attach active handlers. When False, installs a NullHandler
+        so non-root MPI ranks stay silent.
 
     Returns
     -------
@@ -25,10 +28,17 @@ def setup_logger(logfile="stdout.log", level=logging.INFO):
     """
     logger = logging.getLogger("QAssemble")
     logger.setLevel(level)
+    logger.propagate = False
 
     # Avoid adding duplicate handlers on repeated calls
     if logger.handlers:
+        for handler in logger.handlers:
+            handler.close()
         logger.handlers.clear()
+
+    if not enabled:
+        logger.addHandler(logging.NullHandler())
+        return logger
 
     info_formatter = logging.Formatter("%(message)s")
     error_formatter = logging.Formatter("%(levelname)s: %(message)s")
