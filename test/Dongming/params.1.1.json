@@ -32,17 +32,9 @@
                 0.0
             ],
             [
-                1.0,
-                -1.0,
                 0.0,
                 0.0,
                 0.0,
-                0.0
-            ],
-            [
-                1.0,
-                0.0,
-                -1.0,
                 0.0,
                 0.0,
                 0.0
@@ -59,17 +51,25 @@
                 0.0,
                 0.0,
                 0.0,
-                1.0,
-                -1.0,
+                0.0,
+                0.0,
                 0.0
             ],
             [
                 0.0,
                 0.0,
                 0.0,
-                1.0,
                 0.0,
-                -1.0
+                0.0,
+                0.0
+            ],
+            [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
             ]
         ],
         "two body": [
@@ -1425,13 +1425,13 @@
         ]
     },
     "measurement time": 3,
-    "mu": -0.6575003970484408,
+    "mu": -0.6597474342403966,
     "occupation susceptibility bulla": true,
     "partition": {
         "density matrix precise": true,
         "green basis": "matsubara",
         "green bulla": true,
-        "green matsubara cutoff": 30,
+        "green matsubara cutoff": 7,
         "occupation susceptibility bulla": true,
         "occupation susceptibility direct": false,
         "print density matrix": true,
@@ -1460,7 +1460,7 @@
                 0.5
             ]
         },
-        "susceptibility cutoff": 30,
+        "susceptibility cutoff": 7,
         "susceptibility tail": 0
     },
     "quantum number susceptibility": true,

@@ -1,8 +1,8 @@
-Start task at Tue Feb 24 22:14:40 2026
+Start task at Tue Mar 31 20:36:09 2026
 
 
-Number of invariant subspaces: 16
-Dimension of the biggest subspace: 9
+Number of invariant subspaces: 44
+Dimension of the biggest subspace: 3
 Reading in dynamic interaction ... Ok
 Reading eigenvalues ... Ok
 Reading operators ... Ok
@@ -14,4 +14,27 @@ End setting up partition observables
 Begin setting updates
 Setting expansion updates for partition space ... Ok
 End setting updates
-partition eta = 1
+
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   RANK 0 PID 9533 RUNNING AT linux-vm
+=   KILLED BY SIGNAL: 9 (Killed)
+===================================================================================
+
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   RANK 1 PID 9534 RUNNING AT linux-vm
+=   KILLED BY SIGNAL: 9 (Killed)
+===================================================================================
+
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   RANK 2 PID 9535 RUNNING AT linux-vm
+=   KILLED BY SIGNAL: 9 (Killed)
+===================================================================================
+
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   RANK 3 PID 9536 RUNNING AT linux-vm
+=   KILLED BY SIGNAL: 9 (Killed)
+===================================================================================

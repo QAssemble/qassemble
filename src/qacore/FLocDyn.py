@@ -909,6 +909,7 @@ class SigmaCImp(FLocDyn): ### Sigma_GWC_Imp
         self.key = key
 
         self.rf[...,self.key] = self.sigma_bare
+        print('sigmac_imp is -- ',self.rf[0,0,0,0,0])
         self.rt[...,self.key] = self.F2T(self.rf[...,self.key],1,1) ### are isgreen and highzero arguments here correct?
 
         return None
@@ -982,6 +983,22 @@ class Hybridisation(FLocDyn):
             for ift in range(nft):
                 for js in range(ns):
                     rf[...,js,ift,iprob] = imag_one*self.ft.omega[ift]*IdentityMatrix[...] - gfinv[...,js,ift,iprob] - self.eimp.r[...,js,iprob] - (self.sigmahimp[...,js,iprob] + self.sigmafimp[...,js,iprob] + self.sigmacimp[...,js,ift,iprob])
+        
+
+
+        iomega = np.zeros((nft),dtype=np.complex128,order='F')
+        for ift in range(nft):
+            iomega[ift] = imag_one*self.ft.omega[ift]
+
+        np.savetxt("Hybridisation_iomega.txt", np.column_stack((iomega[:].real, iomega[:].imag)), fmt="%.6f")
+        np.savetxt("Hybridisation_gfloc.txt", np.column_stack((self.gloc[0,0,0,:,0].real, self.gloc[0,0,0,:,0].imag)), fmt="%.6f")
+        np.savetxt("Hybridisation_gfinv.txt", np.column_stack((gfinv[0,0,0,:,0].real, gfinv[0,0,0,:,0].imag)), fmt="%.6f")
+        print('==================================')
+        print(self.eimp.r[0,0,0,0])
+        print(self.sigmahimp[0,0,0,0])
+        print(self.sigmafimp[0,0,0,0])
+        print('==================================')
+        np.savetxt("Hybridisation_sigmacimp.txt", np.column_stack((self.sigmacimp[0,0,0,:,0].real, self.sigmacimp[0,0,0,:,0].imag)), fmt="%.6f")
         
         end = time.time()
         tiem_delta = end-start
@@ -1082,6 +1099,8 @@ class FWeiss(FLocDyn):
         ### Eimp ###
         eimp = EImp(crystal=self.crystal,niham=self.niham,mu=self.mu,hamh=self.hamh,hamf=self.hamf,hloc=self.hloc,floc=self.floc)
         self.Eimp_r = eimp.r
+
+        print('Eimp is -- ',self.Eimp_r[0,0,0,0])
 
 
         ### Delta ###

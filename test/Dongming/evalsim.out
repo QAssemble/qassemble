@@ -1,4 +1,4 @@
-Start post-processing at Mon Jan 19 18:32:10 2026
+Start post-processing at Tue Mar 31 20:36:05 2026
 
 Begin evaluating partition measurements
 Calculating quantum number observables ... Ok
@@ -22,5 +22,5 @@ Reading bulla occupation susceptibility ... Ok
 Reading impurity probabilities ... Ok
 describing eigenstates ... Ok
 End evaluating partition measurements
-End post-processing at Mon Jan 19 18:32:10 2026
+End post-processing at Tue Mar 31 20:36:05 2026
 

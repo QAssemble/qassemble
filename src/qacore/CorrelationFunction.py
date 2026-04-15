@@ -524,7 +524,7 @@ class CorrelationFunction(object):
 
 
         niham = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,hdf5file=hdf5file,group=group)
-        gbare = GreenBare(crystal=self.crystal,ft=self.ft,hamtb=niham.k,hdf5file=hdf5file,group=group)
+        gbare = GreenBare_new(crystal=self.crystal,ft=self.ft,hamtb=niham.k,hdf5file=hdf5file,group=group)
         vbare = VBare(crystal=self.crystal,orboption=loccoulomb,intamp=nonloccoulomb,ohno=ohno,jth=jth,ohnoyuka=ohnoyuka,hdf5file=hdf5file,group=group)
         self.vbare = vbare
         self.greenbare = gbare
@@ -563,8 +563,8 @@ class CorrelationFunction(object):
         
         # niham_temp = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin, valley=valley, hdf5file=hdf5file,group='test') 
         niham_temp = NIHamiltonian(self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin,aferro=aferro, valley=valley,site=site,hdf5file=hdf5file,group='test_gw')
-        gbare_temp = GreenBare(crystal=self.crystal,ft=self.ft,hamtb=niham_temp.k,hdf5file=hdf5file,group='test') 
-        gold = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare_temp.kf,hdf5file=hdf5file,group=group)
+        gbare_temp = GreenBare_new(crystal=self.crystal,ft=self.ft,hamtb=niham_temp.k,hdf5file=hdf5file,group='test') 
+        gold = GreenInt_new(crystal=self.crystal,ft=self.ft,greenbare=gbare_temp.kf,hdf5file=hdf5file,group=group)
         pkfold = None
         ckfold = None
         # wold = 0
@@ -585,22 +585,22 @@ class CorrelationFunction(object):
         print("Fock calculation finish")
 
         print("Polarizability calculation start")
-        pol_gw = PolLat(crystal=self.crystal,ft=self.ft,green=gold.rt,hdf5file=hdf5file,group=group)
-        # pol_gw.kf = pol_gw.Mixing(iter=iter+1,mix=mix,Bb=pol_gw.kf,Bold=pkfold)
+        pol_gw = PolLat_new(crystal=self.crystal,ft=self.ft,green=gold.rt,hdf5file=hdf5file,group=group)
+        pol_gw.kf = pol_gw.Mixing(iter=iter+1,mix=mix,Bb=pol_gw.kf,Bold=pkfold)
         # if (iter % 50 == 0):
         #     pol.Save(f'pkf.{iter}')
         print("Polarizability calculation finish")
 
         print("Screened coulomb interaction calculation start")
-        wnew = WLat(crystal=self.crystal,ft=self.ft,pol=pol_gw.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
+        wnew = WLat_new(crystal=self.crystal,ft=self.ft,pol=pol_gw.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
         # if (iter % 50 == 0):
         #     w.Save(f'wkf.{iter}')
         # w.Save(w.ckf,f'wckf.{iter}')
         print("Screened coulomb interaction calculation finish")
 
         print("GW self-energy calculation start")
-        sigmac_gw = SigmaGWC(crystal=self.crystal,ft=self.ft,green=gold.rt,wlat=wnew.crt,hdf5file=hdf5file,group=group)
-        # sigmac_gw.kf = sigmac_gw.Mixing(iter=iter+1,mix=mix,Fb=sigmac_gw.kf,Fm=ckfold)
+        sigmac_gw = SigmaGWC_new(crystal=self.crystal,ft=self.ft,green=gold.rt,wlat=wnew.crt,hdf5file=hdf5file,group=group)
+        sigmac_gw.kf = sigmac_gw.Mixing(iter=iter+1,mix=mix,Fb=sigmac_gw.kf,Fm=ckfold)
         # if (iter % 50 == 0):
         #     sigmagwc.Save(f'sigmagwckf.{iter}')
         print("GW self-energy calculation finish")
@@ -608,7 +608,7 @@ class CorrelationFunction(object):
         ############################
         ### Green's function - G ###
         ############################
-        gnew = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_gw.k,sigmaf=sigmaf_gw.k,sigmagwc=sigmac_gw.kf,hdf5file=hdf5file,group=group)
+        gnew = GreenInt_new(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=sigmah_gw.k,sigmaf=sigmaf_gw.k,sigmagwc=sigmac_gw.kf,hdf5file=hdf5file,group=group)
         # if (iter % 50 == 0):
         #     gnew.Save(f'gkf.{iter}')
 
@@ -708,7 +708,8 @@ class CorrelationFunction(object):
             ##############    Loc projection part    ##############
             #######################################################
 
-            gloc, wloc = self.Loc_Projection(gold,wold)
+            gloc, wloc = self.Loc_Projection(gold,wold,vloc)
+            # gloc, wloc, pol_dc = self.Loc_Projection(gold,wold,vloc)
 
 
             ########################################################
@@ -716,6 +717,7 @@ class CorrelationFunction(object):
             ########################################################
 
             sigmaf_dc, sigmac_dc, pol_dc = self.compute_DC_part(gloc,wloc,vloc) ## passing VLoc class
+            # sigmaf_dc, sigmac_dc = self.compute_DC_part(gloc,wloc,vloc) ## passing VLoc class
 
 
             ###################################################
@@ -760,10 +762,10 @@ class CorrelationFunction(object):
             self.full_sigmah_k = sigmah_gw.k
             self.full_sigmaf_k = sigmaf_gw.k + sigmaf_edmft.k_embedded - sigmaf_dc.k_embedded
             self.full_sigmac_kf = sigmac_gw.kf + sigmac_edmft.kf_embedded - sigmac_dc.kf_embedded
-            gnew = GreenInt(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=self.full_sigmah_k,sigmaf=self.full_sigmaf_k,sigmagwc=self.full_sigmac_kf)
+            gnew = GreenInt_new(crystal=self.crystal,ft=self.ft,greenbare=gbare.kf,sigmah=self.full_sigmah_k,sigmaf=self.full_sigmaf_k,sigmagwc=self.full_sigmac_kf)
 
             self.full_pol_kf = pol_gw.kf + pol_edmft.kf_embedded - pol_dc.kf_embedded
-            wnew = WLat(crystal=self.crystal,ft=self.ft,pol=self.full_pol_kf,vbare=self.vbare,c=self.c)
+            wnew = WLat_new(crystal=self.crystal,ft=self.ft,pol=self.full_pol_kf,vbare=self.vbare,c=self.c)
 
 
             ##########################
@@ -937,22 +939,29 @@ class CorrelationFunction(object):
 
 
 
-    def Loc_Projection(self,gint,w):
+    def Loc_Projection(self,gint,w,vloc):
         
         print("**GreenLoc start")
         gloc = GreenLoc(crystal=self.crystal, ft=self.ft, green=gint)
         print("**GreenLoc finish\n")
 
+        # print("**PolLoc start")
+        # pi_dc = PolLGW(crystal=self.crystal, ft=self.ft, green=gloc)
+        # # pollat = PolLat(crystal=cf.crystal, ft=cf.ft, green=g_average2)
+        # print("**PolLoc finish\n")
+
         print("**WLoc start")
         start = time.time()
         # wloc = WLoc_temp(crystal=self.crystal, ft=self.ft, pol=pi_dc.rf, vLoc=vloc.zvloc)
-        wloc = WLoc(crystal=self.crystal, ft=self.ft, wlat=w)
+        wloc = WLoc(crystal=self.crystal, ft=self.ft, wlat=w, vLoc=vloc.zvloc)
         end = time.time()
         tiem_delta = end-start
         print(round(tiem_delta,5))
         print("**WLoc finish\n")
 
-        return gloc, wloc
+        # pi_dc.embedding()
+
+        return gloc, wloc#, pi_dc
 
 
 
@@ -990,13 +999,42 @@ class CorrelationFunction(object):
             wloc_rf_temp[:,:,:,:,ift,:] = wloc.crf[:,:,:,:,ift,:] + vloc.zvloc[...]
 
         uimp = BWeiss(crystal=self.crystal,ft=self.ft,wloc=wloc_rf_temp,ploc=pi_dc.rf,vloc=vloc.zvloc)
-        # uimp = BWeiss(crystal=cf.crystal,ft=cf.ft,wloc=wloc.rf,ploc=pi_dc.rf,vloc=vloc)
+        # uimp = BWeiss(crystal=self.crystal,ft=self.ft,wloc=wloc.rf,ploc=pi_dc.rf,vloc=vloc.zvloc)
         print("**BWeiss finish\n")
 
-        print("**SigmaHLoc start")
-        sigmah_dc = SigmaHLoc(crystal=self.crystal, occ=gloc.occ, vloc=uimp.utilde_rf)
-        # hloc = SigmaHLoc(crystal=cf.crystal, occ=gloc.occ, vloc=vloc)
-        print("**SigmaHLoc finish\n")
+        # print(uimp.utilde_rf.shape)
+        # print(vloc.zvloc.shape)
+
+        # print(vloc.zvloc[0,0,0,0,0])
+
+        # np.savetxt("Hybridisation_uimp.utilde_rf.txt", np.column_stack((uimp.utilde_rf[0,0,0,0,:,0].real, uimp.utilde_rf[0,0,0,0,:,0].imag)), fmt="%.6f")
+
+
+        
+
+        # exit()
+
+        # print("**SigmaHLoc start")
+        # if iter == 1 :
+        #     norb,norb,ns,ns,nft,nprob = uimp.utilde_rf.shape
+        #     vloc_temp = np.zeros((norb,norb,ns,ns,nft,nprob), dtype=np.complex128, order='F')
+        #     for ift in range(nft):
+        #         vloc_temp[:,:,:,:,ift,:] = vloc.zvloc[...]
+
+        #     sigmah_dc = SigmaHLoc(crystal=self.crystal, occ=gloc.occ, vloc=vloc_temp)
+        # else:
+        #     sigmah_dc = SigmaHLoc(crystal=self.crystal, occ=gloc.occ, vloc=uimp.utilde_rf)
+
+
+        # norb,norb,ns,ns,nft,nprob = uimp.utilde_rf.shape
+        # vloc_temp = np.zeros((norb,norb,ns,ns,nft,nprob), dtype=np.complex128, order='F')
+        # for ift in range(nft):
+        #     vloc_temp[:,:,:,:,ift,:] = vloc.zvloc[...]
+        # sigmah_dc = SigmaHLoc(crystal=self.crystal, occ=gloc.occ, vloc=vloc_temp)
+
+        # sigmah_dc = SigmaHLoc(crystal=self.crystal, occ=gloc.occ, vloc=uimp.utilde_rf)
+
+        # print("**SigmaHLoc finish\n")
 
         print("***Weiss Green's function start")
         if iter == 1 :
@@ -1005,12 +1043,15 @@ class CorrelationFunction(object):
             weiss_green = FWeiss(crystal=self.crystal,ft=self.ft,niham=self.niham.k,mu=mu,hamh=sigmah.k,hamf=sigmaf.k,hloc=sigmah_dc.r,floc=sigmaf_dc.r,gloc=gloc.gf,sigmahimp=sigmah_imp.r,sigmafimp=sigmaf_imp.r,sigmacimp=sigmac_imp.rf)
         print("***Weiss Green's function finish")
 
+        print('mu is ',mu)
+
 
 
         print('\n*** write_ctqmc_params start ***')
         ctqmc.PreProcessing(iter=iter, key=key, Eimp=weiss_green.Eimp_r, imp=imp, equiv=equiv, vloc=vloc, hyb=weiss_green.delta_rf, bweiss=uimp.utilde_rf)
         print('*** write_ctqmc_params finish ***')
 
+        # exit()
 
         print('\n*** run and measure CTQMC start ***')
         ctqmc.Run()
@@ -1111,7 +1152,7 @@ class CorrelationFunction(object):
         print("Fock calculation finish")
 
         print("Polarizability calculation start")
-        pol_gw = PolLat(crystal=self.crystal,ft=self.ft,green=gold.rt,hdf5file=hdf5file,group=group)
+        pol_gw = PolLat_new(crystal=self.crystal,ft=self.ft,green=gold.rt,hdf5file=hdf5file,group=group)
         # pol_gw.kf = pol_gw.Mixing(iter=iter,mix=mix,Bb=pol_gw.kf,Bold=pkfold)
         # if (iter % 50 == 0):
         #     pol.Save(f'pkf.{iter}')
@@ -1125,7 +1166,7 @@ class CorrelationFunction(object):
         # print("Screened coulomb interaction calculation finish")
 
         print("GW self-energy calculation start")
-        sigmac_gw = SigmaGWC(crystal=self.crystal,ft=self.ft,green=gold.rt,wlat=wold.crt,hdf5file=hdf5file,group=group)
+        sigmac_gw = SigmaGWC_new(crystal=self.crystal,ft=self.ft,green=gold.rt,wlat=wold.crt,hdf5file=hdf5file,group=group)
         # sigmac_gw.kf = sigmac_gw.Mixing(iter=iter,mix=mix,Fb=sigmac_gw.kf,Fm=ckfold)
         # if (iter % 50 == 0):
         #     sigmagwc.Save(f'sigmagwckf.{iter}')

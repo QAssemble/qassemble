@@ -343,7 +343,8 @@ class SigmaHLoc(FLocStc):
                         iorbc4 = self.crystal.FIndex([b, m4])
                         # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]
                         h[iorbc1, iorbc2, js, iprob] += (
-                            self.vloc[iorb, jorb, js, ks, 0, iprob] * occ[iorbc4, iorbc3, ks] ### vloc take only iomega = 0
+                            # self.vloc[iorb, jorb, js, ks, 0, iprob] * occ[iorbc4, iorbc3, ks] ### vloc take only iomega = 0
+                            self.vloc[iorb, jorb, js, ks, iprob] * occ[iorbc4, iorbc3, ks] ### vloc take only iomega = 0
                     )
 
         else:
@@ -376,7 +377,10 @@ class SigmaHLoc(FLocStc):
                             iorbc3 = self.crystal.FIndex([b, m3])
                             iorbc4 = self.crystal.FIndex([b, m4])
                             h[iorbc1, iorbc2, js, iprob] = (
-                                self.vloc[iorb, jorb, js, ks, 0, iprob]
+                                # self.vloc[iorb, jorb, js, ks, 0, iprob]
+                                # * occ[iorbc4, iorbc3, ks]
+                                # * C
+                                self.vloc[iorb, jorb, js, ks, iprob]
                                 * occ[iorbc4, iorbc3, ks]
                                 * C
                             )
@@ -411,7 +415,10 @@ class SigmaHLoc(FLocStc):
                             iorbc4 = self.crystal.FIndex([b, m4])
                             # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]*C
                             h[iorbc1, iorbc2, js, iprob] += (
-                                self.vloc[iorb, jorb, js, ks, 0, iprob]
+                                # self.vloc[iorb, jorb, js, ks, 0, iprob]
+                                # * occ[iorbc4, iorbc3, ks]
+                                # * C
+                                self.vloc[iorb, jorb, js, ks, iprob]
                                 * occ[iorbc4, iorbc3, ks]
                                 * C
                             )

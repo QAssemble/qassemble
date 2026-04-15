@@ -46,7 +46,7 @@ KGrid = [3, 3, 3]
 NElec = 2 # 3 # 1 ## should be 1 for validation
 beta = 100
 # T = 2000
-cutoff =  30 #50 #30#40#30 #100 #30
+cutoff =  7 #30 #50 #30#40#30 #100 #30
 cry = {
     "RVec": RVec,
     "Basis": Basis,
@@ -134,14 +134,33 @@ vbare = VBare(
 
 
 
-itermax = 1
-mix = 0.1
+# itermax = 1
+# mix = 0.1
+
+
+
+# # start = time.time()
+
+# # cf.GWApproximation(
+# #     itermax=itermax,
+# #     mix=mix,
+# #     hoppinglist=hopping,
+# #     loccoulomb=locoption,
+# #     nonloccoulomb=nonlocoption,
+# # )
+
+# # end = time.time()
+# # tiem_delta = end-start
+# # print("\n==============================================================")
+# # print("GWApproximation code      - ",round(tiem_delta,5),'seconds')
+# # print("==============================================================")
+
 
 
 
 # start = time.time()
 
-# cf.GWApproximation(
+# cf.GWApproximation_new(
 #     itermax=itermax,
 #     mix=mix,
 #     hoppinglist=hopping,
@@ -152,30 +171,16 @@ mix = 0.1
 # end = time.time()
 # tiem_delta = end-start
 # print("\n==============================================================")
-# print("GWApproximation code      - ",round(tiem_delta,5),'seconds')
+# print("GWApproximation new code      - ",round(tiem_delta,5),'seconds')
 # print("==============================================================")
 
 
-start = time.time()
-
-cf.GWApproximation_new(
-    itermax=itermax,
-    mix=mix,
-    hoppinglist=hopping,
-    loccoulomb=locoption,
-    nonloccoulomb=nonlocoption,
-)
-
-end = time.time()
-tiem_delta = end-start
-print("\n==============================================================")
-print("GWApproximation new code      - ",round(tiem_delta,5),'seconds')
-print("==============================================================")
-
-fpathstc.Band(hmat = cf.niham.r+cf.sigmah.r+cf.sigmaf.r, plotoption=True)
 
 
-exit()
+# # fpathstc.Band(hmat = cf.niham.r+cf.sigmah.r+cf.sigmaf.r, plotoption=True)
+
+
+# exit()
 
 
 

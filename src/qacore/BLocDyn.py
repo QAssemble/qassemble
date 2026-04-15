@@ -725,7 +725,7 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
 
     # def __init__(self, crystal: Crystal, ft: FTGrid
     # ,pol : PolLoc = None, vLoc : VLoc = None, vDyn : np.array = None, c : float = 1.0, hdf5file : str = 'glob.h5', group : str = None):
-    def __init__(self, crystal: Crystal, ft: FTGrid ,wlat : WLat = None, hdf5file : str = 'glob.h5', group : str = None):
+    def __init__(self, crystal: Crystal, ft: FTGrid ,wlat : WLat = None, vLoc : VLoc = None, hdf5file : str = 'glob.h5', group : str = None):
         super().__init__(crystal, ft)
 
         # pass
@@ -740,6 +740,7 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
         # self.c = c #### ??
 
         self.wlat = wlat
+        self.vloc = vLoc
 
 
         self.hdf5file = hdf5file
@@ -792,6 +793,17 @@ class WLoc(BLocDyn): #### contains WLoc and WcLoc
         for iprob in range(nprob):
             rt[...,iprob] = self.F2T(self.rf[...,iprob], 1, 1)
         self.rt = np.copy(rt)
+
+
+
+
+        # vdyn = np.zeros((norb,norb,ns,ns,nfreq,nprob),dtype=np.complex128,order='F')
+        # for iprob in range(nprob):
+        #     vdyn[...,iprob] = self.StcEmbedding(self.vloc[...,iprob]) ####  define StcEmbedding ### remove this part when it is dynamic
+
+        # crf = wrf_nspace - vdyn
+
+
 
         
 

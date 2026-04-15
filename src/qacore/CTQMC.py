@@ -237,7 +237,7 @@ class CTQMC(object):
             sigma_hf[key] = complex(val['moments'][0])
             templist = []
             for ii in range(len(val['function']['real'])):
-                templist.append(val['function']['real'][ii]+val['function']['imag'][ii]*1j)
+                templist.append(val['function']['real'][ii]+val['function']['imag'][ii]*1j - sigma_hf[key])
             sigma_bare[key] = templist
         Sigma_hf = self.read_dict_LocStc(equiv,sigma_hf)
         Sigma_bare = self.read_dict_LocDyn(equiv,sigma_bare)
@@ -246,12 +246,31 @@ class CTQMC(object):
 
         params = json.load(open('./params.json'))
         cutoff = params["partition"]["green matsubara cutoff"]
+
+        flocdyn = FLocDyn(self.crystal,self.ft)
+        Sigma_bare = flocdyn.GaussianLinearBroad(self.ft.omega,Sigma_bare,0.05,1/self.ft.beta,cutoff)
+        Green = flocdyn.GaussianLinearBroad(self.ft.omega,Green,0.05,1/self.ft.beta,cutoff)
+
+        print(Green.shape)
+        print(Sigma_bare.shape)
+
+        print(Sigma_hf[0,0,0])
+
+        np.savetxt("Hybridisation_Green.txt", np.column_stack((Green[0,0,0,:].real, Green[0,0,0,:].imag)), fmt="%.6f")
+        np.savetxt("Hybridisation_Sigma_bare.txt", np.column_stack((Sigma_bare[0,0,0,:].real, Sigma_bare[0,0,0,:].imag)), fmt="%.6f")
+
         
         # Sigma_bare = self.FgaussianLocDyn(self.ft.omega,Sigma_bare,0.05,1/self.ft.beta,cutoff)
-    
         # Green = self.FgaussianLocDyn(self.ft.omega,Green,0.05,1/self.ft.beta,cutoff)
 
         susceptibility = self.read_susceptibility_LocDyn(equiv, obsjson)
+
+        print(susceptibility.shape)
+
+        np.savetxt("Hybridisation_susceptibility.txt", np.column_stack((susceptibility[0,0,0,0,0,0,:].real, susceptibility[0,0,0,0,0,0,:].imag)), fmt="%.6f")
+
+
+        # exit()
 
         return Green,Sigma_hf,Sigma_bare,susceptibility
 
@@ -376,9 +395,20 @@ class CTQMC(object):
             A = np.zeros((norbc,norbc), dtype=np.complex128, order='F')
             A_final = np.zeros((norbc*2,norbc*2), dtype=np.complex128, order='F')
 
+            # print(Eimp.shape)
+            # print(A_final.shape)
+
+            # exit()
+
             # for i in range(nprob):
-            ctqmc_mu = -Eimp[0,0]
-            A = Eimp[...,0] + ctqmc_mu*I
+
+            # ctqmc_mu = -np.real(Eimp[0,0])
+            # A = Eimp[...,0] + ctqmc_mu*I
+            # A_final[...] = np.kron(np.eye(2),A)
+
+            ctqmc_mu=-np.real(Eimp[0,0])
+            A = Eimp[:,:]+ctqmc_mu*np.eye(Eimp.shape[0],Eimp.shape[0])
+            A = np.array(np.real(A),dtype=float)
             A_final[...] = np.kron(np.eye(2),A)
 
             # self.A_final = np.copy(A_final)
