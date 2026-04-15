@@ -1,0 +1,2 @@
+[console_scripts]
+qassemble = QAssemble.CLI:main
