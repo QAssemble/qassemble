@@ -65,7 +65,7 @@ class BPathStc(object):
         nr = matr.shape[4]
         nk = len(kpoint)
 
-        self.crystal.Rvec()
+        self.crystal.RVec()
 
         tempmat = copy.deepcopy(matr)
         matk = np.zeros((norb,norb,ns,ns,nk),dtype=complex,order='F')

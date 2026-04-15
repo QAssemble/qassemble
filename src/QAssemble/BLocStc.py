@@ -108,7 +108,7 @@ class BLocStc(object):
         
         for ind in range(nind):
             matdict[ind+1] = []
-            pos = self.crystal.FindPositions(equiv,ind+1)
+            pos = Common.FindPositions(equiv,ind+1)
             for js in range(ns):
                 for ks in range(ns):
                     e = 0
@@ -129,7 +129,7 @@ class BLocStc(object):
         for js in range(ns):
             for ks in range(ns):
                 for ind in range(nind):
-                    pos = self.crystal.FindPositions(equiv,ind+1)
+                    pos = Common.FindPositions(equiv,ind+1)
                     for ii,jj in pos:
                         matout[ii,jj,js,ks] = matdict[str(ind+1)]
 

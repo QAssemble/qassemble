@@ -22,7 +22,7 @@ class Mixing:
         self._input_history: list[np.ndarray] = []
         self._residual_history: list[np.ndarray] = []
 
-    def reset(self):
+    def Reset(self):
         """Clear the mixing history."""
         self._input_history.clear()
         self._residual_history.clear()
@@ -49,7 +49,7 @@ class Mixing:
             Mixed quantity to be used as input for the next iteration.
         """
         if iter == 1:
-            self.reset()
+            self.Reset()
             return Fnew.copy()
 
         if self.method == "linear":

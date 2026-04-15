@@ -26,6 +26,7 @@ from sympy.physics.wigner import gaunt, wigner_3j
 
 from .Crystal import Crystal
 from .FLatStc import FLatStc
+from .utility.Common import Common
 from .utility.Fourier import Fourier
 
 logger = logging.getLogger("QAssemble")
@@ -213,7 +214,7 @@ class FPathStc(object):
             for iy in range(grid[1]):
                 for ix in range(grid[0]):
                     nn1 = [ix, iy, iz]
-                    ind1, nn1 = self.crystal.indexing(nr, 3, grid, 1, 0, nn1)
+                    ind1, nn1 = Common.Indexing(nr, 3, grid, 1, 0, nn1)
                     if (ix > grid[0] // 2):
                         xx = ix - grid[0]
                     else:

@@ -353,11 +353,11 @@ class FLatDyn(object):
     
     def R2mR(self, matin : np.ndarray) -> np.ndarray:
 
-        self.crystal.R2mR()
+        mappingidx = Common.R2mRMapping(self.crystal.kpoint)
 
         matout = np.zeros_like(matin, dtype=np.complex128, order='F')
 
-        for rp in self.crystal.mappingidx:
+        for rp in mappingidx:
             matout[..., rp[0],:] = matin[..., rp[1], :]
 
         return matout
@@ -791,12 +791,12 @@ class SigmaGWC(FLatDyn):
         for orbs_a in atom_groups.values():
             oa = np.array(orbs_a)
             na = len(oa)
-            bb_a = bbasis[np.ix_(oa, oa)]  # (na, na)
+            bb_a = bbasis[np.ix_(oa, oa)]  # (na, na), 1-based
 
             for orbs_b in atom_groups.values():
                 ob = np.array(orbs_b)
                 nb = len(ob)
-                bb_b = bbasis[np.ix_(ob, ob)]  # (nb, nb)
+                bb_b = bbasis[np.ix_(ob, ob)]  # (nb, nb), 1-based
 
                 G_block = G_flat[np.ix_(oa, ob)]  # (na, nb, S)
 
@@ -820,10 +820,12 @@ class SigmaGWC(FLatDyn):
 
                 # For each (a,b) pair, accumulate:
                 # out[k,p,S] -= Wc[a,b,S] * sum_j temp_a[a][k,j,S] * Mb[j,p]
+                # bb_a/bb_b are 1-based boson indices from bbasis, so subtract
+                # 1 when indexing into Wc_flat.
                 result = np.zeros((na, nb, S), dtype=np.complex128)
                 for a in unique_a:
                     for b in unique_b:
-                        Wc_ab = Wc_flat[a, b]  # (S,)
+                        Wc_ab = Wc_flat[a - 1, b - 1]  # (S,)
                         mask_b = (bb_b == b).astype(np.float64)  # (nb, nb) where mask_b[j,p]
                         # sum_j temp_a[a][k,j,S] * mask_b[j,p] -> (na, nb, S)
                         contracted = np.einsum('kjS,jp->kpS', temp_a[a], mask_b)  # (na, nb, S)
