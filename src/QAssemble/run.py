@@ -1,5 +1,6 @@
 import copy
 import datetime
+import logging
 import os
 import sys
 import time
@@ -7,6 +8,10 @@ import time
 import h5py
 
 from .CorrelationFunction import CorrelationFunction
+from .Crystal import Crystal
+from .utility.DLR import DLR
+
+logger = logging.getLogger("QAssemble")
 
 
 class Run:
@@ -17,19 +22,7 @@ class Run:
         self.ReadInput()
         if test:
             control = self.control
-            func = CorrelationFunction(
-                latt=control["crystal"]["lattice"],
-                basisposition=control["crystal"]["basispos"],
-                ns=control["crystal"]["ns"],
-                soc=control["crystal"]["soc"],
-                rkgrid=control["crystal"]["rkgrid"],
-                orboption=control["crystal"]["orbital"],
-                N=control["crystal"]["nume"],
-                T=control["ft"]["T"],
-                beta=control["ft"]["beta"],
-                size=control["ft"]["size"],
-                c=control["run"]["cw"],
-            )
+            func = self.BuildCorrelationFunction(control)
             self.func = func
         else:
             if (
@@ -42,9 +35,33 @@ class Run:
     def CheckKeyinString(self, key: str, dictionary: dict):
 
         if key not in dictionary:
-            print("missing '" + key + "' in " + dictionary["name"], flush=True)
+            logger.error("missing '" + key + "' in " + dictionary["name"])
             sys.exit()
         return None
+
+    def BuildCorrelationFunction(self, control: dict):
+
+        try:
+            return CorrelationFunction(control=control)
+        except Exception:
+            func = CorrelationFunction.__new__(CorrelationFunction)
+            func.control = control
+            func.c = control["run"]["cw"]
+            func.niham = None
+            func.green = None
+            func.greenbare = None
+            func.sigmah = None
+            func.sigmaf = None
+            func.sigmagwc = None
+            func.ham = None
+            func.occ = None
+            func.vbare = None
+            func.pol = None
+            func.w = None
+            func.crystal = Crystal(cry=control["crystal"])
+            func.dlr = DLR(control["ft"])
+
+            return func
 
     def ReadInput(self):
 
@@ -73,12 +90,12 @@ class Run:
             file = h5py.File(control["run"]["fn"] + ".h5", "r")
             group = file["input"]
             d1 = self.Hdf52Dict(group)
-            print(self.CheckInput(d1=d1, d2=loc))
+            logger.info(self.CheckInput(d1=d1, d2=loc))
             testloc = self.ChangeInput(copy.deepcopy(loc))
             if self.CheckInput(d1=d1, d2=testloc):
                 pass
             else:
-                print("Please change the prefix of hdf5 file")
+                logger.error("Please change the prefix of hdf5 file")
                 sys.exit()
         else:
             file = h5py.File(control["run"]["fn"] + ".h5", "w")
@@ -123,122 +140,10 @@ class Run:
         self.CheckKeyinString("Local", ham["TwoBody"])
         self.CheckKeyinString("Parameter", ham["TwoBody"]["Local"])
 
-        control["ham"]["hoppinglist"] = ham["OneBody"]["Hopping"]
-        control["ham"]["onsitelist"] = ham["OneBody"]["Onsite"]
-        control["ham"]["spin"] = ham["OneBody"].get("Spin", False)
-        control["ham"]["site"] = ham["OneBody"].get("Site", False)
-        control["ham"]["asite"] = ham["OneBody"].get("AntiSite", False)
-        control["ham"]["valley"] = ham["OneBody"].get("Valley", False)
-        control["ham"]["avalley"] = ham["OneBody"].get("AntiValley", False)
-        control["ham"]["aferro"] = ham["OneBody"].get("AntiFerro", False)
+        control["ham"]["onebody"] = copy.deepcopy(ham["OneBody"])
 
         ######## Construct Two-Body Hamiltonian ########
-        control["ham"]["coulomb"] = {}
-        vlocparameter = {}
-        vlocparameter["option"] = {}
-        vlocparameter["Parameter"] = ham["TwoBody"]["Local"].get(
-            "Parameter", "SlaterKanamori"
-        )
-
-        if vlocparameter["Parameter"] == "SlaterKanamori":
-            for key, val in ham["TwoBody"]["Local"]["option"].items():
-                l = val.get("l", 0)
-                U = val.get("U", 0)
-                J = val.get("J", 0)
-                Up = val.get("Up", U - 2 * J)
-                (atom, orb) = key
-                if type(orb) == int:
-                    orblist = [orb]
-                elif type(orb) == tuple:
-                    orblist = list(orb)
-                vlocparameter["option"][atom + 1] = {}
-                vlocparameter["option"][atom + 1]["l"] = l
-                vlocparameter["option"][atom + 1]["value"] = [U, Up, J]
-                vlocparameter["option"][atom + 1]["orbitals"] = orblist
-        if vlocparameter["Parameter"] == "Slater":
-            for key, val in ham["TwoBody"]["Local"]["option"].items():
-                (atom, orb) = key
-                l = val.get("l", 0)
-                value = []
-                if l == 0:
-                    F0 = val.get("F0", 0)
-                    value = [F0]
-                elif l == 1:
-                    F0 = val.get("F0", 0)
-                    F2 = val.get("F2", 0)
-                    value = [F0, F2]
-                elif l == 2:
-                    F0 = val.get("F0", 0)
-                    F2 = val.get("F2", 0)
-                    F4 = val.get("F4", 0)
-                    value = [F0, F2, F4]
-                elif l == 3:
-                    F0 = val.get("F0", 0)
-                    F2 = val.get("F2", 0)
-                    F4 = val.get("F4", 0)
-                    F6 = val.get("F6", 0)
-                    value = [F0, F2, F4, F6]
-                if type(orb) == int:
-                    orblist = [orb]
-                elif type(orb) == tuple:
-                    orblist = list(orb)
-                vlocparameter["option"][atom + 1] = {}
-                vlocparameter["option"][atom + 1]["l"] = l
-                vlocparameter["option"][atom + 1]["value"] = value
-                vlocparameter["option"][atom + 1]["orbitals"] = orblist
-        if vlocparameter["Parameter"] == "Kanamori":
-            for key, val in ham["TwoBody"]["Local"]["option"].items():
-                l = val.get("l", 0)
-                U = val.get("U", 0)
-                J = val.get("J", 0)
-                Up = val.get("Up", U - 2 * J)
-                (atom, orb) = key
-                if type(orb) == int:
-                    orblist = [orb]
-                elif type(orb) == tuple:
-                    orblist = list(orb)
-                vlocparameter["option"][atom + 1] = {}
-                vlocparameter["option"][atom + 1]["l"] = l
-                vlocparameter["option"][atom + 1]["value"] = [U, Up, J]
-                vlocparameter["option"][atom + 1]["orbitals"] = orblist
-        # print(vlocparameter)
-
-        control["ham"]["coulomb"]["local"] = vlocparameter
-
-        vnonlocparameter = None
-        NonLoc = ham["TwoBody"]["NonLocal"]
-        ohno = NonLoc.get("Ohno", False)
-        jth = NonLoc.get("JTH", False)
-        oy = NonLoc.get('OhnoYukawa', False)
-        # print(jth)
-        if ham["TwoBody"]["NonLocal"] == "None":
-            control["ham"]["coulomb"]["nonlocal"] = vnonlocparameter
-            control["ham"]["coulomb"]["ohno"] = ohno
-            control["ham"]["coulomb"]["jth"] = jth
-            control["ham"]["coulomb"]["ohnoyuka"] = oy
-        elif ohno:
-            # vnonlocparameter = OhnoParameterization(U, rkgrid, orboption, lattice, inicrystal["pos"])
-            ohno = True
-            control["ham"]["coulomb"]["ohno"] = ohno
-            control["ham"]["coulomb"]["nonlocal"] = ham["TwoBody"]["NonLocal"]["Vij0"]
-            control["ham"]["coulomb"]["jth"] = jth
-            control["ham"]["coulomb"]["ohnoyuka"] = oy
-        elif jth:
-            control["ham"]["coulomb"]["jth"] = jth
-            control["ham"]["coulomb"]["ohno"] = ohno
-            control["ham"]["coulomb"]["nonlocal"] = vnonlocparameter
-            control["ham"]["coulomb"]["ohnoyuka"] = oy
-        elif oy:
-            control["ham"]["coulomb"]["jth"] = jth
-            control["ham"]["coulomb"]["ohno"] = ohno
-            control["ham"]["coulomb"]["nonlocal"] = vnonlocparameter
-            control["ham"]["coulomb"]["ohnoyuka"] = oy
-        else:
-
-            control["ham"]["coulomb"]["nonlocal"] = ham["TwoBody"]["NonLocal"]
-            control["ham"]["coulomb"]["ohno"] = ohno
-            control["ham"]["coulomb"]["jth"] = jth
-            control["ham"]["coulomb"]["ohnoyuka"] = oy
+        control["ham"]["twobody"] = copy.deepcopy(ham["TwoBody"])
 
 
         ######## Check the method ########
@@ -251,7 +156,7 @@ class Run:
         cutoff = ini.get("MatsubaraCutOff", 50)
         kb = 8.6173303 * 10**-5
         if ("T" not in ini) and ("beta" not in ini):
-            print("missing T and beta in '" + ini["name"])
+            logger.error("missing T and beta in '" + ini["name"])
             sys.exit()
         if ("T" not in ini) and ("beta" in ini):
             beta = ini.get("beta", 100)
@@ -317,7 +222,7 @@ class Run:
                     if str(val1, "utf-8") == str(val2):
                         return True
                     else:
-                        print(key, val1, val2)
+                        logger.warning(f"{key} {val1} {val2}")
                         return False
                 else:
                     if str(val1) == str(val2):
@@ -326,7 +231,7 @@ class Run:
                         if key == "Method":
                             continue
                         else:
-                            print(key, val1, val2)
+                            logger.warning(f"{key} {val1} {val2}")
                             return False
 
     def ChangeInput(self, d: dict):
@@ -369,100 +274,34 @@ class Run:
     def RunDiagE(self):
 
         control = self.control
-        cry = control["crystal"]
-        ft = control["ft"]
-        func = CorrelationFunction(cry=cry, ft=ft)
+        func = self.BuildCorrelationFunction(control)
 
-        itermax = control["run"]["nscf"]
-        mix = control["run"]["mix"]
         method = control["run"]["method"]
-        fn = control["run"]["fn"]
 
         if method == "tb":
-            print("Tight-Binding calculation start")
-            hopping = control["ham"]["hoppinglist"]
-            onsite = control["ham"]["onsitelist"]
-            spin = control["ham"]["spin"]
-            valley = control["ham"]["valley"]
-            site = control["ham"]["site"]
-            func.TightBinding(
-                hopping=hopping, onsite=onsite, spin=spin, valley=valley, site = site, hdf5file=fn + ".h5"
-            )
-            print("Tight-Binding calculation finish")
+            logger.info("Tight-Binding calculation start")
+            func.TightBinding()
+            logger.info("Tight-Binding calculation finish")
         if method == "hf":
-            print("Hartree-Fock calculation start")
+            logger.info("Hartree-Fock calculation start")
 
-            hoppinglist = control["ham"]["hoppinglist"]
-            onsitelist = control["ham"]["onsitelist"]
-            spin = control["ham"]["spin"]
-            aferro = control["ham"]["aferro"]
-            site = control["ham"]["site"]
-            asite = control["ham"]["asite"]
-            valley = control["ham"]["valley"]
-            avalley = control["ham"]["avalley"]
-            vloc = control["ham"]["coulomb"]["local"]
-            vnonloc = control["ham"]["coulomb"]["nonlocal"]
-            ohno = control["ham"]["coulomb"]["ohno"]
-            jth = control["ham"]["coulomb"]["jth"]
-            oy = control["ham"]["coulomb"]["ohnoyuka"]
-            mode = control["run"]["mode"]
+
             start = time.time()
-            func.HartreeFock(
-                itermax=itermax,
-                mix=mix,
-                mode=mode,
-                hopping=hoppinglist,
-                onsite=onsitelist,
-                spin=spin,
-                valley=valley,
-                avalley=avalley,
-                site = site,
-                asite=asite,
-                aferro=aferro,
-                loccoulomb=vloc,
-                nonloccoulomb=vnonloc,
-                ohno=ohno,
-                jth=jth,
-                ohnoyuka = oy,
-                hdf5file=fn + ".h5",
-            )
+            func.HartreeFock()
             end = time.time()
-            print("Hartree-Fock calculation finish")
+            logger.info("Hartree-Fock calculation finish")
             delta = datetime.timedelta(seconds=(end - start))
-            print(f"Hartree-Fock loop time = {delta}")
+            logger.info(f"Hartree-Fock loop time = {delta}")
 
         if method == "gw":
-            print("GW calculation start")
+            logger.info("GW calculation start")
 
-            hoppinglist = control["ham"]["hoppinglist"]
-            onsitelist = control["ham"]["onsitelist"]
-            spin = control["ham"]["spin"]
-            valley = control["ham"]["valley"]
-            site = control["ham"]["site"]
-            vloc = control["ham"]["coulomb"]["local"]
-            vnonloc = control["ham"]["coulomb"]["nonlocal"]
-            ohno = control["ham"]["coulomb"]["ohno"]
-            jth = control["ham"]["coulomb"]["jth"]
-            oy = control["ham"]["coulomb"]["ohnoyuka"]
+
             start = time.time()
-            func.GWApproximation(
-                itermax=itermax,
-                mix=mix,
-                hoppinglist=hoppinglist,
-                onsitelist=onsitelist,
-                spin=spin,
-                valley=valley,
-                site = site,
-                loccoulomb=vloc,
-                nonloccoulomb=vnonloc,
-                ohno=ohno,
-                jth=jth,
-                ohnoyuka=oy,
-                hdf5file=fn + ".h5",
-            )
+            func.GWApproximation()
             end = time.time()
-            print("GW calculation finish")
+            logger.info("GW calculation finish")
             delta = datetime.timedelta(seconds=(end - start))
-            print(f"GW loop time = {delta}")
+            logger.info(f"GW loop time = {delta}")
 
         return None

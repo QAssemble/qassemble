@@ -5,7 +5,10 @@ local/lattice).
 """
 from .Common import Common
 from sys import exit
+import logging
 import numpy as np
+
+logger = logging.getLogger("QAssemble")
 
 class Bare:
     """
@@ -120,7 +123,7 @@ class Bare:
         machep = np.finfo(np.float64).eps
 
         if (abs(energy) < 1.0e-12):
-            print("Zero energy in Bare.BTau. impossible")
+            logger.error("Zero energy in Bare.BTau. impossible")
             exit()
 
         for itau in range(ntau):

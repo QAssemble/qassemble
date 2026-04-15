@@ -2,9 +2,12 @@
 This module provides a collection of common utility functions for numerical calculations,
 including matrix operations, interpolation, and special polynomials.
 """
+import logging
 import numpy as np
 from scipy.linalg import eigh
 from scipy.linalg import lapack
+
+logger = logging.getLogger("QAssemble")
 
 
 class Common:
@@ -74,7 +77,7 @@ class Common:
             tmpsize *= size
 
         if tmpsize != ntot:
-            print('array_division wrong')
+            logger.error('array_division wrong')
             return
 
         if flag == 1:

@@ -1,4 +1,5 @@
 import copy
+import logging
 import os
 import re as re
 import shutil
@@ -18,6 +19,8 @@ from .FLatDyn import FLatDyn
 # from .FTGrid import FTGrid
 from .utility.DLR import DLR
 from .utility.Fourier import Fourier
+
+logger = logging.getLogger("QAssemble")
 
 
 class FPathDyn(object):
@@ -75,7 +78,7 @@ class FPathDyn(object):
             elif (crystal is not None) and (dlr is not None):
                 pass                
             else:
-                print(f"Error : Check the {self.__class__.__name__} input again")
+                logger.error(f"Error : Check the {self.__class__.__name__} input again")
                 sys.exit()
         self.crystal = crystal
         self.dlr = dlr
@@ -96,7 +99,7 @@ class FPathDyn(object):
     def CheckKeyinString(self, key: str, dictionary: dict):
 
         if key not in dictionary:
-            print("missing '" + key + "' in input", flush=True)
+            logger.error("missing '" + key + "' in input")
             sys.exit()
         return None
 
@@ -293,22 +296,22 @@ class FPathDyn(object):
                     m3 = moment[iorb, iorb, js, ik, 2]
                     acenter = m2 / m1
                     awidth = np.sqrt(m3 / m1 - (m2 / m1) ** 2)
-                    print(
-                        "iorb " + str(iorb + 1) + " center:", acenter, "width:", awidth
+                    logger.debug(
+                        "iorb " + str(iorb + 1) + " center: " + str(acenter) + " width: " + str(awidth)
                     )
                     emax = max(round(abs(acenter) + awidth * 30), emax)
         # emax = 10
-        print("emax:", emax)
-        print("\n")
+        logger.debug("emax: " + str(emax))
+        logger.debug("")
 
         for ik in range(1):
             for js in range(ns):
                 for iorb in range(norb):
-                    print("--------------------------")
-                    print(
+                    logger.debug("--------------------------")
+                    logger.debug(
                         "orb:  " + str(iorb + 1) + "  spin:  "+ str(js + 1)+ "  k:  "+ str(ik + 1)
                     )
-                    print("--------------------------")
+                    logger.debug("--------------------------")
                     f = open("gaux.dat", "w")
                     h = open(
                         "original_"+ str(iorb + 1)+ "_"+ str(js + 1)+ "_"+ str(ik + 1),"w",
@@ -347,14 +350,14 @@ class FPathDyn(object):
 
                     f.write('default_model="' + defaultmodel + '"\n')
                     f.close()
-                    print("run MQEM")
+                    logger.info("run MQEM")
                     subprocess.call("julia  $QAssemble/MQEM.jl/src/mem.jl", shell=True)
-                    print("run MQEM")
+                    logger.info("run MQEM")
                     shutil.copy("mqem.input.toml", "mqem_input_" + str(iorb + 1) + "_" + str(js + 1)+ "_" + str(ik + 1)+ ".toml")
                     if os.path.exists("realFreq_Sw.dat_1_1"):
                         gaux_real = np.loadtxt("realFreq_Sw.dat_1_1")
                     else:
-                        print("maxent for orbital " + str(iorb + 1) + " failed")
+                        logger.error("maxent for orbital " + str(iorb + 1) + " failed")
                         sys.exit()
                     freal_temp = gaux_real[:, 0]
                     ecutoff = min(15, emax / 4)
@@ -401,11 +404,11 @@ class FPathDyn(object):
                         + "-"
                         + str(ik + 1),
                     )
-                    print("\n")
-                    print("\n")
-                    print("\n")
-                    print("\n")
-                    print("\n")
+                    logger.debug("")
+                    logger.debug("")
+                    logger.debug("")
+                    logger.debug("")
+                    logger.debug("")
 
         if interpolation:
 
@@ -432,13 +435,13 @@ class FPathDyn(object):
                         else:
                             sig_real[iorb, iorb, js, ik, :] = tempdat
 
-        print("Analytic continuation has finished:)")
+        logger.info("Analytic continuation has finished:)")
 
         return xnew, sig_real
 
     def Spectral(self, option: dict = None):
 
-        print("Spectral calculation start")
+        logger.info("Spectral calculation start")
         gauxmode = option["gauxmode"]
         glob = h5py.File(self.hdf5file, "r")
         gw = glob["gw"]
@@ -462,9 +465,9 @@ class FPathDyn(object):
         # kpathf = self.R2K(rf, self.crystal.kpath)
         # print("Fourier transform R2Kpath finish")
 
-        print("MQEM calculation start")
+        logger.info("MQEM calculation start")
         tempmat = self.MQEMWrapper(option=option, gmat=kf)
-        print("MQEM calculation finish")
+        logger.info("MQEM calculation finish")
         (norb, norb, ns, nk, nf) = tempmat.shape
         sigout = np.zeros((ns, nk, nf), dtype=np.complex128, order="F")
         gout = np.zeros((ns, nk, nf), dtype=np.complex128, order="F")

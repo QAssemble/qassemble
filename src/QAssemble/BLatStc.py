@@ -1,6 +1,7 @@
 import copy
 import gc
 import itertools
+import logging
 import sys
 
 import h5py
@@ -11,6 +12,7 @@ from .Crystal import Crystal
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 
+logger = logging.getLogger("QAssemble")
 
 
 class BLatStc(object):
@@ -282,7 +284,7 @@ class BLatStc(object):
                                 matin[jorb, iorb, js, ks, ik]
                             )
                             if abs(err) > 1.0e-6:
-                                print(errmessage)
+                                logger.error(errmessage)
                                 sys.exit()
         return None
 
@@ -332,12 +334,7 @@ class VBare(BLatStc):
     def __init__(
         self,
         crystal: Crystal,
-        vloc: VLoc = None,
-        orboption: dict = None,
-        intamp: dict = None,
-        ohno: bool = False,
-        jth: bool = False,
-        ohnoyuka: bool = False,
+        twobody: dict = None,
         hdf5file: str = None,
         group: str = None,
     ):
@@ -345,14 +342,10 @@ class VBare(BLatStc):
         self.k = None
         self.r = None
         self.intamp = None
+        self.twobody = copy.deepcopy(twobody)
 
-        if intamp != None:
-            intamplist = []
-            for orb, val in intamp.items():
-                for v, lat in val.items():
-                    for r in lat:
-                        intamplist.append([v, list(orb[0]), list(orb[1]), r])
-            self.intamp = intamplist
+        orboption, intamp, ohno, jth, ohnoyuka = self.ParseTwoBody(twobody)
+        self.intamp = self.FlattenInteractingAmplitude(intamp)
         self.locoption = orboption
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
@@ -364,37 +357,179 @@ class VBare(BLatStc):
         self.group = group
         self.subgroup = self.__class__.__name__
 
-        print("Bare Coulomb Interaction Calculation Start")
-        if (ohno == False) and (intamp == None) and (jth == False):
-            print("Only calculate the local coulomb interaction")
-        if vloc == None:
-            if orboption != None:
-                self.vloc = VLoc(crystal, orboption)
-            else:
-                print("Error, orboption is not exsist. v local can't generate in here")
+        logger.info("Bare Coulomb Interaction Calculation Start")
+        if (ohno == False) and (self.intamp == None) and (jth == False) and (ohnoyuka == False):
+            logger.info("Only calculate the local coulomb interaction")
+        if orboption != None:
+            self.vloc = VLoc(crystal, orboption)
         else:
-            self.vloc = vloc
+            logger.error("Error, twobody local input does not exist. v local can't generate in here")
+            sys.exit()
 
         if ohno:
             self.OhnoParameter()
             # self.Cal()
         elif jth:
-            print("JTH Potential calculation start")
+            logger.info("JTH Potential calculation start")
             self.JTHPotential()
-            print("JTH Potential calculation finish")
+            logger.info("JTH Potential calculation finish")
         elif ohnoyuka:
-            print("Ohno-Yukawa calculation start")
+            logger.info("Ohno-Yukawa calculation start")
             self.OhnoYukawa()
-            print("Ohno-Yukawa calculation finish")
+            logger.info("Ohno-Yukawa calculation finish")
         else:
-            if intamp != None:
+            if self.intamp != None:
                 # self.InteractingAmplitue(intamp)
                 self.Cal()
         self.LocPlusNonLoc()
         if hdf5file != None:
             self.Save()
         # self.GetOnsiteEnergy()
-        print("Bare Coulomb Interaction Calculation Finish")
+        logger.info("Bare Coulomb Interaction Calculation Finish")
+
+    def ParseTwoBody(self, twobody: dict = None):
+
+        if twobody is None:
+            return None, None, False, False, False
+
+        orboption = self.NormalizeLocalOption(twobody.get("Local"))
+        intamp, ohno, jth, ohnoyuka = self.NormalizeNonLocalInput(
+            intamp=twobody.get("NonLocal")
+        )
+
+        return orboption, intamp, ohno, jth, ohnoyuka
+
+    # def ZeroLocalInteraction(self):
+
+    #     norb = len(self.crystal.bind)
+    #     ns = self.crystal.ns
+    #     vloc = type("ZeroLocalInteraction", (), {})()
+    #     vloc.vloc = np.zeros((norb, norb, ns, ns), dtype=float, order="F")
+
+    #     return vloc
+
+    def IsProcessedLocalOption(self, orboption: dict = None) -> bool:
+
+        if orboption is None:
+            return False
+        if ("Parameter" not in orboption) or ("option" not in orboption):
+            return False
+        if len(orboption["option"]) == 0:
+            return True
+
+        first_val = next(iter(orboption["option"].values()))
+        if not isinstance(first_val, dict):
+            return False
+
+        return ("value" in first_val) and ("orbitals" in first_val)
+
+    def OrbitalList(self, orb) -> list:
+
+        if type(orb) == int:
+            return [orb]
+        if type(orb) == tuple:
+            return list(orb)
+
+        return list(orb)
+
+    def NormalizeLocalOption(self, orboption: dict = None) -> dict:
+
+        if orboption is None:
+            return None
+        if self.IsProcessedLocalOption(orboption):
+            return copy.deepcopy(orboption)
+
+        parameter = orboption.get("Parameter", "SlaterKanamori")
+        locoption = {"Parameter": parameter, "option": {}}
+
+        if parameter == "SlaterKanamori":
+            for key, val in orboption["option"].items():
+                atom, orb = key
+                U = val.get("U", 0)
+                J = val.get("J", 0)
+                Up = val.get("Up", U - 2 * J)
+                locoption["option"][atom + 1] = {
+                    "l": val.get("l", 0),
+                    "value": [U, Up, J],
+                    "orbitals": self.OrbitalList(orb),
+                }
+        elif parameter == "Kanamori":
+            for key, val in orboption["option"].items():
+                atom, orb = key
+                U = val.get("U", 0)
+                J = val.get("J", 0)
+                Up = val.get("Up", U - 2 * J)
+                locoption["option"][atom + 1] = {
+                    "l": val.get("l", 0),
+                    "value": [U, Up, J],
+                    "orbitals": self.OrbitalList(orb),
+                }
+        elif parameter == "Slater":
+            for key, val in orboption["option"].items():
+                atom, orb = key
+                l = val.get("l", 0)
+                value = []
+                if l == 0:
+                    value = [val.get("F0", 0)]
+                elif l == 1:
+                    value = [val.get("F0", 0), val.get("F2", 0)]
+                elif l == 2:
+                    value = [val.get("F0", 0), val.get("F2", 0), val.get("F4", 0)]
+                elif l == 3:
+                    value = [
+                        val.get("F0", 0),
+                        val.get("F2", 0),
+                        val.get("F4", 0),
+                        val.get("F6", 0),
+                    ]
+                locoption["option"][atom + 1] = {
+                    "l": l,
+                    "value": value,
+                    "orbitals": self.OrbitalList(orb),
+                }
+        else:
+            logger.error("Unsupported local interaction parameterization")
+            sys.exit()
+
+        return locoption
+
+    def NormalizeNonLocalInput(
+        self,
+        intamp: dict = None,
+        ohno: bool = False,
+        jth: bool = False,
+        ohnoyuka: bool = False,
+    ):
+
+        if (intamp is None) or (intamp == "None"):
+            return None, ohno, jth, ohnoyuka
+
+        if isinstance(intamp, dict):
+            ohno = ohno or intamp.get("Ohno", False)
+            jth = jth or intamp.get("JTH", False)
+            ohnoyuka = ohnoyuka or intamp.get("OhnoYukawa", False)
+
+            if jth or ohnoyuka:
+                return None, ohno, jth, ohnoyuka
+            if ohno and ("Vij0" in intamp):
+                return intamp["Vij0"], ohno, jth, ohnoyuka
+
+        return intamp, ohno, jth, ohnoyuka
+
+    def FlattenInteractingAmplitude(self, intamp: dict = None):
+
+        if intamp is None:
+            return None
+
+        intamplist = []
+        for orb, val in intamp.items():
+            if type(orb) != tuple:
+                continue
+            for v, lat in val.items():
+                for r in lat:
+                    intamplist.append([v, list(orb[0]), list(orb[1]), list(r)])
+
+        return intamplist
 
     def Cal(self):
 
@@ -426,7 +561,7 @@ class VBare(BLatStc):
 
                     if (iorb == jorb) and (R == [0, 0, 0]):
                         # tempmat[iorb,jorb,js,ks,R[0],R[1],R[2]] += vij
-                        print(errmessage)
+                        logger.error(errmessage)
                         sys.exit()
 
                     # else:
@@ -521,7 +656,7 @@ class VBare(BLatStc):
                         vloc[jorb, iorb, js, ks] = vij
 
         self.vloc.vloc = copy.deepcopy(vloc)
-        print("Ohno loop start")
+        logger.info("Ohno loop start")
         for ks in range(ns):
             for js in range(ns):
                 for jatom in range(natom):
@@ -607,7 +742,7 @@ class VBare(BLatStc):
         #                                             tempmat[iorb,jorb,js,ks,ix,iy,iz] = vij
         #                                             tempmat[jorb,iorb,js,ks,-ix,-iy,-iz] = vij
 
-        print("Ohno loop end")
+        logger.info("Ohno loop end")
         if self.intamp != None:
             for ks in range(ns):
                 for js in range(ns):

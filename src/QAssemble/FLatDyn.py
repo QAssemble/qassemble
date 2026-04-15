@@ -1,4 +1,5 @@
 import numpy as np
+import logging
 import sys
 import scipy.optimize
 import scipy.linalg.lapack
@@ -15,6 +16,8 @@ from .utility.Mixing import Mixing
 # qapath = os.environ.get('QAssemble','')
 # sys.path.append(qapath+'/src/QAssemble/modules')
 # import QAFort
+
+logger = logging.getLogger("QAssemble")
 
 class FLatDyn(object):
     def __init__(self,crystal : Crystal, dlr : DLR, mixing_method: str = "pulay", npulay: int = 5) -> object:
@@ -427,14 +430,14 @@ class GreenBare(FLatDyn):
         self.group = group
         self.subgroup = self.__class__.__name__
 
-        print("Bare Green's function Calculation Start")
+        logger.info("Bare Green's function Calculation Start")
         start = time.time()
         self.Cal()
         if hdf5file != None:
             self.Save()
-        end = time.time()    
-        print("Bare Green's function Calculation Finish")
-        print(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
+        end = time.time()
+        logger.info("Bare Green's function Calculation Finish")
+        logger.info(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
         
 
     def Cal(self): # freq, tau combine
@@ -483,7 +486,7 @@ class GreenInt(FLatDyn):
     def __init__(self, crystal: Crystal, dlr : DLR, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
         
         if greenbare is None:
-            print("Bare Green's function doesn't exist")
+            logger.error("Bare Green's function doesn't exist")
             sys.exit()
         super().__init__(crystal, dlr)
         self.flatstc = FLatStc(crystal=crystal)
@@ -513,14 +516,14 @@ class GreenInt(FLatDyn):
         self.group = group
         self.subgroup = self.__class__.__name__
         
-        print("Interacting Green's function Calculation Start")
+        logger.info("Interacting Green's function Calculation Start")
         start = time.time()
         self.CalMu0()
-        
+
         self.SearchMu()
         end = time.time()
-        print("Interacting Green's function Calculation Finish")
-        print(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
+        logger.info("Interacting Green's function Calculation Finish")
+        logger.info(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
 
     def CalMu0(self):
 
@@ -529,7 +532,7 @@ class GreenInt(FLatDyn):
         nrk = len(self.crystal.kpoint)
         nomega = len(self.dlr.omega)
         sigma = np.zeros((norb,norb,ns,nrk,nomega),dtype=np.complex128,order='F')
-        print("Initialization start")
+        logger.info("Initialization start")
         if (self.sigmah is None)and(self.sigmaf is None)and(self.sigmac is None):
             self.gkfmu0 = self.gbare
         else:
@@ -541,25 +544,25 @@ class GreenInt(FLatDyn):
                 # print(const)
                 sigma += self.StcEmbedding(self.sigmah)
                 sigma += self.ChemEmbedding(-const)
-                print('Hartree')
-                print(sigma[:,:,0,0,0])
+                logger.info('Hartree')
+                logger.debug(sigma[:,:,0,0,0])
             if (self.sigmaf is not None):
                 # print(sigma[:,:,0,0,0])
                 sigma += self.StcEmbedding(self.sigmaf)
-                print('Fock')
-                print(sigma[:,:,0,0,0])
+                logger.info('Fock')
+                logger.debug(sigma[:,:,0,0,0])
             if (self.sigmac is not None):
                 # print(sigma[:,:,0,0,0])
                 sigma += self.sigmac
-                print('GWC')
-                print(sigma[:,:,0,0,0])
-            self.gkfmu0 = self.Dyson(self.gbare,sigma) 
-        
+                logger.info('GWC')
+                logger.debug(sigma[:,:,0,0,0])
+            self.gkfmu0 = self.Dyson(self.gbare,sigma)
+
 
         self.gktmu0 = self.F2T(self.gkfmu0)
         self.grfmu0 = self.K2R(self.gkfmu0)
         self.grtmu0 = self.K2R(self.gktmu0)
-        print("Initialization finish")
+        logger.info("Initialization finish")
         return None
     
     def Occ(self):
@@ -572,7 +575,7 @@ class GreenInt(FLatDyn):
         occk = np.zeros((norb,norb,ns,nrk),dtype=np.complex128,order='F')
         occ = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
         
-        print("Density matrixy calculation start")
+        logger.info("Density matrixy calculation start")
         # kt = np.copy(self.kt)
         # ntau = 5000
         tau_beta = np.array([self._tau_beta], dtype=np.float64)
@@ -597,12 +600,12 @@ class GreenInt(FLatDyn):
         self.occk = occk
         
         self.occr = self.flatstc.K2R(occk)
-        print("Density matrixy calculation finish")
+        logger.info("Density matrixy calculation finish")
         return None
     
     def UpdateMu(self) -> np.ndarray:
 
-        print("Chemical potential shift start")
+        logger.info("Chemical potential shift start")
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
@@ -621,7 +624,7 @@ class GreenInt(FLatDyn):
         # self.grt = self.K2R(self.F2T(self.Dyson(self.gkfmu0,-chem),1,1))
         self.rf = self.K2R(self.kf)
         self.rt = self.K2R(self.kt)
-        print("Chemical potential shift finish")
+        logger.info("Chemical potential shift finish")
         self.Occ()
 
         return None
@@ -663,10 +666,10 @@ class GreenInt(FLatDyn):
 
     def SearchMu(self):
 
-        print("Finding chemical potential start")
+        logger.info("Finding chemical potential start")
         mumin = self.dlr.omega[0]
         mumax = self.dlr.omega[-1]
-        print(f"minimum : {mumin}, maximum : {mumax}")
+        logger.info(f"minimum : {mumin}, maximum : {mumax}")
 
         # Precompute G0^{-1} for vectorized NumOfE
         norb = len(self.crystal.find)
@@ -682,12 +685,12 @@ class GreenInt(FLatDyn):
         nmin = self.NumOfE(mumin)
         nmax = self.NumOfE(mumax)
         if (nmin < 0) or (nmax>0):
-            print("Chemical potential is out of the bisection range")
-            print(f"nmin : {nmin}, nmax : {nmax}")
+            logger.error("Chemical potential is out of the bisection range")
+            logger.error(f"nmin : {nmin}, nmax : {nmax}")
             sys.exit()
         sol = scipy.optimize.brentq(self.NumOfE,mumin,mumax,xtol=1.0e-6)
         self.mu = sol
-        print("Finding chemical potential finish")
+        logger.info("Finding chemical potential finish")
 
         # Clean up caches
         del self._g0inv_cache
@@ -736,21 +739,21 @@ class SigmaGWC(FLatDyn):
         self.subgroup = self.__class__.__name__
 
         if green is None:
-            print("Error, green doesn't exist")
+            logger.error("Error, green doesn't exist")
             sys.exit()
 
         if wlat is None:
-            print("Error, wlat doesn't exist")
+            logger.error("Error, wlat doesn't exist")
             sys.exit()
         self.green = green
         self.wlat = wlat
 
-        print("GWC self-energy Calculation Start")
+        logger.info("GWC self-energy Calculation Start")
         start = time.time()
         self.Cal()
         end = time.time()
-        print("GWC self-energy Calculation Finish")
-        print(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
+        logger.info("GWC self-energy Calculation Finish")
+        logger.info(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
 
     def Cal(self)->np.ndarray: #SigmaGWC
         '''

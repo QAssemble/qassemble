@@ -1,9 +1,12 @@
+import logging
 import numpy as np
 import sys
 import itertools
 
 import copy
 from .utility.Common import Common
+
+logger = logging.getLogger("QAssemble")
 
 
 # Ask to professor for change variables
@@ -665,7 +668,7 @@ class Crystal(object):
                     if orb == orblist[0]:
                         atom = orb[0]
                     if atom != orb[0]:
-                        print("Different atoms are involved in the same space")
+                        logger.error("Different atoms are involved in the same space")
                         sys.exit()
             probspace[key] = [nspace+i for i in range(len(val))]
             nspace += len(val)
@@ -743,7 +746,7 @@ class Crystal(object):
             tmpsize *= size
 
         if tmpsize != ntot:
-            print('array_division wrong')
+            logger.error('array_division wrong')
             return
 
         if flag == 1:

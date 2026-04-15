@@ -8,6 +8,7 @@ from matplotlib import cm
 import matplotlib.font_manager as fm
 import json, os, shutil, sys
 import itertools
+import logging
 import scipy.optimize
 from sympy.physics.wigner import gaunt, wigner_3j
 import scipy.linalg
@@ -16,6 +17,9 @@ import copy
 import h5py
 from .Crystal import Crystal
 from .BLatStc import BLatStc
+
+logger = logging.getLogger("QAssemble")
+
 
 class BPathStc(object):
 
@@ -48,7 +52,7 @@ class BPathStc(object):
                 crystal = Crystal(cry=cry)
                 glob.close()
             else:
-                print(f"Error : Check the {self.__class__.__name__} input again")
+                logger.error(f"Error : Check the {self.__class__.__name__} input again")
                 sys.exit()
         
         self.crystal = crystal

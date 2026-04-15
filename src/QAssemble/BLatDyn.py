@@ -2,6 +2,7 @@ import numpy as np
 import sys, os
 import itertools
 import copy, gc, time, datetime
+import logging
 import h5py
 from .Crystal import Crystal
 from .BLatStc import VBare
@@ -9,6 +10,8 @@ from .utility.DLR import DLR
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Mixing import Mixing
+
+logger = logging.getLogger("QAssemble")
 
 
 class BLatDyn(object):
@@ -468,11 +471,11 @@ class PolLat(BLatDyn):
         self.group = group
         self.subgroup = self.__class__.__name__
         if green is None:
-            print("Error, There is no Green's function.")
+            logger.error("Error, There is no Green's function.")
             sys.exit()
         self.green = green
 
-        print("Polarizability Calculation Start")
+        logger.info("Polarizability Calculation Start")
         start = time.time()
         self.Cal()
         self.kt = self.R2K(self.rt)
@@ -480,8 +483,8 @@ class PolLat(BLatDyn):
         self.rf = self.T2F(self.rt)
         self.kf = self.T2F(self.kt)
         end = time.time()
-        print("Polarizability Calculation Done")
-        print(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
+        logger.info("Polarizability Calculation Done")
+        logger.info(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
         
     def Cal(self):
         
@@ -596,15 +599,15 @@ class WLat(BLatDyn):
         self.group = group
         self.subgroup = self.__class__.__name__
         if pol is None:
-            print("Error, polarizability doesn't exist")
+            logger.error("Error, polarizability doesn't exist")
             sys.exit()
         if vbare is None:
-            print("Error, bare coulomb interaction doesn't exist")
+            logger.error("Error, bare coulomb interaction doesn't exist")
             sys.exit()
         self.pol = pol
         self.vbare = vbare
 
-        print("Screened Coulomb Interaction Calculation Start")
+        logger.info("Screened Coulomb Interaction Calculation Start")
         start = time.time()
         self.Cal()
 
@@ -612,14 +615,14 @@ class WLat(BLatDyn):
         # self.wrf = self.K2R(self.wkf)
         # self.wrt = self.K2R(self.wkt)
 
-        print(f"Fourier transform in {self.__class__.__name__} start")
+        logger.info(f"Fourier transform in {self.__class__.__name__} start")
         self.ckt = self.F2T(self.ckf)
         self.crf = self.K2R(self.ckf)
         self.crt = self.K2R(self.ckt)
         end= time.time()
-        print(f"Fourier transform in {self.__class__.__name__} finish")
-        print("Screened Coulomb Interaction Calculation Finish")
-        print(f"Screened Coulomb interaction use time : {datetime.timedelta(seconds=end - start)} s")
+        logger.info(f"Fourier transform in {self.__class__.__name__} finish")
+        logger.info("Screened Coulomb Interaction Calculation Finish")
+        logger.info(f"Screened Coulomb interaction use time : {datetime.timedelta(seconds=end - start)} s")
 
     def Cal(self):  # calculate W and Wc
         norb = len(self.crystal.bind)
@@ -639,9 +642,9 @@ class WLat(BLatDyn):
 
         # for ifreq in range(nfreq):
         #     vdyn[...,ifreq] = self.vbare.k
-        print("Make dynamic bare Coulomb interaction start")
+        logger.info("Make dynamic bare Coulomb interaction start")
         vdyn = self.StcEmbedding(self.vbare.k)
-        print("Make dynamic bare Coulomb interaction finish")
+        logger.info("Make dynamic bare Coulomb interaction finish")
         polcomp = np.zeros(
             (norbc * norbc, norbc * norbc, ns, ns, nk, nfreq),
             dtype=np.complex128,
@@ -657,14 +660,14 @@ class WLat(BLatDyn):
         # del self.pol
         vcomp = self.Double2Full(vdyn)
 
-        print("Dyson equation solving start")
+        logger.info("Dyson equation solving start")
         start = time.time()
         tempmat = self.Dyson(vcomp, polcomp)
         wkf = self.Full2Double(tempmat)
         end = time.time()
         # print(f"Dyson equation solving use time: {end - start} s")
-        print("Dyson equation solving finish")
-        print(f"Dyson equation solving use time : {datetime.timedelta(seconds=end - start)} s")
+        logger.info("Dyson equation solving finish")
+        logger.info(f"Dyson equation solving use time : {datetime.timedelta(seconds=end - start)} s")
 
         self.kf = wkf
 
