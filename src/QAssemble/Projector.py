@@ -1,181 +1,163 @@
-# import numpy as np
-# from .MPIManager import MPIManager, FLatDynMPI
-# import h5py
+from typing import TYPE_CHECKING
 
-# class Projector(object):
+import numpy as np
 
-#     def __init__(self, mpimanager : MPIManager):
-
-
-#         # self.ns = crystal.ns
-#         self.mpimanager = mpimanager
-#         self.probspace = {}
-#         self.fimpdict = {}
-#         self.bimpdict = {}
-#         self.nspace = len(mpimanager.crystal.basisc)
-#         self.forb = 0
-#         self.borb = 0
-
-#         # if (projector != None):
-#         #     self.Cal(projector)
-
-#         # return None
-    
-#     # def Cal(self, projector : dict):
-        
-#     #     for key, val in projector.items():
-#     #         for orblist in val:
-#     #             atom = 0
-#     #             for orb in orblist:
-#     #                 if orb == orblist[0]:
-#     #                     atom = orb[0]
-#     #                 if atom!= orb[0]:
-#     #                     print("Different atoms are involved in the same space")
-#     #                     sys.exit()
-#     #         self.probspace[key] = [self.nspace + i for i in range(len(val))]
-#     #         self.nspace += len(val)
-#     #         self.fimpdict[key] = []
-#     #         for orblist in val:
-#     #             templist = []
-#     #             for orb in orblist:
-#     #                 find = self.cry.FIndex(orb)
-#     #                 templist.append(find)
-#     #             self.fimpdict[key].append(templist)
-        
-#     #     for val in self.fimpdict.values():
-#     #         for orb in val:
-#     #             if (len(orb) > self.forb):
-#     #                 self.forb = len(orb)
-
-#     #     for key, val in self.fimpdict.items():
-#     #         self.bimpdict[key] = []
-#     #         for orb in val:
-#     #             templist = []
-#     #             for iorb in orb:
-#     #                 for jorb in orb:
-#     #                     a, _ = self.cry.FAtomOrb(iorb)
-#     #                     b, _ = self.cry.FAtomOrb(jorb)
-#     #                     if (a == b):
-#     #                         bind = self.cry.bbasis[iorb, jorb]
-#     #                         templist.append(bind)
-#     #             self.bimpdict[key].append(templist)
-
-#     #     for val in self.bimpdict.values():
-#     #         for orb in val:
-#     #             if (len(orb) > self.borb):
-#     #                 self.borb = len(orb)
-
-#     #     fprojector = np.zeros((len(self.cry.find), self.forb, self.ns, self.nspace), dtype=np.float64, order='F')
-#     #     bprojector = np.zeros((len(self.cry.bind), self.borb, self.ns, self.nspace), dtype=np.float64, order='F')
+if TYPE_CHECKING:
+    from .BasisIndex import BasisIndex
 
 
-#     #     for js in range(self.ns):
-#     #         for key, val in self.probspace.items():
-#     #             for ii, ispace in enumerate(val):
-#     #                 for ind in self.fimpdict[key][ii]:
-#     #                     fprojector[ind,self.fimpdict[key][ii].index(ind),js,ispace] = 1.0
+class Projector(object):
+    """Build impurity projectors on a per-problem (`nproblem`) basis.
 
-#     #     for js in range(self.ns):
-#     #         for key, val in self.probspace.items():
-#     #             for ii, ispace in enumerate(val):
-#     #                 for ind in self.bimpdict[key][ii]:
-#     #                     bprojector[ind,self.bimpdict[key][ii].index(ind),js,ispace] = 1.0
+    Notes:
+        - ``probspace`` stores atom-site indices per equivalent space.
+        - ``probindex`` stores contiguous local-space indices used internally
+          for impurity/local array conversions.
+        - ``fprojector`` / ``bprojector`` are dense, padded arrays kept for
+          compatibility with existing solvers.
+        - ``fprojector_prob`` / ``bprojector_prob`` are per-problem compact
+          projectors with variable orbital dimension.
+    """
 
-#     #     self.fprojector = fprojector
-#     #     self.bprojector = bprojector
+    def __init__(self, basisindex: "BasisIndex", impdict: dict = None):
+        self.basisindex = basisindex
+        self.impdict = impdict
 
-#     #     return None
-    
-#     # # def ReadEquivMat(self, imp : dict):
+        self.probspace = {}
+        self.probindex = {}
+        self.fimpdict = {}
+        self.bimpdict = {}
+        self.fprojector = {}
+        self.bprojector = {}
+        self.fprojector_prob = None
+        self.bprojector_prob = None
 
-#     # #     nprob = len(self.probspace)
-        
-#     # #     if (len(imp) -1 != nprob):
-#     # #         print("***** number of impurity problems are not the same *****")
-#     # #         print("***** program stopped!!! *****")
-#     # #         sys.exit()
+        if impdict is not None:
+            self.Build(impdict)
 
-#     # #     self.impindex = []
+    def _validate_impdict(self, impdict: dict) -> None:
+        if impdict is None:
+            raise ValueError("impdict cannot be None")
 
-#     # #     for ii in range(nprob):
-#     # #         iimp = str(ii+1)
-#     # #         N = len(imp[iimp]['impurity_matrix'])
+        for key, spaces in impdict.items():
+            if len(spaces) == 0:
+                raise ValueError(f"impdict['{key}'] must contain at least one space")
 
-#     # #         equivmat = imp[iimp]['impurity_matrix']
+            for orblist in spaces:
+                if len(orblist) == 0:
+                    raise ValueError(
+                        f"impdict['{key}'] contains an empty orbital list"
+                    )
+                atom = orblist[0][0]
+                for orb in orblist:
+                    if atom != orb[0]:
+                        raise ValueError(
+                            "Different atoms are involved in the same space"
+                        )
 
-#     # #         for i in range(N):
-#     # #             for j in range(N):
-#     # #                 if (equivmat[i, j] != 0):
-#     # #                     if (equivmat[i, j] > len(self.impindex[ii])):
-#     # #                         for k in range((equivmat[i, j] - len(self.impindex[ii]))):
-#     # #                             self.impindex[ii].append([])
-#     # #                         self.impindex[ii][equivmat[i,j] - 1].append([i, j])
-#     # #                     else:
-#     # #                         self.impindex[ii][equivmat[i,j] - 1].append([i, j])
+    def Build(self, impdict: dict = None) -> None:
+        if impdict is not None:
+            self.impdict = impdict
+        if self.impdict is None:
+            raise ValueError("impdict is not set")
 
-#     # def Load(self, imp : list):
+        self._validate_impdict(self.impdict)
 
-#     #     from collections import defaultdict
-#     #     tempdict = defaultdict(list)
+        ns = self.basisindex.ns
+        nproblem = len(self.impdict)
+        nspace = 0
 
-#     #     for ridx, row in enumerate(imp):
-#     #         for cidx, value in enumerate(row):
-#     #             if (value != 0):
-#     #                 tempdict[value].append((ridx, cidx))
+        probspace = {}
+        probindex = {}
+        fimpdict = {}
+        bimpdict = {}
+        forbc = 0
+        borbc = 0
 
-#     #     impdict = {}
-#     #     i = 1
-#     #     for value in tempdict.values():
-#     #         impdict[str(i)] = []
-#     #         templist = []
-#     #         for val in value:
-#     #             (a, m) = self.cry.FAtomOrb(val[0])
-#     #             templist.append([a, m])
-#     #         impdict[str(i)].append(templist)
+        for key, val in self.impdict.items():
+            iprob = int(key) - 1
+            if iprob < 0 or iprob >= nproblem:
+                raise ValueError(
+                    f"impurity key '{key}' maps to invalid problem index {iprob}"
+                )
 
-#     #         i += 1
-        
-#     #     # self.Cal(impdict)
+            # probspace: atom-site labels aligned with equivalent-space order.
+            probspace[key] = [int(orblist[0][0]) for orblist in val]
 
-#     #     return impdict
-        
-#     def Load(self, path : str):
+            # probindex: contiguous equivalent-space index for local array axis.
+            probindex[key] = [nspace + i for i in range(len(val))]
+            nspace += len(val)
 
-#         glob = h5py.File(path+'/global.dat')
-#         nbndf = glob['full_space']['gw']['nbndf'][:]
-#         includebands = glob['combasis_fermion']['include_bands'][:]
-#         numwann = glob['combasis_fermion']['num_wann']
-#         correlated = glob['combasis_boson']['wan_correlated'][:]
+            fimpdict[key] = []
+            bimpdict[key] = []
 
-#         nk = self.mpimanager.crystal.nk
-#         nf = glob['full_space']['gw']['n_omega'][:]
-#         ntau = glob['full_space']['gw']['n_tau'][:]
-#         nprock = glob['comweiss_fermion']['nproc_k'][:]
-#         nprocf = glob['comweiss_fermion']['nproc_w'][:]
-#         glob.close()
+            ref_len = None
+            for orblist in val:
+                f_orbs = []
+                for orb in orblist:
+                    find = self.basisindex.FIndex(orb)
+                    f_orbs.append(find)
+                fimpdict[key].append(f_orbs)
+                forbc = max(forbc, len(f_orbs))
 
-#         nodedict = self.mpimanager.mpidict[(nk, nf, ntau, nprock, nprocf)]
-#         commk = nodedict['commk']
-#         rank = commk.Get_rank()
-#         nk_loc = len(self.mpimanager.klocal2global[rank])
+                if ref_len is None:
+                    ref_len = len(f_orbs)
+                elif len(f_orbs) != ref_len:
+                    raise ValueError(
+                        f"All equivalent spaces in impurity '{key}' must have the same orbital count"
+                    )
 
-#         fpfl = np.zeros((nbndf[0], numwann[0], nk_loc, self.mpimanager.crystal.ns), dtype=np.complex128, order='F')
-#         fplc = np.zeros((numwann[0], len(correlated), self.mpimanager.crystal.ns, self.nspace), dtype=np.complex128, order='F')
+                b_orbs = []
+                for iorb in f_orbs:
+                    for jorb in f_orbs:
+                        a, _ = self.basisindex.FAtomOrb(iorb)
+                        b, _ = self.basisindex.FAtomOrb(jorb)
+                        if a == b:
+                            bind = self.basisindex.bbasis[iorb, jorb] - 1  # 1-based -> 0-based
+                            b_orbs.append(bind)
+                bimpdict[key].append(b_orbs)
+                borbc = max(borbc, len(b_orbs))
 
-#         for js in range(self.mpimanager.crystal.ns):
-#             for j in range(numwann[0]):
-#                 for i in includebands:
-#                     for ik in range(nk_loc):
-#                         fpfl[i, j, ik, js] = 1.0
+        # Compact projectors per impurity problem: variable second dimension.
+        fprojector = {}
+        bprojector = {}
+        for key in self.impdict.keys():
+            fcols = len(fimpdict[key][0])
+            bcols = len(bimpdict[key][0])
+            fproj = np.zeros((len(self.basisindex.find), fcols, ns), dtype=float)
+            bproj = np.zeros((len(self.basisindex.bind), bcols, ns), dtype=float)
 
-#         for ispace in range(self.nspace):
-#             for js in range(self.mpimanager.crystal.ns):
-#                 for j in correlated:
-#                     for i in range(numwann[0]):
-#                         fplc[i, j, js, ispace] = 1.0
+            rep_f_orbs = fimpdict[key][0]
+            rep_b_orbs = bimpdict[key][0]
+            for js in range(ns):
+                for col, ind in enumerate(rep_f_orbs):
+                    fproj[ind, col, js] = 1.0
+                for col, ind in enumerate(rep_b_orbs):
+                    bproj[ind, col, js] = 1.0
 
-#         self.fpfl = fpfl
-#         self.fplc = fplc
+            fprojector[key] = fproj
+            bprojector[key] = bproj
 
-#         return None
-                
+        fprojector_prob = np.zeros((len(self.basisindex.find), forbc, ns, nproblem), dtype=float)
+        bprojector_prob = np.zeros((len(self.basisindex.bind), borbc, ns, nproblem), dtype=float)
+
+        for js in range(ns):
+            for key in probspace.keys():
+                iprob = int(key) - 1
+                rep_f_orbs = fimpdict[key][0]
+                rep_b_orbs = bimpdict[key][0]
+                for col, ind in enumerate(rep_f_orbs):
+                    fprojector_prob[ind, col, js, iprob] = 1.0
+                for col, ind in enumerate(rep_b_orbs):
+                    bprojector_prob[ind, col, js, iprob] = 1.0
+
+        self.probspace = probspace
+        self.probindex = probindex
+        self.fimpdict = fimpdict
+        self.bimpdict = bimpdict
+        self.fprojector = fprojector
+        self.bprojector = bprojector
+        self.fprojector_prob = fprojector_prob
+        self.bprojector_prob = bprojector_prob
+
+        return None

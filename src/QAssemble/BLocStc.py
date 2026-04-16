@@ -67,13 +67,15 @@ class BLocStc(object):
         ns = matimp.shape[2]
 
 
+        probindex = self.crystal.probindex if self.crystal.probindex else self.crystal.probspace
+
         nspace = 0
-        for val in self.crystal.probspace.values():
+        for val in probindex.values():
             nspace += len(val)
 
         matloc = np.zeros((norb,norb,ns,ns,nspace),dtype=np.complex128,order='F')
 
-        for key, val in self.crystal.probspace.items():
+        for key, val in probindex.items():
             iprob = int(key)-1
             for ispace in val:
                 matloc[...,ispace] = matimp[...,iprob]
@@ -86,13 +88,15 @@ class BLocStc(object):
         ns = matimp.shape[2]
     
 
+        probindex = self.crystal.probindex if self.crystal.probindex else self.crystal.probspace
+
         nspace = 0
-        for val in self.crystal.probspace.values():
+        for val in probindex.values():
             nspace += len(val)
 
         matloc = np.zeros((norb,norb,ns,ns,nspace),dtype=np.complex128,order='F')
 
-        for key, val in self.crystal.probspace.items():
+        for key, val in probindex.items():
             iprob = int(key)-1
             for ispace in val:
                 matloc[...,ispace] = matimp[...,iprob]
@@ -667,4 +671,3 @@ class VLoc(BLocStc):
         self.u_ctqmc = U
 
         return U
-

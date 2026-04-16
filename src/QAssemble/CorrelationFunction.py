@@ -185,7 +185,7 @@ class CorrelationFunction(object):
         itermax = self.control["run"]["nscf"]
         mix = self.control["run"]["mix"]
         hdf5file = self.control["run"]["fn"] + '.h5'
-        mode = self.control["run"]["mode"]
+        # mode = self.control["run"]["mode"]
         group = 'gw'
 
         niham = self.niham
@@ -199,9 +199,7 @@ class CorrelationFunction(object):
         for iter in range(1,itermax+1):
             iter_timing = {"iter": iter}
             if iter == 1:
-                # niham_temp = NIHamiltonian(crystal=self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin, valley=valley, hdf5file=hdf5file,group='test')
-                # niham_temp = NIHamiltonian(self.crystal,hopping=hoppinglist,onsite=onsitelist,spin=spin,aferro=aferro, valley=valley,site=site,hdf5file=hdf5file,group='test_gw')
-                # gbare_temp = GreenBare(crystal=self.crystal,dlr=self.dlr,hamtb=niham_temp.k,hdf5file=hdf5file,group='test')
+                
                 t0 = time.perf_counter()
                 gold = GreenInt(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,hdf5file=hdf5file,group=group)
                 logger.info(f"Initial chemical potential : {gold.mu}")
@@ -294,7 +292,7 @@ class CorrelationFunction(object):
                 gc.collect()
                 break
             elif (iter==itermax):
-                logger.warning(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
+                logger.info(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
                 self.green = gnew
                 self.pol = pol
                 self.w = w

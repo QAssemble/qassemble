@@ -92,6 +92,7 @@ class Crystal(object):
         self.orboption = orboption
 
         self._basis_index = BasisIndex(orboption=orboption, ns=self.ns)
+        self.siteorbitals = self.SiteOrbitalDict()
 
         self.RVec()
 
@@ -142,6 +143,10 @@ class Crystal(object):
         return self._basis_index.probspace
 
     @property
+    def probindex(self):
+        return self._basis_index.probindex
+
+    @property
     def fimpdict(self):
         return self._basis_index.fimpdict
 
@@ -156,6 +161,14 @@ class Crystal(object):
     @property
     def bprojector(self):
         return self._basis_index.bprojector
+
+    @property
+    def fprojector_prob(self):
+        return self._basis_index.fprojector_prob
+
+    @property
+    def bprojector_prob(self):
+        return self._basis_index.bprojector_prob
 
     # ── BasisIndex delegation: methods ──
 
@@ -198,10 +211,51 @@ class Crystal(object):
     def Double2Full(self, mat):
         return self._basis_index.Double2Full(mat)
 
-    def Projector(self, impdict):
-        return self._basis_index.Projector(impdict)
 
     # ── Crystal-own methods ──
+
+    def SiteOrbitalDict(self, atomsite = None, local : bool = False) -> dict:
+        """Build a dictionary of orbital numbers for selected atom sites.
+
+        Args:
+            atomsite (None | int | list | tuple | set | dict):
+                Site specification.
+                - None: all atom sites.
+                - int: single atom site index.
+                - iterable: collection of atom site indices.
+                - dict: use dictionary keys as atom site indices.
+            local (bool):
+                If True, returns local orbital labels per site (0..n_orb-1).
+                If False (default), returns global fermionic orbital indices.
+
+        Returns:
+            dict: {atom_site: [orbital_numbers, ...]}.
+        """
+        if atomsite is None:
+            atomsite = list(self.orboption.keys())
+        elif isinstance(atomsite, (int, np.integer)):
+            atomsite = [int(atomsite)]
+        elif isinstance(atomsite, dict):
+            atomsite = list(atomsite.keys())
+        else:
+            atomsite = list(atomsite)
+
+        siteorbitals = {}
+        for site in atomsite:
+            if not isinstance(site, (int, np.integer)):
+                raise TypeError(f"Atom site index must be int, got {type(site)}")
+
+            site = int(site)
+            if site not in self.orboption:
+                raise ValueError(f"Invalid atom site index: {site}")
+
+            n_orb = self.orboption[site]
+            if local:
+                siteorbitals[site] = list(range(n_orb))
+            else:
+                siteorbitals[site] = [self.FIndex([site, m]) for m in range(n_orb)]
+
+        return siteorbitals
 
     def Kpath(self, kpath: list = None, nk: int = None) -> np.ndarray:
         """Generate k-point path through specified high-symmetry points.

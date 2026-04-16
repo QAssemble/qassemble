@@ -1,11 +1,7 @@
-import logging
 import numpy as np
-import sys
 import itertools
 import copy
 from .utility.Common import Common
-
-logger = logging.getLogger("QAssemble")
 
 
 class BasisIndex(object):
@@ -31,10 +27,13 @@ class BasisIndex(object):
         self.forb2atom = None
         self.borb2atom = None
         self.probspace = {}
+        self.probindex = {}
         self.fimpdict = {}
         self.bimpdict = {}
         self.fprojector = None
         self.bprojector = None
+        self.fprojector_prob = {}
+        self.bprojector_prob = {}
 
         self.SetBasisIndex(orboption)
         self.pbasis = np.zeros((len(self.find), len(self.find)), dtype=int)
@@ -431,91 +430,6 @@ class BasisIndex(object):
 
         return matret
 
-    def Projector(self, impdict: dict):
-        """Generate fermion and boson projectors for impurity calculations.
-
-        Args:
-            impdict (dict): Mapping of impurity labels to lists of orbital index lists.
-            e.g.
-            impdict = {
-                '1'  : [[[0, 0], [0, 1]],[[1, 0]]]
-                }
-
-        Returns:
-            None
-        """
-
-        nspace = 0
-        forbc = 0
-        borbc = 0
-        ns = self.ns
-        probspace = {}
-        fimpdict = {}
-        bimpdict = {}
-
-        for key, val in impdict.items():
-            for orblist in val:
-                atom = 0
-                for orb in orblist:
-                    if orb == orblist[0]:
-                        atom = orb[0]
-                    if atom != orb[0]:
-                        logger.error("Different atoms are involved in the same space")
-                        sys.exit()
-            probspace[key] = [nspace+i for i in range(len(val))]
-            nspace += len(val)
-
-        self.probspace = probspace
-
-        for key, val in impdict.items():
-            fimpdict[key] = []
-            for orblist in val:
-                templist = []
-                for orb in orblist:
-                    find = self.FIndex(orb)
-                    templist.append(find)
-                fimpdict[key].append(templist)
-        self.fimpdict = fimpdict
-        for val in fimpdict.values():
-            for orb in val:
-                if len(orb) > forbc:
-                    forbc = len(orb)
-        for key, val in fimpdict.items():
-            bimpdict[key] = []
-            for orb in val:
-                templist = []
-                for iorb in orb:
-                    for jorb in orb:
-                        [a,m1] = self.FAtomOrb(iorb)
-                        [b,m2] = self.FAtomOrb(jorb)
-                        if a==b:
-                            bind = self.bbasis[iorb, jorb] - 1  # bbasis is 1-based
-                            templist.append(bind)
-                bimpdict[key].append(templist)
-        for val in bimpdict.values():
-            for orb in val:
-                if len(orb)>borbc:
-                    borbc = len(orb)
-        self.bimpdict = bimpdict
-        fprojector = np.zeros((len(self.find),forbc,ns,nspace),dtype=float)
-        bprojector = np.zeros((len(self.bind),borbc,ns,nspace),dtype=float)
-
-        for js in range(ns):
-            for key, val in probspace.items():
-                for ii, ispace in enumerate(val):
-                    for ind in self.fimpdict[key][ii]:
-                        fprojector[ind,self.fimpdict[key][ii].index(ind),js,ispace] = 1.0
-
-        for js in range(ns):
-            for key, val in probspace.items():
-                for ii, ispace in enumerate(val):
-                    for ind in self.bimpdict[key][ii]:
-                        bprojector[ind,self.bimpdict[key][ii].index(ind),js,ispace] = 1.0
-
-        self.fprojector = fprojector
-        self.bprojector = bprojector
-
-        return None
 
     def MappingBosonFermion(self, iorb):
 

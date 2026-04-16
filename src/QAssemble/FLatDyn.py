@@ -8,22 +8,22 @@ import h5py
 import time, datetime
 from .Crystal import Crystal
 from .FLatStc import FLatStc
+from .Projector import Projector
 from .utility.DLR import DLR
 from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Mixing import Mixing
-# qapath = os.environ.get('QAssemble','')
-# sys.path.append(qapath+'/src/QAssemble/modules')
-# import QAFort
+from .utility.Embedding import Embedding as EB
 
 logger = logging.getLogger("QAssemble")
 
 class FLatDyn(object):
-    def __init__(self,crystal : Crystal, dlr : DLR, mixing_method: str = "pulay", npulay: int = 5) -> object:
+    def __init__(self,crystal : Crystal, dlr : DLR, mixing_method: str = "pulay", npulay: int = 5, projector : Projector = None) -> object:
         self.crystal = crystal
         self.dlr = dlr
         self._mixer = Mixing(method=mixing_method, npulay=npulay)
+        self.projector = projector
         self.mappingidx = None
         self._fermion_phase_cache_k2r = self._get_fermion_phaseK2R()
         self._fermion_phase_cache_r2k = self._get_fermion_phaseR2K()
@@ -413,6 +413,66 @@ class FLatDyn(object):
                         eigvec[:, :, js, ik, ifreq] = v
 
         return eigval, eigvec
+    
+    # def Embedding(self, matin : np.ndarray):
+
+    #     norb = len(self.crystal.find)
+    #     ns = self.crystal.ns
+    #     nrk = len(self.crystal.kpoint)
+    #     nft = self.ft.size
+    #     nspace = self.crystal.fprojector.shape[3]
+
+    #     matout = np.zeros((norb,norb,ns,nrk,nft),dtype=np.complex128,order='F')
+
+    #     for ispace in range(nspace):
+    #         matout += QAFort.embedding.flocdyn(nrk,matin[...,ispace],self.crystal.fprojector[...,ispace])
+
+    #     return matout
+
+    def Embedding(self, matin: dict) -> np.ndarray:
+        if self.projector is None:
+            raise ValueError("projector is required for Embedding")
+        if not isinstance(matin, dict):
+            raise TypeError("matin must be a dict keyed by impurity problem key")
+
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nrk = len(self.crystal.kpoint)
+        nft = len(self.dlr.omega)
+
+        matout = np.zeros((norb, norb, ns, nrk, nft), dtype=np.complex128, order="F")
+        projector = self.projector.fprojector  # key -> (norb, norbc, ns)
+
+        for key, proj in projector.items():
+            if key not in matin:
+                raise KeyError(f"Missing projected data for problem key '{key}'")
+
+            
+            rep_emb = EB.FLatDyn(matin[key], proj, nrk)
+            expanded = np.zeros_like(rep_emb, dtype=np.complex128, order="F")
+
+            atom_list = self.projector.probspace[key]   # ex) [0, 2]
+            rep_atom = atom_list[0]
+            rep_orbs = self.crystal.siteorbitals[rep_atom]
+
+            
+            for ia in atom_list:
+                tgt_orbs = self.crystal.siteorbitals[ia]
+                if len(tgt_orbs) != len(rep_orbs):
+                    raise ValueError(f"Equivalent atoms in key '{key}' have different orbital counts")
+
+                expanded[np.ix_(tgt_orbs, tgt_orbs)] = rep_emb[np.ix_(rep_orbs, rep_orbs)]
+
+            
+            matout += expanded
+
+        return matout
+
+        
+
+        
+
+        
 
     
 class GreenBare(FLatDyn):
