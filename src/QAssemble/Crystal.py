@@ -138,37 +138,37 @@ class Crystal(object):
     def borb2atom(self):
         return self._basis_index.borb2atom
 
-    @property
-    def probspace(self):
-        return self._basis_index.probspace
+    # @property
+    # def probspace(self):
+    #     return self._basis_index.probspace
 
-    @property
-    def probindex(self):
-        return self._basis_index.probindex
+    # @property
+    # def probindex(self):
+    #     return self._basis_index.probindex
 
-    @property
-    def fimpdict(self):
-        return self._basis_index.fimpdict
+    # @property
+    # def fimpdict(self):
+    #     return self._basis_index.fimpdict
 
-    @property
-    def bimpdict(self):
-        return self._basis_index.bimpdict
+    # @property
+    # def bimpdict(self):
+    #     return self._basis_index.bimpdict
 
-    @property
-    def fprojector(self):
-        return self._basis_index.fprojector
+    # @property
+    # def fprojector(self):
+    #     return self._basis_index.fprojector
 
-    @property
-    def bprojector(self):
-        return self._basis_index.bprojector
+    # @property
+    # def bprojector(self):
+    #     return self._basis_index.bprojector
 
-    @property
-    def fprojector_prob(self):
-        return self._basis_index.fprojector_prob
+    # @property
+    # def fprojector_prob(self):
+    #     return self._basis_index.fprojector_prob
 
-    @property
-    def bprojector_prob(self):
-        return self._basis_index.bprojector_prob
+    # @property
+    # def bprojector_prob(self):
+    #     return self._basis_index.bprojector_prob
 
     # ── BasisIndex delegation: methods ──
 

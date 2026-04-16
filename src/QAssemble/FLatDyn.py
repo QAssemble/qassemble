@@ -447,23 +447,18 @@ class FLatDyn(object):
             if key not in matin:
                 raise KeyError(f"Missing projected data for problem key '{key}'")
 
-            
             rep_emb = EB.FLatDyn(matin[key], proj, nrk)
             expanded = np.zeros_like(rep_emb, dtype=np.complex128, order="F")
+            rep_orbs = self.projector.fimpdict[key][0]
 
-            atom_list = self.projector.probspace[key]   # ex) [0, 2]
-            rep_atom = atom_list[0]
-            rep_orbs = self.crystal.siteorbitals[rep_atom]
-
-            
-            for ia in atom_list:
-                tgt_orbs = self.crystal.siteorbitals[ia]
+            for tgt_orbs in self.projector.fimpdict[key]:
                 if len(tgt_orbs) != len(rep_orbs):
-                    raise ValueError(f"Equivalent atoms in key '{key}' have different orbital counts")
+                    raise ValueError(
+                        f"Equivalent spaces in key '{key}' have different orbital counts"
+                    )
 
                 expanded[np.ix_(tgt_orbs, tgt_orbs)] = rep_emb[np.ix_(rep_orbs, rep_orbs)]
 
-            
             matout += expanded
 
         return matout
@@ -781,7 +776,7 @@ class GreenInt(FLatDyn):
         return None
 
     
-class SigmaGWC(FLatDyn):
+class SigGWC(FLatDyn):
 
     def __init__(self, crystal: Crystal, dlr : DLR, green : np.ndarray = None, wlat : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None) -> object:
         super().__init__(crystal, dlr)

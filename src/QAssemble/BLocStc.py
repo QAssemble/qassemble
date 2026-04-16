@@ -18,6 +18,7 @@ import subprocess
 import copy
 # import Crystal, FTGrid
 from .Crystal import Crystal
+from .Projector import Projector
 from .utility.Common import Common
 from .utility.Dyson import Dyson
 
@@ -26,9 +27,15 @@ logger = logging.getLogger("QAssemble")
 
 class BLocStc(object):
 
-    def __init__(self,crystal : Crystal):
+    def __init__(self,crystal : Crystal, projector : Projector = None):
 
         self.crystal = crystal
+        self.projector = projector
+
+    def _require_projector(self) -> Projector:
+        if self.projector is None:
+            raise ValueError("projector is required for impurity/local index mapping")
+        return self.projector
 
     def Inverse(self, matin : np.ndarray)-> np.ndarray:
 
@@ -66,8 +73,8 @@ class BLocStc(object):
         norb = matimp.shape[0]
         ns = matimp.shape[2]
 
-
-        probindex = self.crystal.probindex if self.crystal.probindex else self.crystal.probspace
+        projector = self._require_projector()
+        probindex = projector.probindex if projector.probindex else projector.probspace
 
         nspace = 0
         for val in probindex.values():
@@ -86,9 +93,9 @@ class BLocStc(object):
 
         norb = matimp.shape[0]
         ns = matimp.shape[2]
-    
 
-        probindex = self.crystal.probindex if self.crystal.probindex else self.crystal.probspace
+        projector = self._require_projector()
+        probindex = projector.probindex if projector.probindex else projector.probspace
 
         nspace = 0
         for val in probindex.values():
@@ -614,8 +621,9 @@ class VLoc(BLocStc):
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
-        
-        orb = self.crystal.fimpdict[key][0]
+
+        projector = self._require_projector()
+        orb = projector.fimpdict[key][0]
         norbc = len(orb)
         tempmat = np.zeros((norb, norb, norb, norb), dtype=np.complex128, order='F')
         vloc = np.zeros((norbc, norbc, norbc, norbc, ns, ns), dtype=np.complex128, order='F')

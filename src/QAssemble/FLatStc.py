@@ -792,7 +792,7 @@ class NIHamiltonian(FLatStc):
     #     pass
 
 
-class SigmaHartree(FLatStc):
+class SigH(FLatStc):
 
     def __init__(
         self,
@@ -970,7 +970,7 @@ class SigmaHartree(FLatStc):
         return None
 
 
-class SigmaFock(FLatStc):
+class SigF(FLatStc):
 
     def __init__(
         self,

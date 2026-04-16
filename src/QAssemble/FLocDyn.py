@@ -82,6 +82,11 @@ class FLocDyn(object):
 
         return ff
     
+    def CheckGroup(self, filepath :str, group : str):
+        
+        with h5py.File(filepath,'r') as file:
+            return group in file
+    
     def GaussianLinearBroad(self,x, y, w1, temperature, cutoff):
 
         norb = y.shape[0]
@@ -216,113 +221,171 @@ class FLocDyn(object):
 
     
     def Projection(self, matin : np.ndarray):
+        if self.projector is None:
+            raise ValueError("projector is required for Projection")
 
-        projector = self.projector.fprojector
-        
-        
+        if matin.ndim != 5:
+            raise ValueError(f"matin must be 5D, got {matin.ndim}D")
+
+        norb = matin.shape[0]
+        ns = matin.shape[2]
+        nfreq = matin.shape[4]
+
         matdict = {}
-        for key in projector.keys():
-            proj = projector[key]
+        for key, proj in self.projector.fprojector.items():
             norbc = proj.shape[1]
-            ns = proj.shape[2]
-            nfreq = matin.shape[4]
-
             tempmat = np.zeros((norbc, norbc, ns, nfreq), dtype=np.complex128, order='F')
 
             tempmat = PJ.FLatDyn(matin, proj)
 
+            
             matdict[key] = tempmat
 
         return matdict
     
-# class GreenLoc(FLocDyn):
+class GreenLoc(FLocDyn):
 
-#     def __init__(self, crystal: Crystal, ft: FTGrid, green : GreenInt):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, green : np.ndarray, hdf5file : str = None, group : str = None):
+
+        super().__init__(crystal, dlr, projector)
+
         
-#         super().__init__(crystal, ft)
-#         self.green = green
-#         self.gf = None
-#         self.gt = None
+        self.green = green
+        self.f = {}
+        self.t = {}
+
+        self.occ = None
+        self.Cal()
         
-#         self.Cal()
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
 
-#     def Cal(self): # projection
-        
-#         norbc = self.crystal.fprojector.shape[1]
-#         ns = self.crystal.ns
-#         nft = self.ft.size
-#         nspace = self.crystal.fprojector.shape[3]
+    def Cal(self):
 
-#         gf = np.zeros((norbc,norbc,ns,nft,nspace),dtype=np.complex128)
+        self.f = self.Projection(self.green)
 
-#         for ispace in range(nspace):
-#             gf[...,ispace] = QAFort.projection.flatdyn(self.green.gkf,self.crystal.fprojector[...,ispace])
+        self.t = {}
 
-#         self.gf = gf
-#         self.gt = self.F2T(gf,1,1)
+        for key, mat in self.f.items():
+            self.t[key] = self.F2T(mat)
 
-#         return None
+        self.Occ()
 
-# class GreenImp(FLocDyn): # read CTQMC output
-
-#     def __init__(self, crystal: Crystal, ft: FTGrid):
-#         super().__init__(crystal, ft)
-#         self.Cal()
-
-#     def Cal(self):
-#         super().Dict2Arr()
-#         pass
-
-# class SigmaLoc(FLocDyn):
+        return None
     
-#     def __init__(self, crystal: Crystal, ft: FTGrid, sigma : object):
-#         super().__init__(crystal, ft)
+    def Occ(self):
         
-#         self.sigma = sigma
-#         self.f = None
-#         self.Cal()
+        self.occ = {}
 
-#     def Cal(self): # projection
+        tau_beta = np.array([self.dlr.beta], dtype=np.float64)
+        for key, mat in self.t.items():
+            
+            occ = np.zeros_like(mat[...,0], dtype=np.complex128)
+            for js in range(mat.shape[2]):
+                block = mat[:, :, js, :].T
+
+                ntau_b = block.shape[0]
+                block_2d = block.reshape(ntau_b, -1)
+
+                fxx = self.dlr.dF.dlr_from_tau(block_2d)
+                fout = self.dlr.dF.eval_dlr_tau(fxx[:, :, None], tau_beta, beta=self.dlr.beta)
+
+                occ[:, :, js] = -fout[0, :, 0].reshape(mat.shape[0], mat.shape[0])
+
+            self.occ[key] = occ
+
+        return None
+    
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    gloc = group[self.subgroup]
+                else:
+                    gloc = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                gloc = group.create_group(self.subgroup)
+            
+
+            if obj != None:
+                gloc.create_dataset(fn,dtype=complex,data=obj)
+            else:
+                gloc.create_dataset(fn,dtype=complex,data=self.kf)
+
+        return None
+
+
+class Hybridization(FLocDyn):
+
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, green : dict, eimp : dict, sigh : dict = None, sigf : dict = None, sigc : dict = None, hdf5file : str = None, group : str = None):
         
-#         norbc = self.crystal.fprojector.shape[1]
-#         ns = self.crystal.ns
-#         nft = self.ft.size
-#         nspace = self.crystal.fprojector.shape[3]
+        super().__init__(crystal, dlr, projector)
 
-#         sigmalocf = np.zeros((norbc,norbc,ns,nft,nspace),dtype=np.complex128,order='F')
+        self.green = green
+        self.eimp = eimp
+        self.sigh = sigh
+        self.sigf = sigf
+        self.sigc = sigc
+        
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
 
-#         for isapce in range(nspace):
-#             sigmalocf[...,isapce] = QAFort.projection.flatdyn(self.sigma,self.crystal.fprojector[...,isapce])
+        self.f = {}
+        self.t = {}
 
-#         self.f = sigmalocf
-#         self.t = self.F2T(sigmalocf,0,1)
+        
+    def Cal(self):
 
-#         return None
+        projector = self.projector.fprojector
 
 
-# class SigmaImp(FLocDyn): # read CTQMC output
+        for key in projector.keys():
+            
+            tempmat = np.zeros_like(self.green[key], dtype=np.complex128, order='F')
+            sig = np.zeros_like(self.green[key], dtype=np.complex128, order='F')
+            if self.sigh is not None:
+                sig += self.sigh[key]
+            if self.sigf is not None:
+                sig += self.sigf[key]
+            if self.sigc is not None:
+                sig += self.sigc[key]
 
-#     def __init__(self, crystal: Crystal, ft: FTGrid):
-#         super().__init__(crystal, ft)
-#         self.Cal()
+            g_inv = self.Inverse(self.green[key])
+            
+            e = self.eimp[key]
+            I = np.eye(g_inv.shape[0], dtype=np.complex128)
+            omega = self.dlr.omega * 1j
 
-#     def Cal(self):
-#         super().Dict2Arr()
-#         pass
+            for iomega in range(len(omega)):
+                for js in range(g_inv.shape[2]):
+                    tempmat[..., js, iomega] = omega[iomega]*I - e[..., js] - g_inv[..., js, iomega] - sig[..., js, iomega]
+            self.f[key] = tempmat
+            self.t[key] = self.F2T(tempmat)
 
-# class SigmaLGWC(FLocDyn):
-
-#     def __init__(self, crystal: Crystal, ft: FTGrid):
-#         super().__init__(crystal, ft)
-
-#         pass
+        return None
     
+    def Save(self, fn: str, obj : np.ndarray = None):
 
-# class Hybridisation(FLocDyn):
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    hyb = group[self.subgroup]
+                else:
+                    hyb = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                hyb = group.create_group(self.subgroup)
+            
 
-#     def __init__(self, crystal: Crystal, ft: FTGrid, implev : object, gimp : GreenImp, sigmaimp : SigmaImp):
-#         super().__init__(crystal, ft)
-#         self.Cal()
-    
-#     def Cal(self):
-#         pass
+            if obj != None:
+                hyb.create_dataset(fn,dtype=complex,data=obj)
+            else:
+                hyb.create_dataset(fn,dtype=complex,data=self.kf)
+
+        return None
