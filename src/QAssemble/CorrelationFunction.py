@@ -2,11 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys, os, time
 import gc
-import h5py
 import logging
 from .Crystal import Crystal
 # from .FTGrid import FTGrid
 from .utility.DLR import DLR
+from .utility.StagedHDF5 import load_saved_dataset
 from .FLatDyn import *
 from .FLatStc import *
 from .FLocDyn import *
@@ -190,10 +190,12 @@ class CorrelationFunction(object):
                         avalley=avalley,
                         asite=asite,
                     )
-                    glob = h5py.File(hdf5file,'r')
-                    hf = glob['hf']
-                    hk = hf['Hamiltonian']['hk'][:]
-                    glob.close()
+                    hk = load_saved_dataset(
+                        hdf5file=hdf5file,
+                        group="hf",
+                        subgroup="Hamiltonian",
+                        dataset_name="hk",
+                    )
                     if self.nodedict is not None:
                         rank = self.nodedict["commk"].Get_rank()
                         nk_local = len(self.nodedict["kloc2glob"][rank])

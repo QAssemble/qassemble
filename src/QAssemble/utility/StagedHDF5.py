@@ -18,25 +18,85 @@ _LOC_KEY_TO_COMM_KEY = {
     "bloc": "commboson",
 }
 
+_DATA_VAR_NAME = "data"
+_SCALAR_PREFIX = "__scalar__"
+
 
 def _sanitize_component(component: str) -> str:
-
     text = str(component)
     text = re.sub(r"[^A-Za-z0-9_.-]+", "_", text)
     return text.strip("._") or "root"
 
 
-def _require_group(parent, path: str):
+def _storage_root(hdf5file: str) -> str:
+    abspath = os.path.abspath(hdf5file)
+    stem, ext = os.path.splitext(abspath)
+    if ext:
+        return f"{stem}.adios2"
+    return f"{abspath}.adios2"
 
-    if not path:
-        return parent
 
-    group = parent
-    for name in str(path).split("/"):
-        if name:
-            group = group.require_group(name)
+def _dataset_file_path(
+    hdf5file: str,
+    group: str,
+    subgroup: str,
+    dataset_name: str,
+) -> str:
+    root = _storage_root(hdf5file)
+    return os.path.join(
+        root,
+        _sanitize_component(group),
+        _sanitize_component(subgroup),
+        f"{_sanitize_component(dataset_name)}.bp",
+    )
 
-    return group
+
+def _scalar_dataset_name(name: str) -> str:
+    return f"{_SCALAR_PREFIX}{name}"
+
+
+def _import_adios2():
+    try:
+        import adios2  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError(
+            "ADIOS2 backend is selected but 'adios2' Python package is not available. "
+            "Install ADIOS2 Python bindings to enable distributed checkpoint I/O."
+        ) from exc
+    return adios2
+
+
+def _write_bp_dataset(bp_path: str, data: np.ndarray) -> None:
+    adios2 = _import_adios2()
+    os.makedirs(os.path.dirname(bp_path), exist_ok=True)
+
+    if hasattr(adios2, "Stream"):
+        with adios2.Stream(bp_path, "w") as stream:
+            stream.write(_DATA_VAR_NAME, np.asarray(data))
+        return
+
+    if hasattr(adios2, "open"):
+        with adios2.open(bp_path, "w") as stream:
+            stream.write(_DATA_VAR_NAME, np.asarray(data))
+        return
+
+    raise RuntimeError("Unsupported ADIOS2 Python API: neither Stream nor open is available.")
+
+
+def _read_bp_dataset(bp_path: str) -> np.ndarray:
+    adios2 = _import_adios2()
+
+    if hasattr(adios2, "Stream"):
+        with adios2.Stream(bp_path, "r") as stream:
+            for _ in stream.steps():
+                return np.asarray(stream.read(_DATA_VAR_NAME))
+        raise KeyError(f"Dataset variable '{_DATA_VAR_NAME}' not found in {bp_path}.")
+
+    if hasattr(adios2, "open"):
+        with adios2.open(bp_path, "r") as stream:
+            return np.asarray(stream.read(_DATA_VAR_NAME))
+
+    raise RuntimeError("Unsupported ADIOS2 Python API: neither Stream nor open is available.")
 
 
 def _write_dataset(
@@ -46,19 +106,8 @@ def _write_dataset(
     dataset_name: str,
     data: np.ndarray,
 ) -> None:
-
-    with h5py.File(hdf5file, "a") as file:
-        group_obj = _require_group(file, group)
-        subgroup_obj = _require_group(group_obj, subgroup)
-
-        if dataset_name in subgroup_obj:
-            del subgroup_obj[dataset_name]
-
-        subgroup_obj.create_dataset(
-            dataset_name,
-            data=np.asarray(data),
-            dtype=np.asarray(data).dtype,
-        )
+    bp_path = _dataset_file_path(hdf5file, group, subgroup, dataset_name)
+    _write_bp_dataset(bp_path, np.asarray(data))
 
 
 def _write_scalars(
@@ -67,31 +116,44 @@ def _write_scalars(
     subgroup: str,
     scalar_datasets: Optional[dict],
 ) -> None:
-
     if not scalar_datasets:
         return
 
-    with h5py.File(hdf5file, "a") as file:
-        group_obj = _require_group(file, group)
-        subgroup_obj = _require_group(group_obj, subgroup)
+    for name, value in scalar_datasets.items():
+        arr = np.asarray(value)
+        _write_dataset(
+            hdf5file=hdf5file,
+            group=group,
+            subgroup=subgroup,
+            dataset_name=_scalar_dataset_name(name),
+            data=arr,
+        )
 
-        for name, value in scalar_datasets.items():
-            if name in subgroup_obj:
-                del subgroup_obj[name]
 
-            arr = np.asarray(value)
-            subgroup_obj.create_dataset(name, data=arr, dtype=arr.dtype)
+def load_saved_dataset(
+    *,
+    hdf5file: str,
+    group: str,
+    subgroup: str,
+    dataset_name: str,
+) -> np.ndarray:
+    bp_path = _dataset_file_path(hdf5file, group, subgroup, dataset_name)
+    if os.path.isfile(bp_path):
+        return _read_bp_dataset(bp_path)
+
+    with h5py.File(hdf5file, "r") as file:
+        group_obj = file[group]
+        subgroup_obj = group_obj[subgroup]
+        return np.asarray(subgroup_obj[dataset_name][:])
 
 
 def _world_comm():
-
     from mpi4py import MPI
 
     return MPI.COMM_WORLD
 
 
 def _global_size_from_loc_dict(loc_dict: dict) -> int:
-
     max_idx = -1
     for rank_map in loc_dict.values():
         for global_idx in rank_map.values():
@@ -101,13 +163,11 @@ def _global_size_from_loc_dict(loc_dict: dict) -> int:
 
 
 def _local_indices(loc_dict: dict, comm_rank: int) -> List[int]:
-
     rank_map = loc_dict[comm_rank]
     return [int(rank_map[i]) for i in range(len(rank_map))]
 
 
 def _stage_dir(hdf5file: str, group: str, subgroup: str, dataset_name: str) -> str:
-
     abspath = os.path.abspath(hdf5file)
     digest = hashlib.sha1(
         f"{abspath}::{group}::{subgroup}::{dataset_name}".encode("utf-8")
@@ -122,11 +182,10 @@ def _stage_dir(hdf5file: str, group: str, subgroup: str, dataset_name: str) -> s
         ]
     )
 
-    return os.path.join(os.path.dirname(abspath), ".staged_hdf5", folder)
+    return os.path.join(os.path.dirname(abspath), ".staged_adios2", folder)
 
 
 def _owner_for_replicated_comms(nodedict: dict, replicated_comm_keys: Set[str]) -> bool:
-
     if not replicated_comm_keys:
         return True
 
@@ -140,7 +199,6 @@ def _build_shard_metadata(
     replicated_comm_keys: Optional[List[str]],
     world_rank: int,
 ) -> Tuple[dict, Set[str]]:
-
     axes = []
     global_shape = [int(size) for size in data.shape]
     replicated = set(replicated_comm_keys or [])
@@ -206,7 +264,6 @@ def _build_shard_metadata(
 
 
 def _make_indexer(ndim: int, axis_indices: Dict[int, List[int]]) -> tuple:
-
     axes = sorted(axis_indices)
 
     if not axes:
@@ -222,7 +279,6 @@ def _make_indexer(ndim: int, axis_indices: Dict[int, List[int]]) -> tuple:
 
 
 def _consolidate_from_manifest(manifest_path: str) -> None:
-
     with open(manifest_path, "r", encoding="utf-8") as handle:
         manifest = json.load(handle)
 
@@ -285,7 +341,6 @@ def save_distributed_dataset(
     replicated_comm_keys: Optional[List[str]] = None,
     scalar_datasets: Optional[dict] = None,
 ) -> None:
-
     array = np.asarray(data)
 
     if nodedict is None:
