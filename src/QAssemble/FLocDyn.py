@@ -314,7 +314,7 @@ class GreenLoc(FLocDyn):
             if obj != None:
                 gloc.create_dataset(fn,dtype=complex,data=obj)
             else:
-                gloc.create_dataset(fn,dtype=complex,data=self.kf)
+                gloc.create_dataset(fn,dtype=complex,data=self.f)
 
         return None
 
@@ -386,6 +386,6 @@ class Hybridization(FLocDyn):
             if obj != None:
                 hyb.create_dataset(fn,dtype=complex,data=obj)
             else:
-                hyb.create_dataset(fn,dtype=complex,data=self.kf)
+                hyb.create_dataset(fn,dtype=complex,data=self.f)
 
         return None
