@@ -51,6 +51,207 @@ class FLocStc(object):
         Fnew = mix*Fb + (1.0-mix)*Fold
 
         return Fnew
+
+    def _resolve_equiv_matrix(self, imp, key) -> np.ndarray:
+        """Resolve an equivalent-orbital matrix from legacy/new impurity inputs.
+
+        Supported inputs:
+        - 2D ndarray/list: used directly as equivalence matrix.
+        - Legacy dict: ``imp[str(key)]['impurity_matrix']``.
+        """
+        if imp is None:
+            raise ValueError("imp (or equivalence matrix) is required")
+
+        if isinstance(imp, np.ndarray):
+            equiv = imp
+        elif isinstance(imp, (list, tuple)):
+            equiv = np.asarray(imp)
+        elif isinstance(imp, dict):
+            if key is None:
+                if len(imp) == 1:
+                    k = next(iter(imp.keys()))
+                else:
+                    raise ValueError(
+                        "key is required when imp contains multiple impurity problems"
+                    )
+            else:
+                k = str(key)
+                if k not in imp:
+                    raise KeyError(f"imp does not contain key '{k}'")
+
+            if not isinstance(imp[k], dict) or "impurity_matrix" not in imp[k]:
+                raise KeyError(
+                    f"imp['{k}'] must contain an 'impurity_matrix' entry"
+                )
+            equiv = np.asarray(imp[k]["impurity_matrix"])
+        else:
+            raise TypeError(
+                "imp must be ndarray/list/tuple (equiv matrix) or legacy impurity dict"
+            )
+
+        if equiv.ndim != 2 or equiv.shape[0] != equiv.shape[1]:
+            raise ValueError(
+                f"equivalence matrix must be square 2D, got shape {equiv.shape}"
+            )
+
+        return np.asarray(equiv, dtype=int)
+
+    def Arr2Dict(self, equiv : np.ndarray, matin : np.ndarray) -> dict:
+        """Average a local static fermionic matrix over equivalent orbital pairs."""
+        if matin.ndim == 2:
+            matin = matin[..., np.newaxis]
+        elif matin.ndim != 3:
+            raise ValueError(f"matin must be 2D or 3D, got {matin.ndim}D")
+
+        norb = matin.shape[0]
+        if matin.shape[1] != norb:
+            raise ValueError("matin first two dimensions must be square")
+        if equiv.shape[0] != norb:
+            raise ValueError(
+                f"equiv shape {equiv.shape} is incompatible with matin shape {matin.shape}"
+            )
+
+        ns = matin.shape[2]
+        if ns != self.crystal.ns:
+            raise ValueError(
+                f"spin dimension mismatch: matin ns={ns}, crystal ns={self.crystal.ns}"
+            )
+        nind = int(np.amax(equiv))
+        if nind <= 0:
+            raise ValueError("equiv labels must be positive integers")
+
+        matdict = {}
+        for ind in range(1, nind + 1):
+            pos = Common.FindPositions(equiv, ind)
+            if len(pos) == 0:
+                continue
+
+            if ns == 1:
+                e = 0.0 + 0.0j
+                for ii, jj in pos:
+                    e += matin[ii, jj, 0]
+                matdict[str(ind)] = e / len(pos)
+            else:
+                e = []
+                for js in range(ns):
+                    temp = 0.0 + 0.0j
+                    for ii, jj in pos:
+                        temp += matin[ii, jj, js]
+                    e.append(temp / len(pos))
+                matdict[str(ind)] = e
+
+        return matdict
+
+    def Dict2Arr(self, equiv : np.ndarray, matdict : dict) -> np.ndarray:
+        """Expand equivalent-orbital dict data back to local static fermionic matrix."""
+        norb = len(equiv)
+        nind = int(np.amax(equiv))
+        ns = self.crystal.ns
+
+        matout = np.zeros((norb, norb, ns), dtype=np.complex128, order='F')
+
+        for ind in range(1, nind + 1):
+            key = str(ind) if str(ind) in matdict else ind
+            if key not in matdict:
+                continue
+            val = matdict[key]
+            pos = Common.FindPositions(equiv, ind)
+
+            if ns == 1:
+                for ii, jj in pos:
+                    matout[ii, jj, 0] = val
+            else:
+                val = np.asarray(val, dtype=np.complex128)
+                if val.ndim != 1 or val.shape[0] != ns:
+                    raise ValueError(
+                        f"matdict['{ind}'] must be a 1D spin array of length {ns}"
+                    )
+                for js in range(ns):
+                    for ii, jj in pos:
+                        matout[ii, jj, js] = val[js]
+
+        return matout
+
+    def AverageByEquiv(self, equiv : np.ndarray, matin : np.ndarray, squeeze : bool = True) -> np.ndarray:
+        """Average equivalent orbital classes and return array in one pass.
+
+        Input:
+        - matin: (norb, norb) or (norb, norb, ns)
+        Output:
+        - matout: same semantic shape as input (squeezed to 2D when ns=1 and squeeze=True)
+        """
+        if matin.ndim == 2:
+            matin3 = matin[..., np.newaxis]
+        elif matin.ndim == 3:
+            matin3 = matin
+        else:
+            raise ValueError(f"matin must be 2D or 3D, got {matin.ndim}D")
+
+        norb = matin3.shape[0]
+        if matin3.shape[1] != norb:
+            raise ValueError("matin first two dimensions must be square")
+        if equiv.shape[0] != norb or equiv.shape[1] != norb:
+            raise ValueError(
+                f"equiv shape {equiv.shape} is incompatible with matin shape {matin3.shape}"
+            )
+        if matin3.shape[2] != self.crystal.ns:
+            raise ValueError(
+                f"spin dimension mismatch: matin ns={matin3.shape[2]}, crystal ns={self.crystal.ns}"
+            )
+
+        matout = np.array(matin3, dtype=np.complex128, copy=True, order='F')
+        nind = int(np.amax(equiv))
+        if nind <= 0:
+            raise ValueError("equiv labels must be positive integers")
+
+        for ind in range(1, nind + 1):
+            pos = Common.FindPositions(equiv, ind)
+            if len(pos) == 0:
+                continue
+            for js in range(self.crystal.ns):
+                avg = 0.0 + 0.0j
+                for ii, jj in pos:
+                    avg += matin3[ii, jj, js]
+                avg /= len(pos)
+                for ii, jj in pos:
+                    matout[ii, jj, js] = avg
+
+        if squeeze and self.crystal.ns == 1:
+            return matout[:, :, 0]
+        return matout
+
+    def AverageImpurityByEquiv(self, imp, matimp : dict, squeeze : bool = True) -> dict:
+        """Average equivalent orbital classes for all impurity problems at once.
+
+        Parameters
+        ----------
+        imp : dict
+            Legacy impurity input containing ``imp[key]['impurity_matrix']``.
+        matimp : dict
+            Problem-wise matrices: ``{key: ndarray}``, each ndarray is (norb,norb) or (norb,norb,ns).
+        """
+        if not isinstance(matimp, dict):
+            raise TypeError("matimp must be dict keyed by impurity problem key")
+
+        matout = {}
+        for key, matin in matimp.items():
+            equiv = self._resolve_equiv_matrix(imp=imp, key=key)
+            matout[str(key)] = self.AverageByEquiv(equiv=equiv, matin=matin, squeeze=squeeze)
+
+        return matout
+
+    def imp_B2F(self, imp, B : np.ndarray, key = None) -> dict:
+        """Legacy wrapper: average by equivalent-orbital classes."""
+        equiv = self._resolve_equiv_matrix(imp=imp, key=key)
+        return self.Arr2Dict(equiv=equiv, matin=B)
+
+    def imp_F2B(self, imp, F : dict, key = None, squeeze : bool = True) -> np.ndarray:
+        """Legacy wrapper: map equivalent-orbital dict back to matrix."""
+        equiv = self._resolve_equiv_matrix(imp=imp, key=key)
+        mat = self.Dict2Arr(equiv=equiv, matdict=F)
+        if squeeze and mat.shape[2] == 1:
+            return mat[:, :, 0]
+        return mat
     
     
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
@@ -101,7 +302,7 @@ class FLocStc(object):
         return matdict
     
     
-class ImpurityLevel(FLocStc):
+class EImp(FLocStc):
 
     def __init__(self, crystal : Crystal, projector : Projector, hamtb : np.ndarray, mu : float, sigh : np.ndarray = None, sigf : np.ndarray = None, hloc : dict = None, floc : dict = None):
 
@@ -111,6 +312,7 @@ class ImpurityLevel(FLocStc):
         self.mu = mu
         self.ham = None
         self.sig = None
+        self.e = {}
 
         tempmat = np.zeros_like(hamtb, dtype=np.complex128, order='F')
 
@@ -134,19 +336,21 @@ class ImpurityLevel(FLocStc):
 
             self.sig = tempmat2 
 
-        self.e = {}
+        
         self.Cal()
 
     def Cal(self):
-        
-        
 
         e = self.Projection(self.ham)
 
         if (self.sig is not None):
-            for key, mat in e.items():
+            tempdict = e.copy()
+            e = {}
+            for key, mat in tempdict.items():
 
                 mat -= self.sig[key]
+
+                e[key] = mat
 
         
         self.e = e
