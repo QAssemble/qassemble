@@ -19,10 +19,9 @@ class Projector(object):
           projectors with variable orbital dimension.
     """
 
-    def __init__(self, basisindex: "BasisIndex", impdict: dict = None, equiv : dict = None):
+    def __init__(self, basisindex: "BasisIndex", impdict: dict = None):
         self.basisindex = basisindex
         self.impdict = impdict
-        self.equiv = equiv
 
         self.probspace = {}
         self.probindex = {}

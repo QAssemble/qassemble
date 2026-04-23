@@ -284,7 +284,6 @@ class VLoc(BLocStc):
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
         self.onsitelist = None
-        self.parameter = {}
         self.vloc = np.zeros((norb,norb,ns,ns),dtype=float,order='F')
         if voption is None:
             logger.error("voption does not exist")
@@ -339,6 +338,60 @@ class VLoc(BLocStc):
                         jorb = self.crystal.BIndex([atom,[m2,m3]])
                         if (iorb is not None)and(jorb is not None):
                             self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
+
+            
+        # for val in orboption.values():
+        #     norbc = len(val["orbitals"])
+            
+        #     if val["Parameter"] == "Kanamori":
+        #         tempmat = self.KanamoriParameter(norbc,val["value"])
+        #         for js in range(ns):
+        #             for ks in range(ns):
+        #                 for iorbc in val["orbitals"]:
+        #                     for jorbc in val["orbitals"]:
+        #                         for korbc in val["orbitals"]:
+        #                             for lorbc in val["orbitals"]:
+        #                                 [a,m1] = self.crystal.FAtomOrb(iorbc)
+        #                                 [b,m2] = self.crystal.FAtomOrb(jorbc)
+        #                                 [bp,m3] = self.crystal.FAtomOrb(korbc)
+        #                                 [ap,m4] = self.crystal.FAtomOrb(lorbc)
+        #                                 if(a==ap)and(b==bp):
+        #                                     iorb = self.crystal.BIndex([a,[m1,m4]])
+        #                                     jorb = self.crystal.BIndex([b,[m2,m3]])
+        #                                     self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
+        #     elif val["Parameter"] == "Slater":
+        #         tempmat = self.SlaterParameter(norbc,val["value"])
+        #         for js in range(ns):
+        #             for ks in range(ns):
+        #                 for iorbc in val["orbitals"]:
+        #                     for jorbc in val["orbitals"]:
+        #                         for korbc in val["orbitals"]:
+        #                             for lorbc in val["orbitals"]:
+        #                                 [a,m1] = self.crystal.FAtomOrb(iorbc)
+        #                                 [b,m2] = self.crystal.FAtomOrb(jorbc)
+        #                                 [bp,m3] = self.crystal.FAtomOrb(korbc)
+        #                                 [ap,m4] = self.crystal.FAtomOrb(lorbc)
+        #                                 if(a==ap)and(b==bp):
+        #                                     iorb = self.crystal.BIndex([a,[m1,m4]])
+        #                                     jorb = self.crystal.BIndex([b,[m2,m3]])
+        #                                     self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
+        #     elif val["Parameter"] == "SlaterKanamori":
+        #         print(norbc)
+        #         tempmat = self.SlaterKanamori(norbc,val["value"])
+        #         for js in range(ns):
+        #             for ks in range(ns):
+        #                 for iorbc in val["orbitals"]:
+        #                     for jorbc in val["orbitals"]:
+        #                         for korbc in val["orbitals"]:
+        #                             for lorbc in val["orbitals"]:
+        #                                 [a,m1] = self.crystal.FAtomOrb(iorbc)
+        #                                 [b,m2] = self.crystal.FAtomOrb(jorbc)
+        #                                 [bp,m3] = self.crystal.FAtomOrb(korbc)
+        #                                 [ap,m4] = self.crystal.FAtomOrb(lorbc)
+        #                                 if(a==ap)and(b==bp):
+        #                                     iorb = self.crystal.BIndex([a,[m1,m4]])
+        #                                     jorb = self.crystal.BIndex([b,[m2,m3]])
+        #                                     self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
         
         return None
     
@@ -371,7 +424,6 @@ class VLoc(BLocStc):
         U = val[0]
         Up = val[1]
         J = val[2]
-        self.parameter['kanamori'] = {"U":U,"Up":Up,"J":J}
 
         for js in range(ns):
             for ks in range(ns):
@@ -451,20 +503,19 @@ class VLoc(BLocStc):
 
         v = np.zeros((norb,norb,norb,norb,ns,ns),dtype=float,order='F')
 
-        F0 = 0; F2 = 0; F4 = 0; F6 = 0
-
         if norb == 1:
             F0 = U
             F2 = 0
             F4 = 0
-            F6 = 0
-           
+            v = self.SlaterParameter(l,norb,[F0,F2,F4])
+            return v
         if norb == 3:
             F2 = 441/(27+20*ratio)*J
             F4 = ratio*F2
             F0 = U-4/49*(F2+F4)
-            F6 = 0
-            
+            v = self.SlaterParameter(l,norb,[F0,F2,F4])
+                
+            return v
         if norb == 5:
             # F2 = 14/(1+ratio)*J
             # F4 = ratio*J
@@ -472,12 +523,8 @@ class VLoc(BLocStc):
             F0 = U-8/5*J
             F2 = 49*(1/4+1/7)*J
             F4 = 63/5*J
-            F6 = 0
-        self.parameter['kanamori'] = {"U":U,"Up":Up,"J":J}
-        self.parameter['slater'] = {"F0":F0,"F2":F2,"F4":F4,"F6":F6}
-        
-        v = self.SlaterParameter(l,norb,[F0,F2,F4,F6])
-        return v
+            v = self.SlaterParameter(l,norb,[F0,F2,F4])
+            return v
         
     def AngularIntegral(self,l,k,m1,m2,m3,m4):
 

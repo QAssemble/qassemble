@@ -389,7 +389,3 @@ class Hybridization(FLocDyn):
                 hyb.create_dataset(fn,dtype=complex,data=self.f)
 
         return None
-
-# class FWeiss(FLocDyn):
-
-#     def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, eim : dict,)
