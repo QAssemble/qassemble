@@ -343,7 +343,7 @@ class CorrelationFunction(object):
             check = max(check, self.SCFCheck(gloc[key], gimp[key]))
         return check
 
-    def DMFT(self):
+    def ImpuritySolver(self):
 
         errmessage = "missing input for DMFT calculation"
 

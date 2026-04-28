@@ -189,6 +189,10 @@ class FLocStc(object):
 
         return matout
 
+    def ReadDict(self, equiv : np.ndarray, mat_dict : dict) -> np.ndarray:
+        """Read equivalent-orbital dict data as a local static fermionic matrix."""
+        return self.Dict2Arr(equiv=equiv, matdict=mat_dict)
+
     def AverageByEquiv(self, equiv : np.ndarray, matin : np.ndarray, squeeze : bool = True) -> np.ndarray:
         """Average equivalent orbital classes and return array in one pass.
 
@@ -378,6 +382,34 @@ class EImp(FLocStc):
         self.e = e
 
         return None
+
+    def Eimp_final_input(self, key, Eimp : np.ndarray = None):
+        key = self.projector._require_problem(key)
+        ns = self.crystal.ns
+        norbc = self.projector.fprojector[key].shape[1]
+
+        if Eimp is None:
+            Eimp = self.e[key]
+
+        Eimp = np.asarray(Eimp, dtype=np.complex128)
+        if Eimp.ndim == 2:
+            Eimp = Eimp[:, :, np.newaxis]
+        if Eimp.ndim != 3:
+            raise ValueError(f"Eimp must be 2D or 3D, got {Eimp.ndim}D")
+
+        if ns==1:
+            I = np.identity(norbc)
+            A_final = np.zeros((norbc*2,norbc*2), dtype=np.complex128, order='F')
+
+            ctqmc_mu = -Eimp[0,0,0]
+            A = Eimp[...,0] + ctqmc_mu*I
+            A_final[...] = np.kron(np.eye(2),A)
+        
+        elif ns==2:
+            print("Nspin is not 1")
+            sys.exit()
+        
+        return A_final,ctqmc_mu
             
             
             

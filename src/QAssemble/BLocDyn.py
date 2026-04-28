@@ -344,6 +344,29 @@ class BLocDyn(object):
 
         return matout
 
+    def ReadDict(self, equiv : np.ndarray, mat_dict : dict) -> np.ndarray:
+        """Read equivalent-orbital dict data as a local dynamic bosonic matrix."""
+        norb = len(equiv)
+        ns = self.crystal.ns
+        sample = mat_dict["1"] if "1" in mat_dict else mat_dict[1]
+        nfreq = len(sample)
+
+        mat_out = np.zeros((norb,norb,ns,ns,nfreq), dtype=np.complex128, order='F')
+        nind = int(np.amax(equiv))
+
+        for js in range(ns):
+            for ks in range(ns):
+                for ind in range(1, nind + 1):
+                    key = str(ind) if str(ind) in mat_dict else ind
+                    if key not in mat_dict:
+                        continue
+                    val = np.asarray(mat_dict[key], dtype=np.complex128)
+                    pos_row, pos_col = np.where(equiv == ind)
+                    for ii, jj in zip(pos_row, pos_col):
+                        mat_out[ii,jj,js,ks,:] = val
+
+        return mat_out
+
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
 
         norb = mat1.shape[0]

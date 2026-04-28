@@ -146,6 +146,26 @@ class BLocStc(object):
 
         return matout
 
+    def ReadDict(self, equiv : np.ndarray, mat_dict : dict) -> np.ndarray:
+        """Read equivalent-orbital dict data as a local static bosonic matrix."""
+        norb = len(equiv)
+        ns = self.crystal.ns
+        mat_out = np.zeros((norb,norb,ns,ns), dtype=np.complex128, order='F')
+        nind = int(np.amax(equiv))
+
+        for js in range(ns):
+            for ks in range(ns):
+                for ind in range(1, nind + 1):
+                    key = str(ind) if str(ind) in mat_dict else ind
+                    if key not in mat_dict:
+                        continue
+                    val = mat_dict[key]
+                    pos_row, pos_col = np.where(equiv == ind)
+                    for ii, jj in zip(pos_row, pos_col):
+                        mat_out[ii,jj,js,ks] = val
+
+        return mat_out
+
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
 
         norb = mat1.shape[0]

@@ -346,6 +346,18 @@ class FLocDyn(object):
 
         return matout
 
+    def ReadDict(self, equiv : np.ndarray, mat_dict : dict) -> np.ndarray:
+        """Read equivalent-orbital dict data as a local dynamic fermionic matrix."""
+        return self.Dict2Arr(equiv=equiv, matdict=mat_dict)
+
+    def AddNegativeFrequency(self, mat : np.ndarray) -> np.ndarray:
+        """Build negative-frequency data from non-negative data using G(-iw)=G(iw)^dagger."""
+        return self.dlr.MatsubaraAddNegativeFrequency(mat)
+
+    def UniformGridToDLR(self, mat : np.ndarray, omega_uniform : np.ndarray = None) -> np.ndarray:
+        """Fit full uniform Matsubara data and evaluate it on the DLR Matsubara grid."""
+        return self.dlr.MatsubaraUniformGrid2DLR(mat, omega=omega_uniform, sign=-1)
+
     def AverageByEquiv(self, equiv : np.ndarray, matin : np.ndarray, squeeze : bool = True) -> np.ndarray:
         """Average equivalent orbital classes and return array in one pass."""
         if matin.ndim == 3:
@@ -688,20 +700,27 @@ class FWeiss(FLocDyn):
 
         super().__init__(crystal, dlr, projector)
 
-        self.eimp = eimp.e
+        self.eimp = eimp
         self.hyb = hyb.f
         
         self.e = {}
+        self.h_dlr = {}
         self.h = {}
+        self.omega_uniform = None
 
         self.Cal()
+
+    def UniformGrid(self, mat : np.ndarray) -> np.ndarray:
+        self.omega_uniform = self.dlr.MatsubaraFermionUniform()
+        return self.dlr.MatsubaraDLR2UniformGrid(mat, sign=-1)
 
     def Cal(self):
         
         projector = self.projector.fprojector
 
         for key in projector.keys():
-            self.e[key] = self.AverageByEquiv(self.projector.equiv[key], self.eimp[key])
-            self.h[key] = self.AverageByEquiv(self.projector.equiv[key], self.hyb[key])
+            self.e[key] = self.AverageByEquiv(self.projector.equiv[key], self.eimp.e[key])
+            self.h_dlr[key] = self.AverageByEquiv(self.projector.equiv[key], self.hyb[key])
+            self.h[key] = self.UniformGrid(self.h_dlr[key])
         
         return None

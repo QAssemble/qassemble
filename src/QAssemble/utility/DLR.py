@@ -46,23 +46,21 @@ class DLR(object):
         return tau
 
     def MatsubaraFermionUniform(self, Emax : np.float64 = None, beta : np.float64 = None) -> np.ndarray:
-        Emax = self.omega[-1]
-        Emin = self.omega[0]
-        # nomega = int((self.beta/np.pi*Emax - 1)/2)
         if Emax is None:
-            Emax = self.cutoff
+            Emax = max(abs(float(self.omega[0])), abs(float(self.omega[-1])))
         if beta is None:
             beta = self.beta
-        nstart = int((beta / np.pi * Emin - 1) / 2) * 0
-        nend = int((beta / np.pi * Emax - 1) / 2)
-        # omega = np.zeros((2*nomega+1), dtype=np.float64, order='F')
-        number = np.arange(nstart, nend)
-        omega = []
-        for iomega in number:
-            omega.append(np.float64(np.pi / beta * (2 * iomega + 1)))
-        omega = np.array(omega, dtype=np.float64, order="F")
+        nend = int(np.floor((beta / np.pi * Emax - 1.0) / 2.0))
+        if nend < 0:
+            raise ValueError("Cannot build non-negative fermion Matsubara grid")
+        number = np.arange(nend + 1)
+        omega = np.array(np.pi / beta * (2*number + 1), dtype=np.float64, order="F")
 
         return omega
+
+    def MatsubaraFermionUniformFull(self, Emax : np.float64 = None, beta : np.float64 = None) -> np.ndarray:
+        omega = self.MatsubaraFermionUniform(Emax=Emax, beta=beta)
+        return np.concatenate((-omega[::-1], omega))
 
     def MatsubaraBosonUniform(self) -> np.ndarray:
         Emax = self.nu[-1]
@@ -80,6 +78,78 @@ class DLR(object):
         nu = np.array(nu, dtype=np.float64, order="F")
 
         return nu
+
+    def _as_dynamic_spin_matrix(self, mat : np.ndarray) -> np.ndarray:
+        mat = np.asarray(mat, dtype=np.complex128)
+        if mat.ndim == 3:
+            mat = mat[:, :, np.newaxis, :]
+        if mat.ndim != 4:
+            raise ValueError(f"dynamic matrix must be 3D or 4D, got {mat.ndim}D")
+        return np.asfortranarray(mat)
+
+    def MatsubaraAddNegativeFrequency(self, mat : np.ndarray) -> np.ndarray:
+        """Build full fermionic Matsubara data from non-negative frequencies."""
+        mat = self._as_dynamic_spin_matrix(mat)
+        nfreq = mat.shape[3]
+
+        matout = np.zeros(
+            (mat.shape[0], mat.shape[1], mat.shape[2], 2*nfreq),
+            dtype=np.complex128,
+            order="F",
+        )
+        matout[..., nfreq:] = mat
+        matout[..., :nfreq] = np.swapaxes(np.conjugate(mat[..., ::-1]), 0, 1)
+
+        return matout
+
+    def MatsubaraDLR2UniformGrid(self, ff : np.ndarray, sign : int = -1) -> np.ndarray:
+        """Evaluate DLR Matsubara data on the corresponding uniform grid."""
+        ff = self._as_dynamic_spin_matrix(ff)
+        omega_dlr = self.omega if sign == -1 else self.nu
+        nfreq = ff.shape[3]
+        if nfreq != len(omega_dlr):
+            raise ValueError(
+                f"frequency dimension {nfreq} does not match DLR omega size {len(omega_dlr)}"
+            )
+
+        ff_t = np.moveaxis(ff, -1, 0)
+        batch = ff.shape[0] * ff.shape[1] * ff.shape[2]
+        ff_2d = np.ascontiguousarray(ff_t).reshape(nfreq, batch)
+
+        out_2d = self.MatsubaraDLR2Uniform(ff_2d, sign=sign)
+        if out_2d.ndim == 3:
+            out_2d = out_2d[:, :, 0]
+
+        nfreq_uniform = out_2d.shape[0]
+        out = out_2d.reshape(nfreq_uniform, ff.shape[0], ff.shape[1], ff.shape[2])
+        out = np.moveaxis(out, 0, -1)
+
+        return np.asfortranarray(out)
+
+    def MatsubaraUniformGrid2DLR(
+        self,
+        ff : np.ndarray,
+        omega : np.ndarray = None,
+        sign : int = -1,
+    ) -> np.ndarray:
+        """Fit full uniform Matsubara data and evaluate it on the DLR grid."""
+        if sign != -1:
+            raise NotImplementedError("MatsubaraUniformGrid2DLR is currently implemented for fermions only")
+
+        ff = self._as_dynamic_spin_matrix(ff)
+        omega = self.MatsubaraFermionUniformFull() if omega is None else np.asarray(omega, dtype=np.float64)
+
+        out = np.zeros(
+            (ff.shape[0], ff.shape[1], ff.shape[2], len(self.omega)),
+            dtype=np.complex128,
+            order="F",
+        )
+        for js in range(ff.shape[2]):
+            block = np.moveaxis(ff[:, :, js, :], -1, 0)
+            block_dlr = self.MatsubaraUniform2DLR(block, omega=omega, sign=sign)
+            out[:, :, js, :] = np.moveaxis(block_dlr, 0, -1)
+
+        return out
 
     def FT2F(self, ftau: np.ndarray):
         """1D ftau -> 1D ff (Fermion, tau -> Matsubara)"""
@@ -167,6 +237,26 @@ class DLR(object):
             fout = self.dB.eval_dlr_freq(fxx[:, None, None], z, beta=self.beta, xi=sign)
 
         return fout
+
+    def MatsubaraUniform2DLR(self, ff: np.ndarray, omega: np.ndarray = None, sign: int = -1):
+        if sign != -1:
+            raise NotImplementedError("MatsubaraUniform2DLR is currently implemented for fermions only")
+
+        ff = np.asarray(ff, dtype=np.complex128)
+        omega = self.MatsubaraFermionUniformFull() if omega is None else np.asarray(omega, dtype=np.float64)
+        if ff.shape[0] != len(omega):
+            raise ValueError(
+                f"frequency dimension {ff.shape[0]} does not match omega length {len(omega)}"
+            )
+        if omega[0] > self.omega[0] or omega[-1] < self.omega[-1]:
+            raise ValueError("uniform Matsubara grid does not cover the DLR frequency range")
+
+        fxx = self.dF.lstsq_dlr_from_matsubara(
+            w_q=omega * 1j,
+            G_qaa=ff,
+            beta=self.beta,
+        )
+        return self.dF.matsubara_from_dlr(G_xaa=fxx, beta=self.beta, xi=-1)
 
     def T2mT(self, ftau: np.ndarray, tau: np.ndarray = None) -> np.ndarray:
         if tau is None:
