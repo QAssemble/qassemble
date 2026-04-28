@@ -67,7 +67,7 @@ class BLatDyn(object):
         for ift in range(nft):
             for irk in range(nrk):
                 tempmat = self.crystal.OrbSpin2Composite(matin[:, :, :, :, irk, ift])
-                tempmat2 = np.linalg.inv(tempmat)
+                tempmat2 = Common.MatInv(tempmat)
                 matout[:, :, :, :, irk, ift] = self.crystal.Composite2OrbSpin(tempmat2)
 
         return matout

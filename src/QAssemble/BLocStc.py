@@ -288,20 +288,83 @@ class VLoc(BLocStc):
         if voption is None:
             logger.error("voption does not exist")
             sys.exit()
+
+        self.parameter = {}
         self.SetLocalInteracting(voption)
         # self.GenOnsite()
+
+    def _format_slater_values(self, l: int, value: list) -> dict:
+        labels = ("F0", "F2", "F4", "F6")
+        # Slater expansion uses up to l+1 radial integrals (k = 0, 2, 4, 6).
+        max_n = max(1, min(4, int(l) + 1))
+        vals = {"F0": 0.0, "F2": 0.0, "F4": 0.0, "F6": 0.0}
+        for ii in range(min(len(value), max_n)):
+            vals[labels[ii]] = float(value[ii])
+        return vals
+
+    def _store_slater_parameter(self, atom: int, l: int, value: list, orbitals: list) -> None:
+        if "slater_by_atom" not in self.parameter:
+            self.parameter["slater_by_atom"] = {}
+        self.parameter["slater_by_atom"][str(int(atom))] = {
+            "l": int(l),
+            "orbitals": [int(orb) for orb in orbitals],
+            "values": self._format_slater_values(l=l, value=value),
+        }
+
+    def GetSlaterByProblem(
+        self,
+        key,
+        projector: Projector = None,
+        include_defaults: bool = True,
+    ) -> dict:
+        default = {"F0": 0.0, "F2": 0.0, "F4": 0.0, "F6": 0.0}
+        slater_by_atom = self.parameter.get("slater_by_atom", {})
+        if len(slater_by_atom) == 0:
+            return copy.deepcopy(default) if include_defaults else {}
+
+        projector = projector if projector is not None else self.projector
+        if projector is None:
+            return copy.deepcopy(default) if include_defaults else {}
+
+        key = str(key)
+        if key not in projector.probspace:
+            raise KeyError(f"Unknown impurity problem key '{key}'")
+
+        candidates = []
+        for atom in projector.probspace[key]:
+            atom_key = str(int(atom))
+            if atom_key in slater_by_atom:
+                candidates.append(slater_by_atom[atom_key]["values"])
+
+        if len(candidates) == 0:
+            return copy.deepcopy(default) if include_defaults else {}
+
+        ref = candidates[0]
+        for cand in candidates[1:]:
+            if any(abs(float(cand[name]) - float(ref[name])) > 1.0e-12 for name in ("F0", "F2", "F4", "F6")):
+                raise ValueError(
+                    f"Problem '{key}' has multiple atoms with different Slater parameters; "
+                    "define per-problem Slater mapping explicitly."
+                )
+
+        out = copy.deepcopy(default) if include_defaults else {}
+        out.update(ref)
+        return out
 
     def SetLocalInteracting(self,voption : dict):
         
         ns = self.crystal.ns
 
         if voption["Parameter"] == "Kanamori":
+            
+            
             for key, val in voption["option"].items():
                 atom = int(key-1)
                 norbc = len(val["orbitals"])
                 if norbc > len(self.crystal.find):
                     logger.error("Invalid l value set")
                     sys.exit()
+                
                 tempmat = self.KanamoriParameter(norb=norbc,val=val["value"])
                 for js in range(ns):
                     for ks in range(ns):
@@ -312,11 +375,17 @@ class VLoc(BLocStc):
                                 self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
         if voption["Parameter"] == "Slater":
             for key, val in voption["option"].items():
-                atom = int(key-1)
+                atom = int(key)-1
                 norbc = len(val["orbitals"])
                 if norbc > len(self.crystal.find):
                     logger.error("Invalid l value set")
                     sys.exit()
+                self._store_slater_parameter(
+                    atom=atom,
+                    l=val["l"],
+                    value=val["value"],
+                    orbitals=val["orbitals"],
+                )
                 tempmat = self.SlaterParameter(l=val["l"],norbc=norbc,val=val["value"])
                 for js, ks in itertools.product(list(range(ns)),list(range(ns))):
                     for m1,m2,m3,m4 in itertools.product(val["orbitals"],val["orbitals"],val["orbitals"],val["orbitals"]):
@@ -339,59 +408,6 @@ class VLoc(BLocStc):
                         if (iorb is not None)and(jorb is not None):
                             self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
 
-            
-        # for val in orboption.values():
-        #     norbc = len(val["orbitals"])
-            
-        #     if val["Parameter"] == "Kanamori":
-        #         tempmat = self.KanamoriParameter(norbc,val["value"])
-        #         for js in range(ns):
-        #             for ks in range(ns):
-        #                 for iorbc in val["orbitals"]:
-        #                     for jorbc in val["orbitals"]:
-        #                         for korbc in val["orbitals"]:
-        #                             for lorbc in val["orbitals"]:
-        #                                 [a,m1] = self.crystal.FAtomOrb(iorbc)
-        #                                 [b,m2] = self.crystal.FAtomOrb(jorbc)
-        #                                 [bp,m3] = self.crystal.FAtomOrb(korbc)
-        #                                 [ap,m4] = self.crystal.FAtomOrb(lorbc)
-        #                                 if(a==ap)and(b==bp):
-        #                                     iorb = self.crystal.BIndex([a,[m1,m4]])
-        #                                     jorb = self.crystal.BIndex([b,[m2,m3]])
-        #                                     self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
-        #     elif val["Parameter"] == "Slater":
-        #         tempmat = self.SlaterParameter(norbc,val["value"])
-        #         for js in range(ns):
-        #             for ks in range(ns):
-        #                 for iorbc in val["orbitals"]:
-        #                     for jorbc in val["orbitals"]:
-        #                         for korbc in val["orbitals"]:
-        #                             for lorbc in val["orbitals"]:
-        #                                 [a,m1] = self.crystal.FAtomOrb(iorbc)
-        #                                 [b,m2] = self.crystal.FAtomOrb(jorbc)
-        #                                 [bp,m3] = self.crystal.FAtomOrb(korbc)
-        #                                 [ap,m4] = self.crystal.FAtomOrb(lorbc)
-        #                                 if(a==ap)and(b==bp):
-        #                                     iorb = self.crystal.BIndex([a,[m1,m4]])
-        #                                     jorb = self.crystal.BIndex([b,[m2,m3]])
-        #                                     self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
-        #     elif val["Parameter"] == "SlaterKanamori":
-        #         print(norbc)
-        #         tempmat = self.SlaterKanamori(norbc,val["value"])
-        #         for js in range(ns):
-        #             for ks in range(ns):
-        #                 for iorbc in val["orbitals"]:
-        #                     for jorbc in val["orbitals"]:
-        #                         for korbc in val["orbitals"]:
-        #                             for lorbc in val["orbitals"]:
-        #                                 [a,m1] = self.crystal.FAtomOrb(iorbc)
-        #                                 [b,m2] = self.crystal.FAtomOrb(jorbc)
-        #                                 [bp,m3] = self.crystal.FAtomOrb(korbc)
-        #                                 [ap,m4] = self.crystal.FAtomOrb(lorbc)
-        #                                 if(a==ap)and(b==bp):
-        #                                     iorb = self.crystal.BIndex([a,[m1,m4]])
-        #                                     jorb = self.crystal.BIndex([b,[m2,m3]])
-        #                                     self.vloc[iorb,jorb,js,ks] = tempmat[m1,m2,m3,m4,js,ks]
         
         return None
     

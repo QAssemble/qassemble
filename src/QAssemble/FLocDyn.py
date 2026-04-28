@@ -1,13 +1,14 @@
 import numpy as np
 import logging
 import sys
+import json
 import scipy.optimize
 import scipy.linalg.lapack
 import copy
 import h5py
 import time, datetime
 from .Crystal import Crystal
-from .FLatStc import FLatStc
+from .FLocStc import EImp
 from .Projector import Projector
 from .utility.DLR import DLR
 from .utility.Common import Common
@@ -20,10 +21,10 @@ logger = logging.getLogger("QAssemble")
 
 class FLocDyn(object):
 
-    def __init__(self,crystal : Crystal, ft : DLR, projector : Projector):
+    def __init__(self,crystal : Crystal, dlr : DLR, projector : Projector):
         
         self.crystal = crystal
-        self.dlr = ft
+        self.dlr = dlr
         self.projector = projector
 
     def Inverse(self, mat : np.ndarray):
@@ -86,6 +87,53 @@ class FLocDyn(object):
         
         with h5py.File(filepath,'r') as file:
             return group in file
+
+    def _as_dynamic_spin_matrix(self, mat : np.ndarray) -> np.ndarray:
+        mat = np.asarray(mat, dtype=np.complex128)
+        if mat.ndim == 3:
+            mat = mat[:, :, np.newaxis, :]
+        if mat.ndim != 4:
+            raise ValueError(f"dynamic matrix must be 3D or 4D, got {mat.ndim}D")
+        return np.asfortranarray(mat)
+
+    def _as_hyb_dict(self, key, hyb : np.ndarray = None, equiv : np.ndarray = None) -> dict:
+        if hyb is None:
+            if not hasattr(self, "h") or key not in self.h:
+                raise KeyError(f"Hybridisation data is missing key '{key}'")
+            hyb = self.h[key]
+        if equiv is None:
+            if self.projector is None or not isinstance(self.projector.equiv, dict) or key not in self.projector.equiv:
+                raise KeyError(f"Projector equivalence matrix is missing key '{key}'")
+            equiv = self.projector.equiv[key]
+
+        hyb = self._as_dynamic_spin_matrix(hyb)
+        equiv = np.asarray(equiv, dtype=int)
+        if self.crystal.ns != 1:
+            print("Nspin is not 1")
+            sys.exit()
+
+        nind = int(np.amax(equiv))
+        hyb_dict = {}
+        for ind in range(1, nind + 1):
+            pos_row, pos_col = np.where(equiv == ind)
+            if len(pos_row) == 0:
+                continue
+            val = np.zeros(hyb.shape[3], dtype=np.complex128)
+            for ii, jj in zip(pos_row, pos_col):
+                val += hyb[ii, jj, 0, :]
+            val /= len(pos_row)
+            hyb_dict[str(ind)] = {
+                "beta": self.dlr.beta,
+                "real": np.real(val).tolist(),
+                "imag": np.imag(val).tolist(),
+            }
+        return hyb_dict
+
+    def _write_json_pair(self, stem : str, iter : int, key, payload : dict) -> None:
+        with open(f'{stem}.{iter}.{key}.json', 'w') as outfile:
+            json.dump(payload, outfile, sort_keys=True, indent=4, separators=(',', ': '))
+        with open(f'{stem}.json', 'w') as outfile:
+            json.dump(payload, outfile, sort_keys=True, indent=4, separators=(',', ': '))
     
     def GaussianLinearBroad(self,x, y, w1, temperature, cutoff):
 
@@ -130,42 +178,59 @@ class FLocDyn(object):
 
         return Fnew
 
-    def _resolve_equiv_matrix(self, imp, key) -> np.ndarray:
+    def _resolve_equiv_matrix(self, imp=None, key=None) -> np.ndarray:
         """Resolve an equivalent-orbital matrix from legacy/new impurity inputs.
 
         Supported inputs:
         - 2D ndarray/list: used directly as equivalence matrix.
+        - 1D ndarray/list: interpreted as diagonal class labels and promoted via ``np.diag``.
         - Legacy dict: ``imp[str(key)]['impurity_matrix']``.
+        - Direct dict: ``imp[str(key)]`` is the equivalence matrix itself.
+        - Fallback: ``self.projector.equiv[str(key)]`` when ``imp`` is None.
         """
-        if imp is None:
-            raise ValueError("imp (or equivalence matrix) is required")
+        def _resolve_dict_key(dct, key_):
+            if key_ is None:
+                if len(dct) == 1:
+                    return str(next(iter(dct.keys())))
+                raise ValueError(
+                    "key is required when multiple impurity problems are present"
+                )
+            k_ = str(key_)
+            if k_ not in dct:
+                raise KeyError(f"equiv source does not contain key '{k_}'")
+            return k_
 
-        if isinstance(imp, np.ndarray):
+        if imp is None:
+            if self.projector is None or not isinstance(self.projector.equiv, dict):
+                raise ValueError(
+                    "imp is None and projector.equiv is not available; "
+                    "provide imp or set projector.equiv"
+                )
+            peq = self.projector.equiv
+            k = _resolve_dict_key(peq, key)
+            equiv = np.asarray(peq[k])
+
+        elif isinstance(imp, np.ndarray):
             equiv = imp
         elif isinstance(imp, (list, tuple)):
             equiv = np.asarray(imp)
         elif isinstance(imp, dict):
-            if key is None:
-                if len(imp) == 1:
-                    k = next(iter(imp.keys()))
-                else:
-                    raise ValueError(
-                        "key is required when imp contains multiple impurity problems"
+            k = _resolve_dict_key(imp, key)
+            if isinstance(imp[k], dict):
+                if "impurity_matrix" not in imp[k]:
+                    raise KeyError(
+                        f"imp['{k}'] must contain an 'impurity_matrix' entry"
                     )
+                equiv = np.asarray(imp[k]["impurity_matrix"])
             else:
-                k = str(key)
-                if k not in imp:
-                    raise KeyError(f"imp does not contain key '{k}'")
-
-            if not isinstance(imp[k], dict) or "impurity_matrix" not in imp[k]:
-                raise KeyError(
-                    f"imp['{k}'] must contain an 'impurity_matrix' entry"
-                )
-            equiv = np.asarray(imp[k]["impurity_matrix"])
+                equiv = np.asarray(imp[k])
         else:
             raise TypeError(
-                "imp must be ndarray/list/tuple (equiv matrix) or legacy impurity dict"
+                "imp must be ndarray/list/tuple (equiv matrix), direct equiv dict, or legacy impurity dict"
             )
+
+        if equiv.ndim == 1:
+            equiv = np.diag(equiv)
 
         if equiv.ndim != 2 or equiv.shape[0] != equiv.shape[1]:
             raise ValueError(
@@ -327,7 +392,7 @@ class FLocDyn(object):
             return matout[:, :, 0, :]
         return matout
 
-    def AverageImpurityByEquiv(self, imp, matimp : dict, squeeze : bool = True) -> dict:
+    def AverageImpurityByEquiv(self, imp=None, matimp : dict = None, squeeze : bool = True) -> dict:
         """Average equivalent orbital classes for all impurity problems at once."""
         if not isinstance(matimp, dict):
             raise TypeError("matimp must be dict keyed by impurity problem key")
@@ -339,13 +404,17 @@ class FLocDyn(object):
 
         return matout
 
-    def imp_B2F_freq(self, imp, B : np.ndarray, key = None) -> dict:
+    def imp_B2F_freq(self, imp=None, B : np.ndarray = None, key = None) -> dict:
         """Legacy wrapper: average by equivalent-orbital classes (dynamic)."""
+        if B is None:
+            raise ValueError("B is required")
         equiv = self._resolve_equiv_matrix(imp=imp, key=key)
         return self.Arr2Dict(equiv=equiv, matin=B)
 
-    def imp_F2B_freq(self, imp, F : dict, key = None, squeeze : bool = True) -> np.ndarray:
+    def imp_F2B_freq(self, imp=None, F : dict = None, key = None, squeeze : bool = True) -> np.ndarray:
         """Legacy wrapper: map equivalent dict back to dynamic matrix."""
+        if F is None:
+            raise ValueError("F is required")
         equiv = self._resolve_equiv_matrix(imp=imp, key=key)
         mat = self.Dict2Arr(equiv=equiv, matdict=F)
         if squeeze and self.crystal.ns == 1:
@@ -559,6 +628,7 @@ class Hyb(FLocDyn):
 
         self.f = {}
         self.t = {}
+        self.Cal()
 
         
     def Cal(self):
@@ -610,4 +680,28 @@ class Hyb(FLocDyn):
             else:
                 hyb.create_dataset(fn,dtype=complex,data=self.f)
 
+        return None
+
+class FWeiss(FLocDyn):
+
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, eimp : EImp, hyb : Hyb):
+
+        super().__init__(crystal, dlr, projector)
+
+        self.eimp = eimp.e
+        self.hyb = hyb.f
+        
+        self.e = {}
+        self.h = {}
+
+        self.Cal()
+
+    def Cal(self):
+        
+        projector = self.projector.fprojector
+
+        for key in projector.keys():
+            self.e[key] = self.AverageByEquiv(self.projector.equiv[key], self.eimp[key])
+            self.h[key] = self.AverageByEquiv(self.projector.equiv[key], self.hyb[key])
+        
         return None
