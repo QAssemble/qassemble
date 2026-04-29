@@ -2,11 +2,7 @@ import numpy as np
 import logging
 import sys
 import json
-import scipy.optimize
-import scipy.linalg.lapack
-import copy
 import h5py
-import time, datetime
 from .Crystal import Crystal
 from .FLocStc import EImp
 from .Projector import Projector
@@ -98,13 +94,14 @@ class FLocDyn(object):
 
     def _as_hyb_dict(self, key, hyb : np.ndarray = None, equiv : np.ndarray = None) -> dict:
         if hyb is None:
-            if not hasattr(self, "h") or key not in self.h:
-                raise KeyError(f"Hybridisation data is missing key '{key}'")
-            hyb = self.h[key]
+            if not hasattr(self, "h") or self.h is None:
+                raise ValueError("Hybridisation data is missing")
+            hyb = self.h
         if equiv is None:
-            if self.projector is None or not isinstance(self.projector.equiv, dict) or key not in self.projector.equiv:
-                raise KeyError(f"Projector equivalence matrix is missing key '{key}'")
-            equiv = self.projector.equiv[key]
+            pkey = self.ResolveProblemKey(key)
+            if self.projector is None or not isinstance(self.projector.equiv, dict) or pkey not in self.projector.equiv:
+                raise KeyError(f"Projector equivalence matrix is missing key '{pkey}'")
+            equiv = self.projector.equiv[pkey]
 
         hyb = self._as_dynamic_spin_matrix(hyb)
         equiv = np.asarray(equiv, dtype=int)
@@ -134,6 +131,14 @@ class FLocDyn(object):
             json.dump(payload, outfile, sort_keys=True, indent=4, separators=(',', ': '))
         with open(f'{stem}.json', 'w') as outfile:
             json.dump(payload, outfile, sort_keys=True, indent=4, separators=(',', ': '))
+
+    def ResolveProblemKey(self, key):
+        if self.projector is None:
+            raise ValueError("projector is required to resolve problem key")
+        pkey = key if key in self.projector.fprojector else str(key)
+        if pkey not in self.projector.fprojector:
+            raise KeyError(f"Unknown impurity problem key '{key}'")
+        return pkey
     
     def GaussianLinearBroad(self,x, y, w1, temperature, cutoff):
 
@@ -404,147 +409,20 @@ class FLocDyn(object):
             return matout[:, :, 0, :]
         return matout
 
-    def AverageImpurityByEquiv(self, imp=None, matimp : dict = None, squeeze : bool = True) -> dict:
-        """Average equivalent orbital classes for all impurity problems at once."""
-        if not isinstance(matimp, dict):
-            raise TypeError("matimp must be dict keyed by impurity problem key")
-
-        matout = {}
-        for key, matin in matimp.items():
-            equiv = self._resolve_equiv_matrix(imp=imp, key=key)
-            matout[str(key)] = self.AverageByEquiv(equiv=equiv, matin=matin, squeeze=squeeze)
-
-        return matout
-
-    def imp_B2F_freq(self, imp=None, B : np.ndarray = None, key = None) -> dict:
-        """Legacy wrapper: average by equivalent-orbital classes (dynamic)."""
-        if B is None:
-            raise ValueError("B is required")
-        equiv = self._resolve_equiv_matrix(imp=imp, key=key)
-        return self.Arr2Dict(equiv=equiv, matin=B)
-
-    def imp_F2B_freq(self, imp=None, F : dict = None, key = None, squeeze : bool = True) -> np.ndarray:
-        """Legacy wrapper: map equivalent dict back to dynamic matrix."""
-        if F is None:
-            raise ValueError("F is required")
-        equiv = self._resolve_equiv_matrix(imp=imp, key=key)
-        mat = self.Dict2Arr(equiv=equiv, matdict=F)
-        if squeeze and self.crystal.ns == 1:
-            return mat[:, :, 0, :]
-        return mat
-    
-    # def Imp2Loc(self,matimp : np.ndarray)-> np.ndarray:
-
-    #     norb = matimp.shape[0]
-    #     ns = matimp.shape[2]
-    #     nft = matimp.shape[3]
-
-    #     probindex = self.crystal.probindex if self.crystal.probindex else self.crystal.probspace
-
-    #     nspace = 0
-    #     for val in probindex.values():
-    #         nspace += len(val)
-
-    #     matloc = np.zeros((norb,norb,ns,nft,nspace),dtype=np.complex128,order='F')
-
-    #     for key, val in probindex.items():
-    #         iprob = int(key)-1
-    #         for ispace in val:
-    #             matloc[...,ispace] = matimp[...,iprob]
-
-    #     return matloc
-    
-    # def Loc2Imp(self,matloc : np.ndarray)->np.ndarray:
-
-    #     probindex = self.crystal.probindex if self.crystal.probindex else self.crystal.probspace
-
-    #     nprob = len(probindex)
-    #     norb = matloc.shape[0]
-    #     ns = matloc.shape[2]
-    #     nft = matloc.shape[3]
-
-    #     matimp = np.zeros((norb,norb,ns,nft,nprob),dtype=np.complex128,order='F')
-
-    #     for key, val in probindex.items():
-    #         iprob = int(key)-1
-    #         tempmat = np.zeros((norb,norb,ns, nft),dtype=np.complex128)
-    #         for ispace in val:
-    #             tempmat += matloc[...,ispace]
-    #         tempmat /=len(val)
-    #         matimp[...,iprob] = tempmat
-
-    #     return matimp
-    
-    # def Arr2Dict(self, equiv : np.ndarray, matin : np.ndarray) -> dict:
-        
-    #     ns = matin.shape[2]
-    #     nind = np.amax(equiv)
-    #     matdict = {}
-
-    #     for ind in range(nind):
-    #         matdict[ind+1] = []
-    #         pos = self.crystal.FindPositions(equiv,ind+1)
-    #         for js in range(ns):
-    #             e = 0
-    #             for ii, jj in pos:
-    #                 e += matin[ii,jj,js]
-    #             e /=len(pos)
-    #             matdict[ind+1].append(e.tolist())
-        
-    #     return matdict
-    
-    # def Dict2Arr(self,equiv : np.ndarray, matdict : np.ndarray) -> np.ndarray:
-
-    #     norb = len(equiv)
-    #     ns = self.crystal.ns
-    #     nfreq = len(matdict["1"])                
-
-    #     matout = np.zeros((norb,norb,ns,nfreq),dtype=np.complex128,order='F')
-    #     nind = np.amax(equiv)
-
-    #     for js in range(ns):
-    #         for ind in range(nind):
-    #             pos = self.crystal.FindPositions(equiv,ind+1)
-    #             for ii, jj in pos:
-    #                 matout[ii,jj,js] = matdict[str(ind+1)]
-
-    #     return matout
-    
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
-
-        # norb = len(self.crystal.find)
-        # ns = self.crystal.ns
-        # nft = self.ft.size
-
-        # matout = np.zeros((norb,norb,ns,nft),dtype=np.complex128,order='F')
-
-        # matout = QAFort.dyson.flocdyn(mat1,mat2)
 
         return Dyson.FLocDyn(mat1, mat2)
 
     
-    def Projection(self, matin : np.ndarray):
+    def Projection(self, matin : np.ndarray, key):
         if self.projector is None:
             raise ValueError("projector is required for Projection")
 
         if matin.ndim != 5:
             raise ValueError(f"matin must be 5D, got {matin.ndim}D")
 
-        norb = matin.shape[0]
-        ns = matin.shape[2]
-        nfreq = matin.shape[4]
-
-        matdict = {}
-        for key, proj in self.projector.fprojector.items():
-            norbc = proj.shape[1]
-            tempmat = np.zeros((norbc, norbc, ns, nfreq), dtype=np.complex128, order='F')
-
-            tempmat = PJ.FLatDyn(matin, proj)
-
-            
-            matdict[key] = tempmat
-
-        return matdict
+        pkey = self.ResolveProblemKey(key)
+        return PJ.FLatDyn(matin, self.projector.fprojector[pkey])
     
 class GLoc(FLocDyn):
 
@@ -556,49 +434,45 @@ class GLoc(FLocDyn):
         self.green = green
         self.f = {}
         self.t = {}
-
-        self.occ = None
-        self.Cal()
-        
+        self.occ = {}
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.Cal()
+        
+        
 
     def Cal(self):
 
-        self.f = self.Projection(self.green)
-
+        self.f = {}
         self.t = {}
+        self.occ = {}
 
-        for key, mat in self.f.items():
-            self.t[key] = self.F2T(mat)
-
-        self.Occ()
+        for key in self.projector.fprojector.keys():
+            mat = self.Projection(self.green, key)
+            self.f[key] = mat
+            tau = self.F2T(mat)
+            self.t[key] = tau
+            self.occ[key] = self.Occ(tau)
 
         return None
     
-    def Occ(self):
-        
-        self.occ = {}
+    def Occ(self, mat : np.ndarray):
 
         tau_beta = np.array([self.dlr.beta], dtype=np.float64)
-        for key, mat in self.t.items():
-            
-            occ = np.zeros_like(mat[...,0], dtype=np.complex128)
-            for js in range(mat.shape[2]):
-                block = mat[:, :, js, :].T
+        occ = np.zeros_like(mat[...,0], dtype=np.complex128)
+        for js in range(mat.shape[2]):
+            block = mat[:, :, js, :].T
 
-                ntau_b = block.shape[0]
-                block_2d = block.reshape(ntau_b, -1)
+            ntau_b = block.shape[0]
+            block_2d = block.reshape(ntau_b, -1)
 
-                fxx = self.dlr.dF.dlr_from_tau(block_2d)
-                fout = self.dlr.dF.eval_dlr_tau(fxx[:, :, None], tau_beta, beta=self.dlr.beta)
+            fxx = self.dlr.dF.dlr_from_tau(block_2d)
+            fout = self.dlr.dF.eval_dlr_tau(fxx[:, :, None], tau_beta, beta=self.dlr.beta)
 
-                occ[:, :, js] = -fout[0, :, 0].reshape(mat.shape[0], mat.shape[0])
+            occ[:, :, js] = -fout[0, :, 0].reshape(mat.shape[0], mat.shape[0])
 
-            self.occ[key] = occ
-
-        return None
+        return occ
     
     def Save(self, fn: str, obj : np.ndarray = None):
 
@@ -624,10 +498,11 @@ class GLoc(FLocDyn):
 
 class Hyb(FLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, green : dict, eimp : dict, sigh : dict = None, sigf : dict = None, sigc : dict = None, hdf5file : str = None, group : str = None):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, green : np.ndarray, eimp : np.ndarray, sigh : np.ndarray = None, sigf : np.ndarray = None, sigc : np.ndarray = None, hdf5file : str = None, group : str = None):
         
         super().__init__(crystal, dlr, projector)
 
+        self.key = self.ResolveProblemKey(key)
         self.green = green
         self.eimp = eimp
         self.sigh = sigh
@@ -638,38 +513,32 @@ class Hyb(FLocDyn):
         self.group = group
         self.subgroup = self.__class__.__name__
 
-        self.f = {}
-        self.t = {}
+        self.f = None
+        self.t = None
         self.Cal()
 
-        
     def Cal(self):
 
-        projector = self.projector.fprojector
+        tempmat = np.zeros_like(self.green, dtype=np.complex128, order='F')
+        sig = np.zeros_like(self.green, dtype=np.complex128, order='F')
+        if self.sigh is not None:
+            sig += self.sigh
+        if self.sigf is not None:
+            sig += self.sigf
+        if self.sigc is not None:
+            sig += self.sigc
 
+        g_inv = self.Inverse(self.green)
+        
+        e = self.eimp
+        I = np.eye(g_inv.shape[0], dtype=np.complex128)
+        omega = self.dlr.omega * 1j
 
-        for key in projector.keys():
-            
-            tempmat = np.zeros_like(self.green[key], dtype=np.complex128, order='F')
-            sig = np.zeros_like(self.green[key], dtype=np.complex128, order='F')
-            if self.sigh is not None:
-                sig += self.sigh[key]
-            if self.sigf is not None:
-                sig += self.sigf[key]
-            if self.sigc is not None:
-                sig += self.sigc[key]
-
-            g_inv = self.Inverse(self.green[key])
-            
-            e = self.eimp[key]
-            I = np.eye(g_inv.shape[0], dtype=np.complex128)
-            omega = self.dlr.omega * 1j
-
-            for iomega in range(len(omega)):
-                for js in range(g_inv.shape[2]):
-                    tempmat[..., js, iomega] = omega[iomega]*I - e[..., js] - g_inv[..., js, iomega] - sig[..., js, iomega]
-            self.f[key] = tempmat
-            self.t[key] = self.F2T(tempmat)
+        for iomega in range(len(omega)):
+            for js in range(g_inv.shape[2]):
+                tempmat[..., js, iomega] = omega[iomega]*I - e[..., js] - g_inv[..., js, iomega] - sig[..., js, iomega]
+        self.f = tempmat
+        self.t = self.F2T(tempmat)
 
         return None
     
@@ -696,16 +565,17 @@ class Hyb(FLocDyn):
 
 class FWeiss(FLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, eimp : EImp, hyb : Hyb):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, eimp : EImp, hyb : Hyb):
 
         super().__init__(crystal, dlr, projector)
 
+        self.key = self.ResolveProblemKey(key)
         self.eimp = eimp
         self.hyb = hyb.f
         
-        self.e = {}
-        self.h_dlr = {}
-        self.h = {}
+        self.e = None
+        self.h_dlr = None
+        self.h = None
         self.omega_uniform = None
 
         self.Cal()
@@ -715,12 +585,9 @@ class FWeiss(FLocDyn):
         return self.dlr.MatsubaraDLR2UniformGrid(mat, sign=-1)
 
     def Cal(self):
-        
-        projector = self.projector.fprojector
-
-        for key in projector.keys():
-            self.e[key] = self.AverageByEquiv(self.projector.equiv[key], self.eimp.e[key])
-            self.h_dlr[key] = self.AverageByEquiv(self.projector.equiv[key], self.hyb[key])
-            self.h[key] = self.UniformGrid(self.h_dlr[key])
+        equiv = self.projector.equiv[self.key]
+        self.e = self.eimp.AverageByEquiv(equiv, self.eimp.e)
+        self.h_dlr = self.AverageByEquiv(equiv, self.hyb)
+        self.h = self.UniformGrid(self.h_dlr)
         
         return None

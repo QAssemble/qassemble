@@ -25,6 +25,14 @@ class FLocStc(object):
         self.crystal = crystal
         self.projector = projector
 
+    def ResolveProblemKey(self, key):
+        if self.projector is None:
+            raise ValueError("projector is required to resolve problem key")
+        pkey = key if key in self.projector.fprojector else str(key)
+        if pkey not in self.projector.fprojector:
+            raise KeyError(f"Unknown impurity problem key '{key}'")
+        return pkey
+
     def Inverse(self,mat : np.ndarray):
 
         norb = mat.shape[0]
@@ -51,67 +59,6 @@ class FLocStc(object):
         Fnew = mix*Fb + (1.0-mix)*Fold
 
         return Fnew
-
-    def _resolve_equiv_matrix(self, imp=None, key=None) -> np.ndarray:
-        """Resolve an equivalent-orbital matrix from legacy/new impurity inputs.
-
-        Supported inputs:
-        - 2D ndarray/list: used directly as equivalence matrix.
-        - 1D ndarray/list: interpreted as diagonal class labels and promoted via ``np.diag``.
-        - Legacy dict: ``imp[str(key)]['impurity_matrix']``.
-        - Direct dict: ``imp[str(key)]`` is the equivalence matrix itself.
-        - Fallback: ``self.projector.equiv[str(key)]`` when ``imp`` is None.
-        """
-        def _resolve_dict_key(dct, key_):
-            if key_ is None:
-                if len(dct) == 1:
-                    return str(next(iter(dct.keys())))
-                raise ValueError(
-                    "key is required when multiple impurity problems are present"
-                )
-            k_ = str(key_)
-            if k_ not in dct:
-                raise KeyError(f"equiv source does not contain key '{k_}'")
-            return k_
-
-        if imp is None:
-            if self.projector is None or not isinstance(self.projector.equiv, dict):
-                raise ValueError(
-                    "imp is None and projector.equiv is not available; "
-                    "provide imp or set projector.equiv"
-                )
-            peq = self.projector.equiv
-            k = _resolve_dict_key(peq, key)
-            equiv = np.asarray(peq[k])
-
-        elif isinstance(imp, np.ndarray):
-            equiv = imp
-        elif isinstance(imp, (list, tuple)):
-            equiv = np.asarray(imp)
-        elif isinstance(imp, dict):
-            k = _resolve_dict_key(imp, key)
-            if isinstance(imp[k], dict):
-                if "impurity_matrix" not in imp[k]:
-                    raise KeyError(
-                        f"imp['{k}'] must contain an 'impurity_matrix' entry"
-                    )
-                equiv = np.asarray(imp[k]["impurity_matrix"])
-            else:
-                equiv = np.asarray(imp[k])
-        else:
-            raise TypeError(
-                "imp must be ndarray/list/tuple (equiv matrix), direct equiv dict, or legacy impurity dict"
-            )
-
-        if equiv.ndim == 1:
-            equiv = np.diag(equiv)
-
-        if equiv.ndim != 2 or equiv.shape[0] != equiv.shape[1]:
-            raise ValueError(
-                f"equivalence matrix must be square 2D, got shape {equiv.shape}"
-            )
-
-        return np.asarray(equiv, dtype=int)
 
     def Arr2Dict(self, equiv : np.ndarray, matin : np.ndarray) -> dict:
         """Average a local static fermionic matrix over equivalent orbital pairs."""
@@ -241,45 +188,6 @@ class FLocStc(object):
             return matout[:, :, 0]
         return matout
 
-    def AverageImpurityByEquiv(self, imp=None, matimp : dict = None, squeeze : bool = True) -> dict:
-        """Average equivalent orbital classes for all impurity problems at once.
-
-        Parameters
-        ----------
-        imp : dict | ndarray | list | tuple | None
-            Equivalence source. If None, ``self.projector.equiv`` is used.
-            Legacy impurity input ``imp[key]['impurity_matrix']`` is also supported.
-        matimp : dict
-            Problem-wise matrices: ``{key: ndarray}``, each ndarray is (norb,norb) or (norb,norb,ns).
-        """
-        if not isinstance(matimp, dict):
-            raise TypeError("matimp must be dict keyed by impurity problem key")
-
-        matout = {}
-        for key, matin in matimp.items():
-            equiv = self._resolve_equiv_matrix(imp=imp, key=key)
-            matout[str(key)] = self.AverageByEquiv(equiv=equiv, matin=matin, squeeze=squeeze)
-
-        return matout
-
-    def imp_B2F(self, imp=None, B : np.ndarray = None, key = None) -> dict:
-        """Legacy wrapper: average by equivalent-orbital classes."""
-        if B is None:
-            raise ValueError("B is required")
-        equiv = self._resolve_equiv_matrix(imp=imp, key=key)
-        return self.Arr2Dict(equiv=equiv, matin=B)
-
-    def imp_F2B(self, imp=None, F : dict = None, key = None, squeeze : bool = True) -> np.ndarray:
-        """Legacy wrapper: map equivalent-orbital dict back to matrix."""
-        if F is None:
-            raise ValueError("F is required")
-        equiv = self._resolve_equiv_matrix(imp=imp, key=key)
-        mat = self.Dict2Arr(equiv=equiv, matdict=F)
-        if squeeze and mat.shape[2] == 1:
-            return mat[:, :, 0]
-        return mat
-    
-    
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
 
         return Dyson.FLocStc(mat1, mat2)
@@ -304,41 +212,29 @@ class FLocStc(object):
         os.chdir("..")
         return None
     
-    def Projection(self, matin : np.ndarray):
+    def Projection(self, matin : np.ndarray, key):
         if self.projector is None:
             raise ValueError("projector is required for Projection")
 
         if matin.ndim != 4:
             raise ValueError(f"matin must be 4D, got {matin.ndim}D")
 
-        norb = matin.shape[0]
-        ns = matin.shape[2]
-        nrk = matin.shape[4]
-
-        matdict = {}
-        for key, proj in self.projector.fprojector.items():
-            norbc = proj.shape[1]
-            tempmat = np.zeros((norbc, norbc, ns, nrk), dtype=np.complex128, order='F')
-
-            tempmat = PJ.FLatStc(matin, proj)
-
-            
-            matdict[key] = tempmat
-
-        return matdict
+        pkey = self.ResolveProblemKey(key)
+        return PJ.FLatStc(matin, self.projector.fprojector[pkey])
     
     
 class EImp(FLocStc):
 
-    def __init__(self, crystal : Crystal, projector : Projector, hamtb : np.ndarray, mu : float, sigh : np.ndarray = None, sigf : np.ndarray = None, hloc : dict = None, floc : dict = None):
+    def __init__(self, crystal : Crystal, projector : Projector, key, hamtb : np.ndarray, mu : float, sigh : np.ndarray = None, sigf : np.ndarray = None, hloc : np.ndarray = None, floc : np.ndarray = None):
 
         super().__init__(crystal, projector)
 
+        self.key = self.ResolveProblemKey(key)
         self.hamtb = hamtb
         self.mu = mu
         self.ham = None
         self.sig = None
-        self.e = {}
+        self.e = None
 
         tempmat = np.zeros_like(hamtb, dtype=np.complex128, order='F')
 
@@ -356,40 +252,30 @@ class EImp(FLocStc):
 
         if (hloc is not None) and (floc is not None):
             print("Double counting term entered.")
-            tempmat2 = {}
-            for key in hloc.keys():
-                tempmat2[key] = hloc[key] + floc[key]
-
-            self.sig = tempmat2 
+            self.sig = hloc + floc
 
         
         self.Cal()
 
     def Cal(self):
 
-        e = self.Projection(self.ham)
+        e = self.Projection(self.ham, self.key)
 
         if (self.sig is not None):
-            tempdict = e.copy()
-            e = {}
-            for key, mat in tempdict.items():
-
-                mat -= self.sig[key]
-
-                e[key] = mat
+            e -= self.sig
 
         
         self.e = e
 
         return None
 
-    def Eimp_final_input(self, key, Eimp : np.ndarray = None):
-        key = self.projector._require_problem(key)
+    def ToCTQMC(self, key = None, Eimp : np.ndarray = None):
+        key = self.ResolveProblemKey(self.key if key is None else key)
         ns = self.crystal.ns
         norbc = self.projector.fprojector[key].shape[1]
 
         if Eimp is None:
-            Eimp = self.e[key]
+            Eimp = self.e
 
         Eimp = np.asarray(Eimp, dtype=np.complex128)
         if Eimp.ndim == 2:
@@ -415,10 +301,11 @@ class EImp(FLocStc):
             
 class SigHLoc(FLocStc):
 
-    def __init__(self, crystal : Crystal, projector : Projector, occ : dict = None, vloc : dict = None, hdf5file : str = 'glob.h5', group : str = None):
+    def __init__(self, crystal : Crystal, projector : Projector, key, occ : np.ndarray = None, vloc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None):
 
         super().__init__(crystal, projector)
 
+        self.key = self.ResolveProblemKey(key)
         self.occ = occ
         self.vloc = vloc
         self.hloc = None
@@ -429,51 +316,49 @@ class SigHLoc(FLocStc):
     
     def Cal(self):
 
-        projector = self.projector.fprojector
-        h = {}
+        key = self.key
+        proj = self.projector.fprojector[key]
+        norbc = proj.shape[1]
+        ns = proj.shape[2]
+        v = self.vloc
+        norb = v.shape[0]
 
-        for key, proj in projector.items():
-            norbc = proj.shape[1]
-            ns = proj.shape[2]
-            v = self.vloc[key]
-            norb = v.shape[0]
+        h = np.zeros((norbc, norbc, ns), dtype=np.complex128, order='F')
 
-            h[key] = np.zeros((norbc, norbc, ns), dtype=np.complex128, order='F')
+        if ns != 1:
 
-            if ns != 1:
+            for ind1 in range(norb * ns):
+                nn1 = [0] * 2
+                ind1, [iorb, js] = Common.Indexing(norb*ns, 2, [norb, ns], 0, ind1, nn1)
 
-                for ind1 in range(norb * ns):
-                    nn1 = [0] * 2
-                    ind1, [iorb, js] = Common.Indexing(norb*ns, 2, [norb, ns], 0, ind1, nn1)
+                iorbc1, iorbc2 = self.projector.ProbBorb2FPair(key, iorb)
 
-                    iorbc1, iorbc2 = self.projector.ProbBorb2FPair(key, iorb)
+                for ind2 in range(norb * ns):
+                    nn2 = [0] * 2
+                    ind2, [jorb, ks] = Common.Indexing(norb*ns, 2, [norb, ns], 0, ind2, nn2)
 
-                    for ind2 in range(norb * ns):
-                        nn2 = [0] * 2
-                        ind2, [jorb, ks] = Common.Indexing(norb*ns, 2, [norb, ns], 0, ind2, nn2)
+                    iorbc3, iorbc4 = self.projector.ProbBorb2FPair(key, jorb)
 
-                        iorbc3, iorbc4 = self.projector.ProbBorb2FPair(key, jorb)
-
-                        h[key][iorbc1, iorbc2, js] += (v[iorb, jorb, js, ks] * self.occ[key][iorbc4, iorbc3, ks])
+                    h[iorbc1, iorbc2, js] += (v[iorb, jorb, js, ks] * self.occ[iorbc4, iorbc3, ks])
+        else:
+            if (self.crystal.soc == True):
+                C = 1
             else:
-                if (self.crystal.soc == True):
-                    C = 1
-                else:
-                    C = 2
-                
-                for ind1 in range(norb * ns):
-                    nn1 = [0] * 2
-                    ind1, [iorb, js] = Common.Indexing(norb*ns, 2, [norb, ns], 0, ind1, nn1)
+                C = 2
+            
+            for ind1 in range(norb * ns):
+                nn1 = [0] * 2
+                ind1, [iorb, js] = Common.Indexing(norb*ns, 2, [norb, ns], 0, ind1, nn1)
 
-                    iorbc1, iorbc2 = self.projector.ProbBorb2FPair(key, iorb)
+                iorbc1, iorbc2 = self.projector.ProbBorb2FPair(key, iorb)
 
-                    for ind2 in range(norb * ns):
-                        nn2 = [0] * 2
-                        ind2, [jorb, ks] = Common.Indexing(norb*ns, 2, [norb, ns], 0, ind2, nn2)
+                for ind2 in range(norb * ns):
+                    nn2 = [0] * 2
+                    ind2, [jorb, ks] = Common.Indexing(norb*ns, 2, [norb, ns], 0, ind2, nn2)
 
-                        iorbc3, iorbc4 = self.projector.ProbBorb2FPair(key, jorb)
+                    iorbc3, iorbc4 = self.projector.ProbBorb2FPair(key, jorb)
 
-                        h[key][iorbc1, iorbc2, js] += (v[iorb, jorb, js, ks] * self.occ[key][iorbc4, iorbc3, ks]) * C
+                    h[iorbc1, iorbc2, js] += (v[iorb, jorb, js, ks] * self.occ[iorbc4, iorbc3, ks]) * C
 
         self.hloc = h
 
