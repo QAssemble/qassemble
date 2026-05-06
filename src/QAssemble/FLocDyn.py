@@ -78,7 +78,7 @@ class FLocDyn(object):
         ff = np.asfortranarray(ff)
 
         return ff
-    
+
     def CheckGroup(self, filepath :str, group : str):
         
         with h5py.File(filepath,'r') as file:
@@ -456,7 +456,7 @@ class GLoc(FLocDyn):
             self.occ[key] = self.Occ(tau)
 
         return None
-    
+
     def Occ(self, mat : np.ndarray):
 
         tau_beta = np.array([self.dlr.beta], dtype=np.float64)
@@ -492,6 +492,209 @@ class GLoc(FLocDyn):
                 gloc.create_dataset(fn,dtype=complex,data=obj)
             else:
                 gloc.create_dataset(fn,dtype=complex,data=self.f)
+
+        return None
+    
+class GImp(FLocDyn):
+
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, green, hdf5file : str = None, group : str = None):
+
+        super().__init__(crystal, dlr, projector)
+
+        self.key = self.ResolveProblemKey(key)
+        self.green = green
+        self.f = None
+        self.t = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        self.Cal()
+
+    def _read_ctqmc_green(self, green : dict) -> dict:
+
+        matdict = {}
+        for green_key, val in green.items():
+            function = val["function"] if isinstance(val, dict) and "function" in val else val
+            real = np.asarray(function["real"], dtype=np.float64)
+            imag = np.asarray(function.get("imag", np.zeros_like(real)), dtype=np.float64)
+            matdict[green_key] = real + imag * 1j
+
+        return matdict
+
+    def Cal(self):
+
+        if isinstance(self.green, dict):
+            equiv = np.asarray(self.projector.equiv[self.key], dtype=int)
+            green = self._read_ctqmc_green(self.green)
+            green_uniform = self.dlr.MatsubaraAddNegativeFrequency(self.ReadDict(equiv, green))
+            self.f = self.dlr.MatsubaraUniformGrid2DLR(green_uniform)
+        else:
+            self.f = np.asfortranarray(self.green, dtype=np.complex128)
+
+        self.t = self.F2T(self.f)
+
+        return None
+    
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    gloc = group[self.subgroup]
+                else:
+                    gloc = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                gloc = group.create_group(self.subgroup)
+            
+
+            if obj != None:
+                gloc.create_dataset(fn,dtype=complex,data=obj)
+            else:
+                gloc.create_dataset(fn,dtype=complex,data=self.f)
+
+        return None
+
+
+class SigCImp(FLocDyn):
+
+    def __init__(
+        self,
+        crystal : Crystal,
+        dlr : DLR,
+        projector : Projector,
+        key,
+        sigma,
+        sigma_hf : np.ndarray = None,
+        subtract_static : bool = True,
+        hdf5file : str = None,
+        group : str = None,
+    ):
+
+        super().__init__(crystal, dlr, projector)
+
+        self.key = self.ResolveProblemKey(key)
+        self.sigma_in = sigma
+        self.sigma_hf_in = sigma_hf
+        self.subtract_static = subtract_static
+        self.hf = None
+        self.total = None
+        self.f = None
+        self.t = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        self.Cal()
+
+    def _read_ctqmc_sigma(self, sigma : dict) -> dict:
+
+        matdict = {}
+        for sigma_key, val in sigma.items():
+            function = val["function"] if isinstance(val, dict) and "function" in val else val
+            real = np.asarray(function["real"], dtype=np.float64)
+            imag = np.asarray(function.get("imag", np.zeros_like(real)), dtype=np.float64)
+            matdict[sigma_key] = real + imag * 1j
+
+        return matdict
+
+    def _read_ctqmc_sigma_hf(self, sigma : dict) -> dict:
+
+        matdict = {}
+        for sigma_key, val in sigma.items():
+            if not isinstance(val, dict) or "moments" not in val:
+                raise ValueError(
+                    "SigCImp requires self-energy moments[0] to subtract "
+                    "the static/HF part from CTQMC self-energy"
+                )
+            matdict[sigma_key] = complex(val["moments"][0])
+
+        return matdict
+
+    def _resolve_sigma_hf(self) -> np.ndarray:
+
+        if self.sigma_hf_in is not None:
+            sigma_hf = self.sigma_hf_in
+            if hasattr(sigma_hf, "hf"):
+                sigma_hf = sigma_hf.hf
+            elif hasattr(sigma_hf, "s"):
+                sigma_hf = sigma_hf.s
+            elif hasattr(sigma_hf, "h"):
+                sigma_hf = sigma_hf.h
+            sigma_hf = np.asarray(sigma_hf, dtype=np.complex128)
+        elif isinstance(self.sigma_in, dict):
+            equiv = np.asarray(self.projector.equiv[self.key], dtype=int)
+            sigma_hf = self.ReadDict(equiv, self._read_ctqmc_sigma_hf(self.sigma_in))
+        else:
+            raise ValueError(
+                "SigCImp requires sigma_hf when subtract_static=True and sigma "
+                "is not a CTQMC self-energy dict with moments"
+            )
+
+        if sigma_hf.ndim == 2:
+            sigma_hf = sigma_hf[:, :, np.newaxis]
+        if sigma_hf.ndim != 3:
+            raise ValueError(f"sigma_hf must be 2D or 3D, got {sigma_hf.ndim}D")
+        if sigma_hf.shape[2] != self.crystal.ns:
+            raise ValueError(
+                f"spin dimension mismatch: sigma_hf ns={sigma_hf.shape[2]}, "
+                f"crystal ns={self.crystal.ns}"
+            )
+
+        return np.asfortranarray(sigma_hf)
+
+    def Cal(self):
+
+        if isinstance(self.sigma_in, dict):
+            equiv = np.asarray(self.projector.equiv[self.key], dtype=int)
+            sigma = self._read_ctqmc_sigma(self.sigma_in)
+            sigma_uniform = self.dlr.MatsubaraAddNegativeFrequency(self.ReadDict(equiv, sigma))
+            sigma_total = self.dlr.MatsubaraUniformGrid2DLR(sigma_uniform)
+        else:
+            sigma_total = np.asfortranarray(self.sigma_in, dtype=np.complex128)
+
+        if sigma_total.ndim != 4:
+            raise ValueError(f"sigma must be 4D after DLR conversion, got {sigma_total.ndim}D")
+        if sigma_total.shape[2] != self.crystal.ns:
+            raise ValueError(
+                f"spin dimension mismatch: sigma ns={sigma_total.shape[2]}, "
+                f"crystal ns={self.crystal.ns}"
+            )
+
+        self.total = sigma_total
+        if self.subtract_static:
+            self.hf = self._resolve_sigma_hf()
+            if self.hf.shape != sigma_total.shape[:3]:
+                raise ValueError(
+                    f"sigma_hf shape {self.hf.shape} is incompatible with "
+                    f"sigma shape {sigma_total.shape}"
+                )
+            self.f = np.asfortranarray(sigma_total - self.hf[..., np.newaxis])
+        else:
+            self.f = sigma_total
+
+        self.t = self.F2T(self.f)
+
+        return None
+    
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.CheckGroup(self.hdf5file,self.group):
+                group = file[self.group]
+                if self.subgroup in group:
+                    sigimp = group[self.subgroup]
+                else:
+                    sigimp = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                sigimp = group.create_group(self.subgroup)
+            
+
+            if obj != None:
+                sigimp.create_dataset(fn,dtype=complex,data=obj)
+            else:
+                sigimp.create_dataset(fn,dtype=complex,data=self.f)
 
         return None
 

@@ -29,6 +29,9 @@ class Run:
                 (self.control["run"]["method"] == "tb")
                 | (self.control["run"]["method"] == "hf")
                 | (self.control["run"]["method"] == "gw")
+                | (self.control["run"]["method"] == "dmft")
+                | (self.control["run"]["method"] == "edmft")
+                | (self.control["run"]["method"] == "gw+edmft")
             ):
                 self.RunDiagE()
 
@@ -75,6 +78,7 @@ class Run:
         control["ft"] = {}
         control["ham"] = {}
         control["run"] = {}
+        control["impurity"] = copy.deepcopy(loc.get("Impurity", {}))
         inicrystal = loc["Crystal"]
         ham = loc["Hamiltonian"]
         ini = loc["Control"]
@@ -151,6 +155,7 @@ class Run:
         control["run"]["mix"] = ini.get("Mix", 0.1)
         control["run"]["nscf"] = ini.get("NSCF", 100)
         control["run"]["cw"] = ini.get("ConstantW", 1.0)
+        control["run"]["dmft_tol"] = ini.get("DMFTTol", 1.0e-6)
 
         # CheckKeyinString("MatsubaraMesh",ini)
         cutoff = ini.get("MatsubaraCutOff", 50)
@@ -303,5 +308,18 @@ class Run:
             logger.info("GW calculation finish")
             delta = datetime.timedelta(seconds=(end - start))
             logger.info(f"GW loop time = {delta}")
+
+        if method == "dmft":
+            logger.info("GW calculation start")
+
+
+            start = time.time()
+            func.ImpuritySolver()
+            end = time.time()
+            logger.info("DMFT calculation finish")
+            delta = datetime.timedelta(seconds=(end - start))
+            logger.info(f"DMFT loop time = {delta}")
+
+        
 
         return None

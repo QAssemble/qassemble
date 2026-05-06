@@ -25,17 +25,77 @@ class BLocDyn(object):
         self.dlr = dlr
         self.projector = projector
 
+    def ResolveProblemKey(self, key):
+        if self.projector is None:
+            raise ValueError("projector is required to resolve problem key")
+        pkey = key
+        if hasattr(self.projector, "bprojector") and key not in self.projector.bprojector:
+            pkey = str(key)
+        if not hasattr(self.projector, "bprojector") or pkey not in self.projector.bprojector:
+            raise KeyError(f"Unknown impurity problem key '{key}'")
+        if not isinstance(self.projector.equiv, dict) or pkey not in self.projector.equiv:
+            raise KeyError(f"Projector equivalence matrix is missing key '{pkey}'")
+        return pkey
+
+    def BosonUniform2DLR(self, mat : np.ndarray, omega : np.ndarray = None) -> np.ndarray:
+        mat = np.asarray(mat, dtype=np.complex128)
+        nfreq = mat.shape[-1]
+        if omega is None:
+            omega = 2.0 * np.pi / self.dlr.beta * np.arange(nfreq, dtype=np.float64)
+        else:
+            omega = np.asarray(omega, dtype=np.float64)
+        if omega.shape[0] != nfreq:
+            raise ValueError(
+                f"frequency dimension {nfreq} does not match omega length {omega.shape[0]}"
+            )
+
+        if omega[0] >= 0.0:
+            istart = 1 if np.isclose(omega[0], 0.0) else 0
+            mat = np.concatenate((np.conjugate(mat[..., istart:][..., ::-1]), mat), axis=-1)
+            omega = np.concatenate((-omega[istart:][::-1], omega))
+            nfreq = mat.shape[-1]
+
+        mat_t = np.moveaxis(mat, -1, 0)
+        mat_2d = np.ascontiguousarray(mat_t).reshape(nfreq, int(np.prod(mat.shape[:-1])))
+        mat_dlr = self.dlr.MatsubaraUniform2DLR(mat_2d, omega=omega, sign=1)
+        mat_dlr = mat_dlr.reshape(len(self.dlr.nu), *mat.shape[:-1])
+        mat_dlr = np.moveaxis(mat_dlr, 0, -1)
+
+        return np.asfortranarray(mat_dlr)
+
     def _as_dyn_dict(self, key = None, dyn : dict = None) -> dict:
         if dyn is not None:
             return dyn
 
-        return {"1": np.zeros(len(self.dlr.nu), dtype=float).tolist()}
+        if key is None and hasattr(self, "key"):
+            key = self.key
+        if key is None or not hasattr(self, "ubar_rf") or self.ubar_rf is None:
+            return {"1": np.zeros(len(self.dlr.nu), dtype=float).tolist()}
+
+        pkey = self.ResolveProblemKey(key)
+        if hasattr(self, "key") and self.key != pkey:
+            raise ValueError(f"object key '{self.key}' does not match requested key '{pkey}'")
+
+        dyn = np.asarray(self.ubar_rf, dtype=np.complex128)
+
+        return {"1": self._dynamic_average(pkey, dyn).real.tolist()}
 
     def _write_json_pair(self, stem : str, iter : int, key, payload : dict) -> None:
         with open(f'{stem}.{iter}.{key}.json', 'w') as outfile:
             json.dump(payload, outfile, sort_keys=True, indent=4, separators=(',', ': '))
         with open(f'{stem}.json', 'w') as outfile:
             json.dump(payload, outfile, sort_keys=True, indent=4, separators=(',', ': '))
+
+    def Projection(self, matin : np.ndarray, key) -> np.ndarray:
+        if self.projector is None:
+            raise ValueError("projector is required for Projection")
+
+        matin = np.asarray(matin, dtype=np.complex128)
+        if matin.ndim != 5:
+            raise ValueError(f"matin must be 5D, got {matin.ndim}D")
+
+        pkey = self.ResolveProblemKey(key)
+        return PJ.BLocDyn(matin, self.projector.bprojector[pkey])
 
     def Inverse(self, matin : np.ndarray)-> np.ndarray:
 
@@ -54,27 +114,17 @@ class BLocDyn(object):
         
         return matout
 
-    # def Moment(self, bf : np.ndarray, oddzero : int, highzero : int) -> np.ndarray:
-
-    #     norb = len(self.crystal.bind)
-    #     ns = self.crystal.ns
-
-    #     moment = np.zeros((norb,norb,ns,ns,3),dtype=np.complex128,order='F')
-    #     high = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
-    #     moment, high = Fourier.BLocDynM(self.ft.nu,bf,oddzero,highzero)
-
-    #     return moment,high
-    
     def F2T(self,bf : np.ndarray) -> np.ndarray:
 
-        norb = bf.shape[0]
-        ns = bf.shape[2]
-        nfreq = bf.shape[4]
-
-        btau = np.zeros((norb,norb,ns,ns,nfreq),dtype=np.complex128,order='F')
+        bf = np.asarray(bf, dtype=np.complex128)
+        nfreq = bf.shape[-1]
+        if nfreq != len(self.dlr.nu):
+            raise ValueError(
+                f"frequency dimension {nfreq} does not match bosonic DLR size {len(self.dlr.nu)}"
+            )
 
         bf_t = np.moveaxis(bf, -1, 0)
-        batch = norb * norb * ns * ns
+        batch = int(np.prod(bf.shape[:-1]))
         bf_2d = np.ascontiguousarray(bf_t).reshape(nfreq, batch)
 
         from scipy.linalg import lu_solve
@@ -83,7 +133,7 @@ class BLocDyn(object):
         btau_2d = np.tensordot(self.dlr.dB.T_lx, G_xaa, axes=(1, 0))
 
         ntau = btau_2d.shape[0]
-        btau = btau_2d.reshape(ntau, norb, norb, ns, ns)
+        btau = btau_2d.reshape(ntau, *bf.shape[:-1])
         btau = np.moveaxis(btau, 0, -1)
         btau = np.asfortranarray(btau)
 
@@ -269,44 +319,6 @@ class BLocDyn(object):
 
         return matout
     
-    def Imp2Loc(self,matimp : np.ndarray)-> np.ndarray:
-
-        norb = matimp.shape[0]
-        ns = matimp.shape[2]
-        nft = matimp.shape[3]
-
-        nspace = 0
-        for val in self.crystal.probspace.values():
-            nspace += len(val)
-
-        matloc = np.zeros((norb,norb,ns,ns,nft,nspace),dtype=np.complex128,order='F')
-
-        for key, val in self.crystal.probspace.items():
-            iprob = int(key)-1
-            for ispace in val:
-                matloc[...,ispace] = matimp[...,iprob]
-
-        return matloc
-    
-    def Loc2Imp(self,matloc : np.ndarray)->np.ndarray:
-
-        nprob = len(self.crystal.probspace)
-        norb = matloc.shape[0]
-        ns = matloc.shape[2]
-        nft = matloc.shape[3]
-
-        matimp = np.zeros((norb,norb,ns,ns,nft,nprob),dtype=np.complex128,order='F')
-
-        for key, val in self.crystal.probspace.items():
-            iprob = int(key)-1
-            tempmat = np.zeros((norb,norb,ns),dtype=np.complex128)
-            for ispace in val:
-                tempmat += matloc[...,ispace]
-            tempmat /=len(val)
-            matimp[...,iprob] = tempmat
-
-        return matimp
-    
     def Arr2Dict(self, equiv : np.ndarray, matin : np.ndarray) -> dict:
         
         ns = matin.shape[2]
@@ -369,40 +381,390 @@ class BLocDyn(object):
 
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
 
-        norb = mat1.shape[0]
-        ns = self.crystal.ns
-        nft = self.ft.size
+        return Dyson.BLocDyn(mat1, mat2)
+    
+    def _static_to_dynamic(self, mat : np.ndarray) -> np.ndarray:
+        return np.repeat(mat[..., np.newaxis], len(self.dlr.nu), axis=4)
 
-        matout = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex128,order='F')
+class Chi(BLocDyn):
 
-        matout = QAFort.dyson.blocdyn(mat1,mat2)
-
-        return matout
-
-    def Embedding(self, matin : np.ndarray):
-
-        norb = len(self.crystal.bind)
-        ns = self.crystal.ns
-        nrk = len(self.crystal.kpoint)
-        nft = self.ft.size
-        nspace = self.crystal.bprojector.shape[3]
-
-        matout = np.zeros((norb,norb,ns,ns,nrk,nft),dtype=np.complex128,order='F')
-
-        for ispace in range(nspace):
-            matout += QAFort.embedding.blocdyn(nrk,matin[...,ispace],self.crystal.bprojector[...,ispace])
-
-        return matout
-
-class BWeiss(BLocDyn):
-
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, vloc : VLoc, ploc, wloc):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, partition : dict = None, hdf5file : str = None, group : str = None):
 
         super().__init__(crystal, dlr, projector)
 
+        self.key = self.ResolveProblemKey(key)
+        self.partition = partition
+        self.occupation = None
+        self.occupation_susceptibility_bulla = None
+        self.occupation_susceptibility_xij = None
+        self.f = None
+        self.t = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        self.Cal()
+
+    def _json_complex_array(self, val) -> np.ndarray:
+
+        if isinstance(val, dict):
+            if "function" in val:
+                return self._json_complex_array(val["function"])
+            if "real" in val:
+                real = np.asarray(val["real"], dtype=float)
+                imag = np.asarray(val.get("imag", np.zeros_like(real)), dtype=float)
+                return real + 1j * imag
+            if "moments" in val:
+                return self._json_complex_array(val["moments"])
+
+        arr = np.asarray(val)
+        if arr.dtype == object:
+            return arr.astype(np.complex128)
+        return np.asarray(arr, dtype=np.complex128)
+
+    def _json_scalar(self, val) -> complex:
+
+        arr = self._json_complex_array(val)
+        if arr.ndim == 0:
+            return complex(arr)
+        if arr.size == 0:
+            raise ValueError("cannot read scalar from empty JSON array")
+        return complex(arr.flat[0])
+
+    def _read_occupation(self, partition : dict):
+
+        if "occupation" not in partition:
+            return None
+
+        occupation = {}
+        for occ_key, val in partition["occupation"].items():
+            occupation[occ_key] = self._json_scalar(val)
+
+        equiv = np.asarray(self.projector.equiv[self.key], dtype=int)
+        norb = len(equiv)
+        ns = self.crystal.ns
+        matout = np.zeros((norb, norb, ns), dtype=np.complex128, order='F')
+        nind = int(np.amax(equiv))
+
+        for js in range(ns):
+            for ind in range(1, nind + 1):
+                dict_key = str(ind) if str(ind) in occupation else ind
+                if dict_key not in occupation:
+                    continue
+                pos = Common.FindPositions(equiv, ind)
+                for ii, jj in pos:
+                    matout[ii, jj, js] = occupation[dict_key]
+
+        return matout
+
+    def QuadSusceptibility2Boson(self, chi : np.ndarray) -> np.ndarray:
+        chi = np.asarray(chi, dtype=np.complex128)
+        if chi.ndim == 5:
+            return np.asfortranarray(chi)
+        if chi.ndim != 7:
+            raise ValueError(f"chi must be 5D or 7D, got {chi.ndim}D")
+
+        nspin = chi.shape[4]
+        nfreq = chi.shape[6]
+        ns = self.crystal.ns
+        norbb = self.projector.bprojector[self.key].shape[1]
+
+        chi_temp = np.zeros((norbb, norbb, nspin, nspin, nfreq), dtype=np.complex128, order='F')
+        for ib in range(norbb):
+            iorb, lorb = self.projector.ProbBorb2FPair(self.key, ib)
+            for jb in range(norbb):
+                jorb, korb = self.projector.ProbBorb2FPair(self.key, jb)
+                chi_temp[ib, jb, :, :, :] = chi[iorb, jorb, korb, lorb, :, :, :]
+
+        chi_boson = np.zeros((norbb, norbb, ns, ns, nfreq), dtype=np.complex128, order='F')
+        if ns == 1 and nspin == 2:
+            chi_boson[:, :, 0, 0, :] = 0.5 * (
+                chi_temp[:, :, 0, 0, :]
+                + chi_temp[:, :, 0, 1, :]
+                + chi_temp[:, :, 1, 0, :]
+                + chi_temp[:, :, 1, 1, :]
+            )
+        else:
+            ncopy = min(ns, nspin)
+            for js in range(ncopy):
+                for ks in range(ncopy):
+                    chi_boson[:, :, js, ks, :] = chi_temp[:, :, js, ks, :]
+
+        return chi_boson
+
+    def _fermion_orbital_count_from_boson(self) -> int:
+        pairs = self.projector.blocal2pair[self.key][0].values()
+        if len(pairs) == 0:
+            raise ValueError(f"bosonic projector for key '{self.key}' has no local pairs")
+        return max(max(pair) for pair in pairs) + 1
+
+    def _read_occupation_susceptibility_bulla(self, partition : dict):
+
+        dict_name = "occupation-susceptibility-bulla"
+        if dict_name not in partition:
+            return None
+
+        xij_json = partition[dict_name]
+        pairs = []
+        ndim = 0
+        nfreq = None
+        for xij_key, val in xij_json.items():
+            try:
+                ii, jj = [int(ind) for ind in str(xij_key).split("_")]
+            except ValueError as exc:
+                raise ValueError(
+                    f"invalid occupation susceptibility key '{xij_key}', expected '<i>_<j>'"
+                ) from exc
+
+            arr = self._json_complex_array(val)
+            if arr.ndim != 1:
+                arr = arr.reshape(-1)
+            if nfreq is None:
+                nfreq = arr.shape[0]
+            elif arr.shape[0] != nfreq:
+                raise ValueError(
+                    "occupation susceptibility frequency length mismatch: "
+                    f"key '{xij_key}' has {arr.shape[0]}, expected {nfreq}"
+                )
+
+            pairs.append((ii, jj, arr))
+            ndim = max(ndim, ii + 1, jj + 1)
+
+        if nfreq is None:
+            return np.zeros((0, 0, 0), dtype=np.complex128)
+
+        xij = np.zeros((nfreq, ndim, ndim), dtype=np.complex128)
+        for ii, jj, arr in pairs:
+            xij[:, ii, jj] = arr
+
+        self.occupation_susceptibility_xij = np.moveaxis(
+            self.BosonUniform2DLR(np.moveaxis(xij, 0, -1)),
+            -1,
+            0,
+        )
+
+        norbc = self._fermion_orbital_count_from_boson()
+        nspin = ndim // norbc
+        if nspin * norbc != ndim:
+            raise ValueError(
+                f"occupation susceptibility dimension {ndim} is incompatible with bosonic pair map norbc={norbc}"
+            )
+
+        susc = np.zeros((norbc, norbc, norbc, norbc, nspin, nspin, nfreq), dtype=np.complex128, order='F')
+        for ind1 in range(ndim):
+            nn1 = [0] * 2
+            _, [iorb, ispin] = Common.Indexing(ndim, 2, [norbc, nspin], 0, ind1, nn1)
+            for ind2 in range(ndim):
+                nn2 = [0] * 2
+                _, [jorb, jspin] = Common.Indexing(ndim, 2, [norbc, nspin], 0, ind2, nn2)
+                susc[iorb, jorb, jorb, iorb, ispin, jspin, :] = xij[:, ind1, ind2]
+
+        return susc
+
+    def Cal(self):
+
+        if self.partition is None:
+            return None
+
+        self.occupation = self._read_occupation(self.partition)
+        susc_uniform = self._read_occupation_susceptibility_bulla(self.partition)
+        if susc_uniform is None:
+            return None
+
+        susc_uniform = self.QuadSusceptibility2Boson(susc_uniform)
+        self.f = self.BosonUniform2DLR(susc_uniform)
+        self.occupation_susceptibility_bulla = self.f
+        self.t = self.F2T(self.f)
+
+        return None
+
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.group in file:
+                group = file[self.group]
+                if self.subgroup in group:
+                    chi = group[self.subgroup]
+                else:
+                    chi = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                chi = group.create_group(self.subgroup)
+
+            if obj != None:
+                chi.create_dataset(fn,dtype=complex,data=obj)
+            else:
+                chi.create_dataset(fn,dtype=complex,data=self.f)
+
+        return None
+
+
+class PImp(BLocDyn):
+
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, chi : Chi = None, utilde = None, hdf5file : str = None, group : str = None):
+
+        super().__init__(crystal, dlr, projector)
+
+        self.key = self.ResolveProblemKey(key)
+        self.chi = chi
+        self.utilde = utilde
+        self.chi_boson = None
+        self.f = None
+        self.t = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        self.Cal()
+
+    def _quad_to_local_boson(self, chi : np.ndarray) -> np.ndarray:
+
+        chi = np.asarray(chi, dtype=np.complex128)
+        if chi.ndim != 5:
+            raise ValueError(f"PImp expects 5D bosonic susceptibility, got {chi.ndim}D")
+        return np.asfortranarray(chi)
+
+    def _dynamic_interaction(self, nfreq : int):
+
+        if self.utilde is None:
+            return None
+
+        u = np.asarray(self.utilde, dtype=np.complex128)
+        bproj = self.projector.bprojector[self.key]
+        norbb = bproj.shape[1]
+
+        if u.ndim == 5:
+            u = u[..., :nfreq]
+        elif u.ndim == 4:
+            if u.shape[0] != norbb:
+                u = PJ.BLocStc(u, bproj)
+            u = np.repeat(u[..., np.newaxis], nfreq, axis=4)
+        else:
+            raise ValueError(f"utilde must be 4D or 5D, got {u.ndim}D")
+
+        if u.shape[0] != norbb:
+            uproj = np.zeros((norbb, norbb, u.shape[2], u.shape[3], u.shape[4]), dtype=np.complex128, order='F')
+            for ifreq in range(u.shape[4]):
+                uproj[..., ifreq] = PJ.BLocStc(u[..., ifreq], bproj)
+            u = uproj
+
+        return np.asfortranarray(u)
+
+    def Cal(self):
+
+        chi = self.chi.f if hasattr(self.chi, "f") else self.chi
+        if chi is None:
+            return None
+
+        chi = np.asarray(chi, dtype=np.complex128)
+        if chi.shape[-1] != len(self.dlr.nu):
+            chi = self.BosonUniform2DLR(chi)
+
+        self.chi_boson = self._quad_to_local_boson(chi)
+        utilde = self._dynamic_interaction(self.chi_boson.shape[4])
+        if utilde is None:
+            self.f = self.chi_boson
+        else:
+            self.f = self.Dyson(self.chi_boson, -utilde)
+
+        self.t = self.F2T(self.f)
+
+        return None
+
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.group in file:
+                group = file[self.group]
+                if self.subgroup in group:
+                    pimp = group[self.subgroup]
+                else:
+                    pimp = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                pimp = group.create_group(self.subgroup)
+
+            if obj != None:
+                pimp.create_dataset(fn,dtype=complex,data=obj)
+            else:
+                pimp.create_dataset(fn,dtype=complex,data=self.f)
+
+        return None
+
+class BWeiss(BLocDyn):
+
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, vloc : VLoc, ploc = None, wloc = None):
+
+        super().__init__(crystal, dlr, projector)
+
+        self.key = self.ResolveProblemKey(key)
         self.vloc = vloc
+        if hasattr(self.vloc, "projector") and self.vloc.projector is None:
+            self.vloc.projector = projector
         self.ploc = ploc
         self.wloc = wloc
+        self.v = None
+        self.v_rf = None
+        self.utilde_t = None
+        self.utilde_rf = None
+        self.ubar_t = None
+        self.ubar_rf = None
+
+        if not hasattr(self.vloc, "vloc") or self.vloc.vloc is None:
+            raise TypeError("BWeiss requires vloc to be a VLoc object with vloc data")
+
+        self.v = self.vloc.Projection(self.vloc.vloc, self.key)
+        if (self.wloc is None) != (self.ploc is None):
+            raise ValueError("BWeiss requires both wloc and ploc, or neither")
+        if self.wloc is not None and self.ploc is not None:
+            self.Cal()
+
+    def _dynamic_average(self, key, mat : np.ndarray) -> np.ndarray:
+        norbb = mat.shape[0]
+        ns = mat.shape[2]
+        nfreq = mat.shape[4]
+        pkey = self.ResolveProblemKey(key)
+        pairs = self.projector.blocal2pair[pkey][0].values()
+        if len(pairs) == 0:
+            raise ValueError(f"bosonic projector for key '{pkey}' has no local pairs")
+        norbc = max(max(pair) for pair in pairs) + 1
+
+        out = np.zeros(nfreq, dtype=np.complex128)
+        count = 0
+        for iorb in range(norbc):
+            ib = self.projector.ProbFPair2Borb(pkey, iorb, iorb)
+            for jorb in range(norbc):
+                jb = self.projector.ProbFPair2Borb(pkey, jorb, jorb)
+                for js in range(ns):
+                    for ks in range(ns):
+                        out += mat[ib, jb, js, ks, :]
+                        count += 1
+
+        if count == 0:
+            return out
+        return out / float(count)
+
+    def Cal(self):
+        nfreq = len(self.dlr.nu)
+
+        if self.wloc is None or self.ploc is None:
+            raise ValueError("BWeiss.Cal requires both wloc and ploc")
+
+        self.v_rf = self._static_to_dynamic(self.v)
+        w = self.Projection(self.wloc.f, self.key)
+        p = self.Projection(self.ploc.f, self.key)
+        self.utilde_rf = self.Dyson(w, -p)
+
+        self.ubar_rf = self.utilde_rf - self.v_rf
+
+        if self.utilde_rf.shape[4] != nfreq:
+            raise ValueError(
+                f"BWeiss frequency mismatch for key '{self.key}': "
+                f"{self.utilde_rf.shape[4]} != {nfreq}"
+            )
+
+        self.utilde_t = self.F2T(self.utilde_rf)
+        self.ubar_t = self.F2T(self.ubar_rf)
+
+        return None
 # class PolLoc(BLocDyn):
 
 #     def __init__(self, crystal: Crystal, ft: FTGrid, green, pol : object):

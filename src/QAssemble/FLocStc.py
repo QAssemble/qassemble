@@ -363,6 +363,182 @@ class SigHLoc(FLocStc):
         self.hloc = h
 
 
+class SigHImp(FLocStc):
+
+    def __init__(self, crystal : Crystal, projector : Projector, key, gimp = None, occ : np.ndarray = None, vloc = None, hdf5file : str = 'glob.h5', group : str = None):
+
+        super().__init__(crystal, projector)
+
+        self.key = self.ResolveProblemKey(key)
+        self.gimp = gimp
+        self.occ = occ
+        self.vloc = vloc
+        self.s = None
+        self.h = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        self.Cal()
+
+    def _occupation_from_gimp(self):
+
+        if self.gimp is None or self.gimp.t is None:
+            raise ValueError("SigHImp requires occ or a GImp object with tau data")
+
+        return -self.gimp.t[:, :, :, -1].copy()
+
+    def _local_interaction(self):
+
+        if self.vloc is None:
+            raise ValueError("SigHImp requires vloc or utilde interaction data")
+
+        v = self.vloc.vloc if hasattr(self.vloc, "vloc") else self.vloc
+        if isinstance(v, dict):
+            v = v[self.key]
+        v = np.asarray(v, dtype=np.complex128)
+        bproj = self.projector.bprojector[self.key]
+        norbb = bproj.shape[1]
+
+        if v.ndim == 6:
+            iprob = int(self.key) - 1
+            v = v[..., 0, iprob]
+        elif v.ndim == 5:
+            v = v[..., 0]
+        elif v.ndim != 4:
+            raise ValueError(f"interaction must be 4D, 5D, or 6D, got {v.ndim}D")
+
+        if v.shape[0] != norbb:
+            v = PJ.BLocStc(v, bproj)
+
+        return np.asfortranarray(v)
+
+    def Cal(self):
+
+        occ = self.occ if self.occ is not None else self._occupation_from_gimp()
+        v = self._local_interaction()
+
+        norbb = v.shape[0]
+        ns = v.shape[2]
+        norbc = occ.shape[0]
+        h = np.zeros((norbc, norbc, ns), dtype=np.complex128, order='F')
+
+        if ns != 1:
+            for ind1 in range(norbb * ns):
+                nn1 = [0] * 2
+                _, [iorb, js] = Common.Indexing(norbb * ns, 2, [norbb, ns], 0, ind1, nn1)
+                iorbc1, iorbc2 = self.projector.ProbBorb2FPair(self.key, iorb)
+
+                for ind2 in range(norbb * ns):
+                    nn2 = [0] * 2
+                    _, [jorb, ks] = Common.Indexing(norbb * ns, 2, [norbb, ns], 0, ind2, nn2)
+                    iorbc3, iorbc4 = self.projector.ProbBorb2FPair(self.key, jorb)
+                    h[iorbc1, iorbc2, js] += v[iorb, jorb, js, ks] * occ[iorbc4, iorbc3, ks]
+        else:
+            C = 1 if self.crystal.soc else 2
+            for ind1 in range(norbb * ns):
+                nn1 = [0] * 2
+                _, [iorb, js] = Common.Indexing(norbb * ns, 2, [norbb, ns], 0, ind1, nn1)
+                iorbc1, iorbc2 = self.projector.ProbBorb2FPair(self.key, iorb)
+
+                for ind2 in range(norbb * ns):
+                    nn2 = [0] * 2
+                    _, [jorb, ks] = Common.Indexing(norbb * ns, 2, [norbb, ns], 0, ind2, nn2)
+                    iorbc3, iorbc4 = self.projector.ProbBorb2FPair(self.key, jorb)
+                    h[iorbc1, iorbc2, js] += v[iorb, jorb, js, ks] * occ[iorbc4, iorbc3, ks] * C
+
+        self.occ = occ
+        self.h = h
+        self.s = h
+
+        return None
+
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.group in file:
+                group = file[self.group]
+                if self.subgroup in group:
+                    sighimp = group[self.subgroup]
+                else:
+                    sighimp = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                sighimp = group.create_group(self.subgroup)
+
+            if obj != None:
+                sighimp.create_dataset(fn,dtype=complex,data=obj)
+            else:
+                sighimp.create_dataset(fn,dtype=complex,data=self.s)
+
+        return None
+
+
+class SigFImp(FLocStc):
+
+    def __init__(self, crystal : Crystal, projector : Projector, key, sigma, sigh = None, hdf5file : str = 'glob.h5', group : str = None):
+
+        super().__init__(crystal, projector)
+
+        self.key = self.ResolveProblemKey(key)
+        self.sigma_in = sigma
+        self.sigh = sigh
+        self.hf = None
+        self.s = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        self.Cal()
+
+    def _read_ctqmc_sigma_hf(self, sigma : dict) -> dict:
+
+        matdict = {}
+        for sigma_key, val in sigma.items():
+            if isinstance(val, dict) and "moments" in val:
+                matdict[sigma_key] = complex(val["moments"][0])
+            else:
+                arr = np.asarray(val, dtype=np.complex128)
+                matdict[sigma_key] = complex(arr.flat[0])
+
+        return matdict
+
+    def Cal(self):
+
+        if isinstance(self.sigma_in, dict):
+            equiv = np.asarray(self.projector.equiv[self.key], dtype=int)
+            sigma = self._read_ctqmc_sigma_hf(self.sigma_in)
+            self.hf = self.ReadDict(equiv, sigma)
+        else:
+            self.hf = np.asfortranarray(self.sigma_in, dtype=np.complex128)
+
+        if self.sigh is None:
+            self.s = np.array(self.hf, dtype=np.complex128, copy=True, order='F')
+        else:
+            sigh = self.sigh.s if hasattr(self.sigh, "s") else self.sigh
+            self.s = np.asfortranarray(self.hf - sigh)
+
+        return None
+
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            if self.group in file:
+                group = file[self.group]
+                if self.subgroup in group:
+                    sigfimp = group[self.subgroup]
+                else:
+                    sigfimp = group.create_group(self.subgroup)
+            else:
+                group = file.create_group(self.group)
+                sigfimp = group.create_group(self.subgroup)
+
+            if obj != None:
+                sigfimp.create_dataset(fn,dtype=complex,data=obj)
+            else:
+                sigfimp.create_dataset(fn,dtype=complex,data=self.s)
+
+        return None
+
+
 
 
 

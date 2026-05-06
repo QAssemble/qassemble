@@ -19,11 +19,10 @@ from .utility.Embedding import Embedding as EB
 logger = logging.getLogger("QAssemble")
 
 class FLatDyn(object):
-    def __init__(self,crystal : Crystal, dlr : DLR, mixing_method: str = "pulay", npulay: int = 5, projector : Projector = None) -> object:
+    def __init__(self,crystal : Crystal, dlr : DLR, mixing_method: str = "pulay", npulay: int = 5) -> object:
         self.crystal = crystal
         self.dlr = dlr
         self._mixer = Mixing(method=mixing_method, npulay=npulay)
-        self.projector = projector
         self.mappingidx = None
         self._fermion_phase_cache_k2r = self._get_fermion_phaseK2R()
         self._fermion_phase_cache_r2k = self._get_fermion_phaseR2K()
@@ -429,47 +428,43 @@ class FLatDyn(object):
 
     #     return matout
 
-    def Embedding(self, matin: dict) -> np.ndarray:
-        if self.projector is None:
+    def Embedding(self, matin: np.ndarray, projector: Projector, key) -> np.ndarray:
+        if projector is None:
             raise ValueError("projector is required for Embedding")
-        if not isinstance(matin, dict):
-            raise TypeError("matin must be a dict keyed by impurity problem key")
 
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
-        nft = len(self.dlr.omega)
+        pkey = key if key in projector.fprojector else str(key)
+        if pkey not in projector.fprojector:
+            raise KeyError(f"Unknown impurity problem key '{key}'")
 
-        matout = np.zeros((norb, norb, ns, nrk, nft), dtype=np.complex128, order="F")
-        projector = self.projector.fprojector  # key -> (norb, norbc, ns)
+        matin = np.asarray(matin, dtype=np.complex128)
+        if matin.ndim != 4:
+            raise ValueError(f"matin must be 4D, got {matin.ndim}D")
+        if matin.shape[2] != self.crystal.ns:
+            raise ValueError(
+                f"spin dimension mismatch: matin ns={matin.shape[2]}, crystal ns={self.crystal.ns}"
+            )
+        if matin.shape[3] != len(self.dlr.omega):
+            raise ValueError(
+                f"frequency dimension mismatch: matin nf={matin.shape[3]}, dlr nf={len(self.dlr.omega)}"
+            )
 
-        for key, proj in projector.items():
-            if key not in matin:
-                raise KeyError(f"Missing projected data for problem key '{key}'")
+        proj = projector.fprojector[pkey]
+        rep_emb = EB.FLatDyn(matin, proj, nrk)
+        expanded = np.zeros_like(rep_emb, dtype=np.complex128, order="F")
+        rep_orbs = projector.fimpdict[pkey][0]
 
-            rep_emb = EB.FLatDyn(matin[key], proj, nrk)
-            expanded = np.zeros_like(rep_emb, dtype=np.complex128, order="F")
-            rep_orbs = self.projector.fimpdict[key][0]
+        for tgt_orbs in projector.fimpdict[pkey]:
+            if len(tgt_orbs) != len(rep_orbs):
+                raise ValueError(
+                    f"Equivalent spaces in key '{pkey}' have different orbital counts"
+                )
 
-            for tgt_orbs in self.projector.fimpdict[key]:
-                if len(tgt_orbs) != len(rep_orbs):
-                    raise ValueError(
-                        f"Equivalent spaces in key '{key}' have different orbital counts"
-                    )
+            expanded[np.ix_(tgt_orbs, tgt_orbs)] = rep_emb[np.ix_(rep_orbs, rep_orbs)]
 
-                expanded[np.ix_(tgt_orbs, tgt_orbs)] = rep_emb[np.ix_(rep_orbs, rep_orbs)]
+        return expanded
 
-            matout += expanded
 
-        return matout
-
-        
-
-        
-
-        
-
-    
 class GreenBare(FLatDyn):
 
     def __init__(self, crystal: Crystal, dlr : DLR, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:

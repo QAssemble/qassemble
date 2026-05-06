@@ -320,21 +320,6 @@ class CorrelationFunction(object):
                 del gnew, sigmah, sigmaf, sigmagwc, pol, w
                 gc.collect()
 
-    def _DMFTImpurityConfig(self) -> dict:
-        config = self.control.get("impurity", self.control.get("dmft", {}))
-        impdict = config.get("impdict", config.get("ImpDict"))
-        equiv = config.get("equiv", config.get("Equiv"))
-
-        if impdict is None:
-            raise KeyError("DMFT requires control['impurity']['impdict']")
-        if equiv is None:
-            raise KeyError("DMFT requires control['impurity']['equiv']")
-
-        return {
-            "impdict": copy.deepcopy(impdict),
-            "equiv": copy.deepcopy(equiv),
-        }
-
     def SCFCheckImpurityGreen(self, gloc : dict, gimp : dict) -> float:
         check = 0.0
         for key in gloc.keys():
@@ -350,128 +335,84 @@ class CorrelationFunction(object):
         itermax = self.control["run"]["nscf"]
         dmft_tol = self.control["run"].get("dmft_tol", 1.0e-6)
         hdf5file = self.control["run"]["fn"] + '.h5'
-        group = 'dmft'
+        group = 'impurity_solver'
+        # self.control["run"]["method"]
 
-        niham = self.niham
-        gbare = self.greenbare
-        impurity = self._DMFTImpurityConfig()
-        projector = Projector(
-            basisindex=self.crystal._basis_index,
-            impdict=impurity["impdict"],
-            equiv=impurity["equiv"],
-        )
+        config = self.control.get("impurity", self.control.get("dmft", {}))
+        impdict = config.get("impdict", config.get("ImpDict"))
+        equiv = config.get("equiv", config.get("Equiv"))
+
+        if impdict is None:
+            raise KeyError("DMFT requires control['impurity']['impdict']")
+        if equiv is None:
+            raise KeyError("DMFT requires control['impurity']['equiv']")
+
+        projector = Projector(basisindex=self.crystal._basis_index,impdict=copy.deepcopy(impdict),equiv=copy.deepcopy(equiv),)
 
         voption = self.control["ham"]["twobody"].get("Local")
         if voption is None:
             raise KeyError("DMFT requires control['ham']['twobody']['Local']")
-        vloc = VLoc(crystal=self.crystal, voption=voption)
-
+        # vloc = VLoc(crystal=self.crystal, voption=voption)
+        green = GreenInt(crystal=self.crystal, dlr=self.dlr, greenbare=self.greenbare.kf, hdf5file=hdf5file, group=group)
+        
         self.dmft_object_times = []
-        self.ctqmc = None
         for iter in range(1, itermax+1):
             iter_timing = {"iter": iter}
-
             t0 = time.perf_counter()
-            if iter == 1:
-                green = GreenInt(
-                    crystal=self.crystal,
-                    dlr=self.dlr,
-                    greenbare=gbare.kf,
-                    hdf5file=hdf5file,
-                    group=group,
-                )
-            else:
-                green = GreenInt(
-                    crystal=self.crystal,
-                    dlr=self.dlr,
-                    greenbare=gbare.kf,
-                    hdf5file=hdf5file,
-                    group=group,
-                )
-            iter_timing["GreenInt"] = time.perf_counter() - t0
+            gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,hdf5file=hdf5file,group=group,)
 
-            t0 = time.perf_counter()
-            gloc = GLoc(
-                crystal=self.crystal,
-                dlr=self.dlr,
-                projector=projector,
-                green=green.kf,
-                hdf5file=hdf5file,
-                group=group,
-            )
+            sigctemp = np.zeros_like(green.kf)
+            sightemp = np.zeros_like(self.niham.k)
+            sigftemp = np.zeros_like(self.niham.k)
             iter_timing["GLoc"] = time.perf_counter() - t0
 
-            t0 = time.perf_counter()
-            eimp = EImp(
-                crystal=self.crystal,
-                projector=projector,
-                hamtb=niham.k,
-                mu=green.mu,
-            )
-            hyb = Hyb(
-                crystal=self.crystal,
-                dlr=self.dlr,
-                projector=projector,
-                green=gloc.f,
-                eimp=eimp.e,
-            )
-            fweiss = FWeiss(
-                crystal=self.crystal,
-                dlr=self.dlr,
-                projector=projector,
-                eimp=eimp,
-                hyb=hyb,
-            )
-            bweiss = BWeiss(
-                crystal=self.crystal,
-                dlr=self.dlr,
-                projector=projector,
-                vloc=vloc,
-                ploc=None,
-                wloc=None,
-            )
-            iter_timing["Weiss"] = time.perf_counter() - t0
+            gcheck = 0.0
+            iter_timing["BWeiss"] = 0.0
+            iter_timing["FWeiss"] = 0.0
+            iter_timing["CTQMC"] = 0.0
 
-            t0 = time.perf_counter()
-            ctqmc = CTQMC(
-                dlr=self.dlr,
-                fweiss=fweiss,
-                bweiss=bweiss,
-                control=self.control["run"],
-            )
-            ctqmc.PreProcessing(iter=iter)
-            ctqmc.Run(iter=iter)
-            Green_imp, Sigma_hf_imp, Sigma_bare_imp, susceptibility_imp = ctqmc.PostProcessing(iter=iter)
-            iter_timing["CTQMC"] = time.perf_counter() - t0
+            for key in projector.fprojector.keys():
+                t0 = time.perf_counter()
+                eimp = EImp(crystal=self.crystal,projector=projector,key=key,hamtb=self.niham.k,mu=green.mu,)
+                hyb = Hyb(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,green=gloc.f[key],eimp=eimp.e,)
+                fweiss = FWeiss(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,eimp=eimp,hyb=hyb,)
+                iter_timing["FWeiss"] += time.perf_counter() - t0
 
-            gcheck = self.SCFCheckImpurityGreen(gloc.f, Green_imp)
+                t0 = time.perf_counter()
+                bweiss = BWeiss(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,vloc=self.vbare.vloc,ploc=None,wloc=None,)
+                iter_timing["BWeiss"] += time.perf_counter() - t0
+
+                t0 = time.perf_counter()
+                ctqmc = CTQMC(dlr=self.dlr,fweiss=fweiss,bweiss=bweiss,key=key,control=self.control["run"],)
+                ctqmc.PreProcessing(iter=iter)
+                ctqmc.Run(iter=iter)
+                ctqmc.PostProcessing(iter=iter)
+                gcheck = max(gcheck, self.SCFCheck(gloc.f[key], ctqmc.gimp.f))
+                iter_timing["CTQMC"] += time.perf_counter() - t0
+                sigctemp += green.Embedding(ctqmc.sigimp.f, projector=projector, key=key)
+                sightemp += self.niham.Embedding(ctqmc.sighimp.h, projector=projector, key=key)
+                sigftemp += self.niham.Embedding(ctqmc.sigfimp.s, projector=projector, key=key)
 
             self.dmft_object_times.append(iter_timing)
             logger.info(
                 f"[DMFT timing][iter {iter}] GreenInt: {iter_timing['GreenInt']:.4f}s, "
                 f"GLoc: {iter_timing['GLoc']:.4f}s, "
-                f"Weiss: {iter_timing['Weiss']:.4f}s, "
+                f"BWeiss: {iter_timing['BWeiss']:.4f}s, "
+                f"FWeiss: {iter_timing['FWeiss']:.4f}s, "
                 f"CTQMC: {iter_timing['CTQMC']:.4f}s"
             )
             logger.info(f"iteration : {iter} \nimpurity Green criteria : {gcheck}")
 
-            self.green = green
-            self.gloc = gloc
-            self.eimp = eimp
-            self.hyb = hyb
-            self.fweiss = fweiss
-            self.bweiss = bweiss
-            self.ctqmc = ctqmc
-            self.impurity_green = Green_imp
-            self.impurity_sigma_hf = Sigma_hf_imp
-            self.impurity_sigma_bare = Sigma_bare_imp
-            self.impurity_susceptibility = susceptibility_imp
+            
+            
 
             if gcheck <= dmft_tol:
                 logger.info(f"DMFT self-consistency is achieved with {iter}-th iteration")
                 break
             elif iter == itermax:
                 logger.info(f"DMFT reaches max iteration {itermax}; impurity Green criteria = {gcheck}")
+            else:
+                green = GreenInt(crystal=self.crystal, dlr=self.dlr, greenbare=self.greenbare.kf, sigmah=sightemp, sigmaf=sigftemp, sigmagwc=sigctemp,hdf5file=hdf5file,group=group)
 
-            del green, gloc, eimp, hyb, fweiss, bweiss
+            
             gc.collect()

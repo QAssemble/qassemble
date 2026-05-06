@@ -11,8 +11,10 @@ import scipy.linalg
 import scipy.optimize
 
 from .Crystal import Crystal
+from .Projector import Projector
 from .utility.Common import Common
 from .utility.Dyson import Dyson
+from .utility.Embedding import Embedding as EB
 from .utility.Fourier import Fourier
 from .utility.Mixing import Mixing
 
@@ -379,6 +381,38 @@ class FLatStc(object):
 
         # matout = QAFort.dyson.flatstc(mat1, mat2)
         return Dyson.FLatStc(mat1, mat2)
+
+    def Embedding(self, matin: np.ndarray, projector: Projector, key) -> np.ndarray:
+        if projector is None:
+            raise ValueError("projector is required for Embedding")
+
+        nrk = len(self.crystal.kpoint)
+        pkey = key if key in projector.fprojector else str(key)
+        if pkey not in projector.fprojector:
+            raise KeyError(f"Unknown impurity problem key '{key}'")
+
+        matin = np.asarray(matin, dtype=np.complex128)
+        if matin.ndim != 3:
+            raise ValueError(f"matin must be 3D, got {matin.ndim}D")
+        if matin.shape[2] != self.crystal.ns:
+            raise ValueError(
+                f"spin dimension mismatch: matin ns={matin.shape[2]}, crystal ns={self.crystal.ns}"
+            )
+
+        proj = projector.fprojector[pkey]
+        rep_emb = EB.FLatStc(matin, proj, nrk)
+        expanded = np.zeros_like(rep_emb, dtype=np.complex128, order="F")
+        rep_orbs = projector.fimpdict[pkey][0]
+
+        for tgt_orbs in projector.fimpdict[pkey]:
+            if len(tgt_orbs) != len(rep_orbs):
+                raise ValueError(
+                    f"Equivalent spaces in key '{pkey}' have different orbital counts"
+                )
+
+            expanded[np.ix_(tgt_orbs, tgt_orbs)] = rep_emb[np.ix_(rep_orbs, rep_orbs)]
+
+        return expanded
 
     # def Projection(self, matin: np.ndarray):
 

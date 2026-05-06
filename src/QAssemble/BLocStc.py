@@ -21,6 +21,7 @@ from .Crystal import Crystal
 from .Projector import Projector
 from .utility.Common import Common
 from .utility.Dyson import Dyson
+from .utility.Projection import Projection as PJ
 
 logger = logging.getLogger("QAssemble")
 
@@ -36,6 +37,25 @@ class BLocStc(object):
         if self.projector is None:
             raise ValueError("projector is required for impurity/local index mapping")
         return self.projector
+
+    def ResolveProblemKey(self, key):
+        if self.projector is None:
+            raise ValueError("projector is required to resolve problem key")
+
+        pkey = key if key in self.projector.bprojector else str(key)
+        if pkey not in self.projector.bprojector:
+            raise KeyError(f"Unknown bosonic impurity problem key '{key}'")
+        return pkey
+
+    def Projection(self, matin : np.ndarray, key) -> np.ndarray:
+        if self.projector is None:
+            raise ValueError("projector is required for Projection")
+
+        if matin.ndim != 4:
+            raise ValueError(f"matin must be 4D, got {matin.ndim}D")
+
+        pkey = self.ResolveProblemKey(key)
+        return PJ.BLocStc(matin, self.projector.bprojector[pkey])
 
     def Inverse(self, matin : np.ndarray)-> np.ndarray:
 
@@ -299,8 +319,8 @@ class BLocStc(object):
 
 class VLoc(BLocStc):
 
-    def __init__(self, crystal: Crystal,voption : dict = None):
-        super().__init__(crystal)
+    def __init__(self, crystal: Crystal, voption : dict = None, projector : Projector = None):
+        super().__init__(crystal, projector)
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
         self.onsitelist = None
