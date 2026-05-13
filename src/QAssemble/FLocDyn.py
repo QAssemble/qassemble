@@ -611,6 +611,39 @@ class SigCImp(FLocDyn):
 
         return matdict
 
+    def _dict_to_static_arr(self, equiv : np.ndarray, matdict : dict) -> np.ndarray:
+
+        norb = len(equiv)
+        ns = self.crystal.ns
+        nind = int(np.amax(equiv))
+        matout = np.zeros((norb, norb, ns), dtype=np.complex128, order='F')
+
+        for ind in range(1, nind + 1):
+            key = str(ind) if str(ind) in matdict else ind
+            if key not in matdict:
+                continue
+
+            val = np.asarray(matdict[key], dtype=np.complex128)
+            pos = Common.FindPositions(equiv, ind)
+
+            if ns == 1:
+                if val.ndim > 0 and val.size != 1:
+                    raise ValueError(
+                        f"static matdict['{ind}'] must be scalar for ns=1"
+                    )
+                for ii, jj in pos:
+                    matout[ii, jj, 0] = val.item()
+            else:
+                if val.ndim != 1 or val.shape[0] != ns:
+                    raise ValueError(
+                        f"static matdict['{ind}'] must be a 1D spin array of length {ns}"
+                    )
+                for js in range(ns):
+                    for ii, jj in pos:
+                        matout[ii, jj, js] = val[js]
+
+        return matout
+
     def _resolve_sigma_hf(self) -> np.ndarray:
 
         if self.sigma_hf_in is not None:
@@ -624,7 +657,9 @@ class SigCImp(FLocDyn):
             sigma_hf = np.asarray(sigma_hf, dtype=np.complex128)
         elif isinstance(self.sigma_in, dict):
             equiv = np.asarray(self.projector.equiv[self.key], dtype=int)
-            sigma_hf = self.ReadDict(equiv, self._read_ctqmc_sigma_hf(self.sigma_in))
+            sigma_hf = self._dict_to_static_arr(
+                equiv, self._read_ctqmc_sigma_hf(self.sigma_in)
+            )
         else:
             raise ValueError(
                 "SigCImp requires sigma_hf when subtract_static=True and sigma "
@@ -768,13 +803,14 @@ class Hyb(FLocDyn):
 
 class FWeiss(FLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, eimp : EImp, hyb : Hyb):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, eimp : EImp, hyb : Hyb, mu : float = 0.0):
 
         super().__init__(crystal, dlr, projector)
 
         self.key = self.ResolveProblemKey(key)
         self.eimp = eimp
         self.hyb = hyb.f
+        self.mu = mu
         
         self.e = None
         self.h_dlr = None
@@ -788,7 +824,7 @@ class FWeiss(FLocDyn):
         return self.dlr.MatsubaraDLR2UniformGrid(mat, sign=-1)
 
     def Cal(self):
-        equiv = self.projector.equiv[self.key]
+        equiv = np.array(self.projector.equiv[self.key])
         self.e = self.eimp.AverageByEquiv(equiv, self.eimp.e)
         self.h_dlr = self.AverageByEquiv(equiv, self.hyb)
         self.h = self.UniformGrid(self.h_dlr)

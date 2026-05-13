@@ -44,7 +44,7 @@ class FLocStc(object):
             matinv[:,:,js] = Common.MatInv(mat[:, :, js])
 
         return matinv
-    
+
     def Mixing(self,iter : int, mix : float, Fb : np.ndarray, Fold : np.ndarray) -> np.ndarray:
 
         norb = Fb.shape[0]
@@ -238,10 +238,15 @@ class EImp(FLocStc):
 
         tempmat = np.zeros_like(hamtb, dtype=np.complex128, order='F')
 
+        print("Non interacting Hamiltonian")
+        print(hamtb[:, :, 0, 0])
+        print("Chemical Potential")
+        print(mu)
         for ik in range(hamtb.shape[3]):
             for js in range(hamtb.shape[2]):
                 tempmat[...,js,ik] = hamtb[...,js,ik] - mu*np.eye(hamtb.shape[0], dtype=np.complex128)
-        
+        print("Hamiltonian without self-energy")
+        print(tempmat[:, :, 0, 0])
         if sigh is not None:
             tempmat += sigh
         
@@ -264,7 +269,7 @@ class EImp(FLocStc):
         if (self.sig is not None):
             e -= self.sig
 
-        
+        logger.info(e)
         self.e = e
 
         return None
@@ -295,7 +300,8 @@ class EImp(FLocStc):
             print("Nspin is not 1")
             sys.exit()
         
-        return A_final,ctqmc_mu
+        # return A_final,ctqmc_mu
+        return A_final, ctqmc_mu
             
             
             
@@ -312,6 +318,7 @@ class SigHLoc(FLocStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.Cal()
 
     
     def Cal(self):
@@ -469,6 +476,54 @@ class SigHImp(FLocStc):
                 sighimp.create_dataset(fn,dtype=complex,data=obj)
             else:
                 sighimp.create_dataset(fn,dtype=complex,data=self.s)
+
+        return None
+
+class SigFLoc(FLocStc):
+
+    def __init__(self, crystal : Crystal, projector : Projector, key, occ : np.ndarray = None, vloc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None):
+
+        super().__init__(crystal, projector)
+
+        self.key = self.ResolveProblemKey(key)
+        self.occ = occ
+        self.vloc = vloc
+        self.floc = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+
+        self.Cal()
+
+    def Cal(self):
+
+        key = self.key
+        proj = self.projector.fprojector[key]
+        norbc = proj.shape[1]
+        ns = proj.shape[2]
+        v = self.vloc
+        norb = v.shape[0]
+
+        f = np.zeros((norbc, norbc, ns), dtype=np.complex128, order='F')
+
+        for ind1 in range(norb * ns):
+            nn1 = [0] * 2
+            ind1, [iorb, js] = Common.Indexing(norb * ns, 2, [norb, ns], 0, ind1, nn1)
+
+            iorbc1, iorbc4 = self.projector.ProbBorb2FPair(key, iorb)
+
+            for ind2 in range(norb * ns):
+                nn2 = [0] * 2
+                ind2, [jorb, ks] = Common.Indexing(norb * ns, 2, [norb, ns], 0, ind2, nn2)
+
+                iorbc3, iorbc2 = self.projector.ProbBorb2FPair(key, jorb)
+
+                if js == ks:
+                    f[iorbc1, iorbc2, js] += (
+                        -self.occ[iorbc4, iorbc3, js] * v[iorb, jorb, js, ks]
+                    )
+
+        self.floc = f
 
         return None
 

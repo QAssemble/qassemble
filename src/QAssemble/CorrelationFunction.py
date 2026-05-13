@@ -48,6 +48,7 @@ class CorrelationFunction(object):
         onebody = control["ham"].get("onebody")
 
         self.niham = NIHamiltonian(crystal=self.crystal, onebody=onebody, hdf5file=control["run"]["fn"]+'.h5', group='init')
+        print(self.niham.k[:, :, 0, 0])
 
         self.vbare = VBare(crystal=self.crystal, twobody=control['ham'].get('twobody'), hdf5file=control["run"]["fn"]+'.h5', group='init')
 
@@ -328,7 +329,7 @@ class CorrelationFunction(object):
             check = max(check, self.SCFCheck(gloc[key], gimp[key]))
         return check
 
-    def ImpuritySolver(self):
+    def ImpurityAction(self):
 
         errmessage = "missing input for DMFT calculation"
 
@@ -348,16 +349,21 @@ class CorrelationFunction(object):
             raise KeyError("DMFT requires control['impurity']['equiv']")
 
         projector = Projector(basisindex=self.crystal._basis_index,impdict=copy.deepcopy(impdict),equiv=copy.deepcopy(equiv),)
-
+        self.vbare.vloc.projector=projector
         voption = self.control["ham"]["twobody"].get("Local")
         if voption is None:
             raise KeyError("DMFT requires control['ham']['twobody']['Local']")
         # vloc = VLoc(crystal=self.crystal, voption=voption)
-        green = GreenInt(crystal=self.crystal, dlr=self.dlr, greenbare=self.greenbare.kf, hdf5file=hdf5file, group=group)
         
+
         self.dmft_object_times = []
         for iter in range(1, itermax+1):
-            iter_timing = {"iter": iter}
+            iter_timing = {"iter": iter, "GreenInt": 0.0}
+            if iter == 1:
+                t0 = time.perf_counter()
+                green = GreenInt(crystal=self.crystal, dlr=self.dlr, greenbare=self.greenbare.kf, hdf5file=hdf5file, group=group)
+                iter_timing["GreenInt"] += time.perf_counter() - t0
+            
             t0 = time.perf_counter()
             gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,hdf5file=hdf5file,group=group,)
 
@@ -372,17 +378,20 @@ class CorrelationFunction(object):
             iter_timing["CTQMC"] = 0.0
 
             for key in projector.fprojector.keys():
+                sighloc = SigHLoc(crystal=self.crystal, projector=projector, occ=gloc.occ[key], vloc=self.vbare.vloc.Projection(self.vbare.vloc.vloc, key=key), key=key)
+                sigfloc = SigFLoc(crystal=self.crystal, projector=projector, occ=gloc.occ[key], vloc=self.vbare.vloc.Projection(self.vbare.vloc.vloc, key=key), key=key)
                 t0 = time.perf_counter()
-                eimp = EImp(crystal=self.crystal,projector=projector,key=key,hamtb=self.niham.k,mu=green.mu,)
+                eimp = EImp(crystal=self.crystal,projector=projector,key=key,hamtb=self.niham.k,mu=green.mu, sigh=sighloc.hloc, sigf=sigfloc.floc)
                 hyb = Hyb(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,green=gloc.f[key],eimp=eimp.e,)
-                fweiss = FWeiss(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,eimp=eimp,hyb=hyb,)
+                fweiss = FWeiss(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,eimp=eimp,hyb=hyb,mu=green.mu)
                 iter_timing["FWeiss"] += time.perf_counter() - t0
 
                 t0 = time.perf_counter()
-                bweiss = BWeiss(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,vloc=self.vbare.vloc,ploc=None,wloc=None,)
+                bweiss = BWeiss(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,vloc=self.vbare.vloc,ploc=None,wloc=None,) 
                 iter_timing["BWeiss"] += time.perf_counter() - t0
 
                 t0 = time.perf_counter()
+                ## Impurity Solver
                 ctqmc = CTQMC(dlr=self.dlr,fweiss=fweiss,bweiss=bweiss,key=key,control=self.control["run"],)
                 ctqmc.PreProcessing(iter=iter)
                 ctqmc.Run(iter=iter)
@@ -390,8 +399,8 @@ class CorrelationFunction(object):
                 gcheck = max(gcheck, self.SCFCheck(gloc.f[key], ctqmc.gimp.f))
                 iter_timing["CTQMC"] += time.perf_counter() - t0
                 sigctemp += green.Embedding(ctqmc.sigimp.f, projector=projector, key=key)
-                sightemp += self.niham.Embedding(ctqmc.sighimp.h, projector=projector, key=key)
-                sigftemp += self.niham.Embedding(ctqmc.sigfimp.s, projector=projector, key=key)
+                sightemp += self.niham.Embedding(ctqmc.sighimp.h-sighloc.hloc, projector=projector, key=key)
+                sigftemp += self.niham.Embedding(ctqmc.sigfimp.s-sigfloc.floc, projector=projector, key=key)
 
             self.dmft_object_times.append(iter_timing)
             logger.info(
@@ -406,13 +415,15 @@ class CorrelationFunction(object):
             
             
 
-            if gcheck <= dmft_tol:
+            if gcheck <= 1e-6:
                 logger.info(f"DMFT self-consistency is achieved with {iter}-th iteration")
                 break
             elif iter == itermax:
                 logger.info(f"DMFT reaches max iteration {itermax}; impurity Green criteria = {gcheck}")
             else:
+                t0 = time.perf_counter()
                 green = GreenInt(crystal=self.crystal, dlr=self.dlr, greenbare=self.greenbare.kf, sigmah=sightemp, sigmaf=sigftemp, sigmagwc=sigctemp,hdf5file=hdf5file,group=group)
+                iter_timing["GreenInt"] += time.perf_counter() - t0
 
             
             gc.collect()

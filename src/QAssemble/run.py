@@ -42,29 +42,29 @@ class Run:
             sys.exit()
         return None
 
-    def BuildCorrelationFunction(self, control: dict):
+    # def BuildCorrelationFunction(self, control: dict):
 
-        try:
-            return CorrelationFunction(control=control)
-        except Exception:
-            func = CorrelationFunction.__new__(CorrelationFunction)
-            func.control = control
-            func.c = control["run"]["cw"]
-            func.niham = None
-            func.green = None
-            func.greenbare = None
-            func.sigmah = None
-            func.sigmaf = None
-            func.sigmagwc = None
-            func.ham = None
-            func.occ = None
-            func.vbare = None
-            func.pol = None
-            func.w = None
-            func.crystal = Crystal(cry=control["crystal"])
-            func.dlr = DLR(control["ft"])
+    #     try:
+    #         return CorrelationFunction(control=control)
+    #     except Exception:
+    #         func = CorrelationFunction.__new__(CorrelationFunction)
+    #         func.control = control
+    #         func.c = control["run"]["cw"]
+    #         func.niham = None
+    #         func.green = None
+    #         func.greenbare = None
+    #         func.sigmah = None
+    #         func.sigmaf = None
+    #         func.sigmagwc = None
+    #         func.ham = None
+    #         func.occ = None
+    #         func.vbare = None
+    #         func.pol = None
+    #         func.w = None
+    #         func.crystal = Crystal(cry=control["crystal"])
+    #         func.dlr = DLR(control["ft"])
 
-            return func
+    #         return func
 
     def ReadInput(self):
 
@@ -279,7 +279,7 @@ class Run:
     def RunDiagE(self):
 
         control = self.control
-        func = self.BuildCorrelationFunction(control)
+        func = CorrelationFunction(control)
 
         method = control["run"]["method"]
 
@@ -314,7 +314,7 @@ class Run:
 
 
             start = time.time()
-            func.ImpuritySolver()
+            func.ImpurityAction()
             end = time.time()
             logger.info("DMFT calculation finish")
             delta = datetime.timedelta(seconds=(end - start))

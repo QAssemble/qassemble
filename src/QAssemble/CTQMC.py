@@ -87,8 +87,9 @@ class CTQMC(object):
             Eimp = self.fweiss.e
             equiv = np.asarray(self.projector.equiv[key], dtype=int)
             Eimp_final, ctqmc_mu = self.fweiss.eimp.ToCTQMC(key=key, Eimp=Eimp)
+            # Eimp_final = self.fweiss.eimp.ToCTQMC(key=key, Eimp=Eimp)
             Eimp_final = np.array(np.real(Eimp_final), dtype=float)
-            ctqmc_mu = float(np.real(ctqmc_mu))
+            # ctqmc_mu = float(np.real(self.fweiss.mu))
 
             ###########################
             print('*** write hyb.json file ***')
@@ -109,12 +110,9 @@ class CTQMC(object):
                 if self.crystal.ns ==1:
                     params = {}
                     params["hloc"] = {}
-                    params["hloc"]['one body'] = np.round(Eimp_final).tolist()
-                    params["hloc"]["two body"] = self.bweiss.vloc.GetSlaterByProblem(
-                        key=key,
-                        projector=self.projector,
-                        include_defaults=True,
-                    )
+                    Eimp_final[np.abs(Eimp_final) < 1.0e-12] = 0.0
+                    params["hloc"]['one body'] = Eimp_final.tolist()
+                    params["hloc"]["two body"] = self.bweiss.vloc.GetUijklComCTQMC(key).tolist()
 
                     params["partition"]={}
 
@@ -197,13 +195,17 @@ class CTQMC(object):
     
     def RunCTQMC(self):
 
-        run_cmd = 'mpirun -np 4 ~/DiagE/ComCTQMC/bin/CTQMC params'
-        # run_cmd = 'mpirun -np '+str()+'~/DiagE/ComCTQMC/bin/CTQMC params'
+        qassemble_path = os.environ.get("QAssemble")
+        if qassemble_path is None:
+            print("QAssemble environment variable is not set.")
+            sys.exit()
 
-        ## input nb of processors
+        ctqmc_path = os.path.join(os.path.expanduser(qassemble_path), "ComCTQMC", "bin", "CTQMC")
+        # run_cmd = ["mpirun", "-np", "4", ctqmc_path, "params"]
+        run_cmd = "mpirun -np 4 " + ctqmc_path + " params"
 
         with open('./ctqmc.out', 'w') as logfile, open('./ctqmc.err', 'w') as errfile:
-            ret = subprocess.call(run_cmd, shell=True,stdout = logfile, stderr = errfile)
+            ret = subprocess.call(run_cmd, stdout=logfile, stderr=errfile, shell=True)
             if ret != 0:
                 print("Error in CTQMC. Check ctqmc.err for error message.")
                 sys.exit()
@@ -212,11 +214,17 @@ class CTQMC(object):
     
     def RunMeasure(self):
         
-        # run_cmd = 'mpirun -np 4 '+diage_path+'/ComCTQMC/bin/EVALSIM params'
-        run_cmd = 'mpirun -np 4 ~/DiagE/ComCTQMC/bin/EVALSIM params'
+        qassemble_path = os.environ.get("QAssemble")
+        if qassemble_path is None:
+            print("QAssemble environment variable is not set.")
+            sys.exit()
+
+        evalsim_path = os.path.join(os.path.expanduser(qassemble_path), "ComCTQMC", "bin", "EVALSIM")
+        # run_cmd = ["mpirun", "-np", "4", evalsim_path, "params"]
+        run_cmd = "mpirun -np 4 " + evalsim_path + " params"
 
         with open('./evalsim.out', 'w') as logfile, open('./evalsim.err', 'w') as errfile :
-            ret = subprocess.call(run_cmd,shell=True, stdout=logfile, stderr=errfile)
+            ret = subprocess.call(run_cmd, stdout=logfile, stderr=errfile, shell=True)
             if ret != 0:
                 print("Error in EVALSIM. Check evalsim.err for error message.")
                 sys.exit()

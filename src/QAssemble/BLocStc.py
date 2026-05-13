@@ -440,6 +440,30 @@ class VLoc(BLocStc):
                 if norbc > len(self.crystal.find):
                     logger.error("Invalid l value set")
                     sys.exit()
+                U = val["value"][0]
+                J = val["value"][2]
+                ratio = 0.625
+                if norbc == 1:
+                    slater_value = [U, 0, 0]
+                elif norbc == 3:
+                    F2 = 441/(27+20*ratio)*J
+                    F4 = ratio*F2
+                    F0 = U-4/49*(F2+F4)
+                    slater_value = [F0, F2, F4]
+                elif norbc == 5:
+                    F0 = U-8/5*J
+                    F2 = 49*(1/4+1/7)*J
+                    F4 = 63/5*J
+                    slater_value = [F0, F2, F4]
+                else:
+                    slater_value = []
+                if len(slater_value) > 0:
+                    self._store_slater_parameter(
+                        atom=atom,
+                        l=val["l"],
+                        value=slater_value,
+                        orbitals=val["orbitals"],
+                    )
                 tempmat = self.SlaterKanamori(l=val["l"],norb=norbc,val=val["value"])
                 for js, ks in itertools.product(list(range(ns)),list(range(ns))):
                     for m1,m2,m3,m4 in itertools.product(val["orbitals"],val["orbitals"],val["orbitals"],val["orbitals"]):
@@ -679,9 +703,9 @@ class VLoc(BLocStc):
         ns = self.crystal.ns
 
         projector = self._require_projector()
+        key = self.ResolveProblemKey(key)
         orb = projector.fimpdict[key][0]
         norbc = len(orb)
-        tempmat = np.zeros((norb, norb, norb, norb), dtype=np.complex128, order='F')
         vloc = np.zeros((norbc, norbc, norbc, norbc, ns, ns), dtype=np.complex128, order='F')
         for ks in range(ns):
             for js in range(ns):
@@ -693,40 +717,35 @@ class VLoc(BLocStc):
                                 vloc[ii, jj, kk, ll, js, ks] = tempmat[iorb, jorb, korb, lorb]
 
         if (self.crystal.soc == False):
-            U = np.zeros((norbc**4*2**4), dtype=np.float64, order='F')
+            nspin = 2
+            U = np.zeros((norbc**4*nspin**4), dtype=np.float64, order='F')
             idx = 0
             if (ns == 1):
-                for sl in range(2):
-                    for l in range(norbc):
-                        for sk in range(2):
-                            for k in range(norbc):
-                                for sj in range(2):
-                                    for j in range(norbc):
-                                        for si in range(2):
-                                            for i in range(norbc):
-                                                    
-                                                    
+                for si in range(nspin):
+                    for i in range(norbc):
+                        for sj in range(nspin):
+                            for j in range(norbc):
+                                for sk in range(nspin):
+                                    for k in range(norbc):
+                                        for sl in range(nspin):
+                                            for l in range(norbc):
                                                 if(sj==sk and si==sl):
-                                                    val = vloc[i, j, k, l, 0, 0].real
-                                                    val = abs(val)
-                                                    if (val > 0.001):
+                                                    val = vloc[l, k, j, i, 0, 0].real
+                                                    if (abs(val) > 0.001):
                                                         U[idx] = val
                                                 idx += 1
             else:
-                for sl in range(2):
-                    for l in range(norbc):
-                        for sk in range(2):
-                            for k in range(norbc):
-                                for sj in range(2):
-                                    for j in range(norbc):
-                                        for si in range(2):
-                                            for i in range(norbc):
-                                                    
-                                                    
+                for si in range(nspin):
+                    for i in range(norbc):
+                        for sj in range(nspin):
+                            for j in range(norbc):
+                                for sk in range(nspin):
+                                    for k in range(norbc):
+                                        for sl in range(nspin):
+                                            for l in range(norbc):
                                                 if(sj==sk and si==sl):
-                                                    val = vloc[i, j, k, l, si, sj].real
-                                                    val = abs(val)
-                                                    if (val > 0.001):
+                                                    val = vloc[l, k, j, i, si, sj].real
+                                                    if (abs(val) > 0.001):
                                                         U[idx] = val
                                                 idx += 1
         else:
