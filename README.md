@@ -148,8 +148,8 @@ QAssemble/
     └── QAssemble/
         ├── __init__.py         # Package exports and version
         ├── __main__.py         # python -m QAssemble support
-        ├── cli.py              # CLI entry point (qassemble command)
-        ├── run.py              # Run class (input parsing and execution)
+        ├── CLI.py              # CLI entry point (qassemble command)
+        ├── Run.py              # Run class (input parsing and execution)
         ├── Crystal.py          # Lattice geometry, k-point grids, index mappings
         ├── CorrelationFunction.py  # Top-level workflow coordinator (TB / HF / GW)
         ├── FLatStc.py          # Static fermionic lattice (Hamiltonian, HF self-energy)

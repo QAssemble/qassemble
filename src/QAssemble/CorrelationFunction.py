@@ -365,7 +365,7 @@ class CorrelationFunction(object):
 
         self.dmft_object_times = []
         for iter in range(1, itermax+1):
-            iter_timing = {"iter": iter, "GreenInt": 0.0}
+            iter_timing = {"iter": iter, "G": 0.0}
 
             t0 = time.perf_counter()
             green = G(
@@ -378,7 +378,7 @@ class CorrelationFunction(object):
                 hdf5file=hdf5file,
                 group=group,
             )
-            iter_timing["GreenInt"] += time.perf_counter() - t0
+            iter_timing["G"] += time.perf_counter() - t0
             
             t0 = time.perf_counter()
             gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,hdf5file=hdf5file,group=group,)
@@ -442,7 +442,7 @@ class CorrelationFunction(object):
 
             self.dmft_object_times.append(iter_timing)
             logger.info(
-                f"[DMFT timing][iter {iter}] GreenInt: {iter_timing['GreenInt']:.4f}s, "
+                f"[DMFT timing][iter {iter}] G: {iter_timing['G']:.4f}s, "
                 f"GLoc: {iter_timing['GLoc']:.4f}s, "
                 f"BWeiss: {iter_timing['BWeiss']:.4f}s, "
                 f"FWeiss: {iter_timing['FWeiss']:.4f}s, "
