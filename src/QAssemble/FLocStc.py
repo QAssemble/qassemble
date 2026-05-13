@@ -234,40 +234,78 @@ class EImp(FLocStc):
         self.mu = mu
         self.ham = None
         self.sig = None
+        self.sigh = None
+        self.sigf = None
         self.e = None
+
+        if hloc is not None or floc is not None:
+            raise ValueError(
+                "EImp hloc/floc double-counting subtraction is deprecated. "
+                "Pass static local self-energies through sigh/sigf; EImp will "
+                "include them and ImpurityAction subtracts the local DC when "
+                "embedding impurity self-energies back to the lattice."
+            )
 
         tempmat = np.zeros_like(hamtb, dtype=np.complex128, order='F')
 
-        print("Non interacting Hamiltonian")
-        print(hamtb[:, :, 0, 0])
-        print("Chemical Potential")
-        print(mu)
         for ik in range(hamtb.shape[3]):
             for js in range(hamtb.shape[2]):
                 tempmat[...,js,ik] = hamtb[...,js,ik] - mu*np.eye(hamtb.shape[0], dtype=np.complex128)
-        print("Hamiltonian without self-energy")
-        print(tempmat[:, :, 0, 0])
-        if sigh is not None:
-            tempmat += sigh
-        
-        if sigf is not None:
-            tempmat += sigf
 
         self.ham = tempmat
-
-        if (hloc is not None) and (floc is not None):
-            print("Double counting term entered.")
-            self.sig = hloc + floc
-
+        self.sigh = self._resolve_static_self_energy("sigh", sigh)
+        self.sigf = self._resolve_static_self_energy("sigf", sigf)
+        self.sig = self.sigh + self.sigf
         
         self.Cal()
+
+    def _resolve_static_self_energy(self, name : str, sigma : np.ndarray) -> np.ndarray:
+        key = self.key
+        norbc = self.projector.fprojector[key].shape[1]
+        ns = self.crystal.ns
+
+        if sigma is None:
+            return np.zeros((norbc, norbc, ns), dtype=np.complex128, order='F')
+
+        sigma = np.asarray(sigma, dtype=np.complex128)
+
+        if sigma.ndim == 3:
+            expected = (norbc, norbc, ns)
+            if sigma.shape != expected:
+                raise ValueError(
+                    f"{name} local static self-energy shape {sigma.shape} "
+                    f"is incompatible with expected {expected}"
+                )
+            return np.asfortranarray(sigma)
+
+        if sigma.ndim == 4:
+            if sigma.shape[:2] != self.hamtb.shape[:2]:
+                raise ValueError(
+                    f"{name} lattice static self-energy orbital shape "
+                    f"{sigma.shape[:2]} is incompatible with hamtb shape "
+                    f"{self.hamtb.shape[:2]}"
+                )
+            if sigma.shape[2] != ns:
+                raise ValueError(
+                    f"{name} spin dimension {sigma.shape[2]} is incompatible "
+                    f"with crystal ns={ns}"
+                )
+            if sigma.shape[3] != self.hamtb.shape[3]:
+                raise ValueError(
+                    f"{name} k dimension {sigma.shape[3]} is incompatible "
+                    f"with hamtb k dimension {self.hamtb.shape[3]}"
+                )
+            return np.asfortranarray(self.Projection(sigma, key))
+
+        raise ValueError(
+            f"{name} must be a 3D local or 4D lattice static self-energy, "
+            f"got {sigma.ndim}D"
+        )
 
     def Cal(self):
 
         e = self.Projection(self.ham, self.key)
-
-        if (self.sig is not None):
-            e -= self.sig
+        e = e + self.sig
 
         logger.info(e)
         self.e = e
