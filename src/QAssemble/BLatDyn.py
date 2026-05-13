@@ -5,7 +5,7 @@ import copy, gc, time, datetime
 import logging
 import h5py
 from .Crystal import Crystal
-from .BLatStc import VBare
+from .BLatStc import V
 from .utility.Common import Common
 from .utility.DLR import DLR
 from .utility.Fourier import Fourier
@@ -559,7 +559,7 @@ class P(BLatDyn):
 
 
 class W(BLatDyn):
-    def __init__(self,crystal: Crystal,dlr: DLR,pol: np.ndarray = None,vbare: VBare = None,c: float = 1.0,hdf5file: str = "glob.h5", group: str = None,):
+    def __init__(self,crystal: Crystal,dlr: DLR,pol: np.ndarray = None,vbare: V = None,c: float = 1.0,hdf5file: str = "glob.h5", group: str = None,):
         super().__init__(crystal, dlr)
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
