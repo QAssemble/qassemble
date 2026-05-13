@@ -448,7 +448,7 @@ class BLatDyn(object):
         return fout
 
 
-class PolLat(BLatDyn):
+class P(BLatDyn):
     def __init__(self,crystal: Crystal,dlr: DLR,green: np.ndarray = None,hdf5file: str = "glob.h5",group: str = None,):
         super().__init__(crystal, dlr)
         norb = len(self.crystal.find)
@@ -558,7 +558,7 @@ class PolLat(BLatDyn):
         return None
 
 
-class WLat(BLatDyn):
+class W(BLatDyn):
     def __init__(self,crystal: Crystal,dlr: DLR,pol: np.ndarray = None,vbare: VBare = None,c: float = 1.0,hdf5file: str = "glob.h5", group: str = None,):
         super().__init__(crystal, dlr)
         norb = len(self.crystal.bind)

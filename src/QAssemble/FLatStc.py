@@ -539,7 +539,7 @@ class FLatStc(object):
         return (kplus, kminus)
 
 
-class NIHamiltonian(FLatStc):
+class H0(FLatStc):
 
     def __init__(
         self,
@@ -1111,7 +1111,7 @@ class SigF(FLatStc):
         return None
 
 
-class Hamiltonian(FLatStc):
+class H(FLatStc):
 
     def __init__(
         self,
@@ -1362,7 +1362,7 @@ class HamiltonianAB(FLatStc):
 
         return None
     
-class ZFactor(FLatStc):
+class Z(FLatStc):
 
     def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
 
@@ -1430,7 +1430,7 @@ class ZFactor(FLatStc):
         return None
 
 
-class SigmaStc(FLatStc):
+class SigStc(FLatStc):
 
     def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
 

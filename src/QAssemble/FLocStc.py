@@ -339,7 +339,7 @@ class EImp(FLocStc):
             sys.exit()
         
         # return A_final,ctqmc_mu
-        return A_final, ctqmc_mu
+        return A_final, ctqmc_mu.real
             
             
             

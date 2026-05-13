@@ -465,7 +465,7 @@ class FLatDyn(object):
         return expanded
 
 
-class GreenBare(FLatDyn):
+class G0(FLatDyn):
 
     def __init__(self, crystal: Crystal, dlr : DLR, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
         
@@ -531,7 +531,7 @@ class GreenBare(FLatDyn):
 
         return None
     
-class GreenInt(FLatDyn):
+class G(FLatDyn):
 
     def __init__(self, crystal: Crystal, dlr : DLR, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
         

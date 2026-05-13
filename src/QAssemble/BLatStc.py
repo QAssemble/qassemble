@@ -329,7 +329,7 @@ class BLatStc(object):
             return group in file
 
 
-class VBare(BLatStc):
+class V(BLatStc):
 
     def __init__(
         self,

@@ -200,7 +200,7 @@ class CTQMC(object):
             print("QAssemble environment variable is not set.")
             sys.exit()
 
-        ctqmc_path = os.path.join(os.path.expanduser(qassemble_path), "ComCTQMC", "bin", "CTQMC")
+        ctqmc_path = os.path.join(os.path.expanduser(qassemble_path), "CTQMC", "bin", "CTQMC")
         # run_cmd = ["mpirun", "-np", "4", ctqmc_path, "params"]
         run_cmd = "mpirun -np 4 " + ctqmc_path + " params"
 
@@ -219,7 +219,7 @@ class CTQMC(object):
             print("QAssemble environment variable is not set.")
             sys.exit()
 
-        evalsim_path = os.path.join(os.path.expanduser(qassemble_path), "ComCTQMC", "bin", "EVALSIM")
+        evalsim_path = os.path.join(os.path.expanduser(qassemble_path), "CTQMC", "bin", "EVALSIM")
         # run_cmd = ["mpirun", "-np", "4", evalsim_path, "params"]
         run_cmd = "mpirun -np 4 " + evalsim_path + " params"
 
