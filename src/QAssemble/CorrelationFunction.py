@@ -365,17 +365,24 @@ class CorrelationFunction(object):
 
         self.dmft_object_times = []
         mix = 0.1
-        green = G(crystal=self.crystal,dlr=self.dlr,greenbare=self.greenbare.kf,sigmah=sigmah_current,sigmaf=sigmaf_current,sigmagwc=sigc_current,hdf5file=hdf5file,group=group,)
-        gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,hdf5file=hdf5file,group=group,)
         for iter in range(1, itermax+1):
             iter_timing = {"iter": iter, "G": 0.0}
 
             t0 = time.perf_counter()
-            
+            green = G(
+                crystal=self.crystal,
+                dlr=self.dlr,
+                greenbare=self.greenbare.kf,
+                sigmah=sigmah_current,
+                sigmaf=sigmaf_current,
+                sigmagwc=sigc_current,
+                hdf5file=hdf5file,
+                group=group,
+            )
             iter_timing["G"] += time.perf_counter() - t0
             
             t0 = time.perf_counter()
-            
+            gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,hdf5file=hdf5file,group=group,)
 
             sigctemp = np.zeros_like(green.kf)
             sightemp = np.zeros_like(self.niham.k)
@@ -387,6 +394,7 @@ class CorrelationFunction(object):
             iter_timing["FWeiss"] = 0.0
             iter_timing["CTQMC"] = 0.0
             subtract_local_dc = self.control["run"]["method"] in ("edmft", "gw+edmft")
+            gimp_by_key = {}
 
             for key in projector.fprojector.keys():
                 norbc = projector.fprojector[key].shape[1]
@@ -430,12 +438,44 @@ class CorrelationFunction(object):
                 ctqmc.PostProcessing(iter=iter)
                 
                 iter_timing["CTQMC"] += time.perf_counter() - t0
+                gimp_by_key[key] = ctqmc.gimp.f
                 sigctemp += green.Embedding(ctqmc.sigimp.f, projector=projector, key=key)
                 sightemp += self.niham.Embedding(ctqmc.sighimp.h - sigh_dc, projector=projector, key=key)
                 sigftemp += self.niham.Embedding(ctqmc.sigfimp.s - sigf_dc, projector=projector, key=key)
-            green = G(crystal=self.crystal,dlr=self.dlr,greenbare=self.greenbare.kf,sigmah=sigmah_current,sigmaf=sigmaf_current,sigmagwc=sigc_current,hdf5file=hdf5file,group=group,)
-            gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,hdf5file=hdf5file,group=group,)
-            gcheck = max(gcheck, self.SCFCheck(gloc.f[key], ctqmc.gimp.f))
+
+            if iter == 1:
+                sigmah_next = sightemp.copy()
+                sigmaf_next = sigftemp.copy()
+                sigc_next = sigctemp.copy()
+            else:
+                sigmah_next = mix * sightemp + (1.0 - mix) * sigmah_current
+                sigmaf_next = mix * sigftemp + (1.0 - mix) * sigmaf_current
+                sigc_next = mix * sigctemp + (1.0 - mix) * sigc_current
+
+            t0 = time.perf_counter()
+            green_next = G(
+                crystal=self.crystal,
+                dlr=self.dlr,
+                greenbare=self.greenbare.kf,
+                sigmah=sigmah_next,
+                sigmaf=sigmaf_next,
+                sigmagwc=sigc_next,
+                hdf5file=hdf5file,
+                group=group,
+            )
+            iter_timing["G"] += time.perf_counter() - t0
+
+            t0 = time.perf_counter()
+            gloc_next = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green_next.kf,hdf5file=hdf5file,group=group,)
+            iter_timing["GLoc"] += time.perf_counter() - t0
+
+            for key, gimp in gimp_by_key.items():
+                gcheck = max(gcheck, self.SCFCheck(gloc_next.f[key], gimp))
+
+            sigmah_current = sigmah_next
+            sigmaf_current = sigmaf_next
+            sigc_current = sigc_next
+
             self.dmft_object_times.append(iter_timing)
             logger.info(
                 f"[DMFT timing][iter {iter}] G: {iter_timing['G']:.4f}s, "
@@ -446,27 +486,10 @@ class CorrelationFunction(object):
             )
             logger.info(f"iteration : {iter} \nimpurity Green criteria : {gcheck}")
 
-            
-            
-
-            if gcheck <= 1e-6:
+            if gcheck <= dmft_tol:
                 logger.info(f"DMFT self-consistency is achieved with {iter}-th iteration")
                 break
             elif iter == itermax:
                 logger.info(f"DMFT reaches max iteration {itermax}; impurity Green criteria = {gcheck}")
-            else:
-                # sigmah_current = sightemp
-                # sigmaf_current = sigftemp
-                # sigc_current = sigctemp
-                if iter == 1:
-                    sigmah_current = sightemp.copy()
-                    sigmaf_current = sigftemp.copy()
-                    sigc_current = sigctemp.copy()
-                else:
-                    sigmah_current = mix * sightemp + (1.0 - mix) * sigmah_current
-                    sigmaf_current = mix * sigftemp + (1.0 - mix) * sigmaf_current
-                    sigc_current = mix * sigctemp + (1.0 - mix) * sigc_current
-                
 
-            
             gc.collect()
