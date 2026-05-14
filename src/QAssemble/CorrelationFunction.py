@@ -364,6 +364,7 @@ class CorrelationFunction(object):
         dynamic_projector = FLocDyn(self.crystal, self.dlr, projector)
 
         self.dmft_object_times = []
+        mix = 0.1
         for iter in range(1, itermax+1):
             iter_timing = {"iter": iter, "G": 0.0}
 
@@ -459,9 +460,17 @@ class CorrelationFunction(object):
             elif iter == itermax:
                 logger.info(f"DMFT reaches max iteration {itermax}; impurity Green criteria = {gcheck}")
             else:
-                sigmah_current = sightemp
-                sigmaf_current = sigftemp
-                sigc_current = sigctemp
+                # sigmah_current = sightemp
+                # sigmaf_current = sigftemp
+                # sigc_current = sigctemp
+                if iter == 1:
+                    sigmah_current = sightemp.copy()
+                    sigmaf_current = sigftemp.copy()
+                    sigc_current = sigctemp.copy()
+                else:
+                    sigmah_current = mix * sightemp + (1.0 - mix) * sigmah_current
+                    sigmaf_current = mix * sigftemp + (1.0 - mix) * sigmaf_current
+                    sigc_current = mix * sigctemp + (1.0 - mix) * sigc_current
 
             
             gc.collect()

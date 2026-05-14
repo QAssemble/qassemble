@@ -409,6 +409,10 @@ class FLocDyn(object):
             return matout[:, :, 0, :]
         return matout
 
+    def UniformGrid(self, mat : np.ndarray) -> np.ndarray:
+        self.omega_uniform = self.dlr.MatsubaraFermionUniform()
+        return self.dlr.MatsubaraDLR2UniformGrid(mat, sign=-1)
+
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
 
         return Dyson.FLocDyn(mat1, mat2)
@@ -818,10 +822,6 @@ class FWeiss(FLocDyn):
         self.omega_uniform = None
 
         self.Cal()
-
-    def UniformGrid(self, mat : np.ndarray) -> np.ndarray:
-        self.omega_uniform = self.dlr.MatsubaraFermionUniform()
-        return self.dlr.MatsubaraDLR2UniformGrid(mat, sign=-1)
 
     def Cal(self):
         equiv = np.array(self.projector.equiv[self.key])
