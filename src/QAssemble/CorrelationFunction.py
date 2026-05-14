@@ -365,24 +365,17 @@ class CorrelationFunction(object):
 
         self.dmft_object_times = []
         mix = 0.1
+        green = G(crystal=self.crystal,dlr=self.dlr,greenbare=self.greenbare.kf,sigmah=sigmah_current,sigmaf=sigmaf_current,sigmagwc=sigc_current,hdf5file=hdf5file,group=group,)
+        gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,hdf5file=hdf5file,group=group,)
         for iter in range(1, itermax+1):
             iter_timing = {"iter": iter, "G": 0.0}
 
             t0 = time.perf_counter()
-            green = G(
-                crystal=self.crystal,
-                dlr=self.dlr,
-                greenbare=self.greenbare.kf,
-                sigmah=sigmah_current,
-                sigmaf=sigmaf_current,
-                sigmagwc=sigc_current,
-                hdf5file=hdf5file,
-                group=group,
-            )
+            
             iter_timing["G"] += time.perf_counter() - t0
             
             t0 = time.perf_counter()
-            gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,hdf5file=hdf5file,group=group,)
+            
 
             sigctemp = np.zeros_like(green.kf)
             sightemp = np.zeros_like(self.niham.k)
@@ -435,12 +428,14 @@ class CorrelationFunction(object):
                 ctqmc.PreProcessing(iter=iter)
                 ctqmc.Run(iter=iter)
                 ctqmc.PostProcessing(iter=iter)
-                gcheck = max(gcheck, self.SCFCheck(gloc.f[key], ctqmc.gimp.f))
+                
                 iter_timing["CTQMC"] += time.perf_counter() - t0
                 sigctemp += green.Embedding(ctqmc.sigimp.f, projector=projector, key=key)
                 sightemp += self.niham.Embedding(ctqmc.sighimp.h - sigh_dc, projector=projector, key=key)
                 sigftemp += self.niham.Embedding(ctqmc.sigfimp.s - sigf_dc, projector=projector, key=key)
-
+            green = G(crystal=self.crystal,dlr=self.dlr,greenbare=self.greenbare.kf,sigmah=sigmah_current,sigmaf=sigmaf_current,sigmagwc=sigc_current,hdf5file=hdf5file,group=group,)
+            gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,hdf5file=hdf5file,group=group,)
+            gcheck = max(gcheck, self.SCFCheck(gloc.f[key], ctqmc.gimp.f))
             self.dmft_object_times.append(iter_timing)
             logger.info(
                 f"[DMFT timing][iter {iter}] G: {iter_timing['G']:.4f}s, "
@@ -471,6 +466,7 @@ class CorrelationFunction(object):
                     sigmah_current = mix * sightemp + (1.0 - mix) * sigmah_current
                     sigmaf_current = mix * sigftemp + (1.0 - mix) * sigmaf_current
                     sigc_current = mix * sigctemp + (1.0 - mix) * sigc_current
+                
 
             
             gc.collect()
