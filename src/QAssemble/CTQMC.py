@@ -46,7 +46,8 @@ class CTQMC(object):
         self.chi = None
         self.pimp = None
 
-        cwd = os.getcwd()
+        self.work_dir = os.path.abspath(os.getcwd())
+        cwd = self.work_dir
         if os.path.basename(cwd) == "ctqmc":
             self.root_dir = os.path.dirname(cwd)
             self.ctqmc_dir = cwd
@@ -339,6 +340,6 @@ class CTQMC(object):
             print("Impurity Postprocessing Finish")
             print("******************************")
         finally:
-            os.chdir(self.ctqmc_dir)
+            os.chdir(self.work_dir)
 
         return None
