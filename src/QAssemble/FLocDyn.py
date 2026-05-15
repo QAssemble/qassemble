@@ -526,6 +526,7 @@ class GImp(FLocDyn):
         if isinstance(self.green, dict):
             equiv = np.asarray(self.projector.equiv[self.key], dtype=int)
             green = self._read_ctqmc_green(self.green)
+            self.f_uniform = green
             green_uniform = self.dlr.MatsubaraAddNegativeFrequency(self.ReadDict(equiv, green))
             self.f = self.dlr.MatsubaraUniformGrid2DLR(green_uniform)
         else:
@@ -543,24 +544,14 @@ class GImp(FLocDyn):
                 Common.HDF5CreateDataset(gloc, fn, obj, dtype=complex)
             else:
                 Common.HDF5CreateDataset(gloc, fn, self.f, dtype=complex)
+                Common.HDF5CreateDataset(gloc, fn+'_uniform', self.f_uniform, dtype=complex)
 
         return None
 
 
 class SigCImp(FLocDyn):
 
-    def __init__(
-        self,
-        crystal : Crystal,
-        dlr : DLR,
-        projector : Projector,
-        key,
-        sigma,
-        sigma_hf : np.ndarray = None,
-        subtract_static : bool = True,
-        hdf5file : str = None,
-        group : str = None,
-    ):
+    def __init__(self,crystal : Crystal,dlr : DLR,projector : Projector,key,sigma,sigma_hf : np.ndarray = None,subtract_static : bool = True,hdf5file : str = None,group : str = None,):
 
         super().__init__(crystal, dlr, projector)
 
@@ -569,7 +560,6 @@ class SigCImp(FLocDyn):
         self.sigma_hf_in = sigma_hf
         self.subtract_static = subtract_static
         self.hf = None
-        self.total = None
         self.f = None
         self.t = None
         self.hdf5file = hdf5file
@@ -673,30 +663,58 @@ class SigCImp(FLocDyn):
         if isinstance(self.sigma_in, dict):
             equiv = np.asarray(self.projector.equiv[self.key], dtype=int)
             sigma = self._read_ctqmc_sigma(self.sigma_in)
-            sigma_uniform = self.dlr.MatsubaraAddNegativeFrequency(self.ReadDict(equiv, sigma))
+            sigma_grid = self.ReadDict(equiv, sigma)
+            if self.subtract_static:
+                self.hf = self._resolve_sigma_hf()
+                if self.hf.shape != sigma_grid.shape[:3]:
+                    raise ValueError(
+                        f"sigma_hf shape {self.hf.shape} is incompatible with "
+                        f"sigma shape {sigma_grid.shape}"
+                    )
+                sigma_grid = np.asfortranarray(sigma_grid - self.hf[..., np.newaxis])
+            self.f_uniform = sigma_grid
+            sigma_uniform = self.dlr.MatsubaraAddNegativeFrequency(sigma_grid)
             sigma_total = self.dlr.MatsubaraUniformGrid2DLR(sigma_uniform)
+            if sigma_total.ndim != 4:
+                raise ValueError(
+                    f"sigma must be 4D after DLR conversion, got {sigma_total.ndim}D"
+                )
+            if sigma_total.shape[2] != self.crystal.ns:
+                raise ValueError(
+                    f"spin dimension mismatch: sigma ns={sigma_total.shape[2]}, "
+                    f"crystal ns={self.crystal.ns}"
+                )
+            self.f = sigma_total
         else:
             sigma_total = np.asfortranarray(self.sigma_in, dtype=np.complex128)
+            if sigma_total.ndim != 4:
+                raise ValueError(
+                    f"sigma must be 4D after DLR conversion, got {sigma_total.ndim}D"
+                )
+            if sigma_total.shape[2] != self.crystal.ns:
+                raise ValueError(
+                    f"spin dimension mismatch: sigma ns={sigma_total.shape[2]}, "
+                    f"crystal ns={self.crystal.ns}"
+                )
 
-        if sigma_total.ndim != 4:
-            raise ValueError(f"sigma must be 4D after DLR conversion, got {sigma_total.ndim}D")
-        if sigma_total.shape[2] != self.crystal.ns:
+            if self.subtract_static:
+                self.hf = self._resolve_sigma_hf()
+                if self.hf.shape != sigma_total.shape[:3]:
+                    raise ValueError(
+                        f"sigma_hf shape {self.hf.shape} is incompatible with "
+                        f"sigma shape {sigma_total.shape}"
+                    )
+                self.f = np.asfortranarray(sigma_total - self.hf[..., np.newaxis])
+            else:
+                self.f = sigma_total
+
+        if self.f.ndim != 4:
+            raise ValueError(f"sigma must be 4D after DLR conversion, got {self.f.ndim}D")
+        if self.f.shape[2] != self.crystal.ns:
             raise ValueError(
-                f"spin dimension mismatch: sigma ns={sigma_total.shape[2]}, "
+                f"spin dimension mismatch: sigma ns={self.f.shape[2]}, "
                 f"crystal ns={self.crystal.ns}"
             )
-
-        self.total = sigma_total
-        if self.subtract_static:
-            self.hf = self._resolve_sigma_hf()
-            if self.hf.shape != sigma_total.shape[:3]:
-                raise ValueError(
-                    f"sigma_hf shape {self.hf.shape} is incompatible with "
-                    f"sigma shape {sigma_total.shape}"
-                )
-            self.f = np.asfortranarray(sigma_total - self.hf[..., np.newaxis])
-        else:
-            self.f = sigma_total
 
         self.t = self.F2T(self.f)
 
@@ -710,6 +728,7 @@ class SigCImp(FLocDyn):
                 Common.HDF5CreateDataset(sigimp, fn, obj, dtype=complex)
             else:
                 Common.HDF5CreateDataset(sigimp, fn, self.f, dtype=complex)
+                Common.HDF5CreateDataset(sigimp, fn+'_uniform', self.f_uniform, dtype=complex)
 
         return None
 
@@ -798,15 +817,4 @@ class FWeiss(FLocDyn):
         self.h_dlr = self.AverageByEquiv(equiv, self.hyb)
         self.h = self.UniformGrid(self.h_dlr)
         
-        return None
-
-    def Save(self, fn: str, obj : np.ndarray = None):
-
-        with h5py.File(self.hdf5file,'a') as file:
-            fweiss = Common.HDF5Subgroup(file, self.group, self.subgroup)
-            if obj is not None:
-                Common.HDF5CreateDataset(fweiss, fn, obj, dtype=complex)
-            else:
-                Common.HDF5CreateDataset(fweiss, fn, self.h, dtype=complex)
-
         return None

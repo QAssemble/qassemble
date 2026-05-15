@@ -312,25 +312,26 @@ class CTQMC(object):
                 hdf5file=self.hdf5file,
                 group=self.group,
             )
-            self.chi = Chi(
-                crystal=self.crystal,
-                dlr=self.dlr,
-                projector=self.projector,
-                key=key,
-                partition=obsjson,
-                hdf5file=self.hdf5file,
-                group=self.group,
-            )
-            self.pimp = PImp(
-                crystal=self.crystal,
-                dlr=self.dlr,
-                projector=self.projector,
-                key=key,
-                chi=self.chi,
-                utilde=dynamic_interaction,
-                hdf5file=self.hdf5file,
-                group=self.group,
-            )
+            if self._use_dyn():
+                self.chi = Chi(
+                    crystal=self.crystal,
+                    dlr=self.dlr,
+                    projector=self.projector,
+                    key=key,
+                    partition=obsjson,
+                    hdf5file=self.hdf5file,
+                    group=self.group,
+                )
+                self.pimp = PImp(
+                    crystal=self.crystal,
+                    dlr=self.dlr,
+                    projector=self.projector,
+                    key=key,
+                    chi=self.chi,
+                    utilde=dynamic_interaction,
+                    hdf5file=self.hdf5file,
+                    group=self.group,
+                )
 
             params = json.load(open('./params.json'))
             cutoff = params["partition"]["green matsubara cutoff"]

@@ -396,7 +396,7 @@ class CorrelationFunction(object):
             iter_timing["BWeiss"] = 0.0
             iter_timing["FWeiss"] = 0.0
             iter_timing["CTQMC"] = 0.0
-            subtract_local_dc = self.control["run"]["method"] in ("edmft", "gw+edmft")
+            subtract_local_dc = self.control["run"]["method"] in ("gw+edmft")
             gimp_by_key = {}
 
             for key in projector.fprojector.keys():
@@ -431,7 +431,6 @@ class CorrelationFunction(object):
                 hyb = Hyb(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,green=gloc.f[key],eimp=eimp.e,sigh=sighloc,sigf=sigfloc,sigc=sigcloc,hdf5file=hdf5file,group=group)
                 hyb.Save(f'hyb.{iter}.{key}')
                 fweiss = FWeiss(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,eimp=eimp,hyb=hyb,mu=green.mu,hdf5file=hdf5file,group=group)
-                fweiss.Save(f'fweiss.{iter}.{key}')
                 iter_timing["FWeiss"] += time.perf_counter() - t0
 
                 t0 = time.perf_counter()
@@ -452,10 +451,11 @@ class CorrelationFunction(object):
                 ctqmc.sighimp.Save(f'sighimp.{iter}.{key}')
                 ctqmc.sigfimp.Save(f'sigfimp.{iter}.{key}')
                 ctqmc.sigimp.Save(f'sigimp.{iter}.{key}')
-                if ctqmc.chi.f is not None:
-                    ctqmc.chi.Save(f'chi.{iter}.{key}')
-                if ctqmc.pimp.f is not None:
-                    ctqmc.pimp.Save(f'pimp.{iter}.{key}')
+                if (self.control["run"]["method"] == 'edmft')or(self.control["run"]["method"] ==("gw+edmft")):
+                    if ctqmc.chi.f is not None:
+                        ctqmc.chi.Save(f'chi.{iter}.{key}')
+                    if ctqmc.pimp.f is not None:
+                        ctqmc.pimp.Save(f'pimp.{iter}.{key}')
 
                 sigc_embed = green.Embedding(ctqmc.sigimp.f, projector=projector, key=key)
                 sigh_embed = self.niham.Embedding(ctqmc.sighimp.h - sigh_dc, projector=projector, key=key)
