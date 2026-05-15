@@ -735,7 +735,7 @@ class H0(FLatStc):
             else:
                 tb = file.create_group(self.group)
                 niham = tb.create_group(self.subgroup)
-            niham.create_dataset("h0k", dtype=complex, data=self.k)
+            Common.HDF5CreateDataset(niham, "h0k", self.k, dtype=complex)
         # self.hdf5file.create_dataset('h0k',dtype=float,data=self.k)
 
         return None
@@ -999,7 +999,7 @@ class SigH(FLatStc):
             else:
                 group = file.create_group(self.group)
                 sigmah = group.create_group(self.subgroup)
-            sigmah.create_dataset(fn, dtype=complex, data=self.k)
+            Common.HDF5CreateDataset(sigmah, fn, self.k, dtype=complex)
 
         return None
 
@@ -1106,7 +1106,7 @@ class SigF(FLatStc):
             else:
                 group = file.create_group(self.group)
                 sigmaf = group.create_group(self.subgroup)
-            sigmaf.create_dataset(fn, dtype=complex, data=self.k)
+            Common.HDF5CreateDataset(sigmaf, fn, self.k, dtype=complex)
 
         return None
 
@@ -1304,8 +1304,8 @@ class H(FLatStc):
                 group = file.create_group(self.group)
                 ham = group.create_group(self.subgroup)
             if chem:
-                ham.create_dataset("mu", dtype=float, data=self.mu)
-            ham.create_dataset(fn, dtype=complex, data=self.k)
+                Common.HDF5CreateDataset(ham, "mu", self.mu, dtype=float)
+            Common.HDF5CreateDataset(ham, fn, self.k, dtype=complex)
 
         return None
     
@@ -1422,10 +1422,10 @@ class Z(FLatStc):
                 sigmac = group.create_group(self.subgroup)
             
 
-            if obj != None:
-                sigmac.create_dataset(fn,dtype=complex,data=obj)
+            if obj is not None:
+                Common.HDF5CreateDataset(sigmac, fn, obj, dtype=complex)
             else:
-                sigmac.create_dataset(fn,dtype=complex,data=self.k)
+                Common.HDF5CreateDataset(sigmac, fn, self.k, dtype=complex)
 
         return None
 
@@ -1482,9 +1482,9 @@ class SigStc(FLatStc):
                 sigmac = group.create_group(self.subgroup)
             
 
-            if obj != None:
-                sigmac.create_dataset(fn,dtype=complex,data=obj)
+            if obj is not None:
+                Common.HDF5CreateDataset(sigmac, fn, obj, dtype=complex)
             else:
-                sigmac.create_dataset(fn,dtype=complex,data=self.k)
+                Common.HDF5CreateDataset(sigmac, fn, self.k, dtype=complex)
 
         return None

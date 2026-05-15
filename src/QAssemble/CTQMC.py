@@ -14,12 +14,14 @@ from .utility.Common import Common
 
 class CTQMC(object):
 
-    def __init__(self, dlr : DLR, fweiss : FWeiss, bweiss : BWeiss, key, control : dict = None):
+    def __init__(self, dlr : DLR, fweiss : FWeiss, bweiss : BWeiss, key, control : dict = None, hdf5file : str = None, group : str = None):
 
         self.dlr = dlr
         self.fweiss = fweiss
         self.bweiss = bweiss
         self.control = control if control is not None else {}
+        self.hdf5file = hdf5file
+        self.group = group
         self.crystal = fweiss.crystal
         self.ft = dlr
         self.projector = fweiss.projector
@@ -276,6 +278,8 @@ class CTQMC(object):
                 projector=self.projector,
                 key=key,
                 green=obsjson["green"],
+                hdf5file=self.hdf5file,
+                group=self.group,
             )
             static_interaction = self.bweiss.v
             dynamic_interaction = self.bweiss.utilde_rf
@@ -286,6 +290,8 @@ class CTQMC(object):
                 key=key,
                 gimp=self.gimp,
                 vloc=dynamic_interaction if dynamic_interaction is not None else static_interaction,
+                hdf5file=self.hdf5file,
+                group=self.group,
             )
             self.sigfimp = SigFImp(
                 crystal=self.crystal,
@@ -293,6 +299,8 @@ class CTQMC(object):
                 key=key,
                 sigma=obsjson["self-energy"],
                 sigh=self.sighimp,
+                hdf5file=self.hdf5file,
+                group=self.group,
             )
             self.sigimp = SigCImp(
                 crystal=self.crystal,
@@ -300,6 +308,8 @@ class CTQMC(object):
                 projector=self.projector,
                 key=key,
                 sigma=obsjson["self-energy"],
+                hdf5file=self.hdf5file,
+                group=self.group,
             )
             self.chi = Chi(
                 crystal=self.crystal,
@@ -307,6 +317,8 @@ class CTQMC(object):
                 projector=self.projector,
                 key=key,
                 partition=obsjson,
+                hdf5file=self.hdf5file,
+                group=self.group,
             )
             self.pimp = PImp(
                 crystal=self.crystal,
@@ -315,6 +327,8 @@ class CTQMC(object):
                 key=key,
                 chi=self.chi,
                 utilde=dynamic_interaction,
+                hdf5file=self.hdf5file,
+                group=self.group,
             )
 
             params = json.load(open('./params.json'))

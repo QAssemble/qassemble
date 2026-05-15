@@ -360,34 +360,35 @@ class CorrelationFunction(object):
         sigmaf_current = None
         sigc_current = None
 
-        static_projector = FLocStc(self.crystal, projector)
-        dynamic_projector = FLocDyn(self.crystal, self.dlr, projector)
+        t0 = time.perf_counter()
+        green = G(
+            crystal=self.crystal,
+            dlr=self.dlr,
+            greenbare=self.greenbare.kf,
+            sigmah=sigmah_current,
+            sigmaf=sigmaf_current,
+            sigmagwc=sigc_current,
+            hdf5file=hdf5file,
+            group=group,
+        )
+        initial_green_time = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,hdf5file=hdf5file,group=group,)
+        initial_gloc_time = time.perf_counter() - t0
 
         self.dmft_object_times = []
         mix = 0.1
         for iter in range(1, itermax+1):
-            iter_timing = {"iter": iter, "G": 0.0}
-
-            t0 = time.perf_counter()
-            green = G(
-                crystal=self.crystal,
-                dlr=self.dlr,
-                greenbare=self.greenbare.kf,
-                sigmah=sigmah_current,
-                sigmaf=sigmaf_current,
-                sigmagwc=sigc_current,
-                hdf5file=hdf5file,
-                group=group,
-            )
-            iter_timing["G"] += time.perf_counter() - t0
-            
-            t0 = time.perf_counter()
-            gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,hdf5file=hdf5file,group=group,)
+            iter_timing = {
+                "iter": iter,
+                "G": initial_green_time if iter == 1 else 0.0,
+                "GLoc": initial_gloc_time if iter == 1 else 0.0,
+            }
 
             sigctemp = np.zeros_like(green.kf)
             sightemp = np.zeros_like(self.niham.k)
             sigftemp = np.zeros_like(self.niham.k)
-            iter_timing["GLoc"] = time.perf_counter() - t0
 
             gcheck = 0.0
             iter_timing["BWeiss"] = 0.0
@@ -403,45 +404,63 @@ class CorrelationFunction(object):
                 sigf_dc = np.zeros(dc_shape, dtype=np.complex128, order='F')
 
                 if subtract_local_dc:
-                    sigh_dc_obj = SigHLoc(crystal=self.crystal, projector=projector, occ=gloc.occ[key], vloc=self.vbare.vloc.Projection(self.vbare.vloc.vloc, key=key), key=key)
-                    sigf_dc_obj = SigFLoc(crystal=self.crystal, projector=projector, occ=gloc.occ[key], vloc=self.vbare.vloc.Projection(self.vbare.vloc.vloc, key=key), key=key)
+                    sigh_dc_obj = SigHLoc(crystal=self.crystal, projector=projector, occ=gloc.occ[key], vloc=self.vbare.vloc.Projection(self.vbare.vloc.vloc, key=key), key=key, hdf5file=hdf5file, group=group)
+                    sigf_dc_obj = SigFLoc(crystal=self.crystal, projector=projector, occ=gloc.occ[key], vloc=self.vbare.vloc.Projection(self.vbare.vloc.vloc, key=key), key=key, hdf5file=hdf5file, group=group)
                     sigh_dc = sigh_dc_obj.hloc
                     sigf_dc = sigf_dc_obj.floc
+                    sigh_dc_obj.Save(f'sigh_dc.{iter}.{key}')
+                    sigf_dc_obj.Save(f'sigf_dc.{iter}.{key}')
                 t0 = time.perf_counter()
-                eimp = EImp(crystal=self.crystal,projector=projector,key=key,hamtb=self.niham.k,mu=green.mu, sigh=sigh_dc, sigf=sigf_dc)
+                eimp = EImp(crystal=self.crystal,projector=projector,key=key,hamtb=self.niham.k,mu=green.mu, sigh=sigh_dc, sigf=sigf_dc, hdf5file=hdf5file, group=group)
+                eimp.Save(f'e.{iter}.{key}')
 
                 sighloc = None
                 sigfloc = None
                 sigcloc = None
                 if sigmah_current is not None:
-                    sighloc = static_projector.Projection(sigmah_current, key)
+                    sighloc = eimp.Projection(sigmah_current, key)
                     for js in range(sighloc.shape[2]):
                         sighloc[:, :, js] -= green.c * np.eye(sighloc.shape[0], dtype=np.complex128)
                 if sigmaf_current is not None:
-                    sigfloc = static_projector.Projection(sigmaf_current, key)
+                    sigfloc = eimp.Projection(sigmaf_current, key)
                 if sigc_current is not None:
-                    sigcloc = dynamic_projector.Projection(sigc_current, key)
+                    sigcloc = gloc.Projection(sigc_current, key)
 
-                hyb = Hyb(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,green=gloc.f[key],eimp=eimp.e,sigh=sighloc,sigf=sigfloc,sigc=sigcloc)
-                fweiss = FWeiss(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,eimp=eimp,hyb=hyb,mu=green.mu)
+                hyb = Hyb(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,green=gloc.f[key],eimp=eimp.e,sigh=sighloc,sigf=sigfloc,sigc=sigcloc,hdf5file=hdf5file,group=group)
+                hyb.Save(f'hyb.{iter}.{key}')
+                fweiss = FWeiss(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,eimp=eimp,hyb=hyb,mu=green.mu,hdf5file=hdf5file,group=group)
+                fweiss.Save(f'fweiss.{iter}.{key}')
                 iter_timing["FWeiss"] += time.perf_counter() - t0
 
                 t0 = time.perf_counter()
-                bweiss = BWeiss(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,vloc=self.vbare.vloc,ploc=None,wloc=None,) 
+                bweiss = BWeiss(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,vloc=self.vbare.vloc,ploc=None,wloc=None,hdf5file=hdf5file,group=group,)
+                bweiss.Save(f'bweiss.{iter}.{key}')
                 iter_timing["BWeiss"] += time.perf_counter() - t0
 
                 t0 = time.perf_counter()
                 ## Impurity Solver
-                ctqmc = CTQMC(dlr=self.dlr,fweiss=fweiss,bweiss=bweiss,key=key,control=self.control["run"],)
+                ctqmc = CTQMC(dlr=self.dlr,fweiss=fweiss,bweiss=bweiss,key=key,control=self.control["run"],hdf5file=hdf5file,group=group,)
                 ctqmc.PreProcessing(iter=iter)
                 ctqmc.Run(iter=iter)
                 ctqmc.PostProcessing(iter=iter)
                 
                 iter_timing["CTQMC"] += time.perf_counter() - t0
                 gimp_by_key[key] = ctqmc.gimp.f
-                sigctemp += green.Embedding(ctqmc.sigimp.f, projector=projector, key=key)
-                sightemp += self.niham.Embedding(ctqmc.sighimp.h - sigh_dc, projector=projector, key=key)
-                sigftemp += self.niham.Embedding(ctqmc.sigfimp.s - sigf_dc, projector=projector, key=key)
+                ctqmc.gimp.Save(f'gimp.{iter}.{key}')
+                ctqmc.sighimp.Save(f'sighimp.{iter}.{key}')
+                ctqmc.sigfimp.Save(f'sigfimp.{iter}.{key}')
+                ctqmc.sigimp.Save(f'sigimp.{iter}.{key}')
+                if ctqmc.chi.f is not None:
+                    ctqmc.chi.Save(f'chi.{iter}.{key}')
+                if ctqmc.pimp.f is not None:
+                    ctqmc.pimp.Save(f'pimp.{iter}.{key}')
+
+                sigc_embed = green.Embedding(ctqmc.sigimp.f, projector=projector, key=key)
+                sigh_embed = self.niham.Embedding(ctqmc.sighimp.h - sigh_dc, projector=projector, key=key)
+                sigf_embed = self.niham.Embedding(ctqmc.sigfimp.s - sigf_dc, projector=projector, key=key)
+                sigctemp += sigc_embed
+                sightemp += sigh_embed
+                sigftemp += sigf_embed
 
             if iter == 1:
                 sigmah_next = sightemp.copy()
@@ -468,13 +487,10 @@ class CorrelationFunction(object):
             t0 = time.perf_counter()
             gloc_next = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green_next.kf,hdf5file=hdf5file,group=group,)
             iter_timing["GLoc"] += time.perf_counter() - t0
+            green_next.Save(f'gkf.{iter}')
 
             for key, gimp in gimp_by_key.items():
                 gcheck = max(gcheck, self.SCFCheck(gloc_next.f[key], gimp))
-
-            sigmah_current = sigmah_next
-            sigmaf_current = sigmaf_next
-            sigc_current = sigc_next
 
             self.dmft_object_times.append(iter_timing)
             logger.info(
@@ -491,5 +507,11 @@ class CorrelationFunction(object):
                 break
             elif iter == itermax:
                 logger.info(f"DMFT reaches max iteration {itermax}; impurity Green criteria = {gcheck}")
+            else:
+                sigmah_current = sigmah_next
+                sigmaf_current = sigmaf_next
+                sigc_current = sigc_next
+                green = green_next
+                gloc = gloc_next
 
             gc.collect()

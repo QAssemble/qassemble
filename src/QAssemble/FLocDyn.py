@@ -481,21 +481,11 @@ class GLoc(FLocDyn):
     def Save(self, fn: str, obj : np.ndarray = None):
 
         with h5py.File(self.hdf5file,'a') as file:
-            if self.CheckGroup(self.hdf5file,self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    gloc = group[self.subgroup]
-                else:
-                    gloc = group.create_group(self.subgroup)
+            gloc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(gloc, fn, obj, dtype=complex)
             else:
-                group = file.create_group(self.group)
-                gloc = group.create_group(self.subgroup)
-            
-
-            if obj != None:
-                gloc.create_dataset(fn,dtype=complex,data=obj)
-            else:
-                gloc.create_dataset(fn,dtype=complex,data=self.f)
+                Common.HDF5CreateDataset(gloc, fn, self.f, dtype=complex)
 
         return None
     
@@ -542,21 +532,11 @@ class GImp(FLocDyn):
     def Save(self, fn: str, obj : np.ndarray = None):
 
         with h5py.File(self.hdf5file,'a') as file:
-            if self.CheckGroup(self.hdf5file,self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    gloc = group[self.subgroup]
-                else:
-                    gloc = group.create_group(self.subgroup)
+            gloc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(gloc, fn, obj, dtype=complex)
             else:
-                group = file.create_group(self.group)
-                gloc = group.create_group(self.subgroup)
-            
-
-            if obj != None:
-                gloc.create_dataset(fn,dtype=complex,data=obj)
-            else:
-                gloc.create_dataset(fn,dtype=complex,data=self.f)
+                Common.HDF5CreateDataset(gloc, fn, self.f, dtype=complex)
 
         return None
 
@@ -719,21 +699,11 @@ class SigCImp(FLocDyn):
     def Save(self, fn: str, obj : np.ndarray = None):
 
         with h5py.File(self.hdf5file,'a') as file:
-            if self.CheckGroup(self.hdf5file,self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    sigimp = group[self.subgroup]
-                else:
-                    sigimp = group.create_group(self.subgroup)
+            sigimp = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(sigimp, fn, obj, dtype=complex)
             else:
-                group = file.create_group(self.group)
-                sigimp = group.create_group(self.subgroup)
-            
-
-            if obj != None:
-                sigimp.create_dataset(fn,dtype=complex,data=obj)
-            else:
-                sigimp.create_dataset(fn,dtype=complex,data=self.f)
+                Common.HDF5CreateDataset(sigimp, fn, self.f, dtype=complex)
 
         return None
 
@@ -787,27 +757,17 @@ class Hyb(FLocDyn):
     def Save(self, fn: str, obj : np.ndarray = None):
 
         with h5py.File(self.hdf5file,'a') as file:
-            if self.CheckGroup(self.hdf5file,self.group):
-                group = file[self.group]
-                if self.subgroup in group:
-                    hyb = group[self.subgroup]
-                else:
-                    hyb = group.create_group(self.subgroup)
+            hyb = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(hyb, fn, obj, dtype=complex)
             else:
-                group = file.create_group(self.group)
-                hyb = group.create_group(self.subgroup)
-            
-
-            if obj != None:
-                hyb.create_dataset(fn,dtype=complex,data=obj)
-            else:
-                hyb.create_dataset(fn,dtype=complex,data=self.f)
+                Common.HDF5CreateDataset(hyb, fn, self.f, dtype=complex)
 
         return None
 
 class FWeiss(FLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, eimp : EImp, hyb : Hyb, mu : float = 0.0):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, eimp : EImp, hyb : Hyb, mu : float = 0.0, hdf5file : str = None, group : str = None):
 
         super().__init__(crystal, dlr, projector)
 
@@ -815,6 +775,9 @@ class FWeiss(FLocDyn):
         self.eimp = eimp
         self.hyb = hyb.f
         self.mu = mu
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
         
         self.e = None
         self.h_dlr = None
@@ -829,4 +792,15 @@ class FWeiss(FLocDyn):
         self.h_dlr = self.AverageByEquiv(equiv, self.hyb)
         self.h = self.UniformGrid(self.h_dlr)
         
+        return None
+
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            fweiss = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(fweiss, fn, obj, dtype=complex)
+            else:
+                Common.HDF5CreateDataset(fweiss, fn, self.h, dtype=complex)
+
         return None

@@ -580,20 +580,11 @@ class Chi(BLocDyn):
     def Save(self, fn: str, obj : np.ndarray = None):
 
         with h5py.File(self.hdf5file,'a') as file:
-            if self.group in file:
-                group = file[self.group]
-                if self.subgroup in group:
-                    chi = group[self.subgroup]
-                else:
-                    chi = group.create_group(self.subgroup)
+            chi = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(chi, fn, obj, dtype=complex)
             else:
-                group = file.create_group(self.group)
-                chi = group.create_group(self.subgroup)
-
-            if obj != None:
-                chi.create_dataset(fn,dtype=complex,data=obj)
-            else:
-                chi.create_dataset(fn,dtype=complex,data=self.f)
+                Common.HDF5CreateDataset(chi, fn, self.f, dtype=complex)
 
         return None
 
@@ -672,26 +663,17 @@ class PImp(BLocDyn):
     def Save(self, fn: str, obj : np.ndarray = None):
 
         with h5py.File(self.hdf5file,'a') as file:
-            if self.group in file:
-                group = file[self.group]
-                if self.subgroup in group:
-                    pimp = group[self.subgroup]
-                else:
-                    pimp = group.create_group(self.subgroup)
+            pimp = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(pimp, fn, obj, dtype=complex)
             else:
-                group = file.create_group(self.group)
-                pimp = group.create_group(self.subgroup)
-
-            if obj != None:
-                pimp.create_dataset(fn,dtype=complex,data=obj)
-            else:
-                pimp.create_dataset(fn,dtype=complex,data=self.f)
+                Common.HDF5CreateDataset(pimp, fn, self.f, dtype=complex)
 
         return None
 
 class BWeiss(BLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, vloc : VLoc, ploc = None, wloc = None):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, vloc : VLoc, ploc = None, wloc = None, hdf5file : str = None, group : str = None):
 
         super().__init__(crystal, dlr, projector)
 
@@ -707,6 +689,9 @@ class BWeiss(BLocDyn):
         self.utilde_rf = None
         self.ubar_t = None
         self.ubar_rf = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
 
         if not hasattr(self.vloc, "vloc") or self.vloc.vloc is None:
             raise TypeError("BWeiss requires vloc to be a VLoc object with vloc data")
@@ -763,6 +748,17 @@ class BWeiss(BLocDyn):
 
         self.utilde_t = self.F2T(self.utilde_rf)
         self.ubar_t = self.F2T(self.ubar_rf)
+
+        return None
+
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            bweiss = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(bweiss, fn, obj, dtype=complex)
+            else:
+                Common.HDF5CreateDataset(bweiss, fn, self.v, dtype=complex)
 
         return None
 # class PolLoc(BLocDyn):

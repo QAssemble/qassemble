@@ -527,7 +527,7 @@ class G0(FLatDyn):
             else:
                 group = file.create_group(self.group)
                 gbare = group.create_group(self.subgroup)
-            gbare.create_dataset('g0kf',dtype=complex,data=self.kf)
+            Common.HDF5CreateDataset(gbare, 'g0kf', self.kf, dtype=complex)
 
         return None
     
@@ -762,11 +762,11 @@ class G(FLatDyn):
             else:
                 group = file.create_group(self.group)
                 green = group.create_group(self.subgroup)
-            green.create_dataset(fn,dtype=complex,data=self.kf)
+            Common.HDF5CreateDataset(green, fn, self.kf, dtype=complex)
             
             if chem:
                 mureal = np.real(self.mu+self.c)
-                green.create_dataset('mu',dtype=float,data=mureal)
+                Common.HDF5CreateDataset(green, 'mu', mureal, dtype=float)
 
         return None
 
@@ -947,10 +947,10 @@ class SigGWC(FLatDyn):
                 sigmac = group.create_group(self.subgroup)
             
 
-            if obj != None:
-                sigmac.create_dataset(fn,dtype=complex,data=obj)
+            if obj is not None:
+                Common.HDF5CreateDataset(sigmac, fn, obj, dtype=complex)
             else:
-                sigmac.create_dataset(fn,dtype=complex,data=self.kf)
+                Common.HDF5CreateDataset(sigmac, fn, self.kf, dtype=complex)
 
         return None
 

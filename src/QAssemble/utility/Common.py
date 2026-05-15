@@ -16,6 +16,26 @@ class Common:
     """
 
     @staticmethod
+    def HDF5Subgroup(file, group_name : str, subgroup_name : str):
+        """Return file[group_name][subgroup_name], creating groups when needed."""
+        if group_name is None:
+            raise ValueError("HDF5 group name is required")
+        if subgroup_name is None:
+            raise ValueError("HDF5 subgroup name is required")
+
+        group = file[group_name] if group_name in file else file.create_group(group_name)
+        return group[subgroup_name] if subgroup_name in group else group.create_group(subgroup_name)
+
+    @staticmethod
+    def HDF5CreateDataset(group, name : str, data, dtype=None):
+        """Create or replace a dataset in an HDF5 group."""
+        if name in group:
+            del group[name]
+        if dtype is None:
+            return group.create_dataset(name, data=data)
+        return group.create_dataset(name, dtype=dtype, data=data)
+
+    @staticmethod
     def MatInv(matin : np.ndarray) -> np.ndarray:
         """
         Computes the inverse of a complex square matrix.

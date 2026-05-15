@@ -225,7 +225,7 @@ class FLocStc(object):
     
 class EImp(FLocStc):
 
-    def __init__(self, crystal : Crystal, projector : Projector, key, hamtb : np.ndarray, mu : float, sigh : np.ndarray = None, sigf : np.ndarray = None, hloc : np.ndarray = None, floc : np.ndarray = None):
+    def __init__(self, crystal : Crystal, projector : Projector, key, hamtb : np.ndarray, mu : float, sigh : np.ndarray = None, sigf : np.ndarray = None, hloc : np.ndarray = None, floc : np.ndarray = None, hdf5file : str = None, group : str = None):
 
         super().__init__(crystal, projector)
 
@@ -237,6 +237,9 @@ class EImp(FLocStc):
         self.sigh = None
         self.sigf = None
         self.e = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
 
         if hloc is not None or floc is not None:
             raise ValueError(
@@ -309,6 +312,17 @@ class EImp(FLocStc):
 
         logger.info(e)
         self.e = e
+
+        return None
+
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            eimp = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(eimp, fn, obj, dtype=complex)
+            else:
+                Common.HDF5CreateDataset(eimp, fn, self.e, dtype=complex)
 
         return None
 
@@ -407,6 +421,19 @@ class SigHLoc(FLocStc):
 
         self.hloc = h
 
+        return None
+
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            sighloc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(sighloc, fn, obj, dtype=complex)
+            else:
+                Common.HDF5CreateDataset(sighloc, fn, self.hloc, dtype=complex)
+
+        return None
+
 
 class SigHImp(FLocStc):
 
@@ -500,20 +527,11 @@ class SigHImp(FLocStc):
     def Save(self, fn: str, obj : np.ndarray = None):
 
         with h5py.File(self.hdf5file,'a') as file:
-            if self.group in file:
-                group = file[self.group]
-                if self.subgroup in group:
-                    sighimp = group[self.subgroup]
-                else:
-                    sighimp = group.create_group(self.subgroup)
+            sighimp = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(sighimp, fn, obj, dtype=complex)
             else:
-                group = file.create_group(self.group)
-                sighimp = group.create_group(self.subgroup)
-
-            if obj != None:
-                sighimp.create_dataset(fn,dtype=complex,data=obj)
-            else:
-                sighimp.create_dataset(fn,dtype=complex,data=self.s)
+                Common.HDF5CreateDataset(sighimp, fn, self.s, dtype=complex)
 
         return None
 
@@ -562,6 +580,17 @@ class SigFLoc(FLocStc):
                     )
 
         self.floc = f
+
+        return None
+
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            sigfloc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(sigfloc, fn, obj, dtype=complex)
+            else:
+                Common.HDF5CreateDataset(sigfloc, fn, self.floc, dtype=complex)
 
         return None
 
@@ -614,20 +643,11 @@ class SigFImp(FLocStc):
     def Save(self, fn: str, obj : np.ndarray = None):
 
         with h5py.File(self.hdf5file,'a') as file:
-            if self.group in file:
-                group = file[self.group]
-                if self.subgroup in group:
-                    sigfimp = group[self.subgroup]
-                else:
-                    sigfimp = group.create_group(self.subgroup)
+            sigfimp = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(sigfimp, fn, obj, dtype=complex)
             else:
-                group = file.create_group(self.group)
-                sigfimp = group.create_group(self.subgroup)
-
-            if obj != None:
-                sigfimp.create_dataset(fn,dtype=complex,data=obj)
-            else:
-                sigfimp.create_dataset(fn,dtype=complex,data=self.s)
+                Common.HDF5CreateDataset(sigfimp, fn, self.s, dtype=complex)
 
         return None
 
