@@ -372,10 +372,12 @@ class CorrelationFunction(object):
             group=group,
         )
         initial_green_time = time.perf_counter() - t0
+        green.Save(f'gkf_ini')
 
         t0 = time.perf_counter()
         gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,hdf5file=hdf5file,group=group,)
         initial_gloc_time = time.perf_counter() - t0
+        gloc.Save(f'gloc_ini')
 
         self.dmft_object_times = []
         mix = 0.1
@@ -412,7 +414,7 @@ class CorrelationFunction(object):
                     sigf_dc_obj.Save(f'sigf_dc.{iter}.{key}')
                 t0 = time.perf_counter()
                 eimp = EImp(crystal=self.crystal,projector=projector,key=key,hamtb=self.niham.k,mu=green.mu, sigh=sigh_dc, sigf=sigf_dc, hdf5file=hdf5file, group=group)
-                eimp.Save(f'e.{iter}.{key}')
+                eimp.Save(f'eimp.{iter}.{key}')
 
                 sighloc = None
                 sigfloc = None
@@ -488,6 +490,7 @@ class CorrelationFunction(object):
             gloc_next = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green_next.kf,hdf5file=hdf5file,group=group,)
             iter_timing["GLoc"] += time.perf_counter() - t0
             green_next.Save(f'gkf.{iter}')
+            gloc_next.Save(f'gloc.{iter}')
 
             for key, gimp in gimp_by_key.items():
                 gcheck = max(gcheck, self.SCFCheck(gloc_next.f[key], gimp))
