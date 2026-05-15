@@ -485,7 +485,13 @@ class GLoc(FLocDyn):
             if obj is not None:
                 Common.HDF5CreateDataset(gloc, fn, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(gloc, fn, self.f, dtype=complex)
+                for key, value in self.f.items():
+                    Common.HDF5CreateDataset(
+                        gloc,
+                        f"{fn}.{str(key)}",
+                        value,
+                        dtype=complex,
+                    )
 
         return None
     
