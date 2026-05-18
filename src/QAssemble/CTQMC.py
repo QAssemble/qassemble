@@ -256,6 +256,23 @@ class CTQMC(object):
             
             obsjson = json.load(open(fileobs))
             obsjson = obsjson['partition']
+            params = json.load(open('./params.json'))
+            cutoff = params["partition"]["green matsubara cutoff"]
+            broadening = self.control.get("impurity_gaussian_broadening", {})
+            broadening_cutoff = cutoff if broadening.get("Cutoff") is None else broadening["Cutoff"]
+            green_broadening = None
+            sigma_broadening = None
+            if broadening.get("Enable", False):
+                common_broadening = {
+                    "enable": True,
+                    "width_slope": float(broadening.get("WidthSlope", 0.05)),
+                    "cutoff": float(broadening_cutoff),
+                    "save_raw": bool(broadening.get("SaveRaw", True)),
+                }
+                if broadening.get("Green", True):
+                    green_broadening = common_broadening
+                if broadening.get("SelfEnergy", True):
+                    sigma_broadening = common_broadening
 
             histo_temp=obsjson["expansion histogram"]
         
@@ -279,6 +296,7 @@ class CTQMC(object):
                 projector=self.projector,
                 key=key,
                 green=obsjson["green"],
+                broadening=green_broadening,
                 hdf5file=self.hdf5file,
                 group=self.group,
             )
@@ -309,6 +327,7 @@ class CTQMC(object):
                 projector=self.projector,
                 key=key,
                 sigma=obsjson["self-energy"],
+                broadening=sigma_broadening,
                 hdf5file=self.hdf5file,
                 group=self.group,
             )
@@ -333,9 +352,6 @@ class CTQMC(object):
                     group=self.group,
                 )
 
-            params = json.load(open('./params.json'))
-            cutoff = params["partition"]["green matsubara cutoff"]
-            
             # susceptibility = self.read_susceptibility_LocDyn(equiv, obsjson, key=key)
             print("******************************")
             print("Impurity Postprocessing Finish")
