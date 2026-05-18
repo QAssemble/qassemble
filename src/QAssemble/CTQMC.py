@@ -121,7 +121,7 @@ class CTQMC(object):
 
                     params["partition"]["green basis"]= "matsubara"
                     params["partition"]["green bulla"]= True
-                    params["partition"]["green matsubara cutoff"] = self.dlr.cutoff # 50
+                    params["partition"]["green matsubara cutoff"] = 10 # 50
                     params["partition"]["occupation susceptibility bulla"]=True
                     params["partition"]["occupation susceptibility direct"]=False
                     params["partition"]["quantum number susceptibility"] = True
