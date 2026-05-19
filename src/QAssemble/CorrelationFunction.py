@@ -393,7 +393,11 @@ class CorrelationFunction(object):
             iter_timing["BWeiss"] = 0.0
             iter_timing["FWeiss"] = 0.0
             iter_timing["CTQMC"] = 0.0
-            subtract_local_dc = self.control["run"]["method"] in ("gw+edmft")
+            if self.control["run"]["method"] == "gw+edmft":
+                subtract_local_dc = True
+            else:
+                subtract_local_dc = False
+            
             gimp_by_key = {}
 
             for key in projector.fprojector.keys():

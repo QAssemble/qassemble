@@ -314,12 +314,12 @@ class EImp(FLocStc):
         e = self.Projection(self.ham, self.key)
         # e = e + self.sig
 
-        logger.info(e)
+        
         if (self.hloc is not None) and (self.floc is not None):
             self.e = e - self.hloc - self.floc
         else:
             self.e = e
-
+        logger.info("Impurity Level : %s", self.e)
         return None
 
     def Save(self, fn: str, obj : np.ndarray = None):
