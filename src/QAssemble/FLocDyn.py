@@ -739,6 +739,7 @@ class Hyb(FLocDyn):
         
         super().__init__(crystal, dlr, projector)
 
+        print("Enter the Hyb class")
         self.key = self.ResolveProblemKey(key)
         self.green = green
         self.eimp = eimp
@@ -759,6 +760,8 @@ class Hyb(FLocDyn):
         self.f = None
         self.t = None
         self.Cal()
+
+        print("Exit the Hyb class")
 
     def Cal(self):
 

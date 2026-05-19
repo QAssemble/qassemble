@@ -228,7 +228,7 @@ class EImp(FLocStc):
     def __init__(self, crystal : Crystal, projector : Projector, key, hamtb : np.ndarray, mu : float, sigh : np.ndarray = None, sigf : np.ndarray = None, hloc : np.ndarray = None, floc : np.ndarray = None, hdf5file : str = None, group : str = None):
 
         super().__init__(crystal, projector)
-
+        print("Enter the EImp class")
         self.key = self.ResolveProblemKey(key)
         self.hamtb = hamtb
         self.mu = mu
@@ -263,6 +263,8 @@ class EImp(FLocStc):
         self.ham = tempmat + self.sig
         
         self.Cal()
+
+        print("Exit the EImp class")
 
     def _resolve_static_self_energy(self, name : str, sigma : np.ndarray) -> np.ndarray:
         key = self.key
