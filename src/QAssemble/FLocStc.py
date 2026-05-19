@@ -236,18 +236,19 @@ class EImp(FLocStc):
         self.sig = None
         self.sigh = None
         self.sigf = None
+        self.hloc = hloc
+        self.floc = floc
         self.e = None
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
 
-        if hloc is not None or floc is not None:
-            raise ValueError(
-                "EImp hloc/floc double-counting subtraction is deprecated. "
-                "Pass static local self-energies through sigh/sigf; EImp will "
-                "include them and ImpurityAction subtracts the local DC when "
-                "embedding impurity self-energies back to the lattice."
-            )
+        print("Non Interacting Hamiltonian : ", self.hamtb[:, :, 0, 0])
+        print("Chemical Potential : ", self.mu)
+        print("Hartree Self Energy : ", sigh[:, :, 0] if sigh is not None else None)
+        print("Fock Self Energy : ", sigf[:, :, 0] if sigf is not None else None)
+        print("Double Counting Hartree : ", hloc[:, :, 0] if hloc is not None else None)
+        print("Double Counting Fock : ", floc[:, :, 0] if floc is not None else None)
 
         tempmat = np.zeros_like(hamtb, dtype=np.complex128, order='F')
 
@@ -255,10 +256,11 @@ class EImp(FLocStc):
             for js in range(hamtb.shape[2]):
                 tempmat[...,js,ik] = hamtb[...,js,ik] - mu*np.eye(hamtb.shape[0], dtype=np.complex128)
 
-        self.ham = tempmat
+        
         self.sigh = self._resolve_static_self_energy("sigh", sigh)
         self.sigf = self._resolve_static_self_energy("sigf", sigf)
         self.sig = self.sigh + self.sigf
+        self.ham = tempmat + self.sig
         
         self.Cal()
 
@@ -308,10 +310,13 @@ class EImp(FLocStc):
     def Cal(self):
 
         e = self.Projection(self.ham, self.key)
-        e = e + self.sig
+        # e = e + self.sig
 
         logger.info(e)
-        self.e = e
+        if (self.hloc is not None) and (self.floc is not None):
+            self.e = e - self.hloc - self.floc
+        else:
+            self.e = e
 
         return None
 

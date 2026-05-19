@@ -365,9 +365,6 @@ class CorrelationFunction(object):
             crystal=self.crystal,
             dlr=self.dlr,
             greenbare=self.greenbare.kf,
-            sigmah=sigmah_current,
-            sigmaf=sigmaf_current,
-            sigmagwc=sigc_current,
             hdf5file=hdf5file,
             group=group,
         )
@@ -413,7 +410,7 @@ class CorrelationFunction(object):
                     sigh_dc_obj.Save(f'sigh_dc.{iter}.{key}')
                     sigf_dc_obj.Save(f'sigf_dc.{iter}.{key}')
                 t0 = time.perf_counter()
-                eimp = EImp(crystal=self.crystal,projector=projector,key=key,hamtb=self.niham.k,mu=green.mu, sigh=sigh_dc, sigf=sigf_dc, hdf5file=hdf5file, group=group)
+                eimp = EImp(crystal=self.crystal,projector=projector,key=key,hamtb=self.niham.k,mu=green.mu, hloc=sigh_dc, floc=sigf_dc, hdf5file=hdf5file, group=group)
                 eimp.Save(f'eimp.{iter}.{key}')
 
                 sighloc = None

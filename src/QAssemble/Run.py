@@ -156,16 +156,6 @@ class Run:
         control["run"]["nscf"] = ini.get("NSCF", 100)
         control["run"]["cw"] = ini.get("ConstantW", 1.0)
         control["run"]["dmft_tol"] = ini.get("DMFTTol", 1.0e-6)
-        broadening = {
-            "Enable": False,
-            "Green": True,
-            "SelfEnergy": True,
-            "WidthSlope": 0.05,
-            "Cutoff": None,
-            "SaveRaw": True,
-        }
-        broadening.update(copy.deepcopy(ini.get("ImpurityGaussianBroadening", {})))
-        control["run"]["impurity_gaussian_broadening"] = broadening
 
         # CheckKeyinString("MatsubaraMesh",ini)
         cutoff = ini.get("MatsubaraCutOff", 50)

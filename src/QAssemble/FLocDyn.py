@@ -166,7 +166,7 @@ class FLocDyn(object):
             cnt += 1
 
         return ynew
-
+    
     def Mixing(self,iter : int, mix : float, Fb : np.ndarray, Fold : np.ndarray):
 
         norb = Fb.shape[0]
@@ -497,16 +497,13 @@ class GLoc(FLocDyn):
     
 class GImp(FLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, green, broadening : dict = None, hdf5file : str = None, group : str = None):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, green, hdf5file : str = None, group : str = None):
 
         super().__init__(crystal, dlr, projector)
 
         self.key = self.ResolveProblemKey(key)
         self.green = green
-        self.broadening = broadening
         self.f = None
-        self.f_uniform = None
-        self.raw_f_uniform = None
         self.t = None
         self.hdf5file = hdf5file
         self.group = group
@@ -529,20 +526,7 @@ class GImp(FLocDyn):
         if isinstance(self.green, dict):
             equiv = np.asarray(self.projector.equiv[self.key], dtype=int)
             green = self._read_ctqmc_green(self.green)
-            green_grid = self.ReadDict(equiv, green)
-            if self.broadening is not None and self.broadening.get("save_raw", True):
-                self.raw_f_uniform = np.asfortranarray(green_grid.copy())
-            if self.broadening is not None and self.broadening.get("enable", True):
-                nfreq = green_grid.shape[3]
-                omega = np.pi / self.dlr.beta * (2*np.arange(nfreq) + 1)
-                green_grid = self.GaussianLinearBroad(
-                    omega,
-                    green_grid,
-                    float(self.broadening.get("width_slope", 0.05)),
-                    1.0 / float(self.dlr.beta),
-                    float(self.broadening["cutoff"]),
-                )
-            self.f_uniform = np.asfortranarray(green_grid)
+            self.f_uniform = self.ReadDict(equiv, green)
             green_uniform = self.dlr.MatsubaraAddNegativeFrequency(self.f_uniform)
             self.f = self.dlr.MatsubaraUniformGrid2DLR(green_uniform)
         else:
@@ -561,15 +545,13 @@ class GImp(FLocDyn):
             else:
                 Common.HDF5CreateDataset(gloc, fn, self.f, dtype=complex)
                 Common.HDF5CreateDataset(gloc, fn+'_uniform', self.f_uniform, dtype=complex)
-                if self.raw_f_uniform is not None:
-                    Common.HDF5CreateDataset(gloc, fn+'_raw_uniform', self.raw_f_uniform, dtype=complex)
 
         return None
 
 
 class SigCImp(FLocDyn):
 
-    def __init__(self,crystal : Crystal,dlr : DLR,projector : Projector,key,sigma,sigma_hf : np.ndarray = None,subtract_static : bool = True,broadening : dict = None,hdf5file : str = None,group : str = None,):
+    def __init__(self,crystal : Crystal,dlr : DLR,projector : Projector,key,sigma,sigma_hf : np.ndarray = None,subtract_static : bool = True,hdf5file : str = None,group : str = None,):
 
         super().__init__(crystal, dlr, projector)
 
@@ -577,11 +559,8 @@ class SigCImp(FLocDyn):
         self.sigma_in = sigma
         self.sigma_hf_in = sigma_hf
         self.subtract_static = subtract_static
-        self.broadening = broadening
         self.hf = None
         self.f = None
-        self.f_uniform = None
-        self.raw_f_uniform = None
         self.t = None
         self.hdf5file = hdf5file
         self.group = group
@@ -685,17 +664,6 @@ class SigCImp(FLocDyn):
             equiv = np.asarray(self.projector.equiv[self.key], dtype=int)
             sigma = self._read_ctqmc_sigma(self.sigma_in)
             sigma_grid = self.ReadDict(equiv, sigma)
-            sigma_raw_grid = np.asfortranarray(sigma_grid.copy())
-            if self.broadening is not None and self.broadening.get("enable", True):
-                nfreq = sigma_grid.shape[3]
-                omega = np.pi / self.dlr.beta * (2*np.arange(nfreq) + 1)
-                sigma_grid = self.GaussianLinearBroad(
-                    omega,
-                    sigma_grid,
-                    float(self.broadening.get("width_slope", 0.05)),
-                    1.0 / float(self.dlr.beta),
-                    float(self.broadening["cutoff"]),
-                )
             if self.subtract_static:
                 self.hf = self._resolve_sigma_hf()
                 if self.hf.shape != sigma_grid.shape[:3]:
@@ -703,10 +671,7 @@ class SigCImp(FLocDyn):
                         f"sigma_hf shape {self.hf.shape} is incompatible with "
                         f"sigma shape {sigma_grid.shape}"
                     )
-                sigma_raw_grid = np.asfortranarray(sigma_raw_grid - self.hf[..., np.newaxis])
                 sigma_grid = np.asfortranarray(sigma_grid - self.hf[..., np.newaxis])
-            if self.broadening is not None and self.broadening.get("save_raw", True):
-                self.raw_f_uniform = sigma_raw_grid
             self.f_uniform = sigma_grid
             sigma_uniform = self.dlr.MatsubaraAddNegativeFrequency(sigma_grid)
             sigma_total = self.dlr.MatsubaraUniformGrid2DLR(sigma_uniform)
@@ -764,8 +729,6 @@ class SigCImp(FLocDyn):
             else:
                 Common.HDF5CreateDataset(sigimp, fn, self.f, dtype=complex)
                 Common.HDF5CreateDataset(sigimp, fn+'_uniform', self.f_uniform, dtype=complex)
-                if self.raw_f_uniform is not None:
-                    Common.HDF5CreateDataset(sigimp, fn+'_raw_uniform', self.raw_f_uniform, dtype=complex)
 
         return None
 
@@ -786,6 +749,12 @@ class Hyb(FLocDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+
+        print("Local Green's Function :", self.green[:, :, 0, 0])
+        print("Impurity Level :", self.eimp[:, :, 0])
+        print("Hartree Self-Energy :", self.sigh[:, :, 0] if self.sigh is not None else None)
+        print("Fock Self-Energy :", self.sigf[:, :, 0] if self.sigf is not None else None)
+        print("Correlated Self-Energy :", self.sigc[:, :, 0, 0] if self.sigc is not None else None)
 
         self.f = None
         self.t = None
@@ -854,15 +823,4 @@ class FWeiss(FLocDyn):
         self.h_dlr = self.AverageByEquiv(equiv, self.hyb)
         self.h = self.UniformGrid(self.h_dlr)
         
-        return None
-
-    def Save(self, fn: str, obj : np.ndarray = None):
-
-        with h5py.File(self.hdf5file,'a') as file:
-            fweiss = Common.HDF5Subgroup(file, self.group, self.subgroup)
-            if obj is not None:
-                Common.HDF5CreateDataset(fweiss, fn, obj, dtype=complex)
-            else:
-                Common.HDF5CreateDataset(fweiss, fn, self.h, dtype=complex)
-
         return None
