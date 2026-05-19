@@ -422,8 +422,8 @@ class CorrelationFunction(object):
                 sigcloc = None
                 if sigmah_current is not None:
                     sighloc = eimp.Projection(sigmah_current, key)
-                    for js in range(sighloc.shape[2]):
-                        sighloc[:, :, js] -= green.c * np.eye(sighloc.shape[0], dtype=np.complex128)
+                    # for js in range(sighloc.shape[2]):
+                    #     sighloc[:, :, js] -= green.c * np.eye(sighloc.shape[0], dtype=np.complex128)
                 if sigmaf_current is not None:
                     sigfloc = eimp.Projection(sigmaf_current, key)
                 if sigc_current is not None:
@@ -504,7 +504,7 @@ class CorrelationFunction(object):
                 f"FWeiss: {iter_timing['FWeiss']:.4f}s, "
                 f"CTQMC: {iter_timing['CTQMC']:.4f}s"
             )
-            logger.info(f"iteration : {iter} \nimpurity Green criteria : {gcheck}\nchemical potential : {green_next.mu+green_next.c}")
+            logger.info(f"iteration : {iter} \nimpurity Green criteria : {gcheck}\nchemical potential : {green_next.mu}")
 
             if gcheck <= dmft_tol:
                 logger.info(f"DMFT self-consistency is achieved with {iter}-th iteration")
