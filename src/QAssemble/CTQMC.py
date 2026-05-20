@@ -121,7 +121,7 @@ class CTQMC(object):
 
                     params["partition"]["green basis"]= "matsubara"
                     params["partition"]["green bulla"]= True
-                    params["partition"]["green matsubara cutoff"] = self.dlr.cutoff # 50
+                    params["partition"]["green matsubara cutoff"] = 3#self.dlr.cutoff # 50
                     params["partition"]["occupation susceptibility bulla"]=True
                     params["partition"]["occupation susceptibility direct"]=False
                     params["partition"]["quantum number susceptibility"] = True
@@ -149,12 +149,12 @@ class CTQMC(object):
 
                     params["hybridisation"]["matrix"]=self._ctqmc_matrix_labels(equiv)
                     params["hybridisation"]["functions"]="hyb.json"
-                    params["thermalisation time"]=1 #imp['thermalization_time']
+                    params["thermalisation time"]=3 #imp['thermalization_time']
                     params["quantum number susceptibility"]=True
                     params["occupation susceptibility bulla"]=True        
                     params["green bulla"]=True       
                     params["density matrix precise"]=False #True 
-                    params["measurement time"]=3 # 10 # 3 #imp['measurement_time']
+                    params["measurement time"]=20 # 10 # 3 #imp['measurement_time']
 
                     if self._use_dyn():
                         params["dyn"] = {}

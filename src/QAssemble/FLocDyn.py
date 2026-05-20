@@ -768,9 +768,9 @@ class Hyb(FLocDyn):
         tempmat = np.zeros_like(self.green, dtype=np.complex128, order='F')
         sig = np.zeros_like(self.green, dtype=np.complex128, order='F')
         if self.sigh is not None:
-            sig += self.sigh
+            sig += self.sigh[..., np.newaxis]
         if self.sigf is not None:
-            sig += self.sigf
+            sig += self.sigf[..., np.newaxis]
         if self.sigc is not None:
             sig += self.sigc
 
