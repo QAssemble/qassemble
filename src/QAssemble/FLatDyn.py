@@ -739,7 +739,7 @@ class G(FLatDyn):
             logger.error(f"nmin : {nmin}, nmax : {nmax}")
             sys.exit()
         sol = scipy.optimize.brentq(self.NumOfE,mumin,mumax,xtol=1.0e-6)
-        self.mu = sol + self.c
+        self.mu = sol #+ self.c
         logger.info("Finding chemical potential finish")
 
         # Clean up caches
