@@ -319,6 +319,7 @@ class EImp(FLocStc):
             self.e = e - self.hloc - self.floc
         else:
             self.e = e
+        print(f"[EImp.Cal] key={self.key}, e[0,0,0]={self.e[0,0,0]}, mu={self.mu}")
         logger.info("Impurity Level : %s", self.e)
         return None
 

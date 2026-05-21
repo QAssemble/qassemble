@@ -785,6 +785,7 @@ class Hyb(FLocDyn):
                 tempmat[..., js, iomega] = omega[iomega]*I - e[..., js] - g_inv[..., js, iomega] - sig[..., js, iomega]
         self.f = tempmat
         self.t = self.F2T(tempmat)
+        print(f"[Hyb.Cal] key={self.key}, f[0,0,0,0]={self.f[0,0,0,0]}, f[0,0,0,-1]={self.f[0,0,0,-1]}")
 
         return None
     

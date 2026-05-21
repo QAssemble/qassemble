@@ -587,13 +587,7 @@ class G(FLatDyn):
             self.gkfmu0 = self.gbare
         else:
             if (self.sigmah is not None):
-                # print(sigma[:,:,0,0,0])
-                diag = np.diagonal(self.sigmah[:,:,0,0])
-                const = np.mean(diag)
-                self.c = np.real(const)
-                # print(const)
                 sigma += self.StcEmbedding(self.sigmah)
-                sigma += self.ChemEmbedding(-const)
                 logger.info('Hartree')
                 logger.debug(sigma[:,:,0,0,0])
             if (self.sigmaf is not None):
@@ -612,6 +606,7 @@ class G(FLatDyn):
         self.gktmu0 = self.F2T(self.gkfmu0)
         self.grfmu0 = self.K2R(self.gkfmu0)
         self.grtmu0 = self.K2R(self.gktmu0)
+        print(f"[G.CalMu0] c={self.c}, gkfmu0[0,0,0,0,-1]={self.gkfmu0[0,0,0,0,-1]}")
         logger.info("Initialization finish")
         return None
     
@@ -717,9 +712,23 @@ class G(FLatDyn):
     def SearchMu(self):
 
         logger.info("Finding chemical potential start")
-        mumin = self.dlr.omega[0]
-        mumax = self.dlr.omega[-1]
-        logger.info(f"minimum : {mumin}, maximum : {mumax}")
+
+        # Estimate Hartree-induced shift so the bisection bracket [omega[0], omega[-1]]
+        # is recentered around the physical mu (the Hartree-trace shift trick has been
+        # removed from CalMu0, so sol now equals the full physical chemical potential).
+        shift_est = 0.0
+        shift_spread = 0.0
+        if self.sigmah is not None:
+            diag = np.real(np.diagonal(self.sigmah[:, :, 0, 0]))
+            shift_est = float(np.mean(diag))
+            shift_spread = float(np.max(np.abs(diag - shift_est)))
+        safety = 1.5
+        mumin = self.dlr.omega[0] + shift_est - safety * shift_spread
+        mumax = self.dlr.omega[-1] + shift_est + safety * shift_spread
+        logger.info(
+            f"minimum : {mumin}, maximum : {mumax} "
+            f"(shift_est={shift_est}, spread={shift_spread})"
+        )
 
         # Precompute G0^{-1} for vectorized NumOfE
         norb = len(self.crystal.find)
@@ -734,12 +743,24 @@ class G(FLatDyn):
 
         nmin = self.NumOfE(mumin)
         nmax = self.NumOfE(mumax)
-        if (nmin < 0) or (nmax>0):
-            logger.error("Chemical potential is out of the bisection range")
+        expand_tries = 0
+        while ((nmin < 0) or (nmax > 0)) and expand_tries < 3:
+            width = mumax - mumin
+            mumin -= 0.5 * width
+            mumax += 0.5 * width
+            nmin = self.NumOfE(mumin)
+            nmax = self.NumOfE(mumax)
+            expand_tries += 1
+            logger.info(
+                f"expand {expand_tries}: [{mumin}, {mumax}], nmin={nmin}, nmax={nmax}"
+            )
+        if (nmin < 0) or (nmax > 0):
+            logger.error("Chemical potential is out of the bisection range after expansion")
             logger.error(f"nmin : {nmin}, nmax : {nmax}")
             sys.exit()
         sol = scipy.optimize.brentq(self.NumOfE,mumin,mumax,xtol=1.0e-6)
-        self.mu = sol #+ self.c
+        self.mu = sol  # physical chemical potential (c-shift no longer applied)
+        print(f"[G.SearchMu] sol={sol}, mu={self.mu}, mumin={mumin}, mumax={mumax}")
         logger.info("Finding chemical potential finish")
 
         # Clean up caches

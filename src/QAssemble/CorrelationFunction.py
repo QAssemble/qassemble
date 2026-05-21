@@ -272,8 +272,7 @@ class CorrelationFunction(object):
             bcheck = self.SCFCheck(w.kf,wold)
             mucheck = abs(gnew.mu-gold.mu)
 
-            logger.info(f"iteration : {iter} \nfcriteria : {fcheck} \nbcriteria : {bcheck} \nchemicalpotential : {gnew.mu+gnew.c}")
-            # print(f"iteration : {iter} \nfcriteria : {fcheck} \nchemicalpotential : {gnew.mu}")
+            logger.info(f"iteration : {iter} \nfcriteria : {fcheck} \nbcriteria : {bcheck} \nchemicalpotential : {gnew.mu}")
 
             if (iter > pol_mixer.npulay)and(fcheck <=1.0e-6)and(mucheck<=0.01)and(bcheck<=1.0e-4):
                 logger.info(f"Self-consistency is achived with {iter}-th")
@@ -422,12 +421,12 @@ class CorrelationFunction(object):
                 sigcloc = None
                 if sigmah_current is not None:
                     sighloc = eimp.Projection(sigmah_current, key)
-                    for js in range(sighloc.shape[2]):
-                        sighloc[:, :, js] -= green.c * np.eye(sighloc.shape[0], dtype=np.complex128)
+                    # sighloc carries no c-shift: lattice G no longer subtracts Hartree trace.
                 if sigmaf_current is not None:
                     sigfloc = eimp.Projection(sigmaf_current, key)
                 if sigc_current is not None:
                     sigcloc = gloc.Projection(sigc_current, key)
+                print(f"[Hyb-build] key={key}, sighloc[0,0,0]={None if sighloc is None else sighloc[0,0,0]}")
 
                 hyb = Hyb(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,green=gloc.f[key],eimp=eimp.e,sigh=sighloc,sigf=sigfloc,sigc=sigcloc,hdf5file=hdf5file,group=group)
                 hyb.Save(f'hyb.{iter}.{key}')
