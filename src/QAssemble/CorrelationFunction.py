@@ -422,8 +422,8 @@ class CorrelationFunction(object):
                 sigcloc = None
                 if sigmah_current is not None:
                     sighloc = eimp.Projection(sigmah_current, key)
-                    # for js in range(sighloc.shape[2]):
-                    #     sighloc[:, :, js] -= green.c * np.eye(sighloc.shape[0], dtype=np.complex128)
+                    for js in range(sighloc.shape[2]):
+                        sighloc[:, :, js] -= green.c * np.eye(sighloc.shape[0], dtype=np.complex128)
                 if sigmaf_current is not None:
                     sigfloc = eimp.Projection(sigmaf_current, key)
                 if sigc_current is not None:
