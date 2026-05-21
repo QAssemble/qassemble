@@ -259,7 +259,7 @@ class EImp(FLocStc):
         
         self.sigh = self._resolve_static_self_energy("sigh", sigh)
         self.sigf = self._resolve_static_self_energy("sigf", sigf)
-        self.sig = self.sigh + self.sigf
+        self.sig = self.sigh[..., np.newaxis] + self.sigf[..., np.newaxis]
         self.ham = tempmat + self.sig
         
         self.Cal()
