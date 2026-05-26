@@ -335,8 +335,15 @@ class CTQMC(object):
 
             params = json.load(open('./params.json'))
             cutoff = params["partition"]["green matsubara cutoff"]
-            
+
             # susceptibility = self.read_susceptibility_LocDyn(equiv, obsjson, key=key)
+            self.diagnostics = {
+                "sign":     float(ctqmc_sign) if np.isscalar(ctqmc_sign) else float(np.mean(ctqmc_sign)),
+                "nimp":     float(nn) if np.isscalar(nn) else float(np.sum(nn)),
+                "histo":    histo,
+                "histo_m1": float(firstmoment),
+                "histo_m2": float(secondmoment),
+            }
             print("******************************")
             print("Impurity Postprocessing Finish")
             print("******************************")

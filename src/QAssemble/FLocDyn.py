@@ -732,6 +732,26 @@ class SigCImp(FLocDyn):
 
         return None
 
+    def CheckCausalityUniform(self, tol: float) -> tuple:
+        """Check Im Sigma(iw>0) <= tol on the positive-only uniform Matsubara grid.
+
+        Returns (ok, max_im). Caller decides policy (rollback / warmup grace /
+        abort). Requires self.f_uniform which is populated only when the
+        constructor receives a CTQMC self-energy dict; ndarray-input
+        construction (no uniform grid) raises RuntimeError explicitly.
+        """
+        if not hasattr(self, "f_uniform") or self.f_uniform is None:
+            raise RuntimeError(
+                "SigCImp.CheckCausalityUniform requires f_uniform; "
+                "constructor was given an ndarray, not a CTQMC dict."
+            )
+        f_u = self.f_uniform
+        if f_u.ndim != 4:
+            raise ValueError(f"SigCImp.f_uniform must be 4D, got shape {f_u.shape}")
+        diag = np.einsum("iisn->isn", f_u)
+        max_im = float(np.asarray(diag).imag.max(initial=0.0))
+        return (max_im <= tol), max_im
+
 
 class Hyb(FLocDyn):
 
@@ -813,18 +833,41 @@ class FWeiss(FLocDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
-        
+
         self.e = None
         self.h_dlr = None
         self.h = None
         self.omega_uniform = None
 
         self.Cal()
+        # Causality check is performed explicitly by the caller via
+        # fweiss.CheckCausality(tol). Symmetric to SigCImp.CheckCausalityUniform.
 
     def Cal(self):
         equiv = np.array(self.projector.equiv[self.key])
         self.e = self.eimp.AverageByEquiv(equiv, self.eimp.e)
         self.h_dlr = self.AverageByEquiv(equiv, self.hyb)
         self.h = self.UniformGrid(self.h_dlr)
-        
+
         return None
+
+    def CheckCausality(self, tol: float) -> tuple:
+        """Check Im Delta(iw>0) <= tol on the positive-only uniform Matsubara grid.
+
+        Returns (ok, max_im). A causality violation does NOT raise — caller
+        decides policy (raise/log/continue). Setup errors (Cal() not yet run,
+        unexpected self.h shape) still raise RuntimeError/ValueError to surface
+        programmer bugs early. Symmetric to SigCImp.CheckCausalityUniform.
+
+        self.h has shape (norb, norb, ns, nfreq_uniform) where the uniform grid
+        is positive-only by construction (DLR.MatsubaraFermionUniform). We do
+        NOT check self.h_dlr because the DLR grid contains negative w nodes
+        where Im Delta is positive by causal symmetry.
+        """
+        if self.h is None:
+            raise RuntimeError("FWeiss.CheckCausality called before Cal()")
+        if self.h.ndim != 4:
+            raise ValueError(f"FWeiss.h must be 4D, got shape {self.h.shape}")
+        diag = np.einsum("iisn->isn", self.h)
+        max_im = float(np.asarray(diag).imag.max(initial=0.0))
+        return (max_im <= tol), max_im
