@@ -17,6 +17,7 @@ dependencies = [
     "pydlr",
     "sympy",
     "pymatgen",
+    "cvxpy",
 ]
 
 [project.scripts]

@@ -18,10 +18,11 @@ logger = logging.getLogger("QAssemble")
 class FLocDyn(object):
 
     def __init__(self,crystal : Crystal, dlr : DLR, projector : Projector):
-        
+
         self.crystal = crystal
         self.dlr = dlr
         self.projector = projector
+        self._causality_ops = None
 
     def Inverse(self, mat : np.ndarray):
         
@@ -427,6 +428,176 @@ class FLocDyn(object):
 
         pkey = self.ResolveProblemKey(key)
         return PJ.FLatDyn(matin, self.projector.fprojector[pkey])
+
+    # ------------------------------------------------------------------
+    # Matrix-valued causal projection (Han & Choi, PRB 104, 115112, 2021,
+    # Appendix B, generalised). Public method is duplicated on FLatDyn /
+    # FLocDyn per design decision; shared math lives in Common.
+    # ------------------------------------------------------------------
+
+    def _causality_get_ops(self) -> dict:
+        if getattr(self, "_causality_ops", None) is None:
+            tauF = np.asarray(self.dlr.tauF, dtype=np.float64)
+            D2, L4 = Common.CausalityOperators(tauF)
+            # K maps tau (DLR) -> Matsubara (DLR) on basis vectors.
+            # Build column-by-column via dlr_from_tau -> matsubara_from_dlr.
+            N = len(tauF)
+            Nw = len(self.dlr.omega)
+            K = np.zeros((Nw, N), dtype=np.complex128)
+            I_basis = np.eye(N, dtype=np.complex128)
+            for l in range(N):
+                ff = self.dlr.FT2F(I_basis[:, l])
+                K[:, l] = ff
+            self._causality_ops = {"tau": tauF, "D2": D2, "L4": L4, "K": K}
+        return self._causality_ops
+
+    def CausalityProjection(
+        self,
+        mat_freq: np.ndarray,
+        sign: int = +1,
+        eps: float = 1e-10,
+        eta: float = None,
+        fallback: str = "regularize",
+    ) -> np.ndarray:
+        """Project mat_freq onto the matrix-valued causal cone.
+
+        Input shape: (norb, norb, ns, n_omega_dlr) on the DLR Matsubara grid.
+        Output: same shape, same grid, causal-projected.
+
+        sign = +1 for G / Delta (sg(τ) <= 0 etc.); -1 for Sigma.
+        fallback policy on solver failure: "regularize" (default) returns the
+        unprojected slice unchanged; "warn" zero-fills the corner; "raise"
+        propagates the RuntimeError.
+        """
+        if fallback not in ("regularize", "warn", "raise"):
+            raise ValueError(f"unknown fallback policy '{fallback}'")
+        if mat_freq.ndim != 4:
+            raise ValueError(f"FLocDyn.CausalityProjection expects 4D input, got {mat_freq.ndim}D")
+
+        ops = self._causality_get_ops()
+        D2 = ops["D2"]
+        L4 = ops["L4"]
+        K = ops["K"]
+
+        # mat_freq -> tau on DLR grid.
+        mat_tau = self.F2T(np.asfortranarray(mat_freq, dtype=np.complex128))
+        norb, _, ns, ntau = mat_tau.shape
+        if ntau != D2.shape[1]:
+            raise ValueError(
+                f"tau dimension {ntau} does not match DLR grid {D2.shape[1]}"
+            )
+
+        out_tau = np.array(mat_tau, copy=True)
+
+        for js in range(ns):
+            try:
+                Gc_slice = self._causality_project_block(
+                    mat_tau[:, :, js, :],
+                    mat_freq[:, :, js, :],
+                    D2, L4, K, sign, eps, eta, fallback,
+                )
+                out_tau[:, :, js, :] = Gc_slice
+            except RuntimeError as exc:
+                if fallback == "raise":
+                    raise
+                logger.warning(f"CausalityProjection failed on ns={js}: {exc}")
+
+        # Off-diagonal hermitization in τ-space is already enforced inside
+        # _causality_project_block (Gc[j,i,:] = conj(Gc[i,j,:])). The
+        # Matsubara symmetry for fermionic G is G_{ji}(iω) = conj(G_{ij}(-iω))
+        # which the DLR grid cannot directly express; we rely on the
+        # algorithm's structural Hermiticity instead of post-hoc averaging.
+        out_tau = np.asfortranarray(out_tau, dtype=np.complex128)
+        out_freq = self.T2F(out_tau)
+        return out_freq
+
+    def _causality_project_block(
+        self,
+        block_tau: np.ndarray,
+        block_freq: np.ndarray,
+        D2: np.ndarray,
+        L4: np.ndarray,
+        K: np.ndarray,
+        sign: int,
+        eps: float,
+        eta: float,
+        fallback: str,
+    ) -> np.ndarray:
+        """Project one (norb, norb, N) tau block. Returns projected block."""
+        norb, _, N = block_tau.shape
+        Gc = np.zeros((norb, norb, N), dtype=np.complex128)
+
+        # eta auto-selection: scale by mean |Gc[B,B]| later; for now a
+        # constant default tied to eps.
+        eta_eff = eta if eta is not None else max(eps, 1e-12)
+
+        # ---- Step 1: diagonal scalar QPs ----
+        for i in range(norb):
+            x_data = block_tau[i, i, :].real
+            y_data = block_freq[i, i, :]
+            try:
+                x_star = Common.CausalityDiagQP(x_data, y_data, K, D2, L4, sign, eps)
+                Gc[i, i, :] = x_star
+            except RuntimeError as exc:
+                if fallback == "raise":
+                    raise
+                logger.warning(
+                    f"CausalityProjection diag QP failed at i={i}: {exc}; passing through"
+                )
+                Gc[i, i, :] = x_data  # pass through unchanged
+
+        # ---- Step 2: off-diagonal QCQPs in offset-ascending order ----
+        for s in range(1, norb):
+            for i in range(0, norb - s):
+                j = i + s
+                B = list(range(i, j))  # leading block indices
+                r = 0                   # variable corner position within B
+                Gc_BB = Gc[np.ix_(B, B)]              # (s, s, N)
+                Gc_Bj = Gc[B, j, :]                   # (s, N)
+                Gc_jj = Gc[j, j, :]                   # (N,)
+                z_data = block_tau[i, j, :]
+                y_data = block_freq[i, j, :]
+
+                # eta scaled to trace of |M_alpha| would be ideal; use a
+                # cheap proxy proportional to mean |Gc_BB|.
+                trace_scale = float(np.mean(np.abs(Gc_BB))) + 1.0
+                eta_local = eta_eff * trace_scale
+
+                z_star = None
+                for retry in range(4):
+                    try:
+                        z_star = Common.CausalityOffdiagQCQP(
+                            z_data, y_data, Gc_BB, Gc_Bj, Gc_jj,
+                            K, D2, L4, r, sign, eps, eta_local,
+                        )
+                        break
+                    except RuntimeError:
+                        if fallback == "raise":
+                            raise
+                        eta_local *= 10.0
+                if z_star is None:
+                    if fallback == "raise":
+                        raise RuntimeError(
+                            f"CausalityProjection offdiag QCQP failed at (i={i},j={j}) after retries"
+                        )
+                    elif fallback == "warn":
+                        logger.warning(
+                            f"CausalityProjection offdiag QCQP failed at (i={i},j={j}); zero-filling"
+                        )
+                        z_star = np.zeros(N, dtype=np.complex128)
+                    else:  # regularize
+                        logger.warning(
+                            f"CausalityProjection offdiag QCQP failed at (i={i},j={j}); passing through"
+                        )
+                        z_star = np.asarray(z_data, dtype=np.complex128)
+                Gc[i, j, :] = z_star
+                Gc[j, i, :] = np.conjugate(z_star)
+
+        return Gc
+
+    def _causality_offdiag_sdp(self, *args, **kwargs):
+        """SDP-promoted off-diagonal solver. Reserved for v2."""
+        raise NotImplementedError("SDP promotion not implemented in v1")
     
 class GLoc(FLocDyn):
 
@@ -716,6 +887,11 @@ class SigCImp(FLocDyn):
                 f"crystal ns={self.crystal.ns}"
             )
 
+        self.f = self.CausalityProjection(self.f, sign=-1, fallback="raise")
+        # Re-derive f_uniform from projected DLR for single source of truth.
+        if hasattr(self, "f_uniform") and self.f_uniform is not None:
+            self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=-1)
+
         self.t = self.F2T(self.f)
 
         return None
@@ -756,7 +932,7 @@ class SigCImp(FLocDyn):
 class Hyb(FLocDyn):
 
     def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, green : np.ndarray, eimp : np.ndarray, sigh : np.ndarray = None, sigf : np.ndarray = None, sigc : np.ndarray = None, hdf5file : str = None, group : str = None):
-        
+
         super().__init__(crystal, dlr, projector)
 
         print("Enter the Hyb class")
@@ -766,7 +942,7 @@ class Hyb(FLocDyn):
         self.sigh = sigh
         self.sigf = sigf
         self.sigc = sigc
-        
+
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
@@ -804,7 +980,8 @@ class Hyb(FLocDyn):
             for js in range(g_inv.shape[2]):
                 tempmat[..., js, iomega] = omega[iomega]*I - e[..., js] - g_inv[..., js, iomega] - sig[..., js, iomega]
         self.f = tempmat
-        self.t = self.F2T(tempmat)
+        self.f = self.CausalityProjection(self.f, sign=+1, fallback="raise")
+        self.t = self.F2T(self.f)
         print(f"[Hyb.Cal] key={self.key}, f[0,0,0,0]={self.f[0,0,0,0]}, f[0,0,0,-1]={self.f[0,0,0,-1]}")
 
         return None
