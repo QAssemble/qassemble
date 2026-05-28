@@ -10,92 +10,98 @@ logger = logging.getLogger("QAssemble")
 class Convergence:
     """Method-agnostic convergence checker.
 
-    Construction mirrors CorrelationFunction.__init__: takes `control`,
-    inspects control['run']['method'], and configures itself accordingly.
+    All tolerance values are read from `control['run']` by canonical name:
+      - Self tests: `tol_d<Name>_abs` AND `tol_d<Name>_rel`
+      - Cross tests: `tol_<NameA>_<NameB>_abs`
 
-    Two modes, exposed as two methods:
-      - Check(...)       for hf/gw           (single-matrix + mu criterion)
-      - CheckDelta(...)  for dmft/edmft/gw+edmft (abs+rel deltas, causality, diag)
+    Missing key → the test is registered as `gating=False, passed=None`
+    (observational only, not part of the AND verdict). A one-time
+    `logger.info` per name names the missing key explicitly.
 
-    Returns (converged, info) tuples. Never raises for convergence
-    decisions; driver retains all flow control (break, raise, gc.collect).
+    Per-iteration usage:
+        conv.StartIter(iter)
+        conv.CheckSelf('GLoc', value=..., kind='dict')
+        conv.CheckSelf('mu',   value=..., kind='scalar')
+        conv.CheckCross('GLoc', a=..., name_b='GImp', b=..., kind='dict')
+        conv.RecordDiagnostics(diag_by_key)
+        converged, info = conv.Commit(iter, will_continue=...)
 
-    DMFT-family path additionally exposes:
-      - Start()                   to truncate convergence.jsonl
-      - RecordCausalityFail(...)  to write a FAIL row before driver raises
-      - self.causality_tol_hyb / self.causality_tol_sig / self.min_iter
-        for driver-side checks
+    HDF5 mirror group is `control['run'].get('convergence_hdf5_group',
+    'convergence')`. Drivers may `setdefault` it before constructing
+    `Convergence(control)`.
     """
 
-    _ROW_COLS = [
-        "iter", "causality_hyb", "causality_sig",
-        "gcheck", "dG_iter", "dG_rel",
-        "dSig_iter", "dSig_rel", "dmu",
-        "n_imp", "ctqmc_sign", "histo_1", "histo_2", "mu",
-    ]
+    _MIN_DEFENSE_REMOVED_KEYS = ("dmft_tol", "convergence_mode", "tol_G")
 
     def __init__(self, control: dict):
         self.control = control
-        self.method = control["run"]["method"]
+        self.method = control["run"].get("method")
         self.hdf5path = control["run"]["fn"]
 
-        if self.method == "hf":
-            self._init_hf()
-        elif self.method == "gw":
-            self._init_gw()
-        elif self.method in ("dmft", "edmft", "gw+edmft"):
-            self._init_delta()
-        elif self.method == "tb":
-            pass
-        else:
-            raise ValueError(f"Convergence: unknown method '{self.method}'")
+        if self.method == "tb":
+            self._init_tb_sentinels()
+            return
+        self._init_common()
 
-    def _init_hf(self):
-        run = self.control["run"]
-        self.tol_f = float(run.get("tol_f", 1e-7))
-        self.tol_mu = float(run.get("tol_mu", 0.01))
+    def _init_tb_sentinels(self):
+        """Sentinel state for method=='tb'. Any convergence-API call on
+        a tb instance raises RuntimeError with an actionable message."""
+        self._tb_no_op = True
+        self.min_iter = 0
 
-    def _init_gw(self):
-        run = self.control["run"]
-        self.tol_f = float(run.get("tol_f", 1e-6))
-        self.tol_b = float(run.get("tol_b", 1e-4))
-        self.tol_mu = float(run.get("tol_mu", 0.01))
+    def _require_not_tb(self, method_name):
+        if getattr(self, "_tb_no_op", False):
+            raise RuntimeError(
+                f"Convergence: method='tb' has no convergence loop; "
+                f"driver should not call {method_name}() for tb runs."
+            )
 
-    def _init_delta(self):
+    def _init_common(self):
         run = self.control["run"]
 
-        removed_keys = ("dmft_tol", "convergence_mode", "tol_G")
-        present_removed = [k for k in removed_keys if k in run]
+        # Thin defense for callers that bypass Run.py (test scripts,
+        # notebooks). Run.py also warns on a broader legacy key set.
+        present_removed = [k for k in self._MIN_DEFENSE_REMOVED_KEYS
+                           if k in run]
         if present_removed:
             raise ValueError(
                 f"control['run'] contains removed keys {present_removed}. "
-                f"Legacy convergence mode was removed (CTQMC noise floor made "
-                f"|G_loc-G_imp|<=dmft_tol unreachable). "
-                f"Convergence now uses delta criteria only: "
-                f"tol_dG_abs, tol_dG_rel, tol_dsig_abs, tol_dsig_rel, tol_dmu. "
-                f"Remove the listed keys from your input.ini to proceed."
+                f"These keys were eliminated when the legacy convergence "
+                f"mode was deleted. Convergence now uses delta criteria "
+                f"only (tol_d<Name>_abs/_rel, tol_<A>_<B>_abs). "
+                f"Remove the listed keys from control['run']."
             )
 
-        self.tol_dG_abs = float(run.get("tol_dG_abs", 1e-5))
-        self.tol_dG_rel = float(run.get("tol_dG_rel", 1e-3))
-        self.tol_dsig_abs = float(run.get("tol_dsig_abs", 3e-4))
-        self.tol_dsig_rel = float(run.get("tol_dsig_rel", 3e-3))
-        self.tol_dmu = float(run.get("tol_dmu", 1e-5))
-        self.causality_tol_hyb = float(run.get("causality_tol_hyb", 1e-8))
-        self.causality_tol_sig = float(run.get("causality_tol_sig", 1e-8))
-        self.min_iter = int(run.get("min_iter", 3))
-
+        self._tol_run = run
+        self.min_iter = int(run.get("min_iter", 0))
+        self._conv_hdf5_group = run.get(
+            "convergence_hdf5_group", "convergence"
+        )
+        self._self_prev = {}
+        self._pending_prev = {}
+        self._iter_buf = []
+        self._iter_diag = {}
+        self._iter_no = None
+        self._ready_after = self.min_iter
+        self._schema_cols = None
+        self._schema_warned = False
+        self._observational_warned = set()
+        self._zero_gating_warned = False
         self._conv_table = []
         top_dir = os.path.dirname(os.path.abspath(self.hdf5path)) or "."
         self._conv_log_path = os.path.join(top_dir, "convergence.log")
         self._conv_jsonl_path = os.path.join(top_dir, "convergence.jsonl")
 
-        self.prev = {"sigh": None, "sigf": None, "sigc": None,
-                     "gloc_f": None, "mu": None}
-
     def Start(self):
-        """Truncate convergence.jsonl. Called by the DMFT driver just before
-        the iteration loop."""
+        """Reset convergence state and truncate convergence.jsonl."""
+        self._require_not_tb("Start")
+        self._self_prev = {}
+        self._pending_prev = {}
+        self._iter_buf = []
+        self._iter_diag = {}
+        self._iter_no = None
+        self._schema_cols = None
+        self._schema_warned = False
         self._conv_table = []
         try:
             with open(self._conv_jsonl_path, "w"):
@@ -108,178 +114,281 @@ class Convergence:
         return np.abs(a - b).max()
 
     @staticmethod
-    def SCFCheckDict(gloc: dict, gimp: dict) -> float:
-        check = 0.0
-        for key in gimp.keys():
-            if key not in gloc:
-                raise KeyError(f"Missing lattice Green's function for problem key '{key}'")
-            check = max(check, Convergence.SCFCheck(gloc[key], gimp[key]))
-        return check
-
-    def Check(self, iter, *, fnew, fold, mu_new, mu_old,
-              bnew=None, bold=None, npulay=0):
-        """HF when bnew/bold are None; GW when provided.
-        Returns (converged, info) where info contains 'fcheck', 'mucheck',
-        and (GW only) 'bcheck'."""
-        fcheck = self.SCFCheck(fnew, fold)
-        mucheck = abs(mu_new - mu_old)
-        info = {"fcheck": fcheck, "mucheck": mucheck}
-        if bnew is None and bold is None:
-            converged = (fcheck <= self.tol_f) and (mucheck <= self.tol_mu)
-        else:
-            bcheck = self.SCFCheck(bnew, bold)
-            info["bcheck"] = bcheck
-            converged = (
-                (iter > npulay)
-                and (fcheck <= self.tol_f)
-                and (mucheck <= self.tol_mu)
-                and (bcheck <= self.tol_b)
-            )
-        return converged, info
-
-    def RecordCausalityFail(self, iter, *, kind, key, max_im, mu,
-                            subreason=None, diag=None):
-        """Append a FAIL row to convergence.log + JSONL + HDF5 mirror.
-        kind ∈ {'hyb','sig'}. Driver raises immediately afterwards."""
-        diag = diag or {}
-        if kind == "hyb":
-            causality_hyb = f"FAIL@{key}(Im={max_im:.3e})"
-            causality_sig = "-"
-            n_imp = "-"
-            ctqmc_sign = "-"
-            histo_1 = "-"
-            histo_2 = "-"
-        elif kind == "sig":
-            tag = f"Im={max_im:.3e}"
-            if subreason:
-                tag = f"{tag},{subreason}"
-            causality_hyb = "OK"
-            causality_sig = f"FAIL@{key}({tag})"
-            n_imp = diag.get("nimp")
-            ctqmc_sign = diag.get("sign")
-            histo_1 = diag.get("histo_m1")
-            histo_2 = diag.get("histo_m2")
-        else:
-            raise ValueError(f"RecordCausalityFail: unknown kind '{kind}'")
-
-        row = {
-            "iter": iter,
-            "causality_hyb": causality_hyb,
-            "causality_sig": causality_sig,
-            "gcheck": "-", "dG_iter": "-", "dG_rel": "-",
-            "dSig_iter": "-", "dSig_rel": "-", "dmu": "-",
-            "n_imp": n_imp, "ctqmc_sign": ctqmc_sign,
-            "histo_1": histo_1, "histo_2": histo_2,
-            "mu": float(mu),
-        }
-        self._write_convergence_log(row)
-
-    def CheckDelta(self, iter, *,
-                   gloc_next, sigmah_next, sigmaf_next, sigc_next,
-                   mu_next,
-                   gimp_by_key, diag_by_key, sig_rolled_back,
-                   will_continue=True):
-        """Per-iter DMFT convergence step. See plan for sequence."""
-        gcheck = self.SCFCheckDict(gloc_next.f, gimp_by_key)
-
-        dG_iter = dSig_iter = dmu = float("nan")
-        dG_rel = dSig_rel = float("nan")
-        delta_ready = (iter > self.min_iter) and (self.prev["gloc_f"] is not None)
-        if delta_ready:
-            dG_iter = 0.0
-            dG_rel = 0.0
-            matched_keys = 0
-            for k in gloc_next.f.keys():
-                if k not in self.prev["gloc_f"]:
-                    continue
-                check_k = self.SCFCheck(gloc_next.f[k], self.prev["gloc_f"][k])
-                scale_k = max(float(np.abs(gloc_next.f[k]).max()), 1e-30)
-                dG_iter = max(dG_iter, check_k)
-                dG_rel = max(dG_rel, check_k / scale_k)
-                matched_keys += 1
-            if matched_keys == 0:
+    def _max_diff_and_scale(a, b, kind):
+        if kind == "array":
+            abs_d = float(np.abs(a - b).max())
+            scale = max(float(np.abs(a).max()), 1e-30)
+            return abs_d, scale
+        if kind == "dict":
+            matched = a.keys() & b.keys()
+            if not matched:
+                return float("inf"), 1.0
+            abs_d = 0.0
+            scale = 1e-30
+            for k in matched:
+                abs_d = max(abs_d, float(np.abs(a[k] - b[k]).max()))
+                scale = max(scale, float(np.abs(a[k]).max()))
+            if a.keys() != b.keys():
                 logger.warning(
-                    f"iter {iter}: gloc key-set fully changed; "
-                    f"delta convergence forced to non-convergence (dG=inf)."
+                    "Convergence: dict key-set differs between old and new; "
+                    f"comparing intersection of size {len(matched)}."
                 )
-                dG_iter = float("inf")
-                dG_rel = float("inf")
-            dSig_iter = max(
-                self.SCFCheck(sigmah_next, self.prev["sigh"]),
-                self.SCFCheck(sigmaf_next, self.prev["sigf"]),
-                self.SCFCheck(sigc_next, self.prev["sigc"]),
-            )
-            s_scale = max(
-                float(np.abs(sigc_next).max()),
-                float(np.abs(sigmah_next).max()),
-                float(np.abs(sigmaf_next).max()),
-                1e-30,
-            )
-            dSig_rel = dSig_iter / s_scale
-            dmu = abs(float(mu_next) - float(self.prev["mu"]))
+            return abs_d, max(scale, 1e-30)
+        if kind == "scalar":
+            abs_d = abs(float(a) - float(b))
+            scale = max(abs(float(a)), abs(float(b)), 1e-30)
+            return abs_d, scale
+        raise ValueError(f"_max_diff_and_scale: unknown kind {kind!r}")
 
-        def _agg_diag(name, fn=np.mean):
-            vals = [d[name] for d in diag_by_key.values()
-                    if d.get(name) is not None]
-            return float(fn(vals)) if vals else float("nan")
+    @staticmethod
+    def _copy_value(value, kind):
+        if kind == "array":
+            return np.asarray(value).copy()
+        if kind == "dict":
+            return {k: v.copy() for k, v in value.items()}
+        if kind == "scalar":
+            return float(value)
+        raise ValueError(f"_copy_value: unknown kind {kind!r}")
 
-        row = {
-            "iter": iter,
-            "causality_hyb": "OK",
-            "causality_sig": ",".join(sig_rolled_back) if sig_rolled_back else "OK",
-            "gcheck": gcheck,
-            "dG_iter": dG_iter,
-            "dG_rel": dG_rel,
-            "dSig_iter": dSig_iter,
-            "dSig_rel": dSig_rel,
-            "dmu": dmu,
-            "n_imp": _agg_diag("nimp", np.sum),
-            "ctqmc_sign": _agg_diag("sign", np.min),
-            "histo_1": _agg_diag("histo_m1"),
-            "histo_2": _agg_diag("histo_m2"),
-            "mu": float(mu_next),
-        }
-
-        if delta_ready:
-            converged = (
-                dG_iter <= self.tol_dG_abs
-                and dG_rel <= self.tol_dG_rel
-                and dSig_iter <= self.tol_dsig_abs
-                and dSig_rel <= self.tol_dsig_rel
-                and dmu <= self.tol_dmu
+    def _require_iter(self, method_name):
+        if self._iter_no is None:
+            raise RuntimeError(
+                f"Convergence: call StartIter(iter) before {method_name}"
             )
+
+    def seed_prev(self, name, value, kind):
+        """Pre-seed a self-test previous value.
+
+        May be called before or after Start(), but Start() resets seeded
+        values. Call it before StartIter() for the iteration whose
+        CheckSelf() comparison should use the seeded value.
+        """
+        self._require_not_tb("seed_prev")
+        self._self_prev[name] = self._copy_value(value, kind)
+
+    def StartIter(self, iter, *, ready_after=None):
+        """Reset per-iter buffers. Must be called once per iter before
+        CheckSelf/CheckCross/RecordDiagnostics/Commit."""
+        self._require_not_tb("StartIter")
+        self._iter_buf = []
+        self._pending_prev = {}
+        self._iter_diag = {}
+        self._iter_no = int(iter)
+        self._ready_after = (
+            ready_after if ready_after is not None else self.min_iter
+        )
+
+    def _warn_observational(self, name, missing_keys):
+        if name in self._observational_warned:
+            return
+        self._observational_warned.add(name)
+        logger.info(
+            f"Convergence: '{name}' test is observational; missing "
+            f"{missing_keys} in control['run']. Add these keys to make "
+            f"the test gate the converged decision."
+        )
+
+    def CheckSelf(self, name, *, value, kind, gating=True):
+        """Register a self-test (old vs new) for `name`.
+
+        Tolerances are read lazily from `self._tol_run`:
+          - tol_abs: control['run']['tol_d<name>_abs']
+          - tol_rel: control['run']['tol_d<name>_rel']
+
+        If either tol is missing, the test is registered with
+        gating=False, passed=None — observational only. Both abs and
+        rel must be present for the test to gate.
+
+        Gated by the active ready_after threshold: until iter > threshold
+        (and a prev exists), passed=False (or None if observational).
+        """
+        self._require_not_tb("CheckSelf")
+        self._require_iter("CheckSelf")
+        abs_key = f"tol_d{name}_abs"
+        rel_key = f"tol_d{name}_rel"
+        tol_abs_raw = self._tol_run.get(abs_key)
+        tol_rel_raw = self._tol_run.get(rel_key)
+        observational = (tol_abs_raw is None) or (tol_rel_raw is None)
+
+        prev = self._self_prev.get(name)
+        ready = (prev is not None) and (self._iter_no > self._ready_after)
+        if ready:
+            abs_d, scale = self._max_diff_and_scale(value, prev, kind)
+            rel_d = abs_d / scale
         else:
-            converged = False
+            abs_d = float("nan")
+            rel_d = float("nan")
 
-        gcheck_warn_threshold = max(self.tol_dG_abs * 1000, 1e-2)
-        gcheck_warn_triggered = bool(converged and gcheck > gcheck_warn_threshold)
+        if observational:
+            missing = [k for k, v in ((abs_key, tol_abs_raw),
+                                       (rel_key, tol_rel_raw)) if v is None]
+            self._warn_observational(name, missing)
+            tol_abs = None
+            tol_rel = None
+            passed = None
+            effective_gating = False
+        else:
+            tol_abs = float(tol_abs_raw)
+            tol_rel = float(tol_rel_raw)
+            passed = bool(ready and (abs_d <= tol_abs) and (rel_d <= tol_rel))
+            effective_gating = gating
+
+        self._pending_prev[name] = (self._copy_value(value, kind), kind)
+        self._iter_buf.append({
+            "name": name,
+            "kind_test": "self",
+            "kind_value": kind,
+            "abs": abs_d,
+            "rel": rel_d,
+            "tol_abs": tol_abs,
+            "tol_rel": tol_rel,
+            "passed": passed,
+            "gating": effective_gating,
+        })
+
+    def CheckCross(self, name_a, *, a, name_b, b, kind, gating=True):
+        """Register a cross-test (same iter, different quantities).
+
+        Tolerance: control['run']['tol_<name_a>_<name_b>_abs'].
+        If missing, the test is registered with gating=False,
+        passed=None — observational only. No min_iter gate.
+        """
+        self._require_not_tb("CheckCross")
+        self._require_iter("CheckCross")
+        key = f"tol_{name_a}_{name_b}_abs"
+        tol_abs_raw = self._tol_run.get(key)
+        observational = tol_abs_raw is None
+
+        abs_d, _ = self._max_diff_and_scale(a, b, kind)
+
+        if observational:
+            self._warn_observational(f"{name_a}-{name_b}", [key])
+            tol_abs = None
+            passed = None
+            effective_gating = False
+        else:
+            tol_abs = float(tol_abs_raw)
+            passed = bool(abs_d <= tol_abs)
+            effective_gating = gating
+
+        self._iter_buf.append({
+            "name": f"{name_a}-{name_b}",
+            "kind_test": "cross",
+            "kind_value": kind,
+            "abs": abs_d,
+            "rel": None,
+            "tol_abs": tol_abs,
+            "tol_rel": None,
+            "passed": passed,
+            "gating": effective_gating,
+        })
+
+    def RecordDiagnostics(self, diag_by_key=None):
+        """Stash per-key impurity diagnostics for Commit() to aggregate
+        into the convergence row (n_imp, sign, histo_1, histo_2)."""
+        self._require_not_tb("RecordDiagnostics")
+        self._require_iter("RecordDiagnostics")
+        self._iter_diag = diag_by_key or {}
+
+    def _agg_diag(self, name, fn=np.mean):
+        vals = [d[name] for d in self._iter_diag.values()
+                if d.get(name) is not None]
+        return float(fn(vals)) if vals else float("nan")
+
+    def Commit(self, iter, *, will_continue):
+        """Finalize the iter: compute gating verdict, write the log row,
+        promote staged prev values when continuing, return (converged, info).
+
+        Zero-gating safety: if no gating=True records exist this iter,
+        emit a one-time warning and force converged=False (avoids
+        trivially-True `all([])`).
+        """
+        self._require_not_tb("Commit")
+        self._require_iter("Commit")
+        if int(iter) != self._iter_no:
+            raise RuntimeError(
+                f"Convergence: Commit(iter={iter}) does not match "
+                f"StartIter(iter={self._iter_no})"
+            )
+
+        gating_records = [r for r in self._iter_buf if r["gating"]]
+        if not gating_records:
+            if not self._zero_gating_warned:
+                logger.warning(
+                    f"Convergence: no gating tests registered "
+                    f"(iter={self._iter_no}); reporting converged=False "
+                    f"to avoid trivially-True all([]). Add at least one "
+                    f"matched tol_d<Name>_abs+_rel pair (or "
+                    f"tol_<A>_<B>_abs) in control['run'] to enable gating."
+                )
+                self._zero_gating_warned = True
+            converged = False
+        else:
+            converged = all(r["passed"] for r in gating_records)
+
+        row = {"iter": self._iter_no}
+        info_self = {}
+        info_cross = {}
+        mu_value = None
+        for r in self._iter_buf:
+            if r["kind_test"] == "self":
+                row[f"d{r['name']}_abs"] = r["abs"]
+                row[f"d{r['name']}_rel"] = r["rel"]
+                info_self[r["name"]] = {
+                    "abs": r["abs"], "rel": r["rel"], "passed": r["passed"],
+                    "tol_abs": r["tol_abs"], "tol_rel": r["tol_rel"],
+                    "gating": r["gating"],
+                }
+                if r["name"] == "mu":
+                    staged = self._pending_prev.get("mu")
+                    if staged is not None:
+                        mu_value = float(staged[0])
+            else:
+                row[f"{r['name']}_abs"] = r["abs"]
+                info_cross[r["name"]] = {
+                    "abs": r["abs"], "passed": r["passed"],
+                    "tol_abs": r["tol_abs"], "gating": r["gating"],
+                }
+        if self._iter_diag:
+            row["n_imp"] = self._agg_diag("nimp", np.sum)
+            row["ctqmc_sign"] = self._agg_diag("sign", np.min)
+            row["histo_1"] = self._agg_diag("histo_m1")
+            row["histo_2"] = self._agg_diag("histo_m2")
+        if mu_value is not None:
+            row["mu"] = mu_value
 
         self._write_convergence_log(row)
 
         if will_continue and not converged:
-            self.prev = {
-                "sigh": sigmah_next.copy(),
-                "sigf": sigmaf_next.copy(),
-                "sigc": sigc_next.copy(),
-                "gloc_f": {k: v.copy() for k, v in gloc_next.f.items()},
-                "mu": float(mu_next),
-            }
+            for name, (val, kind) in self._pending_prev.items():
+                self._self_prev[name] = val
 
         info = {
-            "gcheck": gcheck,
-            "dG_iter": dG_iter,
-            "dG_rel": dG_rel,
-            "dSig_iter": dSig_iter,
-            "dSig_rel": dSig_rel,
-            "dmu": dmu,
-            "gcheck_warn_threshold": gcheck_warn_threshold,
-            "gcheck_warn_triggered": gcheck_warn_triggered,
+            "self": info_self,
+            "cross": info_cross,
+            "converged": converged,
         }
+
+        self._iter_no = None
         return converged, info
 
     def _write_convergence_log(self, row):
         self._conv_table.append(row)
-        cols = self._ROW_COLS
+
+        if self._schema_cols is None:
+            self._schema_cols = list(row.keys())
+        else:
+            extra = [k for k in row.keys() if k not in self._schema_cols]
+            if extra and not self._schema_warned:
+                logger.warning(
+                    f"convergence.log: ignoring unexpected column(s) {extra} "
+                    f"not in locked schema {self._schema_cols}. "
+                    f"(Subsequent occurrences silently dropped from text log; "
+                    f"JSONL still receives the full row.)"
+                )
+                self._schema_warned = True
+
+        cols = self._schema_cols
         str_table = [[self._fmt_cell(r.get(c, "")) for c in cols]
                      for r in self._conv_table]
         widths = {c: max(len(c), max((len(s[i]) for s in str_table), default=0))
@@ -302,7 +411,7 @@ class Convergence:
 
         try:
             with h5py.File(self.hdf5path + ".h5", "a") as h:
-                grp = h.require_group("impurity_solver/convergence")
+                grp = h.require_group(self._conv_hdf5_group)
                 if "table" in grp:
                     del grp["table"]
                 grp.create_dataset("table", data=np.array(lines, dtype="S256"))
@@ -311,6 +420,8 @@ class Convergence:
 
     @staticmethod
     def _json_sanitize(v):
+        if v is None:
+            return None
         if isinstance(v, float):
             return v if np.isfinite(v) else None
         if isinstance(v, (np.floating,)):

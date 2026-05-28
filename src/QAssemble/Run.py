@@ -155,7 +155,70 @@ class Run:
         control["run"]["mix"] = ini.get("Mix", 0.1)
         control["run"]["nscf"] = ini.get("NSCF", 100)
         control["run"]["cw"] = ini.get("ConstantW", 1.0)
-        control["run"]["dmft_tol"] = ini.get("DMFTTol", 1.0e-6)
+
+        # ---- Legacy / removed key deprecation warnings -----------------
+        # Keys here are dropped — they are NOT copied into control['run'].
+        # Both CamelCase (input.ini style) and snake_case variants are
+        # warned so users who write either form get feedback.
+        _REMOVED_INPUT_KEYS = {
+            "DMFTTol":          "tol_d<Name>_abs/_rel",
+            "dmft_tol":         "tol_d<Name>_abs/_rel",
+            "ConvergenceMode":  "(removed; delta criteria are mandatory)",
+            "convergence_mode": "(removed; delta criteria are mandatory)",
+            "TolG":             "tol_dGLoc_abs",
+            "tol_G":            "tol_dGLoc_abs",
+        }
+
+        # ---- Convergence-related ingestion -----------------------------
+        # All tolerance keys (`tol_d<Name>_abs/_rel`, `tol_<A>_<B>_abs`)
+        # are copied verbatim into control['run']. Convergence treats
+        # missing keys leniently (test becomes observational).
+        # Removed keys are skipped so they don't trigger Convergence's
+        # _MIN_DEFENSE_REMOVED_KEYS guard.
+        for k, v in ini.items():
+            if not isinstance(k, str):
+                continue
+            if k in _REMOVED_INPUT_KEYS:
+                continue
+            if k.startswith("tol_"):
+                control["run"][k] = v
+        if "min_iter" in ini:
+            control["run"]["min_iter"] = int(ini["min_iter"])
+        if "convergence_hdf5_group" in ini:
+            control["run"]["convergence_hdf5_group"] = ini["convergence_hdf5_group"]
+        _LEGACY_TOL_KEYS = {
+            "tol_f":        "tol_dF_abs",
+            "tol_b":        "tol_dB_abs",
+            "tol_mu":       "tol_dmu_abs",
+            "tol_dG_abs":   "tol_dGLoc_abs",
+            "tol_dG_rel":   "tol_dGLoc_rel",
+            "tol_dsig_abs": "(SigH/F/C convergence tests removed)",
+            "tol_dsig_rel": "(SigH/F/C convergence tests removed)",
+            "tol_dmu":      "tol_dmu_abs",
+        }
+        for old, hint in _REMOVED_INPUT_KEYS.items():
+            if old in ini:
+                logger.warning(
+                    f"input.ini key '{old}' is deprecated and ignored. "
+                    f"Use {hint} in the Control section instead."
+                )
+        for old, hint in _LEGACY_TOL_KEYS.items():
+            if old in ini:
+                logger.warning(
+                    f"input.ini Control key '{old}' is deprecated. "
+                    f"Rename to '{hint}'."
+                )
+
+        # ---- DMFT-without-min_iter migration hint ----------------------
+        if control["run"]["method"] in ("dmft", "edmft", "gw+edmft"):
+            if "min_iter" not in control["run"]:
+                logger.warning(
+                    "DMFT-family method without 'min_iter' in input.ini "
+                    "Control: convergence self-tests will be eligible "
+                    "from iter 2 onward. Previously the implicit default "
+                    "was 3 (CTQMC warm-up). Add 'min_iter = 3' to Control "
+                    "to restore old behavior."
+                )
 
         # CheckKeyinString("MatsubaraMesh",ini)
         cutoff = ini.get("MatsubaraCutOff", 50)

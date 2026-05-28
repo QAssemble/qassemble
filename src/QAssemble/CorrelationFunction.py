@@ -55,6 +55,25 @@ class CorrelationFunction(object):
 
         self.greenbare = G0(crystal=self.crystal, dlr=self.dlr, hamtb=self.niham.k, hdf5file=control["run"]["fn"]+'.h5', group='init')
 
+        # Inject a method-appropriate default HDF5 group for the
+        # Convergence mirror BEFORE constructing Convergence (Convergence
+        # caches the value in _init_common). User-supplied
+        # control['run']['convergence_hdf5_group'] always wins via setdefault.
+        _HDF5_GROUP_BY_METHOD = {
+            "hf":       "hf/convergence",
+            "gw":       "gw/convergence",
+            "dmft":     "impurity_solver/convergence",
+            "edmft":    "impurity_solver/convergence",
+            "gw+edmft": "impurity_solver/convergence",
+        }
+        _method = control["run"].get("method")
+        if _method == "hf" and control["run"].get("mode") == "Restart":
+            _default_group = "hf_restart/convergence"
+        else:
+            _default_group = _HDF5_GROUP_BY_METHOD.get(_method)
+        if _default_group is not None:
+            control["run"].setdefault("convergence_hdf5_group", _default_group)
+
         self.conv = Convergence(control)
 
 
@@ -97,6 +116,7 @@ class CorrelationFunction(object):
         onebody = self.control["ham"].get("onebody")
         # twobody = self.control["ham"].get("twobody")
 
+        self.conv.Start()
 
         for iter in range(1, itermax+1):
             if iter==1:
@@ -123,6 +143,8 @@ class CorrelationFunction(object):
                     hold = H(crystal=self.crystal,ham=hk,beta=self.dlr.beta,hdf5file=hdf5file,group=group)
                     
                     
+                self.conv.seed_prev("F", hold.k, kind="array")
+                self.conv.seed_prev("mu", float(hold.mu), kind="scalar")
 
                 hartreeold = None
                 fockold = None
@@ -141,10 +163,12 @@ class CorrelationFunction(object):
             if (iter % 50 == 0):
                 hnew.Save(f'hk.{iter}')
 
-            converged, info = self.conv.Check(iter,
-                fnew=hnew.k, fold=hold.k,
-                mu_new=hnew.mu, mu_old=hold.mu)
-            fcheck = info["fcheck"]
+            self.conv.StartIter(iter)
+            self.conv.CheckSelf("F", value=hnew.k, kind="array")
+            self.conv.CheckSelf("mu", value=float(hnew.mu), kind="scalar")
+            self.conv.RecordDiagnostics({})
+            converged, info = self.conv.Commit(iter, will_continue=(iter < itermax))
+            fcheck = info["self"]["F"]["abs"]
             logger.info(f"iteration : {iter}\ncriteria : {fcheck}\nchemical potential : {hnew.mu}")
             if converged:
                 logger.info(f"Self-consistency is achived with {iter}-th")
@@ -196,6 +220,8 @@ class CorrelationFunction(object):
         pol_mixer = Mixing()
         sig_mixer = Mixing()
 
+        self.conv.Start()
+
         self.gw_object_times = []
         for iter in range(1,itermax+1):
             iter_timing = {"iter": iter}
@@ -203,10 +229,11 @@ class CorrelationFunction(object):
                 
                 t0 = time.perf_counter()
                 gold = G(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,hdf5file=hdf5file,group=group)
+                self.conv.seed_prev("F", gold.kf, kind="array")
+                self.conv.seed_prev("mu", float(gold.mu), kind="scalar")
                 logger.info(f"Initial chemical potential : {gold.mu}")
                 iter_timing["GreenInt_init"] = time.perf_counter() - t0
                 gold.Save(f'gkf_ini')
-                wold = 0
                 # gbare.Save('gbare')
 
             logger.info("Density Matrix :")
@@ -233,6 +260,8 @@ class CorrelationFunction(object):
             # print("Screened coulomb interaction calculation start")
             t0 = time.perf_counter()
             w = W(crystal=self.crystal,dlr=self.dlr,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
+            if iter == 1:
+                self.conv.seed_prev("B", np.zeros_like(w.kf), kind="array")
             iter_timing["WLat"] = time.perf_counter() - t0
             # if (iter % 50 == 0)or(iter == 1):
             w.Save(f'wkf.{iter}')
@@ -265,13 +294,14 @@ class CorrelationFunction(object):
                 f"WLat: {iter_timing['WLat']:.4f}s, "
                 f"SigmaGW: {iter_timing['SigmaGW']:.4f}s{init_msg}"
             )
-            converged, info = self.conv.Check(iter,
-                fnew=gnew.kf, fold=gold.kf,
-                mu_new=gnew.mu, mu_old=gold.mu,
-                bnew=w.kf, bold=wold,
-                npulay=pol_mixer.npulay)
-            fcheck = info["fcheck"]
-            bcheck = info["bcheck"]
+            self.conv.StartIter(iter, ready_after=pol_mixer.npulay)
+            self.conv.CheckSelf("F", value=gnew.kf, kind="array")
+            self.conv.CheckSelf("B", value=w.kf, kind="array")
+            self.conv.CheckSelf("mu", value=float(gnew.mu), kind="scalar")
+            self.conv.RecordDiagnostics({})
+            converged, info = self.conv.Commit(iter, will_continue=(iter < itermax))
+            fcheck = info["self"]["F"]["abs"]
+            bcheck = info["self"]["B"]["abs"]
 
             logger.info(f"iteration : {iter} \nfcriteria : {fcheck} \nbcriteria : {bcheck} \nchemicalpotential : {gnew.mu}")
 
@@ -316,7 +346,6 @@ class CorrelationFunction(object):
                 gold = gnew
                 ckfold = sigmagwc.kf
                 pkfold = pol.kf
-                wold = w.kf
 
                 del gnew, sigmah, sigmaf, sigmagwc, pol, w
                 gc.collect()
@@ -369,12 +398,7 @@ class CorrelationFunction(object):
 
         self.dmft_object_times = []
 
-        # ---- Convergence configuration owned by self.conv; driver still
-        #      reads mix_sigma (mixing is not convergence logic) and the
-        #      causality tolerances (driver calls causality checks directly).
         mix = float(self.control["run"].get("mix_sigma", 0.1))
-        causality_tol_hyb = self.conv.causality_tol_hyb
-        causality_tol_sig = self.conv.causality_tol_sig
         min_iter = self.conv.min_iter
 
         logger.info(f"[ImpurityAction] mix_sigma={mix}, min_iter={min_iter}")
@@ -384,7 +408,6 @@ class CorrelationFunction(object):
                            f"cannot trigger break. Loop will run to max_iter.")
 
         self.conv.Start()
-        sig_cache_by_key = {}
 
         for iter in range(1, itermax+1):
             iter_timing = {
@@ -407,7 +430,6 @@ class CorrelationFunction(object):
                 subtract_local_dc = False
             
             gimp_by_key = {}
-            sig_rolled_back = []   # per-iter list of keys where Σ causality rolled back
             diag_by_key = {}        # captured immediately inside the per-key loop
 
             for key in projector.fprojector.keys():
@@ -447,19 +469,6 @@ class CorrelationFunction(object):
                     key=key, eimp=eimp, hyb=hyb, mu=green.mu,
                     hdf5file=hdf5file, group=group,
                 )
-
-                # ---- Hyb causality (hard gate, comdmft.py:920-922 pattern) ----
-                #      Positive-only uniform grid; caller raises after logging.
-                ok_hyb, max_im_hyb = fweiss.CheckCausality(causality_tol_hyb)
-                if not ok_hyb:
-                    self.conv.RecordCausalityFail(iter, kind="hyb", key=key,
-                        max_im=max_im_hyb, mu=float(green.mu))
-                    raise RuntimeError(
-                        f"Hyb causality violated at key={key}, iter={iter}: "
-                        f"max diagonal Im(Delta_uniform)={max_im_hyb:.3e} > "
-                        f"tol={causality_tol_hyb:.1e}. "
-                        f"comdmft.py:920-922 policy (hard exit)."
-                    )
                 iter_timing["FWeiss"] += time.perf_counter() - t0
 
                 t0 = time.perf_counter()
@@ -496,69 +505,10 @@ class CorrelationFunction(object):
                     if ctqmc.pimp is not None and ctqmc.pimp.f is not None:
                         ctqmc.pimp.Save(f'pimp.{iter}.{key}')
 
-                # ---- Sigma causality on positive-only uniform grid ----
-                ok_sig, max_im_sig = ctqmc.sigimp.CheckCausalityUniform(causality_tol_sig)
-
-                def _embed_from_impurity(sighimp_h, sigfimp_s, sigimp_f):
-                    """Re-embed impurity-space Sigma into lattice using the
-                    CURRENT iter's dc subtraction (F5: avoid stale dc on rollback)."""
-                    sigc_e = green.Embedding(sigimp_f, projector=projector, key=key)
-                    sigh_e = self.niham.Embedding(sighimp_h - sigh_dc, projector=projector, key=key)
-                    sigf_e = self.niham.Embedding(sigfimp_s - sigf_dc, projector=projector, key=key)
-                    return sigh_e, sigf_e, sigc_e
-
-                if ok_sig:
-                    sigh_embed, sigf_embed, sigc_embed = _embed_from_impurity(
-                        ctqmc.sighimp.h, ctqmc.sigfimp.s, ctqmc.sigimp.f
-                    )
-                    # Cache impurity-space raw values (not embedded), so rollback
-                    # can re-embed with the iter's current dc (F5). Also cache the
-                    # accepted gimp so Gate-A-style diagnostic stays generation
-                    # consistent (F4).
-                    sig_cache_by_key[key] = {
-                        "sighimp_h": ctqmc.sighimp.h.copy(),
-                        "sigfimp_s": ctqmc.sigfimp.s.copy(),
-                        "sigimp_f":  ctqmc.sigimp.f.copy(),
-                        "gimp_f":    gimp_new.copy(),
-                    }
-                    gimp_by_key[key] = gimp_new
-                else:
-                    if key not in sig_cache_by_key:
-                        if iter <= 2:
-                            # Warmup grace: accept the raw value but DO NOT cache
-                            # (caching a violating value would break rollback).
-                            logger.warning(
-                                f"iter {iter}: Sigma causality borderline at key={key} "
-                                f"(Im={max_im_sig:.3e}), no cache yet -- accepting raw "
-                                f"value as warmup (NOT cached)."
-                            )
-                            sigh_embed, sigf_embed, sigc_embed = _embed_from_impurity(
-                                ctqmc.sighimp.h, ctqmc.sigfimp.s, ctqmc.sigimp.f
-                            )
-                            gimp_by_key[key] = gimp_new
-                            sig_rolled_back.append(f"{key}(warmup,Im={max_im_sig:.3e})")
-                        else:
-                            self.conv.RecordCausalityFail(iter, kind="sig", key=key,
-                                max_im=max_im_sig, mu=float(green.mu),
-                                subreason="no-cache",
-                                diag=getattr(ctqmc, "diagnostics", {}))
-                            raise RuntimeError(
-                                f"Sigma causality violated at key={key}, iter={iter} "
-                                f"(max Im={max_im_sig:.3e}), no cached good value to "
-                                f"roll back to. Increase min_iter, lower mix_sigma, "
-                                f"or investigate CTQMC sampling."
-                            )
-                    else:
-                        # Rollback path: re-embed cached impurity-space values
-                        # with the CURRENT iter's dc subtraction (F5 fix).
-                        cached = sig_cache_by_key[key]
-                        sigh_embed, sigf_embed, sigc_embed = _embed_from_impurity(
-                            cached["sighimp_h"], cached["sigfimp_s"], cached["sigimp_f"]
-                        )
-                        # Pin gimp_by_key to the same generation as the rolled-back
-                        # Sigma (F4: Gate-A diagnostic stays apples-to-apples).
-                        gimp_by_key[key] = cached["gimp_f"]
-                        sig_rolled_back.append(f"{key}(rollback,Im={max_im_sig:.3e})")
+                sigc_embed = green.Embedding(ctqmc.sigimp.f, projector=projector, key=key)
+                sigh_embed = self.niham.Embedding(ctqmc.sighimp.h - sigh_dc, projector=projector, key=key)
+                sigf_embed = self.niham.Embedding(ctqmc.sigfimp.s - sigf_dc, projector=projector, key=key)
+                gimp_by_key[key] = gimp_new
                 diag_by_key[key] = dict(getattr(ctqmc, "diagnostics", {}))
 
                 sigctemp += sigc_embed
@@ -601,34 +551,17 @@ class CorrelationFunction(object):
             green_next.Save(f'gkf.{iter}')
             gloc_next.Save(f'gloc.{iter}')
 
-            # ---- Convergence step (gcheck + delta + row write + prev snapshot) ----
-            converged, info = self.conv.CheckDelta(iter,
-                gloc_next=gloc_next,
-                sigmah_next=sigmah_next, sigmaf_next=sigmaf_next, sigc_next=sigc_next,
-                mu_next=float(green_next.mu),
-                gimp_by_key=gimp_by_key, diag_by_key=diag_by_key,
-                sig_rolled_back=sig_rolled_back,
-                will_continue=(iter < itermax))
-            gcheck = info["gcheck"]
-            dG_iter = info["dG_iter"]
-            dSig_iter = info["dSig_iter"]
-            dmu = info["dmu"]
+            self.conv.StartIter(iter)
+            self.conv.CheckSelf('GLoc', value=gloc_next.f,          kind='dict')
+            self.conv.CheckSelf('mu',   value=float(green_next.mu), kind='scalar')
+            self.conv.CheckCross('GLoc',
+                a=gloc_next.f, name_b='GImp', b=gimp_by_key, kind='dict')
+            self.conv.RecordDiagnostics(diag_by_key)
+            converged, info = self.conv.Commit(iter, will_continue=(iter < itermax))
 
-            # Per-key raw diagnostics → HDF5 for post-analysis
-            try:
-                with h5py.File(self.control["run"]["fn"] + ".h5", "a") as h:
-                    g = h.require_group(f"impurity_solver/diag/iter_{iter}")
-                    for k, d in diag_by_key.items():
-                        sub = g.require_group(str(k))
-                        for nm, val in d.items():
-                            if nm == "histo":
-                                if nm in sub:
-                                    del sub[nm]
-                                sub.create_dataset(nm, data=np.asarray(val))
-                            else:
-                                sub.attrs[nm] = float(val) if val is not None else float("nan")
-            except Exception as e:
-                logger.warning(f"per-key diag HDF5 write failed: {e}")
+            gcheck = info['cross']['GLoc-GImp']['abs']
+            dG_iter = info['self']['GLoc']['abs']
+            dmu = info['self']['mu']['abs']
 
             self.dmft_object_times.append(iter_timing)
             logger.info(
@@ -640,25 +573,18 @@ class CorrelationFunction(object):
             )
             logger.info(
                 f"iteration : {iter} | gcheck={gcheck:.3e} | "
-                f"dG={dG_iter:.3e}/dSig={dSig_iter:.3e}/dmu={dmu:.3e} | "
+                f"dG={dG_iter:.3e}/dmu={dmu:.3e} | "
                 f"μ={green_next.mu}"
             )
 
             if converged:
-                if info["gcheck_warn_triggered"]:
-                    logger.warning(
-                        f"DMFT delta-converged at iter {iter} but gcheck={gcheck:.3e} "
-                        f"exceeds sanity threshold ({info['gcheck_warn_threshold']:.1e}). "
-                        f"Self-consistency between lattice and impurity G may be "
-                        f"incomplete; inspect convergence.log."
-                    )
                 logger.info(f"DMFT self-consistency achieved at iter {iter}")
                 break
             elif iter == itermax:
                 logger.info(
                     f"DMFT max iter {itermax} reached; "
                     f"gcheck={gcheck:.3e}, dG={dG_iter:.3e}, "
-                    f"dSig={dSig_iter:.3e}, dmu={dmu:.3e}"
+                    f"dmu={dmu:.3e}"
                 )
             else:
                 sigmah_current = sigmah_next
