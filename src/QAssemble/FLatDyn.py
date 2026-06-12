@@ -15,6 +15,7 @@ from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Mixing import Mixing
 from .utility.Embedding import Embedding as EB
+from .utility.Causal import CausalFermion
 
 logger = logging.getLogger("QAssemble")
 
@@ -26,7 +27,6 @@ class FLatDyn(object):
         self.mappingidx = None
         self._fermion_phase_cache_k2r = self._get_fermion_phaseK2R()
         self._fermion_phase_cache_r2k = self._get_fermion_phaseR2K()
-        self._causality_ops = None
 
     def _get_fermion_phaseK2R(self) -> np.ndarray:
         
@@ -116,6 +116,148 @@ class FLatDyn(object):
         ftau = np.asfortranarray(ftau)
 
         return ftau
+
+    def CausalProjection(
+        self,
+        matin : np.ndarray,
+        *,
+        coefficient_sign : int = -1,
+        solvers = None,
+        max_iter : int = 100000,
+        constraint_tol : float = 1.0e-8,
+        fit_tol : float = 1.0e-6,
+    ) -> np.ndarray:
+        """Project diagonal lattice fermionic channels onto real pole-weight
+        causal QP via CausalFermion.
+
+        Moments are anchored internally to the unconstrained fit of each
+        channel; data not representable by the real-coefficient pole basis
+        (node fit residual above ``fit_tol``) raise ``RuntimeError``.
+        """
+
+        arr = np.asarray(matin, dtype=np.complex128)
+        if arr.ndim != 5:
+            raise ValueError(f"matin must be 5D, got {arr.ndim}D")
+        norb = arr.shape[0]
+        if arr.shape[1] != norb:
+            raise ValueError("matin first two dimensions must be square")
+        if arr.shape[2] != self.crystal.ns:
+            raise ValueError(
+                f"spin dimension mismatch: matin ns={arr.shape[2]}, crystal ns={self.crystal.ns}"
+            )
+        if arr.shape[3] != len(self.crystal.kpoint):
+            raise ValueError(
+                f"k dimension mismatch: matin nk={arr.shape[3]}, crystal nk={len(self.crystal.kpoint)}"
+            )
+        if arr.shape[4] != len(self.dlr.omega):
+            raise ValueError(
+                f"frequency dimension mismatch: matin nf={arr.shape[4]}, dlr nf={len(self.dlr.omega)}"
+            )
+        if not np.all(np.isfinite(np.real(arr))) or not np.all(np.isfinite(np.imag(arr))):
+            raise ValueError("matin contains non-finite values")
+
+        nk = arr.shape[3]
+        projector = CausalFermion(
+            d=self.dlr.dF,
+            beta=self.dlr.beta,
+            omega=self.dlr.omega,
+            coefficient_sign=coefficient_sign,
+            solvers=solvers,
+            max_iter=max_iter,
+            constraint_tol=constraint_tol,
+            fit_tol=fit_tol,
+            raise_on_failure=True,
+        )
+        out = np.array(arr, dtype=np.complex128, copy=True, order='F')
+        for ik in range(nk):
+            for js in range(self.crystal.ns):
+                for iorb in range(norb):
+                    out[iorb, iorb, js, ik, :] = projector.project(
+                        arr[iorb, iorb, js, ik, :]
+                    )
+
+        return np.asfortranarray(out)
+
+    def CausalityCheck(
+        self,
+        matin : np.ndarray,
+        *,
+        coefficient_sign : int = -1,
+        solvers = None,
+        max_iter : int = 100000,
+        constraint_tol : float = 1.0e-8,
+        fit_tol : float = 1.0e-6,
+    ) -> dict:
+        """Diagnose causality of diagonal lattice channels without projecting.
+
+        Returns per-channel ``(norb, ns, nk)`` arrays: ``causal`` boolean,
+        unscaled ``max_inequality_violation`` / ``max_equality_residual``,
+        ``violating_count``, and ``node_residual``.  A channel whose
+        ``node_residual`` exceeds ``fit_tol`` is not representable by the
+        causal pole basis (data-quality problem); its sign verdict describes
+        a garbage fit, so judge the residual first.  Never raises on bad
+        data — this is the diagnostic counterpart of ``CausalProjection``.
+        """
+
+        arr = np.asarray(matin, dtype=np.complex128)
+        if arr.ndim != 5:
+            raise ValueError(f"matin must be 5D, got {arr.ndim}D")
+        norb = arr.shape[0]
+        if arr.shape[1] != norb:
+            raise ValueError("matin first two dimensions must be square")
+        if arr.shape[2] != self.crystal.ns:
+            raise ValueError(
+                f"spin dimension mismatch: matin ns={arr.shape[2]}, crystal ns={self.crystal.ns}"
+            )
+        if arr.shape[3] != len(self.crystal.kpoint):
+            raise ValueError(
+                f"k dimension mismatch: matin nk={arr.shape[3]}, crystal nk={len(self.crystal.kpoint)}"
+            )
+        if arr.shape[4] != len(self.dlr.omega):
+            raise ValueError(
+                f"frequency dimension mismatch: matin nf={arr.shape[4]}, dlr nf={len(self.dlr.omega)}"
+            )
+        if not np.all(np.isfinite(np.real(arr))) or not np.all(np.isfinite(np.imag(arr))):
+            raise ValueError("matin contains non-finite values")
+
+        nk = arr.shape[3]
+        ns = self.crystal.ns
+        projector = CausalFermion(
+            d=self.dlr.dF,
+            beta=self.dlr.beta,
+            omega=self.dlr.omega,
+            coefficient_sign=coefficient_sign,
+            solvers=solvers,
+            max_iter=max_iter,
+            constraint_tol=constraint_tol,
+            fit_tol=fit_tol,
+            raise_on_failure=True,
+        )
+        causal = np.zeros((norb, ns, nk), dtype=bool)
+        max_inequality = np.zeros((norb, ns, nk), dtype=float)
+        max_equality = np.zeros((norb, ns, nk), dtype=float)
+        violating_count = np.zeros((norb, ns, nk), dtype=int)
+        node_residual = np.zeros((norb, ns, nk), dtype=float)
+        for ik in range(nk):
+            for js in range(ns):
+                for iorb in range(norb):
+                    verdict = projector.check(
+                        arr[iorb, iorb, js, ik, :],
+                        enforce_gate=False,
+                    )
+                    causal[iorb, js, ik] = verdict.causal
+                    max_inequality[iorb, js, ik] = verdict.max_inequality_violation
+                    max_equality[iorb, js, ik] = verdict.max_equality_residual
+                    violating_count[iorb, js, ik] = verdict.violating_count
+                    node_residual[iorb, js, ik] = verdict.node_residual
+
+        return {
+            "causal": causal,
+            "max_inequality_violation": max_inequality,
+            "max_equality_residual": max_equality,
+            "violating_count": violating_count,
+            "node_residual": node_residual,
+        }
 
     
     def Moment(self,ff : np.ndarray, isgreen : bool, highzero : bool) -> tuple:
@@ -270,6 +412,82 @@ class FLatDyn(object):
             return group in file
         
     
+    def AnalyticContinuation(self, mat_freq : np.ndarray, wreal : np.ndarray, eta : float = 0.05) -> tuple:
+        """Analytically continue a Matsubara/DLR quantity to the real axis via DLR.
+
+        Uses the DLR spectral representation
+            rho_DLR(w) = -sum_k g_k delta(w - w_k)
+        so that the retarded function is the pole sum
+            G^R(w) = sum_k g_k / (w + i*eta - w_k).
+        This is exact (no ill-posed fit) for *noiseless* DLR-represented
+        quantities such as a Dyson-built G or a DLR self-energy. It is NOT a
+        substitute for MaxEnt/Nevanlinna on noisy (QMC) data: the continuation
+        amplifies error for poles poorly captured by the sparse DLR Matsubara
+        nodes and is unstable under statistical noise.
+
+        Convention (verified against the single-pole G(iv)=1/(iv-e0)): pydlr's
+        eval_dlr_freq builds the kernel 1/(z + w_x/beta) and conjugates the
+        result, so the physically correct retarded continuation is obtained
+        with z = -w + i*eta, giving A(w) = -Im G^R(w)/pi >= 0 peaked at the
+        right energy.
+
+        Parameters
+        ----------
+        mat_freq : (norb, norb, ns, nk, nfreq_dlr) complex
+            Quantity on the DLR Matsubara grid (self.dlr.omega).
+        wreal : (nw,) float
+            Real-frequency grid.
+        eta : float
+            Lorentzian broadening (imaginary shift). Default 0.05.
+
+        Returns
+        -------
+        gret : (norb, norb, ns, nk, nw) complex
+            Retarded function G^R(w).
+        akf : (norb, norb, ns, nk, nw) float
+            Spectral function -Im G^R(w)/pi.
+        """
+        mat_freq = np.asarray(mat_freq, dtype=np.complex128)
+        if mat_freq.ndim != 5:
+            raise ValueError(f"AnalyticContinuation expects 5D input, got {mat_freq.ndim}D")
+        nfreq_dlr = mat_freq.shape[4]
+        if nfreq_dlr != len(self.dlr.omega):
+            raise ValueError(
+                f"frequency dimension mismatch: mat_freq nfreq={nfreq_dlr}, "
+                f"dlr nfreq={len(self.dlr.omega)}"
+            )
+
+        norb, _, ns, nk, _ = mat_freq.shape
+        wreal = np.asarray(wreal, dtype=np.float64)
+        nw = wreal.shape[0]
+
+        dF = self.dlr.dF
+        beta = self.dlr.beta
+
+        # Move DLR axis to front and flatten orbital/spin/k into a single batch,
+        # matching the reshape idiom used by T2F/F2T.
+        mat_t = np.moveaxis(mat_freq, -1, 0)  # (nfreq_dlr, norb, norb, ns, nk)
+        batch = norb * norb * ns * nk
+        mat_2d = np.ascontiguousarray(mat_t).reshape(nfreq_dlr, batch)
+
+        coeffs = dF.dlr_from_matsubara(mat_2d, beta, xi=-1)  # (nfreq_dlr, batch)
+
+        # Retarded continuation: z = -w + i*eta (see docstring for the sign).
+        # z = -wreal + 1j * eta
+        z= wreal + 1j * eta
+        # eval_dlr_freq expects rank-3 coeffs (n, m, m); treat the batch as the
+        # second "orbital" axis so a single call covers every column.
+        gret_3d = dF.eval_dlr_freq(coeffs[:, None, :], z, beta, xi=-1)  # (nw, batch, 1)
+        gret_2d = gret_3d.reshape(nw, batch)
+
+        gret = gret_2d.reshape(nw, norb, norb, ns, nk)
+        gret = np.moveaxis(gret, 0, -1)  # (norb, norb, ns, nk, nw)
+        gret = np.asfortranarray(gret)
+
+        akf = np.asfortranarray(-gret.imag / np.pi)
+
+        return gret, akf
+
     def Spectral(self, green : np.ndarray):
 
         norb = len(self.crystal.find)
@@ -277,7 +495,7 @@ class FLatDyn(object):
         nk = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
         nfreq = len(self.dlr.omega)
 
-        akf = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,oder='F')
+        akf = np.zeros((norb,norb,ns,nk,nfreq),dtype=complex,order='F')
 
         akf = -1/np.pi*green.imag
 
@@ -464,161 +682,6 @@ class FLatDyn(object):
             expanded[np.ix_(tgt_orbs, tgt_orbs)] = rep_emb[np.ix_(rep_orbs, rep_orbs)]
 
         return expanded
-
-    # ------------------------------------------------------------------
-    # Matrix-valued causal projection (Han & Choi, PRB 104, 115112, 2021,
-    # Appendix B, generalised). Same algorithm as FLocDyn version with one
-    # extra nk loop. No call sites in v1; reserved for future G-projection.
-    # ------------------------------------------------------------------
-
-    def _causality_get_ops(self) -> dict:
-        if getattr(self, "_causality_ops", None) is None:
-            tauF = np.asarray(self.dlr.tauF, dtype=np.float64)
-            D2, L4 = Common.CausalityOperators(tauF)
-            N = len(tauF)
-            Nw = len(self.dlr.omega)
-            K = np.zeros((Nw, N), dtype=np.complex128)
-            I_basis = np.eye(N, dtype=np.complex128)
-            for l in range(N):
-                ff = self.dlr.FT2F(I_basis[:, l])
-                K[:, l] = ff
-            self._causality_ops = {"tau": tauF, "D2": D2, "L4": L4, "K": K}
-        return self._causality_ops
-
-    def CausalityProjection(
-        self,
-        mat_freq: np.ndarray,
-        sign: int = +1,
-        eps: float = 1e-10,
-        eta: float = None,
-        fallback: str = "regularize",
-    ) -> np.ndarray:
-        """Project mat_freq onto the matrix-valued causal cone.
-
-        Input shape: (norb, norb, ns, nk, n_omega_dlr).
-        Output: same shape, same grid. Per-(ns, ik) slice.
-        """
-        if fallback not in ("regularize", "warn", "raise"):
-            raise ValueError(f"unknown fallback policy '{fallback}'")
-        if mat_freq.ndim != 5:
-            raise ValueError(f"FLatDyn.CausalityProjection expects 5D input, got {mat_freq.ndim}D")
-
-        ops = self._causality_get_ops()
-        D2 = ops["D2"]
-        L4 = ops["L4"]
-        K = ops["K"]
-
-        mat_tau = self.F2T(np.asfortranarray(mat_freq, dtype=np.complex128))
-        norb, _, ns, nk, ntau = mat_tau.shape
-        if ntau != D2.shape[1]:
-            raise ValueError(
-                f"tau dimension {ntau} does not match DLR grid {D2.shape[1]}"
-            )
-
-        out_tau = np.array(mat_tau, copy=True)
-
-        for js in range(ns):
-            for ik in range(nk):
-                try:
-                    Gc_slice = self._causality_project_block(
-                        mat_tau[:, :, js, ik, :],
-                        mat_freq[:, :, js, ik, :],
-                        D2, L4, K, sign, eps, eta, fallback,
-                    )
-                    out_tau[:, :, js, ik, :] = Gc_slice
-                except RuntimeError as exc:
-                    if fallback == "raise":
-                        raise
-                    logger.warning(
-                        f"CausalityProjection failed on (ns={js}, ik={ik}): {exc}"
-                    )
-
-        # Off-diagonal hermitization is already enforced in tau-space inside
-        # _causality_project_block via Gc[j,i,:] = conj(Gc[i,j,:]).
-        out_tau = np.asfortranarray(out_tau, dtype=np.complex128)
-        out_freq = self.T2F(out_tau)
-        return out_freq
-
-    def _causality_project_block(
-        self,
-        block_tau: np.ndarray,
-        block_freq: np.ndarray,
-        D2: np.ndarray,
-        L4: np.ndarray,
-        K: np.ndarray,
-        sign: int,
-        eps: float,
-        eta: float,
-        fallback: str,
-    ) -> np.ndarray:
-        """Project one (norb, norb, N) tau block."""
-        norb, _, N = block_tau.shape
-        Gc = np.zeros((norb, norb, N), dtype=np.complex128)
-        eta_eff = eta if eta is not None else max(eps, 1e-12)
-
-        for i in range(norb):
-            x_data = block_tau[i, i, :].real
-            y_data = block_freq[i, i, :]
-            try:
-                x_star = Common.CausalityDiagQP(x_data, y_data, K, D2, L4, sign, eps)
-                Gc[i, i, :] = x_star
-            except RuntimeError as exc:
-                if fallback == "raise":
-                    raise
-                logger.warning(
-                    f"CausalityProjection diag QP failed at i={i}: {exc}; passing through"
-                )
-                Gc[i, i, :] = x_data
-
-        for s in range(1, norb):
-            for i in range(0, norb - s):
-                j = i + s
-                B = list(range(i, j))
-                r = 0
-                Gc_BB = Gc[np.ix_(B, B)]
-                Gc_Bj = Gc[B, j, :]
-                Gc_jj = Gc[j, j, :]
-                z_data = block_tau[i, j, :]
-                y_data = block_freq[i, j, :]
-
-                trace_scale = float(np.mean(np.abs(Gc_BB))) + 1.0
-                eta_local = eta_eff * trace_scale
-
-                z_star = None
-                for retry in range(4):
-                    try:
-                        z_star = Common.CausalityOffdiagQCQP(
-                            z_data, y_data, Gc_BB, Gc_Bj, Gc_jj,
-                            K, D2, L4, r, sign, eps, eta_local,
-                        )
-                        break
-                    except RuntimeError:
-                        if fallback == "raise":
-                            raise
-                        eta_local *= 10.0
-                if z_star is None:
-                    if fallback == "raise":
-                        raise RuntimeError(
-                            f"CausalityProjection offdiag QCQP failed at (i={i},j={j}) after retries"
-                        )
-                    elif fallback == "warn":
-                        logger.warning(
-                            f"CausalityProjection offdiag QCQP failed at (i={i},j={j}); zero-filling"
-                        )
-                        z_star = np.zeros(N, dtype=np.complex128)
-                    else:
-                        logger.warning(
-                            f"CausalityProjection offdiag QCQP failed at (i={i},j={j}); passing through"
-                        )
-                        z_star = np.asarray(z_data, dtype=np.complex128)
-                Gc[i, j, :] = z_star
-                Gc[j, i, :] = np.conjugate(z_star)
-
-        return Gc
-
-    def _causality_offdiag_sdp(self, *args, **kwargs):
-        """SDP-promoted off-diagonal solver. Reserved for v2."""
-        raise NotImplementedError("SDP promotion not implemented in v1")
 
 
 class G0(FLatDyn):

@@ -15,9 +15,10 @@ dependencies = [
     "mpi4py",
     "matplotlib",
     "pydlr",
+    "cvxpy",
     "sympy",
     "pymatgen",
-    "cvxpy",
+    "qpsolvers[clarabel,proxqp,scs]",
 ]
 
 [project.scripts]

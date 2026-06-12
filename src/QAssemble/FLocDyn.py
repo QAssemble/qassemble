@@ -12,6 +12,7 @@ from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Mixing import Mixing
 from .utility.Projection import Projection as PJ
+from .utility.Causal import CausalFermion
 
 logger = logging.getLogger("QAssemble")
 
@@ -22,7 +23,6 @@ class FLocDyn(object):
         self.crystal = crystal
         self.dlr = dlr
         self.projector = projector
-        self._causality_ops = None
 
     def Inverse(self, mat : np.ndarray):
         
@@ -79,6 +79,165 @@ class FLocDyn(object):
         ff = np.asfortranarray(ff)
 
         return ff
+
+    def CausalProjection(
+        self,
+        matin : np.ndarray,
+        *,
+        coefficient_sign : int = -1,
+        solvers = None,
+        max_iter : int = 100000,
+        constraint_tol : float = 1.0e-8,
+        fit_tol : float = 1.0e-6,
+    ) -> np.ndarray:
+        """Project diagonal local fermionic channels onto real pole-weight
+        causal QP via CausalFermion.
+
+        Moments are anchored internally to the unconstrained fit of each
+        channel; data not representable by the real-coefficient pole basis
+        (node fit residual above ``fit_tol``) raise ``RuntimeError``.
+        """
+
+        arr = np.asarray(matin, dtype=np.complex128)
+        squeeze_spin = False
+        if arr.ndim == 3:
+            if self.crystal.ns != 1:
+                raise ValueError(
+                    f"3D input is only allowed for ns=1, crystal ns={self.crystal.ns}"
+                )
+            arr4 = arr[:, :, np.newaxis, :]
+            squeeze_spin = True
+        elif arr.ndim == 4:
+            arr4 = arr
+        else:
+            raise ValueError(f"matin must be 3D or 4D, got {arr.ndim}D")
+
+        norb = arr4.shape[0]
+        if arr4.shape[1] != norb:
+            raise ValueError("matin first two dimensions must be square")
+        if arr4.shape[2] != self.crystal.ns:
+            raise ValueError(
+                f"spin dimension mismatch: matin ns={arr4.shape[2]}, crystal ns={self.crystal.ns}"
+            )
+        if arr4.shape[3] != len(self.dlr.omega):
+            raise ValueError(
+                f"frequency dimension mismatch: matin nf={arr4.shape[3]}, dlr nf={len(self.dlr.omega)}"
+            )
+        if not np.all(np.isfinite(np.real(arr4))) or not np.all(np.isfinite(np.imag(arr4))):
+            raise ValueError("matin contains non-finite values")
+
+        projector = CausalFermion(
+            d=self.dlr.dF,
+            beta=self.dlr.beta,
+            omega=self.dlr.omega,
+            coefficient_sign=coefficient_sign,
+            solvers=solvers,
+            max_iter=max_iter,
+            constraint_tol=constraint_tol,
+            fit_tol=fit_tol,
+            raise_on_failure=True,
+        )
+        out = np.array(arr4, dtype=np.complex128, copy=True, order='F')
+        for js in range(self.crystal.ns):
+            for iorb in range(norb):
+                out[iorb, iorb, js, :] = projector.project(
+                    arr4[iorb, iorb, js, :]
+                )
+
+        if squeeze_spin:
+            return np.asfortranarray(out[:, :, 0, :])
+        return np.asfortranarray(out)
+
+    def CausalityCheck(
+        self,
+        matin : np.ndarray,
+        *,
+        coefficient_sign : int = -1,
+        solvers = None,
+        max_iter : int = 100000,
+        constraint_tol : float = 1.0e-8,
+        fit_tol : float = 1.0e-6,
+    ) -> dict:
+        """Diagnose causality of diagonal local channels without projecting.
+
+        Returns per-channel arrays shaped ``(norb, ns)`` for 4D input and
+        ``(norb,)`` for 3D input (same squeeze rule as ``CausalProjection``):
+        ``causal`` boolean, unscaled ``max_inequality_violation`` /
+        ``max_equality_residual``, ``violating_count``, and
+        ``node_residual``.  A channel whose ``node_residual`` exceeds
+        ``fit_tol`` is not representable by the causal pole basis
+        (data-quality problem); its sign verdict describes a garbage fit, so
+        judge the residual first.  Never raises on bad data — this is the
+        diagnostic counterpart of ``CausalProjection``.
+        """
+
+        arr = np.asarray(matin, dtype=np.complex128)
+        squeeze_spin = False
+        if arr.ndim == 3:
+            if self.crystal.ns != 1:
+                raise ValueError(
+                    f"3D input is only allowed for ns=1, crystal ns={self.crystal.ns}"
+                )
+            arr4 = arr[:, :, np.newaxis, :]
+            squeeze_spin = True
+        elif arr.ndim == 4:
+            arr4 = arr
+        else:
+            raise ValueError(f"matin must be 3D or 4D, got {arr.ndim}D")
+
+        norb = arr4.shape[0]
+        if arr4.shape[1] != norb:
+            raise ValueError("matin first two dimensions must be square")
+        if arr4.shape[2] != self.crystal.ns:
+            raise ValueError(
+                f"spin dimension mismatch: matin ns={arr4.shape[2]}, crystal ns={self.crystal.ns}"
+            )
+        if arr4.shape[3] != len(self.dlr.omega):
+            raise ValueError(
+                f"frequency dimension mismatch: matin nf={arr4.shape[3]}, dlr nf={len(self.dlr.omega)}"
+            )
+        if not np.all(np.isfinite(np.real(arr4))) or not np.all(np.isfinite(np.imag(arr4))):
+            raise ValueError("matin contains non-finite values")
+
+        ns = self.crystal.ns
+        projector = CausalFermion(
+            d=self.dlr.dF,
+            beta=self.dlr.beta,
+            omega=self.dlr.omega,
+            coefficient_sign=coefficient_sign,
+            solvers=solvers,
+            max_iter=max_iter,
+            constraint_tol=constraint_tol,
+            fit_tol=fit_tol,
+            raise_on_failure=True,
+        )
+        causal = np.zeros((norb, ns), dtype=bool)
+        max_inequality = np.zeros((norb, ns), dtype=float)
+        max_equality = np.zeros((norb, ns), dtype=float)
+        violating_count = np.zeros((norb, ns), dtype=int)
+        node_residual = np.zeros((norb, ns), dtype=float)
+        for js in range(ns):
+            for iorb in range(norb):
+                verdict = projector.check(
+                    arr4[iorb, iorb, js, :],
+                    enforce_gate=False,
+                )
+                causal[iorb, js] = verdict.causal
+                max_inequality[iorb, js] = verdict.max_inequality_violation
+                max_equality[iorb, js] = verdict.max_equality_residual
+                violating_count[iorb, js] = verdict.violating_count
+                node_residual[iorb, js] = verdict.node_residual
+
+        report = {
+            "causal": causal,
+            "max_inequality_violation": max_inequality,
+            "max_equality_residual": max_equality,
+            "violating_count": violating_count,
+            "node_residual": node_residual,
+        }
+        if squeeze_spin:
+            report = {key: value[:, 0] for key, value in report.items()}
+        return report
 
     def CheckGroup(self, filepath :str, group : str):
         
@@ -429,176 +588,7 @@ class FLocDyn(object):
         pkey = self.ResolveProblemKey(key)
         return PJ.FLatDyn(matin, self.projector.fprojector[pkey])
 
-    # ------------------------------------------------------------------
-    # Matrix-valued causal projection (Han & Choi, PRB 104, 115112, 2021,
-    # Appendix B, generalised). Public method is duplicated on FLatDyn /
-    # FLocDyn per design decision; shared math lives in Common.
-    # ------------------------------------------------------------------
 
-    def _causality_get_ops(self) -> dict:
-        if getattr(self, "_causality_ops", None) is None:
-            tauF = np.asarray(self.dlr.tauF, dtype=np.float64)
-            D2, L4 = Common.CausalityOperators(tauF)
-            # K maps tau (DLR) -> Matsubara (DLR) on basis vectors.
-            # Build column-by-column via dlr_from_tau -> matsubara_from_dlr.
-            N = len(tauF)
-            Nw = len(self.dlr.omega)
-            K = np.zeros((Nw, N), dtype=np.complex128)
-            I_basis = np.eye(N, dtype=np.complex128)
-            for l in range(N):
-                ff = self.dlr.FT2F(I_basis[:, l])
-                K[:, l] = ff
-            self._causality_ops = {"tau": tauF, "D2": D2, "L4": L4, "K": K}
-        return self._causality_ops
-
-    def CausalityProjection(
-        self,
-        mat_freq: np.ndarray,
-        sign: int = +1,
-        eps: float = 1e-10,
-        eta: float = None,
-        fallback: str = "regularize",
-    ) -> np.ndarray:
-        """Project mat_freq onto the matrix-valued causal cone.
-
-        Input shape: (norb, norb, ns, n_omega_dlr) on the DLR Matsubara grid.
-        Output: same shape, same grid, causal-projected.
-
-        sign = +1 for G / Delta (sg(τ) <= 0 etc.); -1 for Sigma.
-        fallback policy on solver failure: "regularize" (default) returns the
-        unprojected slice unchanged; "warn" zero-fills the corner; "raise"
-        propagates the RuntimeError.
-        """
-        if fallback not in ("regularize", "warn", "raise"):
-            raise ValueError(f"unknown fallback policy '{fallback}'")
-        if mat_freq.ndim != 4:
-            raise ValueError(f"FLocDyn.CausalityProjection expects 4D input, got {mat_freq.ndim}D")
-
-        ops = self._causality_get_ops()
-        D2 = ops["D2"]
-        L4 = ops["L4"]
-        K = ops["K"]
-
-        # mat_freq -> tau on DLR grid.
-        mat_tau = self.F2T(np.asfortranarray(mat_freq, dtype=np.complex128))
-        norb, _, ns, ntau = mat_tau.shape
-        if ntau != D2.shape[1]:
-            raise ValueError(
-                f"tau dimension {ntau} does not match DLR grid {D2.shape[1]}"
-            )
-
-        out_tau = np.array(mat_tau, copy=True)
-
-        for js in range(ns):
-            try:
-                Gc_slice = self._causality_project_block(
-                    mat_tau[:, :, js, :],
-                    mat_freq[:, :, js, :],
-                    D2, L4, K, sign, eps, eta, fallback,
-                )
-                out_tau[:, :, js, :] = Gc_slice
-            except RuntimeError as exc:
-                if fallback == "raise":
-                    raise
-                logger.warning(f"CausalityProjection failed on ns={js}: {exc}")
-
-        # Off-diagonal hermitization in τ-space is already enforced inside
-        # _causality_project_block (Gc[j,i,:] = conj(Gc[i,j,:])). The
-        # Matsubara symmetry for fermionic G is G_{ji}(iω) = conj(G_{ij}(-iω))
-        # which the DLR grid cannot directly express; we rely on the
-        # algorithm's structural Hermiticity instead of post-hoc averaging.
-        out_tau = np.asfortranarray(out_tau, dtype=np.complex128)
-        out_freq = self.T2F(out_tau)
-        return out_freq
-
-    def _causality_project_block(
-        self,
-        block_tau: np.ndarray,
-        block_freq: np.ndarray,
-        D2: np.ndarray,
-        L4: np.ndarray,
-        K: np.ndarray,
-        sign: int,
-        eps: float,
-        eta: float,
-        fallback: str,
-    ) -> np.ndarray:
-        """Project one (norb, norb, N) tau block. Returns projected block."""
-        norb, _, N = block_tau.shape
-        Gc = np.zeros((norb, norb, N), dtype=np.complex128)
-
-        # eta auto-selection: scale by mean |Gc[B,B]| later; for now a
-        # constant default tied to eps.
-        eta_eff = eta if eta is not None else max(eps, 1e-12)
-
-        # ---- Step 1: diagonal scalar QPs ----
-        for i in range(norb):
-            x_data = block_tau[i, i, :].real
-            y_data = block_freq[i, i, :]
-            try:
-                x_star = Common.CausalityDiagQP(x_data, y_data, K, D2, L4, sign, eps)
-                Gc[i, i, :] = x_star
-            except RuntimeError as exc:
-                if fallback == "raise":
-                    raise
-                logger.warning(
-                    f"CausalityProjection diag QP failed at i={i}: {exc}; passing through"
-                )
-                Gc[i, i, :] = x_data  # pass through unchanged
-
-        # ---- Step 2: off-diagonal QCQPs in offset-ascending order ----
-        for s in range(1, norb):
-            for i in range(0, norb - s):
-                j = i + s
-                B = list(range(i, j))  # leading block indices
-                r = 0                   # variable corner position within B
-                Gc_BB = Gc[np.ix_(B, B)]              # (s, s, N)
-                Gc_Bj = Gc[B, j, :]                   # (s, N)
-                Gc_jj = Gc[j, j, :]                   # (N,)
-                z_data = block_tau[i, j, :]
-                y_data = block_freq[i, j, :]
-
-                # eta scaled to trace of |M_alpha| would be ideal; use a
-                # cheap proxy proportional to mean |Gc_BB|.
-                trace_scale = float(np.mean(np.abs(Gc_BB))) + 1.0
-                eta_local = eta_eff * trace_scale
-
-                z_star = None
-                for retry in range(4):
-                    try:
-                        z_star = Common.CausalityOffdiagQCQP(
-                            z_data, y_data, Gc_BB, Gc_Bj, Gc_jj,
-                            K, D2, L4, r, sign, eps, eta_local,
-                        )
-                        break
-                    except RuntimeError:
-                        if fallback == "raise":
-                            raise
-                        eta_local *= 10.0
-                if z_star is None:
-                    if fallback == "raise":
-                        raise RuntimeError(
-                            f"CausalityProjection offdiag QCQP failed at (i={i},j={j}) after retries"
-                        )
-                    elif fallback == "warn":
-                        logger.warning(
-                            f"CausalityProjection offdiag QCQP failed at (i={i},j={j}); zero-filling"
-                        )
-                        z_star = np.zeros(N, dtype=np.complex128)
-                    else:  # regularize
-                        logger.warning(
-                            f"CausalityProjection offdiag QCQP failed at (i={i},j={j}); passing through"
-                        )
-                        z_star = np.asarray(z_data, dtype=np.complex128)
-                Gc[i, j, :] = z_star
-                Gc[j, i, :] = np.conjugate(z_star)
-
-        return Gc
-
-    def _causality_offdiag_sdp(self, *args, **kwargs):
-        """SDP-promoted off-diagonal solver. Reserved for v2."""
-        raise NotImplementedError("SDP promotion not implemented in v1")
-    
 class GLoc(FLocDyn):
 
     def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, green : np.ndarray, hdf5file : str = None, group : str = None):
@@ -887,8 +877,7 @@ class SigCImp(FLocDyn):
                 f"crystal ns={self.crystal.ns}"
             )
 
-        self.f = self.CausalityProjection(self.f, sign=-1, fallback="raise")
-        # Re-derive f_uniform from projected DLR for single source of truth.
+        # Re-derive f_uniform from the DLR self-energy for single source of truth.
         if hasattr(self, "f_uniform") and self.f_uniform is not None:
             self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=-1)
 
@@ -907,26 +896,6 @@ class SigCImp(FLocDyn):
                 Common.HDF5CreateDataset(sigimp, fn+'_uniform', self.f_uniform, dtype=complex)
 
         return None
-
-    def CheckCausalityUniform(self, tol: float) -> tuple:
-        """Check Im Sigma(iw>0) <= tol on the positive-only uniform Matsubara grid.
-
-        Returns (ok, max_im). Caller decides policy (rollback / warmup grace /
-        abort). Requires self.f_uniform which is populated only when the
-        constructor receives a CTQMC self-energy dict; ndarray-input
-        construction (no uniform grid) raises RuntimeError explicitly.
-        """
-        if not hasattr(self, "f_uniform") or self.f_uniform is None:
-            raise RuntimeError(
-                "SigCImp.CheckCausalityUniform requires f_uniform; "
-                "constructor was given an ndarray, not a CTQMC dict."
-            )
-        f_u = self.f_uniform
-        if f_u.ndim != 4:
-            raise ValueError(f"SigCImp.f_uniform must be 4D, got shape {f_u.shape}")
-        diag = np.einsum("iisn->isn", f_u)
-        max_im = float(np.asarray(diag).imag.max(initial=0.0))
-        return (max_im <= tol), max_im
 
 
 class Hyb(FLocDyn):
@@ -980,7 +949,6 @@ class Hyb(FLocDyn):
             for js in range(g_inv.shape[2]):
                 tempmat[..., js, iomega] = omega[iomega]*I - e[..., js] - g_inv[..., js, iomega] - sig[..., js, iomega]
         self.f = tempmat
-        self.f = self.CausalityProjection(self.f, sign=+1, fallback="raise")
         self.t = self.F2T(self.f)
         print(f"[Hyb.Cal] key={self.key}, f[0,0,0,0]={self.f[0,0,0,0]}, f[0,0,0,-1]={self.f[0,0,0,-1]}")
 
@@ -1017,8 +985,6 @@ class FWeiss(FLocDyn):
         self.omega_uniform = None
 
         self.Cal()
-        # Causality check is performed explicitly by the caller via
-        # fweiss.CheckCausality(tol). Symmetric to SigCImp.CheckCausalityUniform.
 
     def Cal(self):
         equiv = np.array(self.projector.equiv[self.key])
@@ -1027,24 +993,3 @@ class FWeiss(FLocDyn):
         self.h = self.UniformGrid(self.h_dlr)
 
         return None
-
-    def CheckCausality(self, tol: float) -> tuple:
-        """Check Im Delta(iw>0) <= tol on the positive-only uniform Matsubara grid.
-
-        Returns (ok, max_im). A causality violation does NOT raise — caller
-        decides policy (raise/log/continue). Setup errors (Cal() not yet run,
-        unexpected self.h shape) still raise RuntimeError/ValueError to surface
-        programmer bugs early. Symmetric to SigCImp.CheckCausalityUniform.
-
-        self.h has shape (norb, norb, ns, nfreq_uniform) where the uniform grid
-        is positive-only by construction (DLR.MatsubaraFermionUniform). We do
-        NOT check self.h_dlr because the DLR grid contains negative w nodes
-        where Im Delta is positive by causal symmetry.
-        """
-        if self.h is None:
-            raise RuntimeError("FWeiss.CheckCausality called before Cal()")
-        if self.h.ndim != 4:
-            raise ValueError(f"FWeiss.h must be 4D, got shape {self.h.shape}")
-        diag = np.einsum("iisn->isn", self.h)
-        max_im = float(np.asarray(diag).imag.max(initial=0.0))
-        return (max_im <= tol), max_im
