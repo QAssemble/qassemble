@@ -1,8 +1,19 @@
 import numpy as np
 import pytest
 
-from QAssemble.utility.Causal import CausalBoson
+from QAssemble.utility.Causal import CausalProjector
 from QAssemble.utility.DLR import DLR
+
+# Bosonic causal projection is temporarily disabled: the projector now derives
+# the QP equality target from the high-frequency data tail (fermion-only so
+# far).  The bosonic tail needs the BLocDynM convention and tanh(x/2)-weighted
+# moment rows, which are deferred to a follow-up.  project()/check() raise
+# NotImplementedError for statistic='B' until then.
+_BOSON_TAIL_DEFERRED = pytest.mark.xfail(
+    reason="bosonic tail-based moments not implemented yet (fermion-only)",
+    raises=NotImplementedError,
+    strict=True,
+)
 
 
 def _boson_dlr():
@@ -57,7 +68,8 @@ class _BosonVerifier:
 
 
 def _boson(dlr, *, constraint_tol=1.0e-7, **kwargs):
-    return CausalBoson(
+    return CausalProjector(
+        statistic="B",
         d=dlr.dB,
         beta=dlr.beta,
         omega=dlr.nu,
@@ -121,6 +133,7 @@ def test_reflection_kernel_is_symmetrized():
     np.testing.assert_allclose(plain.kernel, verifier.kernel, atol=1.0e-13)
 
 
+@_BOSON_TAIL_DEFERRED
 @pytest.mark.parametrize("reflection", [True, False])
 def test_causal_boson_projects_and_roundtrips(reflection):
     dlr = _boson_dlr()
@@ -158,6 +171,7 @@ def test_causal_boson_projects_and_roundtrips(reflection):
     assert relative < 0.5
 
 
+@_BOSON_TAIL_DEFERRED
 @pytest.mark.parametrize("reflection", [True, False])
 def test_causal_boson_skips_qp_for_causal_input(reflection):
     dlr = _boson_dlr()
@@ -194,8 +208,12 @@ def test_static_contamination_is_rejected():
     with pytest.raises(RuntimeError, match="insufficient"):
         boson.project(half_cleaned)
 
-    # the clean dynamic part passes the guard
-    assert boson.check(target).causal
+    # the clean dynamic part passes the static guard; bosonic tail-based
+    # moments are deferred (fermion-only), so check() then raises past the
+    # guard.  This asserts the guard still fires first for contaminated data
+    # above, and documents the deferred-boson boundary here.
+    with pytest.raises(NotImplementedError):
+        boson.check(target)
 
 
 def test_clean_target_decays_within_tail_guard():

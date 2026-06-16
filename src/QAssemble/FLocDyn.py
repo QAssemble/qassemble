@@ -12,7 +12,11 @@ from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Mixing import Mixing
 from .utility.Projection import Projection as PJ
-from .utility.Causal import CausalFermion
+from .utility.Causal import (
+    CausalProjector,
+    fermion_tail_coefficients,
+    resolve_causal_grid,
+)
 
 logger = logging.getLogger("QAssemble")
 
@@ -84,6 +88,7 @@ class FLocDyn(object):
         self,
         matin : np.ndarray,
         *,
+        grid : str = "dlr",
         coefficient_sign : int = -1,
         solvers = None,
         max_iter : int = 100000,
@@ -91,12 +96,19 @@ class FLocDyn(object):
         fit_tol : float = 1.0e-6,
     ) -> np.ndarray:
         """Project diagonal local fermionic channels onto real pole-weight
-        causal QP via CausalFermion.
+        causal QP via CausalProjector.
+
+        ``grid`` selects the Matsubara sampling grid the input data lives on:
+        ``"dlr"`` (sparse DLR grid, default) or ``"uniform"`` (full signed
+        uniform grid). The DLR pole basis is unchanged either way.
 
         Moments are anchored internally to the unconstrained fit of each
         channel; data not representable by the real-coefficient pole basis
         (node fit residual above ``fit_tol``) raise ``RuntimeError``.
         """
+
+        omega = resolve_causal_grid(self.dlr, grid)
+        nfreq = len(omega)
 
         arr = np.asarray(matin, dtype=np.complex128)
         squeeze_spin = False
@@ -119,17 +131,34 @@ class FLocDyn(object):
             raise ValueError(
                 f"spin dimension mismatch: matin ns={arr4.shape[2]}, crystal ns={self.crystal.ns}"
             )
-        if arr4.shape[3] != len(self.dlr.omega):
+        if arr4.shape[3] != nfreq:
             raise ValueError(
-                f"frequency dimension mismatch: matin nf={arr4.shape[3]}, dlr nf={len(self.dlr.omega)}"
+                f"frequency dimension mismatch: matin nf={arr4.shape[3]}, grid nf={nfreq}"
             )
         if not np.all(np.isfinite(np.real(arr4))) or not np.all(np.isfinite(np.imag(arr4))):
             raise ValueError("matin contains non-finite values")
 
-        projector = CausalFermion(
+        # For uniform input, estimate each channel's tail on the native uniform
+        # grid (many high-frequency points -> stable), then interpolate the data
+        # onto the DLR basis and project there.  The projection grid is always
+        # the DLR grid; uniform output is returned on the DLR grid.
+        if grid == "uniform":
+            tail = np.zeros((norb, self.crystal.ns, 4), dtype=np.float64)
+            for js in range(self.crystal.ns):
+                for iorb in range(norb):
+                    tail[iorb, js, :] = fermion_tail_coefficients(
+                        omega, arr4[iorb, iorb, js, :]
+                    )
+            # conversion preserves the (norb, norb, ns, .) layout; squeeze rule
+            # is unchanged
+            arr4 = self.dlr.MatsubaraUniformGrid2DLR(arr4, sign=-1)
+
+        proj_omega = np.asarray(self.dlr.omega, dtype=np.float64)
+        projector = CausalProjector(
+            statistic="F",
             d=self.dlr.dF,
             beta=self.dlr.beta,
-            omega=self.dlr.omega,
+            omega=proj_omega,
             coefficient_sign=coefficient_sign,
             solvers=solvers,
             max_iter=max_iter,
@@ -140,8 +169,10 @@ class FLocDyn(object):
         out = np.array(arr4, dtype=np.complex128, copy=True, order='F')
         for js in range(self.crystal.ns):
             for iorb in range(norb):
+                tail_coeffs = tail[iorb, js, :] if grid == "uniform" else None
                 out[iorb, iorb, js, :] = projector.project(
-                    arr4[iorb, iorb, js, :]
+                    arr4[iorb, iorb, js, :],
+                    tail_coeffs=tail_coeffs,
                 )
 
         if squeeze_spin:
@@ -152,6 +183,7 @@ class FLocDyn(object):
         self,
         matin : np.ndarray,
         *,
+        grid : str = "dlr",
         coefficient_sign : int = -1,
         solvers = None,
         max_iter : int = 100000,
@@ -159,6 +191,9 @@ class FLocDyn(object):
         fit_tol : float = 1.0e-6,
     ) -> dict:
         """Diagnose causality of diagonal local channels without projecting.
+
+        ``grid`` selects the input sampling grid (``"dlr"`` default or
+        ``"uniform"``), as in ``CausalProjection``.
 
         Returns per-channel arrays shaped ``(norb, ns)`` for 4D input and
         ``(norb,)`` for 3D input (same squeeze rule as ``CausalProjection``):
@@ -171,6 +206,9 @@ class FLocDyn(object):
         diagnostic counterpart of ``CausalProjection``.
         """
 
+        omega = resolve_causal_grid(self.dlr, grid)
+        nfreq = len(omega)
+
         arr = np.asarray(matin, dtype=np.complex128)
         squeeze_spin = False
         if arr.ndim == 3:
@@ -192,18 +230,31 @@ class FLocDyn(object):
             raise ValueError(
                 f"spin dimension mismatch: matin ns={arr4.shape[2]}, crystal ns={self.crystal.ns}"
             )
-        if arr4.shape[3] != len(self.dlr.omega):
+        if arr4.shape[3] != nfreq:
             raise ValueError(
-                f"frequency dimension mismatch: matin nf={arr4.shape[3]}, dlr nf={len(self.dlr.omega)}"
+                f"frequency dimension mismatch: matin nf={arr4.shape[3]}, grid nf={nfreq}"
             )
         if not np.all(np.isfinite(np.real(arr4))) or not np.all(np.isfinite(np.imag(arr4))):
             raise ValueError("matin contains non-finite values")
 
         ns = self.crystal.ns
-        projector = CausalFermion(
+        # mirror CausalProjection: uniform input has its tail estimated on the
+        # native grid, then is interpolated onto the DLR grid for the check.
+        if grid == "uniform":
+            tail = np.zeros((norb, ns, 4), dtype=np.float64)
+            for js in range(ns):
+                for iorb in range(norb):
+                    tail[iorb, js, :] = fermion_tail_coefficients(
+                        omega, arr4[iorb, iorb, js, :]
+                    )
+            arr4 = self.dlr.MatsubaraUniformGrid2DLR(arr4, sign=-1)
+
+        proj_omega = np.asarray(self.dlr.omega, dtype=np.float64)
+        projector = CausalProjector(
+            statistic="F",
             d=self.dlr.dF,
             beta=self.dlr.beta,
-            omega=self.dlr.omega,
+            omega=proj_omega,
             coefficient_sign=coefficient_sign,
             solvers=solvers,
             max_iter=max_iter,
@@ -218,9 +269,11 @@ class FLocDyn(object):
         node_residual = np.zeros((norb, ns), dtype=float)
         for js in range(ns):
             for iorb in range(norb):
+                tail_coeffs = tail[iorb, js, :] if grid == "uniform" else None
                 verdict = projector.check(
                     arr4[iorb, iorb, js, :],
                     enforce_gate=False,
+                    tail_coeffs=tail_coeffs,
                 )
                 causal[iorb, js] = verdict.causal
                 max_inequality[iorb, js] = verdict.max_inequality_violation
