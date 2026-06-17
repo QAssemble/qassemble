@@ -12,11 +12,7 @@ from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Mixing import Mixing
 from .utility.Projection import Projection as PJ
-from .utility.Causal import (
-    CausalProjector,
-    fermion_tail_coefficients,
-    resolve_causal_grid,
-)
+from .utility.Causal import CausalProjector
 
 logger = logging.getLogger("QAssemble")
 
@@ -84,6 +80,22 @@ class FLocDyn(object):
 
         return ff
 
+    def _ResolveCausalGrid(self, grid : str) -> np.ndarray:
+        """Fermionic Matsubara sampling grid for a causal projection.
+
+        ``grid='dlr'``     -> ``self.dlr.omega`` (sparse DLR sampling grid).
+        ``grid='uniform'`` -> ``self.dlr.MatsubaraFermionUniformFull()`` (full
+        signed uniform grid covering the DLR range).
+
+        The returned array is what the input data's frequency dimension is
+        validated against, so the two can never drift apart.
+        """
+        if grid == "dlr":
+            return np.asarray(self.dlr.omega, dtype=np.float64)
+        if grid == "uniform":
+            return np.asarray(self.dlr.MatsubaraFermionUniformFull(), dtype=np.float64)
+        raise ValueError(f"grid must be 'dlr' or 'uniform', got {grid!r}")
+
     def CausalProjection(
         self,
         matin : np.ndarray,
@@ -107,7 +119,7 @@ class FLocDyn(object):
         (node fit residual above ``fit_tol``) raise ``RuntimeError``.
         """
 
-        omega = resolve_causal_grid(self.dlr, grid)
+        omega = self._ResolveCausalGrid(grid)
         nfreq = len(omega)
 
         arr = np.asarray(matin, dtype=np.complex128)
@@ -146,7 +158,7 @@ class FLocDyn(object):
             tail = np.zeros((norb, self.crystal.ns, 4), dtype=np.float64)
             for js in range(self.crystal.ns):
                 for iorb in range(norb):
-                    tail[iorb, js, :] = fermion_tail_coefficients(
+                    tail[iorb, js, :] = Fourier.FermionTailCoefficients(
                         omega, arr4[iorb, iorb, js, :]
                     )
             # conversion preserves the (norb, norb, ns, .) layout; squeeze rule
@@ -206,7 +218,7 @@ class FLocDyn(object):
         diagnostic counterpart of ``CausalProjection``.
         """
 
-        omega = resolve_causal_grid(self.dlr, grid)
+        omega = self._ResolveCausalGrid(grid)
         nfreq = len(omega)
 
         arr = np.asarray(matin, dtype=np.complex128)
@@ -244,7 +256,7 @@ class FLocDyn(object):
             tail = np.zeros((norb, ns, 4), dtype=np.float64)
             for js in range(ns):
                 for iorb in range(norb):
-                    tail[iorb, js, :] = fermion_tail_coefficients(
+                    tail[iorb, js, :] = Fourier.FermionTailCoefficients(
                         omega, arr4[iorb, iorb, js, :]
                     )
             arr4 = self.dlr.MatsubaraUniformGrid2DLR(arr4, sign=-1)

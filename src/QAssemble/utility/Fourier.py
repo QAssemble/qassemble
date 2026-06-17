@@ -3,7 +3,7 @@ Fourier transform utilities for Green's functions and self-energies.
 Serial implementation without MPI dependencies.
 """
 import numpy as np
-from scipy.linalg import solve
+from scipy.linalg import lstsq
 from typing import Tuple, Optional
 
 ArrayLike = np.ndarray
@@ -20,156 +20,65 @@ class Fourier:
     """
     
     @staticmethod
-    def FLocDynM(freq: np.ndarray, ff1: np.ndarray, ff2: np.ndarray, isgreen: bool, highzero: bool) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Calculate high-frequency moments of local fermionic Green's function.
-        
-        Extracts tail coefficients G(iω_n) ~ c₀ + c₁/(iω_n) + c₂/(iω_n)² + c₃/(iω_n)³
-        using values at highest frequencies.
-        
+    def FermionTailCoefficients(
+        omega: np.ndarray,
+        target: np.ndarray,
+        tail_points: int = 5,
+    ) -> np.ndarray:
+        """Robust fermionic high-frequency tail ``[c0, c1, c2, c3]`` (moment sign).
+
+        Fits ``G(iw) ~ c0 + c1/(iw) + c2/(iw)^2 + c3/(iw)^3`` for a single
+        scalar channel by a real (real/imag-stacked) least squares over the
+        ``tail_points`` largest ``|omega|`` points.  This is the robust,
+        over-determined replacement for the former two-point ``FLocDynM``
+        formula and is stable against high-frequency noise.
+
+        The returned ``c1, c2, c3`` are in the *moment* convention used by the
+        DLR causal projector (``moment_rows @ coeff``): pydlr's
+        ``eval_dlr_freq`` carries a hidden ``.conj()``, so the kernel-produced
+        moment is the negative of the physically-fit ``c_{p+1}``; this helper
+        negates them accordingly.  ``c0`` is a genuine ``(iw)^0`` constant and
+        keeps its physical sign.  Callers that want physical-sign moments
+        (e.g. ``FLatDyn.Moment``) must flip ``c1, c2, c3`` back.
+
         Parameters
         ----------
-        freq : ndarray[nfreq], dtype=float
-            Fermionic Matsubara frequencies ω_n = (2n+1)π/β
-        ff1 : ndarray[norb, norb, ns], dtype=complex
-            G or Σ at highest frequency point
-        ff2 : ndarray[norb, norb, ns], dtype=complex  
-            G or Σ at second-highest frequency point
-        isgreen : bool
-            True for Green's function (c₁ = 1), False for self-energy
-        highzero : bool
-            True to enforce c₀ = 0 (constant term)
-            
+        omega : ndarray[nfreq], dtype=float
+            Fermionic Matsubara frequencies (the sampling grid).
+        target : ndarray[nfreq], dtype=complex
+            Scalar channel values G(i*omega) on that grid.
+        tail_points : int
+            Number of largest-|omega| points used in the fit (>= 4).
+
         Returns
         -------
-        moment : ndarray[norb, norb, ns, 3], dtype=complex
-            Tail coefficients [c₁, c₂, c₃]
-        high : ndarray[norb, norb, ns], dtype=complex
-            Constant term c₀
+        ndarray[4], dtype=float
+            ``[c0, c1, c2, c3]`` in the moment convention described above.
         """
-        norb, _, ns = ff1.shape
-        nfreq = len(freq)
-        
-        moment = np.zeros((norb, norb, ns, 3), dtype=np.complex128, order='F')
-        high = np.zeros((norb, norb, ns), dtype=np.complex128, order='F')
-        
-        ai = 1j
-        
-        if isgreen:
-            # Green's function: enforce c₁ = δᵢⱼ
-            for js in range(ns):
-                for jorb in range(norb):
-                    for iorb in range(norb):
-                        moment[iorb, jorb, js, 0] = 1.0 if iorb == jorb else 0.0
-                        
-                        # c₂ from hermiticity constraint
-                        moment[iorb, jorb, js, 1] = (
-                            (ff1[iorb, jorb, js] + np.conj(ff1[jorb, iorb, js])) / 2.0 
-                            * (freq[nfreq-1] * ai)**2
-                        )
-                        
-                        # c₃ from anti-hermiticity constraint  
-                        moment[iorb, jorb, js, 2] = (
-                            (ff1[iorb, jorb, js] - np.conj(ff1[jorb, iorb, js]) 
-                             - moment[iorb, jorb, js, 0] * 2.0 / (freq[nfreq-1] * ai)) / 2.0 
-                            * (freq[nfreq-1] * ai)**3
-                        )
-        else:
-            # Self-energy fitting
-            if highzero:
-                # Simplified case: c₀ = 0
-                for js in range(ns):
-                    for jorb in range(norb):
-                        for iorb in range(norb):
-                            moment[iorb, jorb, js, 0] = (
-                                (ff1[iorb, jorb, js] - np.conj(ff1[jorb, iorb, js])) / 2.0 
-                                * (freq[nfreq-1] * ai)
-                            )
-                            moment[iorb, jorb, js, 1] = (
-                                (ff1[iorb, jorb, js] + np.conj(ff1[jorb, iorb, js])) / 2.0 
-                                * (freq[nfreq-1] * ai)**2
-                            )
-            else:
-                # Full 4-parameter fit using two frequency points
-                for js in range(ns):
-                    for jorb in range(norb):
-                        for iorb in range(norb):
-                            # Build linear system for [c₀, c₁, c₂, c₃]ᵀ
-                            amat = np.zeros((4, 4), dtype=np.complex128, order='F')
-                            bmat = np.zeros((4, 1), dtype=np.complex128, order='F')
-                            
-                            # Constraints from ff1 and its hermitian conjugate
-                            amat[0, :] = [1.0, 1.0/(freq[nfreq-1]*ai), 
-                                         1.0/(freq[nfreq-1]*ai)**2, 1.0/(freq[nfreq-1]*ai)**3]
-                            amat[1, :] = [1.0, -1.0/(freq[nfreq-1]*ai), 
-                                         1.0/(freq[nfreq-1]*ai)**2, -1.0/(freq[nfreq-1]*ai)**3]
-                            # Constraints from ff2 and its hermitian conjugate
-                            amat[2, :] = [1.0, 1.0/(freq[nfreq-2]*ai), 
-                                         1.0/(freq[nfreq-2]*ai)**2, 1.0/(freq[nfreq-2]*ai)**3]
-                            amat[3, :] = [1.0, -1.0/(freq[nfreq-2]*ai), 
-                                         1.0/(freq[nfreq-2]*ai)**2, -1.0/(freq[nfreq-2]*ai)**3]
-                            
-                            bmat[0, 0] = ff1[iorb, jorb, js]
-                            bmat[1, 0] = np.conj(ff1[jorb, iorb, js])
-                            bmat[2, 0] = ff2[iorb, jorb, js]
-                            bmat[3, 0] = np.conj(ff2[jorb, iorb, js])
-                            
-                            sol = solve(amat, bmat)
-                            
-                            high[iorb, jorb, js] = sol[0, 0]
-                            moment[iorb, jorb, js, 0] = sol[1, 0]
-                            moment[iorb, jorb, js, 1] = sol[2, 0]
-                            moment[iorb, jorb, js, 2] = sol[3, 0]
-        
-        # Enforce hermiticity of tail coefficients
-        for js in range(ns):
-            high[:, :, js] = (high[:, :, js].T.conj() + high[:, :, js]) / 2.0
-            for ii in range(3):
-                moment[:, :, js, ii] = (moment[:, :, js, ii].T.conj() + moment[:, :, js, ii]) / 2.0
-        
-        return moment, high
-    
-    @staticmethod
-    def FLatDynM(freq: np.ndarray, ff1: np.ndarray, ff2: np.ndarray, 
-                 isgreen: bool, highzero: bool) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Calculate high-frequency moments for lattice fermionic function.
-        
-        Parameters
-        ----------
-        freq : ndarray[nfreq]
-            Fermionic Matsubara frequencies
-        ff1 : ndarray[norb, norb, ns, nk], dtype=complex
-            Lattice function at highest frequency
-        ff2 : ndarray[norb, norb, ns, nk], dtype=complex
-            Lattice function at second-highest frequency
-        isgreen : bool
-            True for Green's function, False for self-energy
-        highzero : bool
-            True to enforce c₀ = 0
-            
-        Returns
-        -------
-        moment : ndarray[norb, norb, ns, nk, 3]
-            k-dependent tail coefficients
-        high : ndarray[norb, norb, ns, nk]
-            k-dependent constant term
-        """
-        norb, _, ns, nk = ff1.shape
-        
-        moment = np.zeros((norb, norb, ns, nk, 3), dtype=np.complex128, order='F')
-        high = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
-        
-        # Process each k-point independently
-        for ik in range(nk):
-            moment[..., ik, :], high[..., ik] = Fourier.FLocDynM(
-                freq, ff1[..., ik], ff2[..., ik], isgreen, highzero
+        omega = np.asarray(omega, dtype=np.float64)
+        target = np.asarray(target, dtype=np.complex128)
+        if omega.ndim != 1 or target.ndim != 1 or omega.shape != target.shape:
+            raise ValueError("omega and target must be 1D arrays of equal length")
+        if tail_points < 4 or tail_points > omega.size:
+            raise ValueError(
+                f"tail_points must be in [4, {omega.size}], got {tail_points}"
             )
-        
-        return moment, high
-    
+
+        idx = np.argsort(np.abs(omega))[-tail_points:]
+        z = 1j * omega[idx]
+        design = np.column_stack([np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3])
+        b = target[idx]
+        design_ri = np.vstack([design.real, design.imag])
+        b_ri = np.concatenate([b.real, b.imag])
+        c, *_ = lstsq(design_ri, b_ri)
+        c = np.asarray(c, dtype=float)
+        if not np.all(np.isfinite(c)):
+            raise ValueError("tail coefficient fit produced non-finite values")
+        c[1:] = -c[1:]
+        return c
+
     @staticmethod
-    def BLocDynM(freq: np.ndarray, ff: np.ndarray, oddzero: bool, 
+    def BLocDynM(freq: np.ndarray, ff: np.ndarray, oddzero: bool,
                  highzero: bool) -> Tuple[np.ndarray, np.ndarray]:
         """
         Calculate high-frequency moments for local bosonic function.

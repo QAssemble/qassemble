@@ -642,3 +642,97 @@ class Common:
             if val == klist:
                 return key
 
+    @staticmethod
+    def RealArray(
+        values: np.ndarray,
+        *,
+        name: str,
+        imag_atol: float,
+        imag_rtol: float,
+    ) -> np.ndarray:
+        """Coerce an array to real, accepting complex input only when its
+        imaginary part is within ``imag_atol + imag_rtol * max(1, |real|)``.
+
+        Returns the real part as a float array; raises ``ValueError`` on
+        non-finite values or an imaginary part exceeding the tolerance.
+        """
+        arr = np.asarray(values)
+        if np.iscomplexobj(arr):
+            real = np.real(arr).astype(float, copy=False)
+            imag = np.imag(arr).astype(float, copy=False)
+            if not np.all(np.isfinite(real)) or not np.all(np.isfinite(imag)):
+                raise ValueError(f"{name} contains non-finite values")
+            real_scale = max(1.0, float(np.max(np.abs(real))) if real.size else 0.0)
+            imag_bound = float(imag_atol) + float(imag_rtol) * real_scale
+            max_imag = float(np.max(np.abs(imag))) if imag.size else 0.0
+            if max_imag > imag_bound:
+                raise ValueError(
+                    f"{name} has imaginary part {max_imag:.3e}, "
+                    f"exceeding tolerance {imag_bound:.3e}"
+                )
+            return real
+
+        try:
+            real = arr.astype(float, copy=False)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{name} must be real-valued") from exc
+        if not np.all(np.isfinite(real)):
+            raise ValueError(f"{name} contains non-finite values")
+        return real
+
+    @staticmethod
+    def RealVector(
+        reference: np.ndarray,
+        imag_atol: float,
+        imag_rtol: float,
+    ) -> np.ndarray:
+        """Coerce ``reference`` to a non-empty 1D contiguous real vector."""
+        ref = Common.RealArray(
+            reference,
+            name="reference",
+            imag_atol=imag_atol,
+            imag_rtol=imag_rtol,
+        )
+        if ref.ndim != 1:
+            raise ValueError(f"reference must be one-dimensional, got {ref.ndim}D")
+        if ref.size == 0:
+            raise ValueError("reference must be non-empty")
+        return np.ascontiguousarray(ref)
+
+    @staticmethod
+    def RealFrequencyVector(values: np.ndarray, *, name: str) -> np.ndarray:
+        """Coerce a frequency grid to a non-empty 1D contiguous real vector.
+
+        Complex input is interpreted as ``i*omega``: the imaginary part is
+        taken as the frequency.
+        """
+        arr = np.asarray(values)
+        if np.iscomplexobj(arr):
+            freq = np.asarray(np.imag(arr), dtype=float)
+        else:
+            freq = np.asarray(arr, dtype=float)
+        if freq.ndim != 1:
+            raise ValueError(f"{name} must be one-dimensional, got {freq.ndim}D")
+        if freq.size == 0:
+            raise ValueError(f"{name} must be non-empty")
+        if not np.all(np.isfinite(freq)):
+            raise ValueError(f"{name} contains non-finite values")
+        return np.ascontiguousarray(freq)
+
+    @staticmethod
+    def ComplexVector(
+        values: np.ndarray,
+        *,
+        name: str,
+        expected_size: int,
+    ) -> np.ndarray:
+        """Coerce ``values`` to a 1D contiguous complex vector of the given size."""
+        arr = np.asarray(values, dtype=np.complex128)
+        if arr.ndim != 1:
+            raise ValueError(f"{name} must be one-dimensional, got {arr.ndim}D")
+        if arr.shape != (expected_size,):
+            raise ValueError(f"{name} shape {arr.shape} does not match {(expected_size,)}")
+        if not np.all(np.isfinite(np.real(arr))) or not np.all(np.isfinite(np.imag(arr))):
+            raise ValueError(f"{name} contains non-finite values")
+        return np.ascontiguousarray(arr)
+

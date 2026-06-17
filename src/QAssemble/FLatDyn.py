@@ -15,11 +15,7 @@ from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Mixing import Mixing
 from .utility.Embedding import Embedding as EB
-from .utility.Causal import (
-    CausalProjector,
-    fermion_tail_coefficients,
-    resolve_causal_grid,
-)
+from .utility.Causal import CausalProjector
 
 logger = logging.getLogger("QAssemble")
 
@@ -121,6 +117,22 @@ class FLatDyn(object):
 
         return ftau
 
+    def _ResolveCausalGrid(self, grid : str) -> np.ndarray:
+        """Fermionic Matsubara sampling grid for a causal projection.
+
+        ``grid='dlr'``     -> ``self.dlr.omega`` (sparse DLR sampling grid).
+        ``grid='uniform'`` -> ``self.dlr.MatsubaraFermionUniformFull()`` (full
+        signed uniform grid covering the DLR range).
+
+        The returned array is what the input data's frequency dimension is
+        validated against, so the two can never drift apart.
+        """
+        if grid == "dlr":
+            return np.asarray(self.dlr.omega, dtype=np.float64)
+        if grid == "uniform":
+            return np.asarray(self.dlr.MatsubaraFermionUniformFull(), dtype=np.float64)
+        raise ValueError(f"grid must be 'dlr' or 'uniform', got {grid!r}")
+
     def CausalProjection(
         self,
         matin : np.ndarray,
@@ -144,7 +156,7 @@ class FLatDyn(object):
         (node fit residual above ``fit_tol``) raise ``RuntimeError``.
         """
 
-        omega = resolve_causal_grid(self.dlr, grid)
+        omega = self._ResolveCausalGrid(grid)
         nfreq = len(omega)
 
         arr = np.asarray(matin, dtype=np.complex128)
@@ -181,7 +193,7 @@ class FLatDyn(object):
             for ik in range(nk):
                 for js in range(ns):
                     for iorb in range(norb):
-                        tail[iorb, js, ik, :] = fermion_tail_coefficients(
+                        tail[iorb, js, ik, :] = Fourier.FermionTailCoefficients(
                             omega, arr[iorb, iorb, js, ik, :]
                         )
                 converted[:, :, :, ik, :] = self.dlr.MatsubaraUniformGrid2DLR(
@@ -241,7 +253,7 @@ class FLatDyn(object):
         data — this is the diagnostic counterpart of ``CausalProjection``.
         """
 
-        omega = resolve_causal_grid(self.dlr, grid)
+        omega = self._ResolveCausalGrid(grid)
         nfreq = len(omega)
 
         arr = np.asarray(matin, dtype=np.complex128)
@@ -275,7 +287,7 @@ class FLatDyn(object):
             for ik in range(nk):
                 for js in range(ns):
                     for iorb in range(norb):
-                        tail[iorb, js, ik, :] = fermion_tail_coefficients(
+                        tail[iorb, js, ik, :] = Fourier.FermionTailCoefficients(
                             omega, arr[iorb, iorb, js, ik, :]
                         )
                 converted[:, :, :, ik, :] = self.dlr.MatsubaraUniformGrid2DLR(
@@ -327,23 +339,47 @@ class FLatDyn(object):
         }
 
     
-    def Moment(self,ff : np.ndarray, isgreen : bool, highzero : bool) -> tuple:
+    def Moment(self, ff : np.ndarray, isgreen : bool, highzero : bool, tail_points : int = 5) -> tuple:
+        """High-frequency tail coefficients of a lattice fermionic function.
 
+        For each diagonal channel ``(iorb, js, ik)`` fit
+        ``G(iw) ~ c0 + c1/(iw) + c2/(iw)^2 + c3/(iw)^3`` by a robust
+        least squares over the ``tail_points`` largest ``|omega|`` points
+        (``Fourier.FermionTailCoefficients``).  Returns
+        ``moment[..., 0:3] = [c1, c2, c3]`` and ``high = c0`` in **physical
+        sign** (``FermionTailCoefficients`` reports the moment convention with
+        ``c1,c2,c3`` negated, so they are flipped back here).
+
+        Only diagonal channels are populated; off-diagonal elements stay zero
+        (the previous two-point ``FLocDynM`` hermitization is not reproduced —
+        no consumer uses off-diagonal moments).  ``isgreen``/``highzero`` are
+        accepted for backward compatibility but no longer alter the fit (the
+        robust fit determines ``c0`` and all moments directly from the data).
+        """
         norb = ff.shape[0]
         ns = ff.shape[2]
         nk = ff.shape[3]
 
-        moment = np.zeros((norb,norb,ns,nk,3),dtype=np.complex128,order='F')
-        high = np.zeros((norb,norb,ns,nk),dtype=np.complex128,order='F')
+        moment = np.zeros((norb, norb, ns, nk, 3), dtype=np.complex128, order='F')
+        high = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
 
-        if ff.shape[4] < 2:
-            raise ValueError("Need at least two frequency points to build high-frequency moments.")
+        if ff.shape[4] < tail_points:
+            raise ValueError(
+                f"Need at least {tail_points} frequency points to build "
+                "high-frequency moments."
+            )
 
-        high_freq_slice = ff[..., -1]
-        prev_freq_slice = ff[..., -2]
-
-        # moment, high = QAFort.fourier.flatdyn_m(self.dlr.omega,tempmat,isgreen,highzero)
-        moment, high = Fourier.FLatDynM(self.dlr.omega, high_freq_slice, prev_freq_slice, isgreen, highzero)
+        omega = np.asarray(self.dlr.omega, dtype=np.float64)
+        for ik in range(nk):
+            for js in range(ns):
+                for iorb in range(norb):
+                    c = Fourier.FermionTailCoefficients(
+                        omega, ff[iorb, iorb, js, ik, :], tail_points
+                    )
+                    high[iorb, iorb, js, ik] = c[0]
+                    # FermionTailCoefficients returns moment-convention c1,c2,c3
+                    # (negated); flip back to physical sign for moment ratios.
+                    moment[iorb, iorb, js, ik, :] = -c[1:]
 
         return moment, high
     

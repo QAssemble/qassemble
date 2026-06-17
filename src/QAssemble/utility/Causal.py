@@ -8,8 +8,10 @@ from typing import Sequence
 
 import numpy as np
 from qpsolvers import SolverNotFound, solve_qp
-from scipy.linalg import lstsq
 from scipy.sparse import csc_matrix
+
+from .Common import Common
+from .Fourier import Fourier
 
 
 @dataclass(frozen=True)
@@ -137,7 +139,7 @@ class CausalProjection:
             the success judgment; ``None`` uses ``constraint_tol``.
         """
 
-        ref = _real_vector(reference, self.imag_atol, self.imag_rtol)
+        ref = Common.RealVector(reference, self.imag_atol, self.imag_rtol)
         rank = ref.size
         tol_val = self._resolve_tol(tol)
         weight = self._prepare_weight_matrix(weight_matrix, rank)
@@ -149,7 +151,7 @@ class CausalProjection:
 
         g = csc_matrix(-self.coefficient_sign * np.eye(rank))
         h = np.zeros(rank, dtype=float)
-        a, b = _equality_constraint(
+        a, b = self._equality_constraint(
             equality_matrix,
             equality_target,
             rank,
@@ -182,14 +184,14 @@ class CausalProjection:
                 solver=solver,
                 status=status,
                 attempts=tuple(attempts),
-                objective=_weighted_objective(failed_coeff, ref, weight),
-                max_inequality_violation=_max_inequality_violation(g, h, failed_coeff),
-                max_equality_residual=_max_equality_residual(a, b, failed_coeff),
+                objective=self._weighted_objective(failed_coeff, ref, weight),
+                max_inequality_violation=self._max_inequality_violation(g, h, failed_coeff),
+                max_equality_residual=self._max_equality_residual(a, b, failed_coeff),
                 relative_change=0.0,
             )
 
-        ineq = _max_inequality_violation(g, h, coeff)
-        eq = _max_equality_residual(a, b, coeff)
+        ineq = self._max_inequality_violation(g, h, coeff)
+        eq = self._max_equality_residual(a, b, coeff)
         success = bool(ineq <= tol_val and eq <= tol_val)
         if self.raise_on_failure and not success:
             raise RuntimeError(
@@ -203,10 +205,10 @@ class CausalProjection:
             solver=solver,
             status=status,
             attempts=tuple(attempts),
-            objective=_weighted_objective(coeff, ref, weight),
+            objective=self._weighted_objective(coeff, ref, weight),
             max_inequality_violation=ineq,
             max_equality_residual=eq,
-            relative_change=_relative_change(coeff, ref),
+            relative_change=self._relative_change(coeff, ref),
         )
 
     def check(
@@ -230,10 +232,10 @@ class CausalProjection:
             ``constraint_tol``.
         """
 
-        coeff = _real_vector(coefficients, self.imag_atol, self.imag_rtol)
+        coeff = Common.RealVector(coefficients, self.imag_atol, self.imag_rtol)
         rank = coeff.size
         tol_val = self._resolve_tol(tol)
-        a, b = _equality_constraint(
+        a, b = self._equality_constraint(
             equality_matrix,
             equality_target,
             rank,
@@ -244,7 +246,7 @@ class CausalProjection:
         sign_residual = -self.coefficient_sign * coeff
         ineq = float(max(np.max(sign_residual), 0.0))
         violating_count = int(np.count_nonzero(sign_residual > tol_val))
-        eq = _max_equality_residual(a, b, coeff)
+        eq = self._max_equality_residual(a, b, coeff)
 
         return CausalCheckResult(
             causal=bool(ineq <= tol_val and eq <= tol_val),
@@ -269,7 +271,7 @@ class CausalProjection:
         if weight_matrix is None:
             return np.eye(rank, dtype=float)
 
-        weight = _real_array(
+        weight = Common.RealArray(
             weight_matrix,
             name="weight_matrix",
             imag_atol=self.imag_atol,
@@ -306,7 +308,7 @@ class CausalProjection:
         attempts = []
         best = None
         for solver in self.solvers:
-            kwargs = _solver_kwargs(solver, self.max_iter)
+            kwargs = self._solver_kwargs(solver, self.max_iter)
             try:
                 with warnings.catch_warnings(record=True) as caught:
                     warnings.simplefilter("always")
@@ -323,9 +325,9 @@ class CausalProjection:
                 continue
 
             sol = np.asarray(sol, dtype=float)
-            ineq = _max_inequality_violation(g, h, sol)
-            eq = _max_equality_residual(a, b, sol)
-            objective = _weighted_objective(sol, reference, weight)
+            ineq = self._max_inequality_violation(g, h, sol)
+            eq = self._max_equality_residual(a, b, sol)
+            objective = self._weighted_objective(sol, reference, weight)
             status = "|".join(str(item.message).replace(" ", "_") for item in caught) or "ok"
             attempts.append(f"{solver}:ineq={ineq:.3e}:eq={eq:.3e}")
 
@@ -339,6 +341,86 @@ class CausalProjection:
             return None, None, "all_failed", attempts
         _, sol, solver, status, best_attempts = best
         return sol, solver, status, best_attempts
+
+    @staticmethod
+    def _equality_constraint(
+        equality_matrix: np.ndarray | None,
+        equality_target: np.ndarray | None,
+        rank: int,
+        imag_atol: float,
+        imag_rtol: float,
+    ) -> tuple[csc_matrix | None, np.ndarray | None]:
+        if equality_matrix is None and equality_target is None:
+            return None, None
+        if equality_matrix is None or equality_target is None:
+            raise ValueError("equality_matrix and equality_target must be provided together")
+
+        matrix = Common.RealArray(
+            equality_matrix,
+            name="equality_matrix",
+            imag_atol=imag_atol,
+            imag_rtol=imag_rtol,
+        )
+        if matrix.ndim == 1:
+            matrix = matrix.reshape(1, -1)
+        if matrix.ndim != 2:
+            raise ValueError(f"equality_matrix must be 1D or 2D, got {matrix.ndim}D")
+        if matrix.shape[1] != rank:
+            raise ValueError(
+                f"equality_matrix has {matrix.shape[1]} columns, expected {rank}"
+            )
+        if not np.all(np.isfinite(matrix)):
+            raise ValueError("equality_matrix contains non-finite values")
+
+        target = Common.RealArray(
+            equality_target,
+            name="equality_target",
+            imag_atol=imag_atol,
+            imag_rtol=imag_rtol,
+        ).reshape(-1)
+        if target.shape != (matrix.shape[0],):
+            raise ValueError(
+                f"equality_target shape {target.shape} does not match "
+                f"{(matrix.shape[0],)}"
+            )
+        if not np.all(np.isfinite(target)):
+            raise ValueError("equality_target contains non-finite values")
+
+        return csc_matrix(matrix), target
+
+    @staticmethod
+    def _solver_kwargs(solver: str, max_iter: int) -> dict:
+        if solver == "scs":
+            return {"max_iters": max_iter}
+        return {"max_iter": max_iter}
+
+    @staticmethod
+    def _weighted_objective(
+        coefficients: np.ndarray,
+        reference: np.ndarray,
+        weight: np.ndarray,
+    ) -> float:
+        diff = np.asarray(coefficients, dtype=float) - reference
+        return float(diff @ (weight @ diff))
+
+    @staticmethod
+    def _max_inequality_violation(g, h, coefficients: np.ndarray) -> float:
+        residual = np.asarray(g @ coefficients - h, dtype=float).reshape(-1)
+        return float(max(np.max(residual), 0.0))
+
+    @staticmethod
+    def _max_equality_residual(a, b, coefficients: np.ndarray) -> float:
+        if a is None:
+            return 0.0
+        residual = np.asarray(a @ coefficients - b, dtype=float).reshape(-1)
+        return float(np.max(np.abs(residual)))
+
+    @staticmethod
+    def _relative_change(coefficients: np.ndarray, reference: np.ndarray) -> float:
+        return float(
+            np.linalg.norm(np.asarray(coefficients, dtype=float) - reference)
+            / max(np.linalg.norm(reference), 1.0e-30)
+        )
 
 
 class CausalProjector:
@@ -476,7 +558,7 @@ class CausalProjector:
 
         self.d = d
         self.beta = float(beta)
-        self.omega = _real_frequency_vector(omega, name="omega")
+        self.omega = Common.RealFrequencyVector(omega, name="omega")
 
         x_nodes = np.asarray(d.get_dlr_frequencies(), dtype=float)
         if x_nodes.ndim != 1 or x_nodes.size == 0:
@@ -534,7 +616,7 @@ class CausalProjector:
         """
 
         self._reset_diagnostics()
-        target_vec = _complex_vector(
+        target_vec = Common.ComplexVector(
             target,
             name="target",
             expected_size=self.omega.size,
@@ -631,7 +713,7 @@ class CausalProjector:
         injected via ``tail_coeffs``) are the equality target.
         """
 
-        target_vec = _complex_vector(
+        target_vec = Common.ComplexVector(
             target,
             name="target",
             expected_size=self.omega.size,
@@ -705,7 +787,7 @@ class CausalProjector:
             # fermion_tail_coefficients on the native grid); only rescale.
             return c / scale
 
-        return fermion_tail_coefficients(
+        return Fourier.FermionTailCoefficients(
             self.omega, target_scaled, self.tail_points
         )
 
@@ -863,220 +945,3 @@ class CausalProjector:
             "min_coefficient": float(np.min(coefficients)),
         }
 
-
-def fermion_tail_coefficients(
-    omega: np.ndarray,
-    target: np.ndarray,
-    tail_points: int = 5,
-) -> np.ndarray:
-    """Robust fermionic high-frequency tail ``[c0, c1, c2, c3]`` (moment sign).
-
-    Fits ``G(iw) ~ c0 + c1/(iw) + c2/(iw)^2 + c3/(iw)^3`` by a real
-    (real/imag-stacked) least squares over the ``tail_points`` largest
-    ``|omega|`` points, generalizing the two-point ``Fourier.FLocDynM`` formula
-    and stabilizing it against high-frequency noise.
-
-    The returned ``c1, c2, c3`` are in the *moment* convention used by the DLR
-    causal projector (``moment_rows @ coeff``): pydlr's ``eval_dlr_freq``
-    carries a hidden ``.conj()``, so the kernel-produced moment is the negative
-    of the physically-fit ``c_{p+1}``; this helper negates them accordingly.
-    ``c0`` is a genuine ``(iw)^0`` constant and keeps its physical sign.  This
-    lets callers compute the tail on the native (e.g. uniform) grid and inject
-    it into ``CausalProjector.project(..., tail_coeffs=...)``.
-    """
-    omega = np.asarray(omega, dtype=np.float64)
-    target = np.asarray(target, dtype=np.complex128)
-    if omega.ndim != 1 or target.ndim != 1 or omega.shape != target.shape:
-        raise ValueError("omega and target must be 1D arrays of equal length")
-    if tail_points < 4 or tail_points > omega.size:
-        raise ValueError(
-            f"tail_points must be in [4, {omega.size}], got {tail_points}"
-        )
-
-    idx = np.argsort(np.abs(omega))[-tail_points:]
-    z = 1j * omega[idx]
-    design = np.column_stack([np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3])
-    b = target[idx]
-    design_ri = np.vstack([design.real, design.imag])
-    b_ri = np.concatenate([b.real, b.imag])
-    c, *_ = lstsq(design_ri, b_ri)
-    c = np.asarray(c, dtype=float)
-    if not np.all(np.isfinite(c)):
-        raise ValueError("tail coefficient fit produced non-finite values")
-    c[1:] = -c[1:]
-    return c
-
-
-def resolve_causal_grid(dlr, grid: str) -> np.ndarray:
-    """Return the fermionic Matsubara sampling grid for a causal projection.
-
-    ``grid='dlr'``     -> ``dlr.omega`` (sparse DLR sampling grid).
-    ``grid='uniform'`` -> ``dlr.MatsubaraFermionUniformFull()`` (full signed
-    uniform grid covering the DLR range).
-
-    The returned array is what the caller passes as ``omega`` to
-    ``CausalProjector`` and what the input data's frequency dimension is
-    validated against, so the two can never drift apart.
-    """
-    if grid == "dlr":
-        return np.asarray(dlr.omega, dtype=np.float64)
-    if grid == "uniform":
-        return np.asarray(dlr.MatsubaraFermionUniformFull(), dtype=np.float64)
-    raise ValueError(f"grid must be 'dlr' or 'uniform', got {grid!r}")
-
-
-def _real_vector(reference: np.ndarray, imag_atol: float, imag_rtol: float) -> np.ndarray:
-    ref = _real_array(
-        reference,
-        name="reference",
-        imag_atol=imag_atol,
-        imag_rtol=imag_rtol,
-    )
-    if ref.ndim != 1:
-        raise ValueError(f"reference must be one-dimensional, got {ref.ndim}D")
-    if ref.size == 0:
-        raise ValueError("reference must be non-empty")
-    return np.ascontiguousarray(ref)
-
-
-def _real_frequency_vector(values: np.ndarray, *, name: str) -> np.ndarray:
-    arr = np.asarray(values)
-    if np.iscomplexobj(arr):
-        freq = np.asarray(np.imag(arr), dtype=float)
-    else:
-        freq = np.asarray(arr, dtype=float)
-    if freq.ndim != 1:
-        raise ValueError(f"{name} must be one-dimensional, got {freq.ndim}D")
-    if freq.size == 0:
-        raise ValueError(f"{name} must be non-empty")
-    if not np.all(np.isfinite(freq)):
-        raise ValueError(f"{name} contains non-finite values")
-    return np.ascontiguousarray(freq)
-
-
-def _complex_vector(
-    values: np.ndarray,
-    *,
-    name: str,
-    expected_size: int,
-) -> np.ndarray:
-    arr = np.asarray(values, dtype=np.complex128)
-    if arr.ndim != 1:
-        raise ValueError(f"{name} must be one-dimensional, got {arr.ndim}D")
-    if arr.shape != (expected_size,):
-        raise ValueError(f"{name} shape {arr.shape} does not match {(expected_size,)}")
-    if not np.all(np.isfinite(np.real(arr))) or not np.all(np.isfinite(np.imag(arr))):
-        raise ValueError(f"{name} contains non-finite values")
-    return np.ascontiguousarray(arr)
-
-
-def _real_array(
-    values: np.ndarray,
-    *,
-    name: str,
-    imag_atol: float,
-    imag_rtol: float,
-) -> np.ndarray:
-    arr = np.asarray(values)
-    if np.iscomplexobj(arr):
-        real = np.real(arr).astype(float, copy=False)
-        imag = np.imag(arr).astype(float, copy=False)
-        if not np.all(np.isfinite(real)) or not np.all(np.isfinite(imag)):
-            raise ValueError(f"{name} contains non-finite values")
-        real_scale = max(1.0, float(np.max(np.abs(real))) if real.size else 0.0)
-        imag_bound = float(imag_atol) + float(imag_rtol) * real_scale
-        max_imag = float(np.max(np.abs(imag))) if imag.size else 0.0
-        if max_imag > imag_bound:
-            raise ValueError(
-                f"{name} has imaginary part {max_imag:.3e}, "
-                f"exceeding tolerance {imag_bound:.3e}"
-            )
-        return real
-
-    try:
-        real = arr.astype(float, copy=False)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be real-valued") from exc
-    if not np.all(np.isfinite(real)):
-        raise ValueError(f"{name} contains non-finite values")
-    return real
-
-
-def _equality_constraint(
-    equality_matrix: np.ndarray | None,
-    equality_target: np.ndarray | None,
-    rank: int,
-    imag_atol: float,
-    imag_rtol: float,
-) -> tuple[csc_matrix | None, np.ndarray | None]:
-    if equality_matrix is None and equality_target is None:
-        return None, None
-    if equality_matrix is None or equality_target is None:
-        raise ValueError("equality_matrix and equality_target must be provided together")
-
-    matrix = _real_array(
-        equality_matrix,
-        name="equality_matrix",
-        imag_atol=imag_atol,
-        imag_rtol=imag_rtol,
-    )
-    if matrix.ndim == 1:
-        matrix = matrix.reshape(1, -1)
-    if matrix.ndim != 2:
-        raise ValueError(f"equality_matrix must be 1D or 2D, got {matrix.ndim}D")
-    if matrix.shape[1] != rank:
-        raise ValueError(
-            f"equality_matrix has {matrix.shape[1]} columns, expected {rank}"
-        )
-    if not np.all(np.isfinite(matrix)):
-        raise ValueError("equality_matrix contains non-finite values")
-
-    target = _real_array(
-        equality_target,
-        name="equality_target",
-        imag_atol=imag_atol,
-        imag_rtol=imag_rtol,
-    ).reshape(-1)
-    if target.shape != (matrix.shape[0],):
-        raise ValueError(
-            f"equality_target shape {target.shape} does not match "
-            f"{(matrix.shape[0],)}"
-        )
-    if not np.all(np.isfinite(target)):
-        raise ValueError("equality_target contains non-finite values")
-
-    return csc_matrix(matrix), target
-
-
-def _solver_kwargs(solver: str, max_iter: int) -> dict:
-    if solver == "scs":
-        return {"max_iters": max_iter}
-    return {"max_iter": max_iter}
-
-
-def _weighted_objective(
-    coefficients: np.ndarray,
-    reference: np.ndarray,
-    weight: np.ndarray,
-) -> float:
-    diff = np.asarray(coefficients, dtype=float) - reference
-    return float(diff @ (weight @ diff))
-
-
-def _max_inequality_violation(g, h, coefficients: np.ndarray) -> float:
-    residual = np.asarray(g @ coefficients - h, dtype=float).reshape(-1)
-    return float(max(np.max(residual), 0.0))
-
-
-def _max_equality_residual(a, b, coefficients: np.ndarray) -> float:
-    if a is None:
-        return 0.0
-    residual = np.asarray(a @ coefficients - b, dtype=float).reshape(-1)
-    return float(np.max(np.abs(residual)))
-
-
-def _relative_change(coefficients: np.ndarray, reference: np.ndarray) -> float:
-    return float(
-        np.linalg.norm(np.asarray(coefficients, dtype=float) - reference)
-        / max(np.linalg.norm(reference), 1.0e-30)
-    )

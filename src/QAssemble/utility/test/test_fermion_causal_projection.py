@@ -12,9 +12,12 @@ from QAssemble.FLocDyn import FLocDyn
 from QAssemble.utility.Causal import (
     CausalProjector,
     CausalProjection,
-    fermion_tail_coefficients,
 )
 from QAssemble.utility.DLR import DLR
+from QAssemble.utility.Fourier import Fourier
+
+# the robust tail estimator now lives on Fourier; keep the old test-local name
+fermion_tail_coefficients = Fourier.FermionTailCoefficients
 
 
 def _single_band_hubbard():
@@ -682,18 +685,22 @@ def test_causal_projection_input_validation():
 
 
 def test_resolve_causal_grid_selects_dlr_or_uniform():
-    from QAssemble.utility.Causal import resolve_causal_grid
-
-    _, dlr, _ = _single_band_hubbard()
-    dlr_grid = resolve_causal_grid(dlr, "dlr")
-    uniform_grid = resolve_causal_grid(dlr, "uniform")
+    # the grid selection now lives on FLatDyn/FLocDyn as _ResolveCausalGrid
+    crystal, dlr, _ = _single_band_hubbard()
+    flat = FLatDyn(crystal, dlr)
+    dlr_grid = flat._ResolveCausalGrid("dlr")
+    uniform_grid = flat._ResolveCausalGrid("uniform")
 
     np.testing.assert_allclose(dlr_grid, dlr.omega)
     np.testing.assert_allclose(uniform_grid, dlr.MatsubaraFermionUniformFull())
     # the uniform grid is denser than the sparse DLR sampling grid
     assert uniform_grid.size > dlr_grid.size
     with pytest.raises(ValueError, match="grid must be"):
-        resolve_causal_grid(dlr, "nonsense")
+        flat._ResolveCausalGrid("nonsense")
+
+    # FLocDyn exposes the same resolver
+    local = FLocDyn(crystal, dlr, projector=None)
+    np.testing.assert_allclose(local._ResolveCausalGrid("dlr"), dlr.omega)
 
 
 def test_causal_projector_fermion_ignores_bosonic_kwargs():
