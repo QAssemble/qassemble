@@ -4,17 +4,6 @@ import pytest
 from QAssemble.utility.Causal import CausalProjector
 from QAssemble.utility.DLR import DLR
 
-# Bosonic causal projection is temporarily disabled: the projector now derives
-# the QP equality target from the high-frequency data tail (fermion-only so
-# far).  The bosonic tail needs the BLocDynM convention and tanh(x/2)-weighted
-# moment rows, which are deferred to a follow-up.  project()/check() raise
-# NotImplementedError for statistic='B' until then.
-_BOSON_TAIL_DEFERRED = pytest.mark.xfail(
-    reason="bosonic tail-based moments not implemented yet (fermion-only)",
-    raises=NotImplementedError,
-    strict=True,
-)
-
 
 def _boson_dlr():
     return DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1.0e-12})
@@ -82,6 +71,26 @@ def _causal_coefficients(verifier):
     return -0.2 * np.exp(-0.1 * verifier.nodes**2) - 0.05
 
 
+def _causal_tail_coeffs(verifier, coeff):
+    """Analytic tail ``[c0, c1, c2, c3]`` (moment convention) of a pure
+    decaying bosonic channel ``kernel @ coeff``.
+
+    Such channels have ``c0 = 0``.  The tanh-weighted moment rows give the
+    physical tail: ``moment_rows @ coeff`` is ``[c2]`` for the reflection-
+    symmetrized kernel (only the even ``1/(inu)^2`` term survives) or
+    ``[c1, c2]`` for the plain kernel.  Injecting these via ``tail_coeffs``
+    bypasses the 5-point lstsq tail fit, which on the coarse, sparse DLR grid
+    is an unreliable estimator of the higher moments (mirrors the fermion
+    ``_causal_tail_coeffs`` helper)."""
+    mom = np.asarray(verifier.moment_rows @ np.asarray(coeff, float), dtype=float)
+    if verifier.reflection_symmetry:
+        # moment_rows row is [tanh(x/2)*omega] <-> c2; c1 is unconstrained
+        c1, c2 = 0.0, float(mom[0])
+    else:
+        c1, c2 = float(mom[0]), float(mom[1])
+    return np.array([0.0, c1, c2, 0.0], dtype=float)
+
+
 def _bad_coefficients(verifier, alpha_extra=0.2):
     moment_rows = verifier.moment_rows
     nrows = moment_rows.shape[0]
@@ -133,27 +142,28 @@ def test_reflection_kernel_is_symmetrized():
     np.testing.assert_allclose(plain.kernel, verifier.kernel, atol=1.0e-13)
 
 
-@_BOSON_TAIL_DEFERRED
 @pytest.mark.parametrize("reflection", [True, False])
 def test_causal_boson_projects_and_roundtrips(reflection):
     dlr = _boson_dlr()
     verifier = _BosonVerifier(dlr, reflection_symmetry=reflection)
     bad = _bad_coefficients(verifier)
     target = verifier.reconstruct(bad)
+    tail = _causal_tail_coeffs(verifier, bad)  # analytic c0 = 0
 
     boson = _boson(dlr, reflection_symmetry=reflection)
-    assert not boson.check(target).causal
+    assert not boson.check(target, tail_coeffs=tail).causal
 
-    projected = boson.project(target)
+    projected = boson.project(target, tail_coeffs=tail)
 
     assert projected.shape == target.shape
     assert not boson.last_validation["skipped"]
     coeff = boson.last_coefficients
     assert np.max(coeff) <= 1.0e-6
-    # the internally anchored moments equal those of the fit of the input
+    # the QP equality target is the data tail [c..] of the input, which for a
+    # pure decaying channel equals moment_rows @ (its pole weights)
     np.testing.assert_allclose(
         boson.moment_rows @ coeff,
-        verifier.moment_rows @ verifier.fit(target),
+        verifier.moment_rows @ bad,
         atol=1.0e-6,
         rtol=1.0e-6,
     )
@@ -164,24 +174,25 @@ def test_causal_boson_projects_and_roundtrips(reflection):
     # certificate is last_coefficients itself (asserted above).  Only the
     # full-rank plain kernel guarantees the check roundtrip.
     if not reflection:
-        assert boson.check(projected).causal
+        assert boson.check(projected, tail_coeffs=tail).causal
 
     relative = np.linalg.norm(projected - target) / np.linalg.norm(target)
     assert np.isfinite(relative)
     assert relative < 0.5
 
 
-@_BOSON_TAIL_DEFERRED
 @pytest.mark.parametrize("reflection", [True, False])
 def test_causal_boson_skips_qp_for_causal_input(reflection):
     dlr = _boson_dlr()
     verifier = _BosonVerifier(dlr, reflection_symmetry=reflection)
-    target = verifier.reconstruct(_causal_coefficients(verifier))
+    causal_coeff = _causal_coefficients(verifier)
+    target = verifier.reconstruct(causal_coeff)
+    tail = _causal_tail_coeffs(verifier, causal_coeff)  # analytic c0 = 0
 
     boson = _boson(dlr, reflection_symmetry=reflection)
-    assert boson.check(target).causal
+    assert boson.check(target, tail_coeffs=tail).causal
 
-    projected = boson.project(target)
+    projected = boson.project(target, tail_coeffs=tail)
     assert boson.last_validation["skipped"] is True
     assert boson.last_status == "skipped"
     np.testing.assert_allclose(projected, target, atol=1.0e-8)
@@ -208,12 +219,11 @@ def test_static_contamination_is_rejected():
     with pytest.raises(RuntimeError, match="insufficient"):
         boson.project(half_cleaned)
 
-    # the clean dynamic part passes the static guard; bosonic tail-based
-    # moments are deferred (fermion-only), so check() then raises past the
-    # guard.  This asserts the guard still fires first for contaminated data
-    # above, and documents the deferred-boson boundary here.
-    with pytest.raises(NotImplementedError):
-        boson.check(target)
+    # the clean dynamic part passes the static guard and is causal by
+    # construction, confirming the guard fires only for the contaminated data
+    # above (not for legitimate decaying input).
+    tail = _causal_tail_coeffs(verifier, _causal_coefficients(verifier))
+    assert boson.check(target, tail_coeffs=tail).causal
 
 
 def test_clean_target_decays_within_tail_guard():

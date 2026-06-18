@@ -78,6 +78,69 @@ class Fourier:
         return c
 
     @staticmethod
+    def BosonTailCoefficients(
+        nu: np.ndarray,
+        target: np.ndarray,
+        tail_points: int = 5,
+    ) -> np.ndarray:
+        """Robust bosonic high-frequency tail ``[c0, c1, c2, c3]`` (moment sign).
+
+        Fits ``chi(inu) ~ c0 + c1/(inu) + c2/(inu)^2 + c3/(inu)^3`` for a single
+        scalar bosonic channel by a real (real/imag-stacked) least squares over
+        the ``tail_points`` largest ``|nu|`` points.  This is the bosonic
+        counterpart of :meth:`FermionTailCoefficients`: same robust,
+        over-determined fit, applied on the bosonic Matsubara grid.
+
+        The returned ``c1, c2, c3`` are in the *moment* convention used by the
+        DLR causal projector.  The bosonic DLR kernel is
+        ``K_B(inu, omega_l) = tanh(beta*omega_l/2) / (omega_l - inu)``, whose
+        large-``|nu|`` expansion gives the data tail
+        ``c_p = - sum_l tanh(x_l/2) * omega_l^(p-1) * g_l`` with
+        ``x_l = beta*omega_l``.  That extra minus sign (the same pydlr
+        hidden-``.conj()`` effect handled for fermions) is baked in here by
+        negating ``c1, c2, c3`` so they match ``moment_rows @ coeff``.  ``c0`` is
+        a genuine ``(inu)^0`` constant and keeps its physical sign; for a
+        legitimate (dynamic) bosonic input ``c0 ~ 0`` (the projector's static
+        guard rejects non-decaying targets).
+
+        Parameters
+        ----------
+        nu : ndarray[nfreq], dtype=float
+            Bosonic Matsubara frequencies (the sampling grid; positive-only on
+            the native uniform grid, signed-symmetric on the DLR grid).
+        target : ndarray[nfreq], dtype=complex
+            Scalar channel values chi(i*nu) on that grid.
+        tail_points : int
+            Number of largest-|nu| points used in the fit (>= 4).
+
+        Returns
+        -------
+        ndarray[4], dtype=float
+            ``[c0, c1, c2, c3]`` in the moment convention described above.
+        """
+        nu = np.asarray(nu, dtype=np.float64)
+        target = np.asarray(target, dtype=np.complex128)
+        if nu.ndim != 1 or target.ndim != 1 or nu.shape != target.shape:
+            raise ValueError("nu and target must be 1D arrays of equal length")
+        if tail_points < 4 or tail_points > nu.size:
+            raise ValueError(
+                f"tail_points must be in [4, {nu.size}], got {tail_points}"
+            )
+
+        idx = np.argsort(np.abs(nu))[-tail_points:]
+        z = 1j * nu[idx]
+        design = np.column_stack([np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3])
+        b = target[idx]
+        design_ri = np.vstack([design.real, design.imag])
+        b_ri = np.concatenate([b.real, b.imag])
+        c, *_ = lstsq(design_ri, b_ri)
+        c = np.asarray(c, dtype=float)
+        if not np.all(np.isfinite(c)):
+            raise ValueError("tail coefficient fit produced non-finite values")
+        c[1:] = -c[1:]
+        return c
+
+    @staticmethod
     def BLocDynM(freq: np.ndarray, ff: np.ndarray, oddzero: bool,
                  highzero: bool) -> Tuple[np.ndarray, np.ndarray]:
         """

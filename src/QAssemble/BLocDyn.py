@@ -16,6 +16,7 @@ from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Mixing import Mixing
 from .utility.Projection import Projection as PJ
+from .utility.Causal import CausalProjector
 
 class BLocDyn(object):
 
@@ -385,6 +386,116 @@ class BLocDyn(object):
     
     def _static_to_dynamic(self, mat : np.ndarray) -> np.ndarray:
         return np.repeat(mat[..., np.newaxis], len(self.dlr.nu), axis=4)
+
+    def _ResolveCausalGrid(self, grid : str) -> np.ndarray:
+        """Bosonic Matsubara sampling grid for a causal projection.
+
+        ``grid='dlr'``     -> ``self.dlr.nu`` (sparse DLR sampling grid).
+        ``grid='uniform'`` -> ``self.dlr.MatsubaraBosonUniform()`` (uniform
+        positive-frequency grid covering the DLR range).
+
+        The returned array is what the input data's frequency dimension is
+        validated against, so the two can never drift apart.
+        """
+        if grid == "dlr":
+            return np.asarray(self.dlr.nu, dtype=np.float64)
+        if grid == "uniform":
+            return np.asarray(self.dlr.MatsubaraBosonUniform(), dtype=np.float64)
+        raise ValueError(f"grid must be 'dlr' or 'uniform', got {grid!r}")
+
+    def CausalProjection(
+        self,
+        matin : np.ndarray,
+        *,
+        grid : str = "dlr",
+        coefficient_sign : int = -1,
+        reflection_symmetry : bool = True,
+        solvers = None,
+        max_iter : int = 100000,
+        constraint_tol : float = 1.0e-8,
+        fit_tol : float = 1.0e-6,
+        tail_tol : float = 1.0e-1,
+    ) -> np.ndarray:
+        """Project diagonal local bosonic channels onto real pole-weight
+        causal QP via CausalProjector.
+
+        ``grid`` selects the Matsubara sampling grid the input data lives on:
+        ``"dlr"`` (sparse DLR grid, default) or ``"uniform"`` (uniform
+        positive-frequency grid). The DLR pole basis is unchanged either way;
+        uniform output is returned on the DLR grid.
+
+        The caller must pass the **dynamic** part only: a static (frequency-
+        independent) offset is not representable by the decaying pole basis, so
+        it must already be subtracted on all frequencies (e.g. the bosonic Weiss
+        field ``ubar_rf = utilde_rf - v_rf``).  A target that does not decay at
+        the largest ``|nu|`` nodes raises ``RuntimeError`` (the projector's
+        static guard, controlled by ``tail_tol``).
+
+        Only the diagonal blocks ``[iorb, iorb, is_, is_, :]`` are projected;
+        all other entries are copied unchanged.
+        """
+
+        nu = self._ResolveCausalGrid(grid)
+        nfreq = len(nu)
+
+        arr = np.asarray(matin, dtype=np.complex128)
+        if arr.ndim != 5:
+            raise ValueError(f"matin must be 5D (norb,norb,ns,ns,nfreq), got {arr.ndim}D")
+
+        norb = arr.shape[0]
+        ns = self.crystal.ns
+        if arr.shape[1] != norb:
+            raise ValueError("matin first two dimensions must be square")
+        if arr.shape[2] != ns or arr.shape[3] != ns:
+            raise ValueError(
+                f"spin dimension mismatch: matin ns=({arr.shape[2]},{arr.shape[3]}), "
+                f"crystal ns={ns}"
+            )
+        if arr.shape[4] != nfreq:
+            raise ValueError(
+                f"frequency dimension mismatch: matin nf={arr.shape[4]}, grid nf={nfreq}"
+            )
+        if not np.all(np.isfinite(np.real(arr))) or not np.all(np.isfinite(np.imag(arr))):
+            raise ValueError("matin contains non-finite values")
+
+        # For uniform input, estimate each channel's tail on the native uniform
+        # grid (many high-frequency points -> stable), then interpolate the data
+        # onto the DLR basis and project there.  The projection grid is always
+        # the DLR grid; uniform output is returned on the DLR grid.
+        if grid == "uniform":
+            tail = np.zeros((norb, ns, 4), dtype=np.float64)
+            for is_ in range(ns):
+                for iorb in range(norb):
+                    tail[iorb, is_, :] = Fourier.BosonTailCoefficients(
+                        nu, arr[iorb, iorb, is_, is_, :]
+                    )
+            arr = self.dlr.MatsubaraUniformGrid2DLR(arr, sign=1)
+
+        proj_nu = np.asarray(self.dlr.nu, dtype=np.float64)
+        projector = CausalProjector(
+            statistic="B",
+            d=self.dlr.dB,
+            beta=self.dlr.beta,
+            omega=proj_nu,
+            coefficient_sign=coefficient_sign,
+            reflection_symmetry=reflection_symmetry,
+            solvers=solvers,
+            max_iter=max_iter,
+            constraint_tol=constraint_tol,
+            fit_tol=fit_tol,
+            tail_tol=tail_tol,
+            raise_on_failure=True,
+        )
+        out = np.array(arr, dtype=np.complex128, copy=True, order='F')
+        for is_ in range(ns):
+            for iorb in range(norb):
+                tail_coeffs = tail[iorb, is_, :] if grid == "uniform" else None
+                out[iorb, iorb, is_, is_, :] = projector.project(
+                    arr[iorb, iorb, is_, is_, :],
+                    tail_coeffs=tail_coeffs,
+                )
+
+        return np.asfortranarray(out)
 
 class Chi(BLocDyn):
 

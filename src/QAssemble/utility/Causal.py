@@ -639,7 +639,7 @@ class CausalProjector:
             )
         )
 
-        equality_target = np.array([c1, c2, c3], dtype=float)
+        equality_target = self._equality_target(c1, c2, c3)
         eff_tol, tol_scaled = self._effective_tol(node_residual, scale)
 
         verdict = self.qp.check(
@@ -731,7 +731,7 @@ class CausalProjector:
         if enforce_gate:
             self._gate(node_residual)
 
-        equality_target = np.array([c1, c2, c3], dtype=float)
+        equality_target = self._equality_target(c1, c2, c3)
         _, tol_scaled = self._effective_tol(node_residual, scale)
         verdict = self.qp.check(
             reference,
@@ -766,14 +766,14 @@ class CausalProjector:
 
         ``tail_coeffs`` (unscaled ``[c0, c1, c2, c3]`` computed on a different
         grid by the caller) bypasses the local fit; it is rescaled by ``scale``.
-        Bosonic statistics are not yet supported on this path.
-        """
 
-        if self.statistic == "B":
-            raise NotImplementedError(
-                "tail-based moments are implemented for fermions only; bosonic "
-                "tails need the BLocDynM convention and tanh-weighted moment rows"
-            )
+        For bosons the tail uses the same ``[c1, c2, c3]`` model on the bosonic
+        Matsubara grid (``Fourier.BosonTailCoefficients``), but ``c0`` is forced
+        to ``0``: the decaying pole basis cannot represent a constant, the static
+        guard (``_validate_target``) already enforces genuine decay, and any
+        fitted ``c0`` is only tail-truncation noise whose subtraction would
+        corrupt the decaying part.
+        """
 
         if tail_coeffs is not None:
             c = np.asarray(tail_coeffs, dtype=float).reshape(-1)
@@ -784,12 +784,46 @@ class CausalProjector:
             if not np.all(np.isfinite(c)):
                 raise ValueError("tail_coeffs contains non-finite values")
             # injected coeffs are already in the moment convention (e.g. from
-            # fermion_tail_coefficients on the native grid); only rescale.
-            return c / scale
+            # FermionTailCoefficients/BosonTailCoefficients on the native grid);
+            # only rescale.
+            c = c / scale
+            if self.statistic == "B":
+                # the bosonic pole basis cannot represent a constant; any fitted
+                # c0 is tail-truncation noise (the static guard already enforces
+                # genuine decay), so subtracting it would only corrupt the
+                # decaying part.  Force c0 = 0.
+                c[0] = 0.0
+            return c
 
-        return Fourier.FermionTailCoefficients(
+        if self.statistic == "F":
+            return Fourier.FermionTailCoefficients(
+                self.omega, target_scaled, self.tail_points
+            )
+        c = Fourier.BosonTailCoefficients(
             self.omega, target_scaled, self.tail_points
         )
+        # see the injection branch: c0 is not pole-representable for bosons.
+        c[0] = 0.0
+        return c
+
+    def _equality_target(self, c1: float, c2: float, c3: float) -> np.ndarray:
+        """QP equality target (scaled) matching ``moment_rows`` per statistic.
+
+        Fermion: 3 rows ``nodes**p`` (p=0,1,2) <-> the data tail
+        ``[c1, c2, c3]``.
+
+        Boson: the tanh-weighted ``moment_rows`` encode
+        ``c_p = - sum_l tanh(x_l/2) * omega_l^(p-1) * g_l`` (see
+        ``Fourier.BosonTailCoefficients``).  The reflection-symmetrized kernel
+        keeps only even powers, so the single row ``tanh(x/2)*omega`` anchors
+        ``c2``; the plain kernel's two rows ``[tanh(x/2), tanh(x/2)*omega]``
+        anchor ``[c1, c2]``.
+        """
+        if self.statistic == "F":
+            return np.array([c1, c2, c3], dtype=float)
+        if self.reflection_symmetry:
+            return np.array([c2], dtype=float)
+        return np.array([c1, c2], dtype=float)
 
     def _effective_tol(
         self, node_residual: float, scale: float
