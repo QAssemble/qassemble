@@ -197,6 +197,38 @@ class DLR(object):
         btau = np.dot(self.dB.T_lx, bxx)
         return btau
 
+    def BatchBF2T(self, bf_2d: np.ndarray) -> np.ndarray:
+        """(nfreq_dlr, batch) boson Matsubara -> (ntau_dlr, batch) tau.
+
+        Batched form of :meth:`BF2T`: solve DLR coefficients on the DLR
+        Matsubara grid, apply the bosonic correction (pydlr's
+        ``dlr_from_matsubara`` divide for xi=1, here broadcast over the batch
+        axis), then map to the DLR tau grid via ``T_lx``.  Shared core for the
+        ``F2T`` methods on ``BLocDyn`` / ``BLatDyn`` so the bosonic correction
+        can not diverge between them.
+        """
+        from scipy.linalg import lu_solve
+        bf_2d = np.asarray(bf_2d, dtype=np.complex128)
+        G_xaa = lu_solve((self.dB.dlrmf2cf, self.dB.mf2cfpiv), bf_2d / self.beta)
+        G_xaa /= self.dB.bosonic_corr_x[:, None]
+        return np.tensordot(self.dB.T_lx, G_xaa, axes=(1, 0))
+
+    def BatchBT2F(self, btau_2d: np.ndarray) -> np.ndarray:
+        """(ntau_dlr, batch) boson tau -> (nfreq_dlr, batch) Matsubara.
+
+        Batched inverse of :meth:`BatchBF2T` / batched form of :meth:`BT2F`:
+        solve DLR coefficients on the DLR tau grid, then map to the DLR
+        Matsubara grid via ``T_qx`` with the bosonic correction folded in (the
+        multiply that inverts ``BatchBF2T``'s divide).  Shared core for the
+        ``T2F`` methods on ``BLocDyn`` / ``BLatDyn``.
+        """
+        from scipy.linalg import lu_solve
+        btau_2d = np.asarray(btau_2d, dtype=np.complex128)
+        fxx = lu_solve((self.dB.dlrit2cf, self.dB.it2cfpiv), btau_2d)
+        return self.beta * np.tensordot(
+            self.dB.T_qx * self.dB.bosonic_corr_x[None, :], fxx, axes=(1, 0)
+        )
+
     def TauDLR2Uniform(self, ftau: np.ndarray):
         ntau = len(ftau)
         ftau = ftau.reshape(ntau, 1, 1)
@@ -267,6 +299,9 @@ class DLR(object):
         elif ff_ndim != 3:
             raise ValueError(f"Matsubara data must be 1D, 2D, or 3D, got {ff_ndim}D")
 
+        if sign not in (-1, 1):
+            raise ValueError("sign must be -1 for fermions or 1 for bosons")
+
         omega_dlr = self.omega if sign == -1 else self.nu
         omega_default = self.MatsubaraFermionUniformFull if sign == -1 else self.MatsubaraBosonUniform
         omega = omega_default() if omega is None else np.asarray(omega, dtype=np.float64)
@@ -275,23 +310,88 @@ class DLR(object):
             raise ValueError(
                 f"frequency dimension {ff.shape[0]} does not match omega length {len(omega)}"
             )
-        if sign == -1 and (omega[0] > omega_dlr[0] or omega[-1] < omega_dlr[-1]):
+
+        # np.interp requires an ascending source grid; sort defensively and
+        # permute the data identically (the default grids are already ascending,
+        # but a caller-supplied omega may not be).
+        order = np.argsort(omega)
+        x_src = np.asarray(omega, dtype=np.float64)[order]
+        ff = ff[order]
+
+        # Coverage check AFTER the sort (so an unsorted caller-supplied omega can
+        # not bypass it), for both statistics.  ``np.interp`` would otherwise
+        # silently clamp out-of-range DLR nodes to the endpoint value.  The
+        # tolerance absorbs the bosonic outermost-|nu| node, which floor/ceil
+        # rounding in MatsubaraBosonUniform can leave marginally outside the
+        # source range; that single node is then clamped (decaying boundary).
+        x_target = np.asarray(omega_dlr, dtype=np.float64)
+        scale = max(abs(float(x_target[0])), abs(float(x_target[-1])), 1.0)
+        tol = 1.0e-9 * scale
+        if x_src[0] > x_target.min() + tol or x_src[-1] < x_target.max() - tol:
             raise ValueError("uniform Matsubara grid does not cover the DLR frequency range")
-        if sign not in (-1, 1):
-            raise ValueError("sign must be -1 for fermions or 1 for bosons")
+
+        # Step 1: linearly interpolate the uniform data onto the DLR Matsubara
+        # sampling grid (element-wise, no transpose — the pydlr transforms below
+        # own the single (a, b) transpose).
+        interp = self._interp_to_grid(ff, x_src, x_target)
+        # Step 2: exact DLR coefficients from the interpolated data (square LU
+        # solve; row count == DLR rank is guaranteed by interpolating onto the
+        # DLR grid).  Inserting the interpolation first stabilises this versus
+        # fitting DLR coefficients directly from the raw uniform grid.  pydlr's
+        # dlr_from_matsubara wraps scipy lu_solve, which rejects a 3D RHS (and
+        # its bosonic_corr divide assumes a 3D shape), so flatten the (a, b)
+        # matrix axes to a 2D batch, solve directly, and apply the bosonic
+        # correction by hand (mirrors BF2T).
+        from scipy.linalg import lu_solve
 
         d = self.dF if sign == -1 else self.dB
-
-        fxx = d.lstsq_dlr_from_matsubara(
-            w_q=omega * 1j,
-            G_qaa=ff,
-            beta=self.beta,
+        rank, bi, bj = interp.shape
+        fxx2 = lu_solve(
+            (d.dlrmf2cf, d.mf2cfpiv),
+            interp.reshape(rank, bi * bj) / self.beta,
         )
+        if sign == 1:
+            fxx2 = fxx2 / d.bosonic_corr_x[:, None]
+        fxx = np.asarray(fxx2).reshape(rank, bi, bj)
+        # Step 3: re-evaluate the coefficients on the DLR grid (applies the
+        # single trailing-axis transpose the ndim-restore rule is written for).
         out = d.matsubara_from_dlr(G_xaa=fxx, beta=self.beta, xi=sign)
         if ff_ndim == 1:
             return out[:, 0, 0]
         if ff_ndim == 2:
             return out[:, 0, :]
+        return out
+
+    def _interp_to_grid(
+        self,
+        ff: np.ndarray,
+        x_src: np.ndarray,
+        x_target: np.ndarray,
+    ) -> np.ndarray:
+        """Linearly interpolate Matsubara data onto a target frequency grid.
+
+        Step 1 of the uniform->DLR pipeline.  ``ff`` has shape
+        ``(nfreq_src, bi, bj)`` on the ascending source grid ``x_src``; real and
+        imaginary parts are interpolated independently onto ``x_target`` and the
+        result is returned **element-wise with no matrix-axis transpose** — the
+        downstream pydlr transforms (``dlr_from_matsubara`` / ``matsubara_from_dlr``)
+        apply the single ``(a, b)`` transpose.
+
+        The caller guarantees coverage; ``np.interp`` still clamps to the
+        endpoint value for any node marginally outside ``x_src`` (e.g. the
+        bosonic outermost-|nu| node from floor/ceil grid rounding), which for a
+        decaying boundary value is acceptable.
+        """
+        x_target = np.asarray(x_target, dtype=np.float64)
+        _, bi, bj = ff.shape
+
+        out = np.empty((x_target.size, bi, bj), dtype=np.complex128)
+        for ai in range(bi):
+            for aj in range(bj):
+                col = ff[:, ai, aj]
+                out[:, ai, aj] = np.interp(x_target, x_src, col.real) + 1j * np.interp(
+                    x_target, x_src, col.imag
+                )
         return out
 
     def T2mT(self, ftau: np.ndarray, tau: np.ndarray = None) -> np.ndarray:

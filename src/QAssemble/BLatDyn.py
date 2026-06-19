@@ -224,13 +224,7 @@ class BLatDyn(object):
         batch = norb * norb * ns * ns * nrk
         bf_2d = np.ascontiguousarray(bf_t).reshape(nfreq, batch)
 
-        # Boson: dlr_from_matsubara uses bosonic_corr_x[:, None, None]
-        # which requires 3D input. Solve lu_solve in 2D, then apply correction.
-        from scipy.linalg import lu_solve
-        G_xaa = lu_solve((self.dlr.dB.dlrmf2cf, self.dlr.dB.mf2cfpiv), bf_2d / self.dlr.beta)
-        G_xaa /= self.dlr.dB.bosonic_corr_x[:, None]
-
-        btau_2d = np.tensordot(self.dlr.dB.T_lx, G_xaa, axes=(1, 0))
+        btau_2d = self.dlr.BatchBF2T(bf_2d)
         ntau = btau_2d.shape[0]
         btau = btau_2d.reshape(ntau, norb, norb, ns, ns, nrk)
         btau = np.moveaxis(btau, 0, -1)  # (norb, norb, ns, ns, nrk, ntau)
@@ -248,11 +242,7 @@ class BLatDyn(object):
         batch = norb * norb * ns * ns * nrk
         btau_2d = np.ascontiguousarray(btau_t).reshape(ntau, batch)
 
-        # Boson: lu_solve in 2D, then matsubara_from_dlr manually
-        from scipy.linalg import lu_solve
-        fxx = lu_solve((self.dlr.dB.dlrit2cf, self.dlr.dB.it2cfpiv), btau_2d)
-        bf_2d = self.dlr.beta * np.tensordot(
-            self.dlr.dB.T_qx * self.dlr.dB.bosonic_corr_x[None, :], fxx, axes=(1, 0))
+        bf_2d = self.dlr.BatchBT2F(btau_2d)
         nfreq = bf_2d.shape[0]
         bf = bf_2d.reshape(nfreq, norb, norb, ns, ns, nrk)
         bf = np.moveaxis(bf, 0, -1)  # (norb, norb, ns, ns, nrk, nfreq)
