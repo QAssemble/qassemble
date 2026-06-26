@@ -4,7 +4,10 @@ import pytest
 from QAssemble.BLatDyn import BLatDyn
 from QAssemble.BLocDyn import BLocDyn
 from QAssemble.Crystal import Crystal
-from QAssemble.utility.Causal import CausalProjector
+from QAssemble.utility.Causal import (
+    BosonPoleQPProjector,
+    CausalProjector,
+)
 from QAssemble.utility.DLR import DLR
 from QAssemble.utility.Fourier import Fourier
 
@@ -208,6 +211,18 @@ def test_reflection_kernel_is_symmetrized():
     np.testing.assert_allclose(plain.kernel, verifier.kernel, atol=1.0e-13)
 
 
+def test_causal_projector_boson_default_and_legacy_backends():
+    dlr = _boson_dlr()
+
+    default = _boson(dlr)
+    assert default.boson_backend == "pole_qp"
+    assert isinstance(default._backend, BosonPoleQPProjector)
+
+    legacy = _boson(dlr, boson_backend="legacy")
+    assert legacy.boson_backend == "legacy"
+    assert not hasattr(legacy, "_backend")
+
+
 @pytest.mark.parametrize("reflection", [True, False])
 def test_causal_boson_projects_and_roundtrips(reflection):
     dlr = _boson_dlr()
@@ -258,7 +273,7 @@ def test_boson_tail_coefficients_are_physical_sign():
 
 
 @pytest.mark.parametrize("reflection", [True, False])
-def test_causal_boson_skips_qp_for_causal_input(reflection):
+def test_causal_boson_preserves_causal_input(reflection):
     dlr = _boson_dlr()
     verifier = _BosonVerifier(dlr, reflection_symmetry=reflection)
     causal_coeff = _causal_coefficients(verifier)
@@ -269,8 +284,24 @@ def test_causal_boson_skips_qp_for_causal_input(reflection):
     assert boson.check(target, tail_coeffs=tail).causal
 
     projected = boson.project(target, tail_coeffs=tail)
-    assert boson.last_validation["skipped"] is True
-    assert boson.last_status == "skipped"
+    assert boson.last_validation["skipped"] is False
+    assert boson.last_validation["valid"] is True
+    np.testing.assert_allclose(projected, target, atol=1.0e-6)
+
+
+def test_causal_boson_legacy_backend_keeps_skip_diagnostic():
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    causal_coeff = _causal_coefficients(verifier)
+    target = verifier.reconstruct(causal_coeff)
+    tail = _causal_tail_coeffs(verifier, causal_coeff)
+
+    legacy = _boson(dlr, boson_backend="legacy")
+    assert legacy.check(target, tail_coeffs=tail).causal
+    projected = legacy.project(target, tail_coeffs=tail)
+
+    assert legacy.last_validation["skipped"] is True
+    assert legacy.last_status == "skipped"
     np.testing.assert_allclose(projected, target, atol=1.0e-8)
 
 
@@ -289,9 +320,10 @@ def test_static_contamination_is_split_as_c0():
     assert boson.check(contaminated, tail_coeffs=tail).causal
     projected = boson.project(contaminated, tail_coeffs=tail)
 
-    assert boson.last_validation["skipped"] is True
+    assert boson.last_validation["skipped"] is False
+    assert boson.last_validation["valid"] is True
     assert boson.last_validation["c0"] == pytest.approx(offset, abs=1.0e-12)
-    np.testing.assert_allclose(projected, contaminated, atol=1.0e-8)
+    np.testing.assert_allclose(projected, contaminated, atol=1.0e-6)
 
 
 def test_static_only_boson_is_split_as_c0():
@@ -304,9 +336,10 @@ def test_static_only_boson_is_split_as_c0():
     assert boson.check(target, tail_coeffs=tail).causal
     projected = boson.project(target, tail_coeffs=tail)
 
-    assert boson.last_validation["skipped"] is True
+    assert boson.last_validation["skipped"] is False
+    assert boson.last_validation["valid"] is True
     assert boson.last_validation["c0"] == pytest.approx(offset, abs=1.0e-12)
-    np.testing.assert_allclose(projected, target, atol=1.0e-12)
+    np.testing.assert_allclose(projected, target, atol=1.0e-6)
 
 
 def test_clean_target_decays_within_tail_guard():
@@ -393,6 +426,44 @@ def test_boson_moment_fits_offdiagonal_matrix_tail():
         np.repeat(expected_moment[:, :, :, :, np.newaxis, :], crystal.nk, axis=4),
         atol=1.0e-11,
     )
+
+
+def test_boson_loc_lat_causal_projection_preserves_shape_order_and_offdiagonal():
+    crystal = _two_orbital_crystal()
+    dlr = _boson_dlr()
+    norb = len(crystal.bind)
+    nfreq = len(dlr.nu)
+    offdiag = _boson_tail_model(dlr.nu, np.array([0.2, -0.1, 0.3, -0.05]))
+
+    local = BLocDyn(crystal, dlr, projector=None)
+    local_values = np.zeros((norb, norb, 1, 1, nfreq), dtype=np.complex128, order="F")
+    local_values[0, 0, 0, 0, :] = 1.0
+    local_values[1, 1, 0, 0, :] = 0.5
+    local_values[0, 1, 0, 0, :] = offdiag
+    local_values[1, 0, 0, 0, :] = np.conj(offdiag)
+
+    local_out = local.CausalProjection(local_values)
+    assert local_out.shape == local_values.shape
+    assert np.isfortran(local_out)
+    np.testing.assert_allclose(local_out[0, 1, 0, 0, :], local_values[0, 1, 0, 0, :])
+    np.testing.assert_allclose(local_out[1, 0, 0, 0, :], local_values[1, 0, 0, 0, :])
+
+    lattice = BLatDyn(crystal, dlr)
+    lat_values = np.zeros(
+        (norb, norb, 1, 1, crystal.nk, nfreq),
+        dtype=np.complex128,
+        order="F",
+    )
+    lat_values[0, 0, 0, 0, :, :] = 1.0
+    lat_values[1, 1, 0, 0, :, :] = 0.5
+    lat_values[0, 1, 0, 0, :, :] = offdiag
+    lat_values[1, 0, 0, 0, :, :] = np.conj(offdiag)
+
+    lat_out = lattice.CausalProjection(lat_values)
+    assert lat_out.shape == lat_values.shape
+    assert np.isfortran(lat_out)
+    np.testing.assert_allclose(lat_out[0, 1, 0, 0, :, :], lat_values[0, 1, 0, 0, :, :])
+    np.testing.assert_allclose(lat_out[1, 0, 0, 0, :, :], lat_values[1, 0, 0, 0, :, :])
 
 
 def test_invalid_tail_tol_is_rejected():

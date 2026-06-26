@@ -67,7 +67,7 @@ class CausalProjection:
     ``coefficient_sign=+1`` enforces ``x >= 0``.
     """
 
-    DEFAULT_SOLVERS = ("clarabel", "proxqp", "scs")
+    DEFAULT_SOLVERS = ("clarabel", "osqp", "proxqp", "scs")
 
     def __init__(
         self,
@@ -425,64 +425,530 @@ class CausalProjection:
         )
 
 
+class BosonPoleQPProjector:
+    """Bosonic DLR pole-weight causal projection using an existing DLR basis.
+
+    This is the scalar bosonic backend used by ``CausalProjector``.  It mirrors
+    the pole-QP construction from ``causal_boson.py`` but reuses the caller's
+    existing bosonic DLR object instead of creating a new ``pydlr.dlr`` basis.
+    """
+
+    DEFAULT_SOLVERS = CausalProjection.DEFAULT_SOLVERS
+
+    def __init__(
+        self,
+        *,
+        d,
+        beta: float,
+        fit_omega: np.ndarray,
+        output_omega: np.ndarray | None = None,
+        coefficient_sign: int = -1,
+        reflection_symmetry: bool = True,
+        solvers: Sequence[str] | None = None,
+        max_iter: int = 100000,
+        constraint_tol: float | str = 1.0e-8,
+        auto_safety: float = 10.0,
+        auto_floor: float = 1.0e-8,
+        fit_tol: float = 1.0e-6,
+        tail_tol: float = 1.0e-1,
+        tail_points: int = 5,
+        regularization: float = 0.0,
+        raise_on_failure: bool = True,
+    ) -> None:
+        if coefficient_sign not in (-1, 1):
+            raise ValueError("coefficient_sign must be -1 or +1")
+        if beta <= 0.0 or not np.isfinite(beta):
+            raise ValueError("beta must be a positive finite number")
+        if fit_tol <= 0.0 or not np.isfinite(fit_tol):
+            raise ValueError("fit_tol must be a positive finite number")
+        if tail_tol <= 0.0 or not np.isfinite(tail_tol):
+            raise ValueError("tail_tol must be a positive finite number")
+        if regularization < 0.0 or not np.isfinite(regularization):
+            raise ValueError("regularization must be a nonnegative finite number")
+        if isinstance(max_iter, bool) or not isinstance(max_iter, (int, np.integer)):
+            raise ValueError("max_iter must be a positive integer")
+        if int(max_iter) <= 0:
+            raise ValueError("max_iter must be a positive integer")
+        if isinstance(tail_points, bool) or not isinstance(
+            tail_points, (int, np.integer)
+        ):
+            raise ValueError("tail_points must be an integer >= 4")
+        if int(tail_points) < 4:
+            raise ValueError("tail_points must be an integer >= 4")
+
+        self._auto_tol = isinstance(constraint_tol, str)
+        if self._auto_tol:
+            if constraint_tol != "auto":
+                raise ValueError("constraint_tol string must be 'auto'")
+            if auto_safety <= 0.0 or not np.isfinite(auto_safety):
+                raise ValueError("auto_safety must be a positive finite number")
+            if auto_floor <= 0.0 or not np.isfinite(auto_floor):
+                raise ValueError("auto_floor must be a positive finite number")
+            qp_constraint_tol = float(auto_floor)
+        else:
+            qp_constraint_tol = float(constraint_tol)
+            if qp_constraint_tol <= 0.0 or not np.isfinite(qp_constraint_tol):
+                raise ValueError("constraint_tol must be a positive finite number")
+
+        if solvers is None:
+            solver_tuple = self.DEFAULT_SOLVERS
+        else:
+            solver_tuple = tuple(solvers)
+            if len(solver_tuple) == 0:
+                raise ValueError("solvers must be nonempty")
+            if not all(isinstance(solver, str) and solver for solver in solver_tuple):
+                raise ValueError("solvers must contain nonempty solver names")
+
+        self.statistic = "B"
+        self.d = d
+        self.beta = float(beta)
+        self.fit_omega = Common.RealFrequencyVector(fit_omega, name="fit_omega")
+        self.output_omega = (
+            self.fit_omega.copy()
+            if output_omega is None
+            else Common.RealFrequencyVector(output_omega, name="output_omega")
+        )
+        if self.fit_omega.size == 0 or self.output_omega.size == 0:
+            raise ValueError("fit_omega and output_omega must be nonempty")
+
+        x_nodes = np.asarray(d.get_dlr_frequencies(), dtype=float)
+        if x_nodes.ndim != 1 or x_nodes.size == 0:
+            raise ValueError("d must provide a nonempty one-dimensional DLR grid")
+        if not np.all(np.isfinite(x_nodes)):
+            raise ValueError("DLR real-frequency nodes contain non-finite values")
+
+        self.x_nodes = x_nodes
+        self.nodes = x_nodes / self.beta
+        self.rank = int(x_nodes.size)
+        self.omega = self.nodes
+        self.bose_corr = np.tanh(0.5 * self.x_nodes)
+
+        self.coefficient_sign = int(coefficient_sign)
+        self.reflection_symmetry = bool(reflection_symmetry)
+        self.solvers = solver_tuple
+        self.max_iter = int(max_iter)
+        self.constraint_tol = qp_constraint_tol
+        self.auto_safety = float(auto_safety)
+        self.auto_floor = float(auto_floor)
+        self.fit_tol = float(fit_tol)
+        self.tail_tol = float(tail_tol)
+        self.tail_points = int(tail_points)
+        self.regularization = float(regularization)
+        self.raise_on_failure = bool(raise_on_failure)
+        if self.tail_points > self.fit_omega.size:
+            raise ValueError(
+                f"tail_points {self.tail_points} exceeds the fit grid size "
+                f"{self.fit_omega.size}"
+            )
+
+        self.kernel = self._frequency_kernel(self.fit_omega)
+        self.output_kernel = self._frequency_kernel(self.output_omega)
+        self.moment_rows = self._moment_rows()
+        self.qp = CausalProjection(
+            coefficient_sign=self.coefficient_sign,
+            solvers=self.solvers,
+            max_iter=self.max_iter,
+            constraint_tol=self.constraint_tol,
+            raise_on_failure=self.raise_on_failure,
+        )
+
+        self.last_coefficients: np.ndarray | None = None
+        self.last_solver: str | None = None
+        self.last_status: str | None = None
+        self.last_solver_status: str | None = None
+        self.last_attempts: tuple[str, ...] = ()
+        self.last_solver_attempts: list[str] = []
+        self.last_validation: dict[str, float | bool] = {}
+
+    def project(
+        self,
+        target: np.ndarray,
+        *,
+        tail_coeffs: np.ndarray | None = None,
+        moments: dict[str, float] | None = None,
+        scale: float | None = None,
+    ) -> np.ndarray:
+        """Project one bosonic scalar channel and return it on ``output_omega``."""
+
+        self._reset_diagnostics()
+        target_vec = Common.ComplexVector(
+            target,
+            name="target",
+            expected_size=self.fit_omega.size,
+        )
+        scale_val = self._scale(target_vec) if scale is None else float(scale)
+        if scale_val <= 0.0 or not np.isfinite(scale_val):
+            raise ValueError("scale must be a positive finite number")
+
+        target_scaled = target_vec / scale_val
+        c0, moment_target = self._prepare_moments(
+            target_scaled,
+            tail_coeffs=tail_coeffs,
+            moments=moments,
+            scale=scale_val,
+        )
+        target_dec = target_scaled - c0
+        self._validate_target(target_dec)
+        _, node_residual = self._fit_coefficients(target_dec)
+        eff_tol, tol_scaled = self._effective_tol(node_residual, scale_val)
+
+        p, q = self._objective(target_dec)
+        g = csc_matrix(-self.coefficient_sign * np.eye(self.rank))
+        h = np.zeros(self.rank, dtype=float)
+        a = csc_matrix(self.moment_rows)
+        b = self._moment_vector(moment_target)
+        solution = self._solve_qp(p, q, g, h, a, b, tol_scaled)
+        if solution is None:
+            if self.raise_on_failure:
+                raise RuntimeError(
+                    "bosonic causal QP failed for all configured solvers: "
+                    + ", ".join(self.last_attempts)
+                )
+            self.last_validation = {
+                "valid": False,
+                "relative_change": np.inf,
+                "moment_residual": np.inf,
+                "moment_m1_residual": np.inf,
+                "moment_m2_residual": np.inf,
+                "coefficient_violation": np.inf,
+                "node_residual": node_residual,
+                "skipped": False,
+                "c0": float(c0 * scale_val),
+                "effective_tol": eff_tol,
+                "auto_tol": bool(self._auto_tol),
+            }
+            return target_vec.copy()
+
+        coefficients = np.asarray(solution * scale_val, dtype=float)
+        c0_unscaled = float(c0 * scale_val)
+        self.last_coefficients = coefficients
+        self.last_validation = self._validate(
+            coefficients,
+            target_vec - c0_unscaled,
+            self._moment_vector(moment_target) * scale_val,
+            node_residual=node_residual,
+            skipped=False,
+            c0=c0_unscaled,
+            constraint_tol=eff_tol,
+        )
+        if self.raise_on_failure and not bool(self.last_validation["valid"]):
+            raise RuntimeError(
+                "bosonic causal projection returned a constraint-violating "
+                f"candidate: coeff={self.last_validation['coefficient_violation']:.3e}, "
+                f"moment={self.last_validation['moment_residual']:.3e}"
+            )
+        return self.output_kernel @ coefficients + c0_unscaled
+
+    def check(
+        self,
+        target: np.ndarray,
+        *,
+        enforce_gate: bool = True,
+        tail_coeffs: np.ndarray | None = None,
+        moments: dict[str, float] | None = None,
+    ) -> CausalCheckResult:
+        """Check the least-squares pole representative without projecting."""
+
+        target_vec = Common.ComplexVector(
+            target,
+            name="target",
+            expected_size=self.fit_omega.size,
+        )
+        scale = self._scale(target_vec)
+        target_scaled = target_vec / scale
+        c0, moment_target = self._prepare_moments(
+            target_scaled,
+            tail_coeffs=tail_coeffs,
+            moments=moments,
+            scale=scale,
+        )
+        target_dec = target_scaled - c0
+        self._validate_target(target_dec)
+        reference, node_residual = self._fit_coefficients(target_dec)
+        if enforce_gate:
+            self._gate(node_residual)
+        _, tol_scaled = self._effective_tol(node_residual, scale)
+        verdict = self.qp.check(
+            reference,
+            equality_matrix=self.moment_rows,
+            equality_target=self._moment_vector(moment_target),
+            tol=tol_scaled,
+        )
+        return CausalCheckResult(
+            causal=verdict.causal,
+            max_inequality_violation=verdict.max_inequality_violation * scale,
+            max_equality_residual=verdict.max_equality_residual * scale,
+            violating_count=verdict.violating_count,
+            node_residual=node_residual,
+            c0=float(c0 * scale),
+        )
+
+    def reconstruct_frequency(self, coefficients: np.ndarray, nu: np.ndarray) -> np.ndarray:
+        return self._frequency_kernel(Common.RealFrequencyVector(nu, name="nu")) @ np.asarray(
+            coefficients, dtype=float
+        )
+
+    def _reset_diagnostics(self) -> None:
+        self.last_coefficients = None
+        self.last_solver = None
+        self.last_status = None
+        self.last_solver_status = None
+        self.last_attempts = ()
+        self.last_solver_attempts = []
+        self.last_validation = {}
+
+    @staticmethod
+    def _scale(target: np.ndarray) -> float:
+        return float(max(np.max(np.abs(target)), 1.0))
+
+    def _basis_freq(self, z: np.ndarray) -> np.ndarray:
+        z = np.asarray(z, dtype=np.complex128)
+        basis = np.empty((z.size, self.rank), dtype=np.complex128)
+        for j in range(self.rank):
+            unit = np.zeros((self.rank, 1, 1), dtype=np.complex128)
+            unit[j, 0, 0] = 1.0
+            basis[:, j] = self.d.eval_dlr_freq(
+                unit,
+                z,
+                self.beta,
+                xi=1,
+            )[:, 0, 0]
+        return basis
+
+    def _frequency_kernel(self, omega: np.ndarray) -> np.ndarray:
+        omega = np.asarray(omega, dtype=float)
+        if self.reflection_symmetry:
+            return 0.5 * (self._basis_freq(1j * omega) + self._basis_freq(-1j * omega))
+        return self._basis_freq(1j * omega)
+
+    def _moment_rows(self) -> np.ndarray:
+        row_m2 = self.bose_corr * self.nodes
+        if self.reflection_symmetry:
+            return row_m2.reshape(1, -1)
+        return np.vstack([self.bose_corr, row_m2])
+
+    def _tail_coefficients(
+        self,
+        target_scaled: np.ndarray,
+        *,
+        tail_coeffs: np.ndarray | None,
+        scale: float,
+    ) -> np.ndarray:
+        if tail_coeffs is not None:
+            c = np.asarray(tail_coeffs, dtype=float).reshape(-1)
+            if c.shape != (4,):
+                raise ValueError(f"tail_coeffs must have shape (4,), got {c.shape}")
+            if not np.all(np.isfinite(c)):
+                raise ValueError("tail_coeffs contains non-finite values")
+            return c / scale
+        return Fourier.BosonTailCoefficients(
+            self.fit_omega,
+            target_scaled,
+            self.tail_points,
+        )
+
+    def _prepare_moments(
+        self,
+        target_scaled: np.ndarray,
+        *,
+        tail_coeffs: np.ndarray | None,
+        moments: dict[str, float] | None,
+        scale: float,
+    ) -> tuple[float, dict[str, float]]:
+        if moments is not None:
+            c0 = 0.0
+            if tail_coeffs is not None:
+                c0 = float(
+                    self._tail_coefficients(
+                        target_scaled,
+                        tail_coeffs=tail_coeffs,
+                        scale=scale,
+                    )[0]
+                )
+            return c0, {
+                "m1": float(moments.get("m1", 0.0)) / scale,
+                "m2": float(moments.get("m2", 0.0)) / scale,
+            }
+        c = self._tail_coefficients(
+            target_scaled,
+            tail_coeffs=tail_coeffs,
+            scale=scale,
+        )
+        c0 = float(c[0])
+        # QAssemble tail coefficients are in the physical
+        # c1/(i nu) + c2/(i nu)^2 convention.  The DLR pole rows encode the
+        # internally signed moments used by the pole-weight constraints.
+        return c0, {"m1": -float(c[1]), "m2": -float(c[2])}
+
+    def _moment_vector(self, moments: dict[str, float]) -> np.ndarray:
+        if self.reflection_symmetry:
+            return np.array([moments["m2"]], dtype=float)
+        return np.array([moments["m1"], moments["m2"]], dtype=float)
+
+    def _effective_tol(self, node_residual: float, scale: float) -> tuple[float, float]:
+        if not self._auto_tol:
+            return self.constraint_tol, self.constraint_tol / scale
+        eff_scaled = max(self.auto_floor / scale, self.auto_safety * node_residual)
+        return eff_scaled * scale, eff_scaled
+
+    def _objective(self, target_scaled: np.ndarray):
+        p_dense = 2.0 * np.real(self.kernel.conj().T @ self.kernel)
+        if self.regularization > 0.0:
+            p_dense = p_dense + self.regularization * np.eye(self.rank)
+        p_scale = max(float(np.linalg.norm(p_dense, ord=2)), 1.0)
+        p_dense = p_dense / p_scale
+        q = -2.0 * np.real(self.kernel.conj().T @ target_scaled) / p_scale
+        return csc_matrix(0.5 * (p_dense + p_dense.T)), q
+
+    def _solve_qp(self, p, q, g, h, a, b, tol_val: float) -> np.ndarray | None:
+        best = None
+        attempts: list[str] = []
+        self.last_solver = None
+        self.last_status = None
+        self.last_solver_status = None
+        for solver in self.solvers:
+            kwargs = CausalProjection._solver_kwargs(solver, self.max_iter)
+            try:
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always")
+                    sol = solve_qp(p, q, g, h, a, b, solver=solver, **kwargs)
+            except SolverNotFound:
+                attempts.append(f"{solver}:not_found")
+                continue
+            except Exception as exc:
+                attempts.append(f"{solver}:exception={type(exc).__name__}")
+                continue
+
+            if sol is None or not np.all(np.isfinite(sol)):
+                attempts.append(f"{solver}:none")
+                continue
+
+            sol = np.asarray(sol, dtype=float)
+            coefficient_violation = float(max(np.max(g @ sol - h), 0.0))
+            moment_violation = float(np.max(np.abs(a @ sol - b)))
+            status = "|".join(str(item.message).replace(" ", "_") for item in caught) or "ok"
+            attempts.append(
+                f"{solver}:coef={coefficient_violation:.3e}:moment={moment_violation:.3e}"
+            )
+            score = (max(coefficient_violation, moment_violation), float(q @ sol))
+            if best is None or score < best[0]:
+                best = (score, solver, status, sol)
+            if coefficient_violation <= tol_val and moment_violation <= tol_val:
+                break
+
+        self.last_attempts = tuple(attempts)
+        self.last_solver_attempts = list(attempts)
+        if best is None:
+            self.last_solver = "failed"
+            self.last_status = "all_failed"
+            self.last_solver_status = "all_failed"
+            return None
+        _, solver, status, solution = best
+        self.last_solver = solver
+        self.last_status = status
+        self.last_solver_status = status
+        return np.asarray(solution, dtype=float)
+
+    def _fit_coefficients(self, target: np.ndarray) -> tuple[np.ndarray, float]:
+        lhs = np.vstack((self.kernel.real, self.kernel.imag))
+        rhs = np.concatenate((np.real(target), np.imag(target)))
+        coeff, *_ = np.linalg.lstsq(lhs, rhs, rcond=None)
+        if not np.all(np.isfinite(coeff)):
+            raise ValueError("unconstrained pole fit produced non-finite coefficients")
+        coeff = np.asarray(coeff, dtype=float)
+        residual = float(
+            np.linalg.norm(self.kernel @ coeff - target)
+            / max(np.linalg.norm(target), 1.0)
+        )
+        return coeff, residual
+
+    def _validate_target(self, target_vec: np.ndarray) -> None:
+        magnitude = float(np.max(np.abs(target_vec)))
+        if magnitude <= 100.0 * np.finfo(float).eps:
+            return
+        tail_indices = np.argsort(np.abs(self.fit_omega))[-2:]
+        tail_magnitude = float(np.max(np.abs(target_vec[tail_indices])))
+        if tail_magnitude > self.tail_tol * magnitude:
+            raise RuntimeError(
+                "bosonic target minus c0 does not decay at the largest |nu| nodes "
+                f"(|tail|/max = {tail_magnitude / magnitude:.3e} > tail_tol "
+                f"{self.tail_tol:.1e})"
+            )
+
+    def _gate(self, node_residual: float) -> None:
+        if node_residual > self.fit_tol:
+            raise RuntimeError(
+                f"DLR node fit residual {node_residual:.3e} exceeds fit_tol "
+                f"{self.fit_tol:.3e}; the target is not representable by the "
+                "real-coefficient causal pole basis"
+            )
+
+    def _validate(
+        self,
+        coefficients: np.ndarray,
+        target: np.ndarray,
+        moment_target: np.ndarray,
+        *,
+        node_residual: float,
+        skipped: bool,
+        c0: float,
+        constraint_tol: float,
+    ) -> dict[str, float | bool]:
+        fit_projected = self.kernel @ coefficients
+        relative_change = float(
+            np.linalg.norm(fit_projected - target)
+            / max(np.linalg.norm(target), 1.0e-30)
+        )
+        coefficient_violation = float(
+            max(np.max(-self.coefficient_sign * coefficients), 0.0)
+        )
+        moment_residual_vec = np.asarray(
+            self.moment_rows @ coefficients - moment_target,
+            dtype=float,
+        ).reshape(-1)
+        moment_residual = float(np.max(np.abs(moment_residual_vec)))
+        m1_residual = 0.0
+        m2_residual = moment_residual_vec[0]
+        if not self.reflection_symmetry:
+            m1_residual = moment_residual_vec[0]
+            m2_residual = moment_residual_vec[1]
+        return {
+            "valid": bool(
+                np.all(np.isfinite(coefficients))
+                and coefficient_violation <= constraint_tol
+                and moment_residual <= constraint_tol
+                and np.isfinite(relative_change)
+            ),
+            "relative_change": relative_change,
+            "coefficient_violation": coefficient_violation,
+            "moment_residual": moment_residual,
+            "moment_m1_residual": float(m1_residual),
+            "moment_m2_residual": float(m2_residual),
+            "node_residual": node_residual,
+            "skipped": skipped,
+            "c0": float(c0),
+            "effective_tol": float(constraint_tol),
+            "auto_tol": bool(self._auto_tol),
+            "max_coefficient": float(np.max(coefficients)),
+            "min_coefficient": float(np.min(coefficients)),
+            "positive_count": int(np.sum(coefficients > 0.0)),
+            "fit_grid_size": int(self.fit_omega.size),
+        }
+
+
 class CausalProjector:
-    """Decompose -> gate -> check -> QP -> revalidate causal projection.
+    """Facade for scalar causal projection.
 
-    A single class handles both statistics, selected by ``statistic``
-    (``'F'`` fermion / ``'B'`` boson).  The statistic only changes four
-    things: the DLR kernel sign ``xi``, the kernel construction (bosonic
-    reflection symmetrization), the moment rows, and the target validation.
-    Everything else — the scale/fit/gate/moment/QP/revalidate pipeline — is
-    shared.  The pole basis is always the DLR real-frequency grid of ``d``;
-    the ``omega`` constructor argument is the (arbitrary) Matsubara
-    *sampling* grid the input data lives on, so the same projector works on
-    a sparse DLR grid or a dense uniform grid (see ``resolve_causal_grid``).
-    The QP itself is delegated to a composed ``CausalProjection`` instance
-    (``self.qp``).
+    ``statistic='F'`` keeps the original kernel-aware fermionic path.
+    ``statistic='B'`` defaults to ``BosonPoleQPProjector``, which reuses the
+    caller-provided bosonic DLR basis and solves the direct pole-weight QP in
+    the style of ``causal_boson.py``.  Passing ``boson_backend='legacy'`` keeps
+    the previous shared F/B decomposition path available for compatibility and
+    regression tests.
 
-    The ``reflection_symmetry`` and ``tail_tol`` arguments are bosonic-only;
-    for ``statistic='F'`` they are silently ignored.
-
-    The pipeline for one scalar Matsubara channel is:
-
-    1. scale the target by ``max(|target|, 1)``;
-    2. estimate the physical tail ``[c0, c1, c2, c3]`` by a robust real least squares
-       over the ``tail_points`` largest ``|omega|`` points
-       (``_tail_coefficients``); the constant ``c0`` is not representable by
-       the decaying pole basis, so subtract it (``target_dec = target - c0``)
-       and re-add it to the final channel — Green's functions have ``c0 ~ 0``
-       (no-op), self-energies keep ``c0 = Sigma_inf``;
-    3. decompose ``target_dec`` into real DLR pole weights via stacked
-       real/imag least squares on the native node kernel; a node fit residual
-       above ``fit_tol`` (gate) -> ``RuntimeError``;
-    4. the QP equality target is the internally signed data tail
-       ``[-c1, -c2, -c3]`` (not the moments of the fitted coefficients);
-       ``moment_rows = nodes**p`` maps coefficients to those internal moments;
-    5. if the reference is already causal, skip the QP (the output is still
-       the refit ``kernel @ reference + c0``);
-    6. otherwise solve the W = Re(K^H K) weighted sign-constrained QP, which
-       is the frequency-norm optimal causal fit;
-    7. unscale, revalidate against ``constraint_tol``, and return
-       ``kernel @ coefficients + c0``.
-
-    Diagnostics from the most recent ``project`` call are exposed as
-    ``last_coefficients``, ``last_solver``, ``last_status``,
-    ``last_attempts``, ``last_validation``.  They are reset at the start of
-    every ``project`` call, so they never describe an earlier call; a gate
-    rejection leaves ``last_status = "gate_failed"`` and a minimal
-    ``last_validation``.  ``check`` does not touch them.
-
-    Bosonic caveat (``statistic='B'`` with ``reflection_symmetry=True``):
-    the symmetrized kernel is numerically rank-deficient (effective rank ~
-    half), so the coefficient representation of a given target is not
-    unique.  ``check`` evaluates the sufficient sign condition on the
-    least-squares representative and can therefore report non-causal for
-    data that admits a causal representation (e.g. the output of
-    ``project``, whose causal coefficients are in ``last_coefficients``).
-    ``project`` itself is unaffected.  A constant offset is estimated as
-    ``c0`` and subtracted before the decaying pole fit; targets whose
-    ``target - c0`` does not decay at the largest ``|nu|`` nodes are rejected
-    with a ``RuntimeError`` (``tail_tol`` controls this guard).
+    The public ``project`` and ``check`` methods keep the existing signatures.
+    Diagnostics from the active backend are exposed through the same
+    ``last_*`` attributes.
     """
 
     DEFAULT_SOLVERS = CausalProjection.DEFAULT_SOLVERS
@@ -496,6 +962,9 @@ class CausalProjector:
         omega: np.ndarray,
         coefficient_sign: int = -1,
         reflection_symmetry: bool = True,
+        boson_backend: str = "pole_qp",
+        fit_omega: np.ndarray | None = None,
+        output_omega: np.ndarray | None = None,
         solvers: Sequence[str] | None = None,
         max_iter: int = 100000,
         constraint_tol: float | str = 1.0e-8,
@@ -504,10 +973,13 @@ class CausalProjector:
         fit_tol: float = 1.0e-6,
         tail_tol: float = 1.0e-1,
         tail_points: int = 5,
+        regularization: float = 0.0,
         raise_on_failure: bool = True,
     ) -> None:
         if statistic not in ("F", "B"):
             raise ValueError("statistic must be 'F' or 'B'")
+        if boson_backend not in ("pole_qp", "legacy"):
+            raise ValueError("boson_backend must be 'pole_qp' or 'legacy'")
         if beta <= 0.0 or not np.isfinite(beta):
             raise ValueError("beta must be a positive finite number")
         if fit_tol <= 0.0 or not np.isfinite(fit_tol):
@@ -534,6 +1006,29 @@ class CausalProjector:
             # the tail model has four coefficients [c0, c1, c2, c3]; at least
             # four sampling points are needed for the lstsq fit.
             raise ValueError("tail_points must be an integer >= 4")
+
+        self.statistic = statistic
+        self.boson_backend = boson_backend
+        if statistic == "B" and boson_backend == "pole_qp":
+            self._backend = BosonPoleQPProjector(
+                d=d,
+                beta=beta,
+                fit_omega=omega if fit_omega is None else fit_omega,
+                output_omega=omega if output_omega is None else output_omega,
+                coefficient_sign=coefficient_sign,
+                reflection_symmetry=reflection_symmetry,
+                solvers=solvers,
+                max_iter=max_iter,
+                constraint_tol=constraint_tol,
+                auto_safety=auto_safety,
+                auto_floor=auto_floor,
+                fit_tol=fit_tol,
+                tail_tol=tail_tol,
+                tail_points=tail_points,
+                regularization=regularization,
+                raise_on_failure=raise_on_failure,
+            )
+            return
 
         self.statistic = statistic
         self._xi = -1 if statistic == "F" else 1
@@ -594,6 +1089,12 @@ class CausalProjector:
         self.last_attempts: tuple[str, ...] = ()
         self.last_validation: dict[str, float | bool] = {}
 
+    def __getattr__(self, name: str):
+        backend = self.__dict__.get("_backend")
+        if backend is not None:
+            return getattr(backend, name)
+        raise AttributeError(name)
+
     def project(
         self,
         target: np.ndarray,
@@ -615,6 +1116,10 @@ class CausalProjector:
         a different (e.g. native uniform) grid; when ``None`` they are estimated
         on ``self.omega``.
         """
+
+        backend = self.__dict__.get("_backend")
+        if backend is not None:
+            return backend.project(target, tail_coeffs=tail_coeffs)
 
         self._reset_diagnostics()
         target_vec = Common.ComplexVector(
@@ -714,6 +1219,14 @@ class CausalProjector:
         decaying fit, and ``[c1, c2, c3]`` (estimated on ``self.omega`` or
         injected via ``tail_coeffs``) are the equality target.
         """
+
+        backend = self.__dict__.get("_backend")
+        if backend is not None:
+            return backend.check(
+                target,
+                enforce_gate=enforce_gate,
+                tail_coeffs=tail_coeffs,
+            )
 
         target_vec = Common.ComplexVector(
             target,
