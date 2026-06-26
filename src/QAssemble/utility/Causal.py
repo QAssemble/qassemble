@@ -33,9 +33,9 @@ class CausalQPResult:
 class CausalCheckResult:
     """Result returned by a causal coefficient feasibility check.
 
-    ``node_residual`` is filled by the kernel-aware ``CausalProjector.check``
-    as a data-quality diagnostic; the pure-QP ``CausalProjection.check``
-    leaves it ``None``.
+    ``node_residual`` is filled by the kernel-aware projector ``check`` methods
+    as a data-quality diagnostic; the pure-QP ``CausalProjection.check`` leaves
+    it ``None``.
     """
 
     causal: bool
@@ -425,10 +425,10 @@ class CausalProjection:
         )
 
 
-class BosonPoleQPProjector:
+class CausalBosonProjector:
     """Bosonic DLR pole-weight causal projection using an existing DLR basis.
 
-    This is the scalar bosonic backend used by ``CausalProjector``.  It mirrors
+    This is the scalar bosonic projector used by ``CausalProjector``.  It mirrors
     the pole-QP construction from ``causal_boson.py`` but reuses the caller's
     existing bosonic DLR object instead of creating a new ``pydlr.dlr`` basis.
     """
@@ -936,19 +936,15 @@ class BosonPoleQPProjector:
         }
 
 
-class CausalProjector:
-    """Facade for scalar causal projection.
+BosonPoleQPProjector = CausalBosonProjector
 
-    ``statistic='F'`` keeps the original kernel-aware fermionic path.
-    ``statistic='B'`` defaults to ``BosonPoleQPProjector``, which reuses the
-    caller-provided bosonic DLR basis and solves the direct pole-weight QP in
-    the style of ``causal_boson.py``.  Passing ``boson_backend='legacy'`` keeps
-    the previous shared F/B decomposition path available for compatibility and
-    regression tests.
 
-    The public ``project`` and ``check`` methods keep the existing signatures.
-    Diagnostics from the active backend are exposed through the same
-    ``last_*`` attributes.
+class CausalFermionProjector:
+    """Fermionic DLR scalar causal projection.
+
+    This class keeps the kernel-aware fermionic path: fit one scalar channel to
+    real DLR pole coefficients, enforce the fermionic pole-weight sign
+    constraint, and preserve the first three high-frequency moments.
     """
 
     DEFAULT_SOLVERS = CausalProjection.DEFAULT_SOLVERS
@@ -956,30 +952,19 @@ class CausalProjector:
     def __init__(
         self,
         *,
-        statistic: str,
         d,
         beta: float,
         omega: np.ndarray,
         coefficient_sign: int = -1,
-        reflection_symmetry: bool = True,
-        boson_backend: str = "pole_qp",
-        fit_omega: np.ndarray | None = None,
-        output_omega: np.ndarray | None = None,
         solvers: Sequence[str] | None = None,
         max_iter: int = 100000,
         constraint_tol: float | str = 1.0e-8,
         auto_safety: float = 10.0,
         auto_floor: float = 1.0e-8,
         fit_tol: float = 1.0e-6,
-        tail_tol: float = 1.0e-1,
         tail_points: int = 5,
-        regularization: float = 0.0,
         raise_on_failure: bool = True,
     ) -> None:
-        if statistic not in ("F", "B"):
-            raise ValueError("statistic must be 'F' or 'B'")
-        if boson_backend not in ("pole_qp", "legacy"):
-            raise ValueError("boson_backend must be 'pole_qp' or 'legacy'")
         if beta <= 0.0 or not np.isfinite(beta):
             raise ValueError("beta must be a positive finite number")
         if fit_tol <= 0.0 or not np.isfinite(fit_tol):
@@ -1007,39 +992,7 @@ class CausalProjector:
             # four sampling points are needed for the lstsq fit.
             raise ValueError("tail_points must be an integer >= 4")
 
-        self.statistic = statistic
-        self.boson_backend = boson_backend
-        if statistic == "B" and boson_backend == "pole_qp":
-            self._backend = BosonPoleQPProjector(
-                d=d,
-                beta=beta,
-                fit_omega=omega if fit_omega is None else fit_omega,
-                output_omega=omega if output_omega is None else output_omega,
-                coefficient_sign=coefficient_sign,
-                reflection_symmetry=reflection_symmetry,
-                solvers=solvers,
-                max_iter=max_iter,
-                constraint_tol=constraint_tol,
-                auto_safety=auto_safety,
-                auto_floor=auto_floor,
-                fit_tol=fit_tol,
-                tail_tol=tail_tol,
-                tail_points=tail_points,
-                regularization=regularization,
-                raise_on_failure=raise_on_failure,
-            )
-            return
-
-        self.statistic = statistic
-        self._xi = -1 if statistic == "F" else 1
-        # reflection_symmetry / tail_tol are bosonic-only; for fermions they
-        # are silently ignored (not validated, not stored).
-        if statistic == "B":
-            if tail_tol <= 0.0 or not np.isfinite(tail_tol):
-                raise ValueError("tail_tol must be a positive finite number")
-            self.reflection_symmetry = bool(reflection_symmetry)
-            self.tail_tol = float(tail_tol)
-
+        self.statistic = "F"
         # the inner QP needs a numeric default tolerance; in auto mode the real
         # per-call tolerance is always passed explicitly via tol=, so this is a
         # never-used fallback.
@@ -1089,12 +1042,6 @@ class CausalProjector:
         self.last_attempts: tuple[str, ...] = ()
         self.last_validation: dict[str, float | bool] = {}
 
-    def __getattr__(self, name: str):
-        backend = self.__dict__.get("_backend")
-        if backend is not None:
-            return getattr(backend, name)
-        raise AttributeError(name)
-
     def project(
         self,
         target: np.ndarray,
@@ -1116,10 +1063,6 @@ class CausalProjector:
         a different (e.g. native uniform) grid; when ``None`` they are estimated
         on ``self.omega``.
         """
-
-        backend = self.__dict__.get("_backend")
-        if backend is not None:
-            return backend.project(target, tail_coeffs=tail_coeffs)
 
         self._reset_diagnostics()
         target_vec = Common.ComplexVector(
@@ -1220,14 +1163,6 @@ class CausalProjector:
         injected via ``tail_coeffs``) are the equality target.
         """
 
-        backend = self.__dict__.get("_backend")
-        if backend is not None:
-            return backend.check(
-                target,
-                enforce_gate=enforce_gate,
-                tail_coeffs=tail_coeffs,
-            )
-
         target_vec = Common.ComplexVector(
             target,
             name="target",
@@ -1284,9 +1219,8 @@ class CausalProjector:
         ``tail_coeffs`` (unscaled ``[c0, c1, c2, c3]`` computed on a different
         grid by the caller) bypasses the local fit; it is rescaled by ``scale``.
 
-        For both fermions and bosons the returned tail is in physical sign.
-        The QP-only sign convention is applied later by
-        :meth:`_internal_tail_moments`.
+        The returned tail is in physical sign.  The QP-only sign convention is
+        applied later by :meth:`_internal_tail_moments`.
         """
 
         if tail_coeffs is not None:
@@ -1303,11 +1237,7 @@ class CausalProjector:
             c = c / scale
             return c
 
-        if self.statistic == "F":
-            return Fourier.FermionTailCoefficients(
-                self.omega, target_scaled, self.tail_points
-            )
-        return Fourier.BosonTailCoefficients(
+        return Fourier.FermionTailCoefficients(
             self.omega, target_scaled, self.tail_points
         )
 
@@ -1321,22 +1251,12 @@ class CausalProjector:
         return -float(c1_phys), -float(c2_phys), -float(c3_phys)
 
     def _equality_target(self, c1: float, c2: float, c3: float) -> np.ndarray:
-        """QP equality target (scaled) matching ``moment_rows`` per statistic.
+        """QP equality target (scaled) matching fermionic ``moment_rows``.
 
-        Fermion: 3 rows ``nodes**p`` (p=0,1,2) <-> the internally signed data
+        The 3 rows ``nodes**p`` (p=0,1,2) <-> the internally signed data
         tail ``[-c1_phys, -c2_phys, -c3_phys]``.
-
-        Boson: the tanh-weighted ``moment_rows`` encode
-        the internally signed physical tail.  The reflection-symmetrized kernel
-        keeps only even powers, so the single row ``tanh(x/2)*omega`` anchors
-        ``-c2_phys``; the plain kernel's two rows
-        ``[tanh(x/2), tanh(x/2)*omega]`` anchor ``[-c1_phys, -c2_phys]``.
         """
-        if self.statistic == "F":
-            return np.array([c1, c2, c3], dtype=float)
-        if self.reflection_symmetry:
-            return np.array([c2], dtype=float)
-        return np.array([c1, c2], dtype=float)
+        return np.array([c1, c2, c3], dtype=float)
 
     def _effective_tol(
         self, node_residual: float, scale: float
@@ -1374,55 +1294,20 @@ class CausalProjector:
                 unit,
                 z,
                 self.beta,
-                xi=self._xi,
+                xi=-1,
             )[:, 0, 0]
         return basis
 
     def _build_kernel(self, omega: np.ndarray) -> np.ndarray:
-        if self.statistic == "F":
-            return self._basis_freq(1j * omega)
-        # Boson: reflection-symmetrize K_sym = (K(+i nu) + K(-i nu)) / 2 when
-        # requested (matches causal_boson.BosonPoleQPProjector), else plain.
-        if self.reflection_symmetry:
-            return 0.5 * (
-                self._basis_freq(1j * omega) + self._basis_freq(-1j * omega)
-            )
         return self._basis_freq(1j * omega)
 
     def _moment_rows(self) -> np.ndarray:
-        if self.statistic == "F":
-            # preserve the p = 0, 1, 2 frequency moments of the fitted
-            # reference coefficients
-            return np.vstack([self.nodes**power for power in range(3)])
-        # Boson: dimensionless x in the tanh — tanh(0.5 * beta * omega_l) in
-        # disguise; using omega_l directly would be off by a factor beta.
-        # The tanh factor of the bosonic kernel absorbs the sign structure of
-        # the odd spectral function, so a uniform coefficient sign suffices.
-        self.bose_corr = np.tanh(0.5 * self.x_nodes)
-        row_m2 = self.bose_corr * self.nodes
-        if self.reflection_symmetry:
-            # only the M2 row tanh(x/2) * omega_l is enforced
-            return row_m2.reshape(1, -1)
-        # plain kernel: enforce both M1 = tanh(x/2) and M2 rows
-        return np.vstack([self.bose_corr, row_m2])
+        # preserve the p = 0, 1, 2 frequency moments of the fitted reference
+        # coefficients
+        return np.vstack([self.nodes**power for power in range(3)])
 
     def _validate_target(self, target_vec: np.ndarray) -> None:
-        if self.statistic == "F":
-            return
-        # Boson: after subtracting c0, the decaying target must be small at the
-        # largest |nu| nodes.
-        magnitude = float(np.max(np.abs(target_vec)))
-        if magnitude <= 100.0 * np.finfo(float).eps:
-            return
-        tail_indices = np.argsort(np.abs(self.omega))[-2:]
-        tail_magnitude = float(np.max(np.abs(target_vec[tail_indices])))
-        if tail_magnitude > self.tail_tol * magnitude:
-            raise RuntimeError(
-                "bosonic target minus c0 does not decay at the largest |nu| nodes "
-                f"(|tail|/max = {tail_magnitude / magnitude:.3e} > tail_tol "
-                f"{self.tail_tol:.1e}); the fitted c0 does not isolate a "
-                "decaying bosonic pole contribution"
-            )
+        return
 
     def _fit_coefficients(self, target: np.ndarray) -> tuple[np.ndarray, float]:
         lhs = np.vstack((self.kernel.real, self.kernel.imag))
@@ -1488,3 +1373,108 @@ class CausalProjector:
             "max_coefficient": float(np.max(coefficients)),
             "min_coefficient": float(np.min(coefficients)),
         }
+
+
+class CausalProjector:
+    """Compatibility facade for scalar causal projection.
+
+    New code should instantiate ``CausalFermionProjector`` or
+    ``CausalBosonProjector`` directly.  This facade keeps the historical
+    ``statistic=`` constructor available and forwards all diagnostics and public
+    methods to the selected backend.
+    """
+
+    DEFAULT_SOLVERS = CausalProjection.DEFAULT_SOLVERS
+
+    def __init__(
+        self,
+        *,
+        statistic: str,
+        d,
+        beta: float,
+        omega: np.ndarray,
+        coefficient_sign: int = -1,
+        reflection_symmetry: bool = True,
+        boson_backend: str = "pole_qp",
+        fit_omega: np.ndarray | None = None,
+        output_omega: np.ndarray | None = None,
+        solvers: Sequence[str] | None = None,
+        max_iter: int = 100000,
+        constraint_tol: float | str = 1.0e-8,
+        auto_safety: float = 10.0,
+        auto_floor: float = 1.0e-8,
+        fit_tol: float = 1.0e-6,
+        tail_tol: float = 1.0e-1,
+        tail_points: int = 5,
+        regularization: float = 0.0,
+        raise_on_failure: bool = True,
+    ) -> None:
+        if statistic not in ("F", "B"):
+            raise ValueError("statistic must be 'F' or 'B'")
+        if boson_backend != "pole_qp":
+            raise ValueError("boson_backend='legacy' is no longer supported")
+
+        self.statistic = statistic
+        self.boson_backend = "pole_qp"
+        if statistic == "F":
+            self._backend = CausalFermionProjector(
+                d=d,
+                beta=beta,
+                omega=omega,
+                coefficient_sign=coefficient_sign,
+                solvers=solvers,
+                max_iter=max_iter,
+                constraint_tol=constraint_tol,
+                auto_safety=auto_safety,
+                auto_floor=auto_floor,
+                fit_tol=fit_tol,
+                tail_points=tail_points,
+                raise_on_failure=raise_on_failure,
+            )
+            return
+
+        self._backend = CausalBosonProjector(
+            d=d,
+            beta=beta,
+            fit_omega=omega if fit_omega is None else fit_omega,
+            output_omega=omega if output_omega is None else output_omega,
+            coefficient_sign=coefficient_sign,
+            reflection_symmetry=reflection_symmetry,
+            solvers=solvers,
+            max_iter=max_iter,
+            constraint_tol=constraint_tol,
+            auto_safety=auto_safety,
+            auto_floor=auto_floor,
+            fit_tol=fit_tol,
+            tail_tol=tail_tol,
+            tail_points=tail_points,
+            regularization=regularization,
+            raise_on_failure=raise_on_failure,
+        )
+
+    def __getattr__(self, name: str):
+        return getattr(self._backend, name)
+
+    def project(
+        self,
+        target: np.ndarray,
+        *,
+        tail_coeffs: np.ndarray | None = None,
+        **kwargs,
+    ) -> np.ndarray:
+        return self._backend.project(target, tail_coeffs=tail_coeffs, **kwargs)
+
+    def check(
+        self,
+        target: np.ndarray,
+        *,
+        enforce_gate: bool = True,
+        tail_coeffs: np.ndarray | None = None,
+        **kwargs,
+    ) -> CausalCheckResult:
+        return self._backend.check(
+            target,
+            enforce_gate=enforce_gate,
+            tail_coeffs=tail_coeffs,
+            **kwargs,
+        )

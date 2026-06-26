@@ -15,7 +15,7 @@ from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Mixing import Mixing
 from .utility.Embedding import Embedding as EB
-from .utility.Causal import CausalProjector
+from .utility.Causal import CausalFermionProjector
 
 logger = logging.getLogger("QAssemble")
 
@@ -176,7 +176,7 @@ class FLatDyn(object):
         fit_tol : float = 1.0e-6,
     ) -> np.ndarray:
         """Project diagonal lattice fermionic channels onto real pole-weight
-        causal QP via CausalProjector.
+        causal QP via CausalFermionProjector.
 
         ``grid`` selects the Matsubara sampling grid the input data lives on:
         ``"dlr"`` (sparse DLR grid, default) or ``"uniform"`` (full signed
@@ -237,8 +237,7 @@ class FLatDyn(object):
             arr = converted
 
         proj_omega = np.asarray(self.dlr.omega, dtype=np.float64)
-        projector = CausalProjector(
-            statistic="F",
+        projector = CausalFermionProjector(
             d=self.dlr.dF,
             beta=self.dlr.beta,
             omega=proj_omega,
@@ -331,8 +330,7 @@ class FLatDyn(object):
             arr = converted
 
         proj_omega = np.asarray(self.dlr.omega, dtype=np.float64)
-        projector = CausalProjector(
-            statistic="F",
+        projector = CausalFermionProjector(
             d=self.dlr.dF,
             beta=self.dlr.beta,
             omega=proj_omega,

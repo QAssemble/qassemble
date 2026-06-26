@@ -10,6 +10,7 @@ from QAssemble.Crystal import Crystal
 from QAssemble.FLatDyn import FLatDyn
 from QAssemble.FLocDyn import FLocDyn
 from QAssemble.utility.Causal import (
+    CausalFermionProjector,
     CausalProjector,
     CausalProjection,
 )
@@ -87,8 +88,7 @@ class _Verifier:
 
 
 def _fermion(dlr, *, constraint_tol=1.0e-7, omega=None, **kwargs):
-    return CausalProjector(
-        statistic="F",
+    return CausalFermionProjector(
         d=dlr.dF,
         beta=dlr.beta,
         omega=dlr.omega if omega is None else omega,

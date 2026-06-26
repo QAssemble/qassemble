@@ -11,7 +11,7 @@ from .utility.DLR import DLR
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Mixing import Mixing
-from .utility.Causal import CausalProjector
+from .utility.Causal import CausalBosonProjector
 
 logger = logging.getLogger("QAssemble")
 
@@ -173,7 +173,7 @@ class BLatDyn(object):
         tail_tol: float = 1.0e-1,
     ) -> np.ndarray:
         """Project diagonal lattice bosonic channels onto real pole-weight
-        causal QP via CausalProjector.
+        causal QP via CausalBosonProjector.
 
         ``grid`` selects the Matsubara sampling grid the input data lives on:
         ``"dlr"`` (sparse DLR grid, default) or ``"uniform"`` (uniform
@@ -238,11 +238,10 @@ class BLatDyn(object):
             arr = converted
 
         proj_nu = np.asarray(self.dlr.nu, dtype=np.float64)
-        projector = CausalProjector(
-            statistic="B",
+        projector = CausalBosonProjector(
             d=self.dlr.dB,
             beta=self.dlr.beta,
-            omega=proj_nu,
+            fit_omega=proj_nu,
             coefficient_sign=coefficient_sign,
             reflection_symmetry=reflection_symmetry,
             solvers=solvers,

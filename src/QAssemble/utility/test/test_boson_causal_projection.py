@@ -6,6 +6,7 @@ from QAssemble.BLocDyn import BLocDyn
 from QAssemble.Crystal import Crystal
 from QAssemble.utility.Causal import (
     BosonPoleQPProjector,
+    CausalBosonProjector,
     CausalProjector,
 )
 from QAssemble.utility.DLR import DLR
@@ -126,11 +127,10 @@ class _BosonVerifier:
 
 
 def _boson(dlr, *, constraint_tol=1.0e-7, **kwargs):
-    return CausalProjector(
-        statistic="B",
+    return CausalBosonProjector(
         d=dlr.dB,
         beta=dlr.beta,
-        omega=dlr.nu,
+        fit_omega=dlr.nu,
         constraint_tol=constraint_tol,
         **kwargs,
     )
@@ -211,16 +211,31 @@ def test_reflection_kernel_is_symmetrized():
     np.testing.assert_allclose(plain.kernel, verifier.kernel, atol=1.0e-13)
 
 
-def test_causal_projector_boson_default_and_legacy_backends():
+def test_causal_boson_projector_names_and_facade():
     dlr = _boson_dlr()
 
-    default = _boson(dlr)
-    assert default.boson_backend == "pole_qp"
-    assert isinstance(default._backend, BosonPoleQPProjector)
+    direct = _boson(dlr)
+    assert isinstance(direct, CausalBosonProjector)
+    assert BosonPoleQPProjector is CausalBosonProjector
 
-    legacy = _boson(dlr, boson_backend="legacy")
-    assert legacy.boson_backend == "legacy"
-    assert not hasattr(legacy, "_backend")
+    facade = CausalProjector(
+        statistic="B",
+        d=dlr.dB,
+        beta=dlr.beta,
+        omega=dlr.nu,
+        constraint_tol=1.0e-7,
+    )
+    assert facade.boson_backend == "pole_qp"
+    assert isinstance(facade._backend, CausalBosonProjector)
+
+    with pytest.raises(ValueError, match="legacy"):
+        CausalProjector(
+            statistic="B",
+            d=dlr.dB,
+            beta=dlr.beta,
+            omega=dlr.nu,
+            boson_backend="legacy",
+        )
 
 
 @pytest.mark.parametrize("reflection", [True, False])
@@ -289,20 +304,25 @@ def test_causal_boson_preserves_causal_input(reflection):
     np.testing.assert_allclose(projected, target, atol=1.0e-6)
 
 
-def test_causal_boson_legacy_backend_keeps_skip_diagnostic():
+def test_causal_projector_boson_facade_projects():
     dlr = _boson_dlr()
     verifier = _BosonVerifier(dlr)
     causal_coeff = _causal_coefficients(verifier)
     target = verifier.reconstruct(causal_coeff)
     tail = _causal_tail_coeffs(verifier, causal_coeff)
 
-    legacy = _boson(dlr, boson_backend="legacy")
-    assert legacy.check(target, tail_coeffs=tail).causal
-    projected = legacy.project(target, tail_coeffs=tail)
+    facade = CausalProjector(
+        statistic="B",
+        d=dlr.dB,
+        beta=dlr.beta,
+        omega=dlr.nu,
+        constraint_tol=1.0e-7,
+    )
+    assert facade.check(target, tail_coeffs=tail).causal
+    projected = facade.project(target, tail_coeffs=tail)
 
-    assert legacy.last_validation["skipped"] is True
-    assert legacy.last_status == "skipped"
-    np.testing.assert_allclose(projected, target, atol=1.0e-8)
+    assert facade.last_validation["valid"] is True
+    np.testing.assert_allclose(projected, target, atol=1.0e-6)
 
 
 def test_static_contamination_is_split_as_c0():

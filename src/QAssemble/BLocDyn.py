@@ -16,7 +16,7 @@ from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Mixing import Mixing
 from .utility.Projection import Projection as PJ
-from .utility.Causal import CausalProjector
+from .utility.Causal import CausalBosonProjector
 
 class BLocDyn(object):
 
@@ -419,7 +419,7 @@ class BLocDyn(object):
         tail_tol : float = 1.0e-1,
     ) -> np.ndarray:
         """Project diagonal local bosonic channels onto real pole-weight
-        causal QP via CausalProjector.
+        causal QP via CausalBosonProjector.
 
         ``grid`` selects the Matsubara sampling grid the input data lives on:
         ``"dlr"`` (sparse DLR grid, default) or ``"uniform"`` (uniform
@@ -469,11 +469,10 @@ class BLocDyn(object):
             arr = self.dlr.MatsubaraUniformGrid2DLR(arr, omega=nu, sign=1)
 
         proj_nu = np.asarray(self.dlr.nu, dtype=np.float64)
-        projector = CausalProjector(
-            statistic="B",
+        projector = CausalBosonProjector(
             d=self.dlr.dB,
             beta=self.dlr.beta,
-            omega=proj_nu,
+            fit_omega=proj_nu,
             coefficient_sign=coefficient_sign,
             reflection_symmetry=reflection_symmetry,
             solvers=solvers,
