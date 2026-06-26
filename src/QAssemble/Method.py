@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 import logging
 import numpy as np
@@ -86,4 +88,3 @@ class ImpuritySolver(object):
     def __call__(self):
 
         pass
-    

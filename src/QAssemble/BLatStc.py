@@ -9,6 +9,7 @@ import numpy as np
 
 from .BLocStc import VLoc
 from .Crystal import Crystal
+from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 
@@ -621,7 +622,7 @@ class V(BLatStc):
             else:
                 group = file.create_group(self.group)
                 vbare = group.create_group(self.subgroup)
-            vbare.create_dataset("vk", dtype=complex, data=self.k)
+            Common.HDF5CreateDataset(vbare, "vk", self.k, dtype=complex)
 
         return None
 

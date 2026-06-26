@@ -19,6 +19,7 @@ from .BLocDyn import *
 from .BLocStc import *
 from .Projector import Projector
 from .CTQMC import CTQMC
+from .Method import GW
 
 logger = logging.getLogger("QAssemble")
 
@@ -62,6 +63,7 @@ class CorrelationFunction(object):
         _HDF5_GROUP_BY_METHOD = {
             "hf":       "hf/convergence",
             "gw":       "gw/convergence",
+            "gw_modular": "gw_modular/convergence",
             "dmft":     "impurity_solver/convergence",
             "edmft":    "impurity_solver/convergence",
             "gw+edmft": "impurity_solver/convergence",
@@ -348,6 +350,152 @@ class CorrelationFunction(object):
                 pkfold = pol.kf
 
                 del gnew, sigmah, sigmaf, sigmagwc, pol, w
+                gc.collect()
+
+    def GWApproximation_Modular(self):
+
+        errmessage = "missing input for modular GW calculation"
+
+        itermax = self.control["run"]["nscf"]
+        mix = self.control["run"]["mix"]
+        hdf5file = self.control["run"]["fn"] + '.h5'
+        group = 'gw_modular'
+
+        niham = self.niham
+        gbare = self.greenbare
+        vbare = self.vbare
+
+        conv_group = f"{group}/convergence"
+        self.control["run"]["convergence_hdf5_group"] = conv_group
+        if hasattr(self.conv, "_conv_hdf5_group"):
+            self.conv._conv_hdf5_group = conv_group
+
+        pol_mixer = Mixing()
+        sig_mixer = Mixing()
+
+        self.conv.Start()
+
+        self.gw_object_times = []
+        gold = None
+        w_prev = None
+        pkfold = None
+        ckfold = None
+
+        for iter in range(1, itermax + 1):
+            iter_timing = {"iter": iter}
+            if iter == 1:
+                t0 = time.perf_counter()
+                gold = G(crystal=self.crystal, dlr=self.dlr, greenbare=gbare.kf, hdf5file=hdf5file, group=group)
+                gold.subgroup = "GreenInt"
+                self.conv.seed_prev("F", gold.kf, kind="array")
+                self.conv.seed_prev("mu", float(gold.mu), kind="scalar")
+                logger.info(f"Initial chemical potential : {gold.mu}")
+                iter_timing["GreenInt_init"] = time.perf_counter() - t0
+                gold.Save(f'gkf_ini')
+
+                nfreq = len(self.dlr.nu)
+                zero_pol = np.zeros(vbare.k.shape + (nfreq,), dtype=np.complex128, order="F")
+                t0 = time.perf_counter()
+                w_prev = W(crystal=self.crystal, dlr=self.dlr, pol=zero_pol, vbare=vbare, c=self.c, hdf5file=hdf5file, group=group)
+                self.conv.seed_prev("B", np.zeros_like(w_prev.kf), kind="array")
+                iter_timing["WLat_init"] = time.perf_counter() - t0
+                w_prev.Save(f'wkf_ini')
+
+            logger.info("Density Matrix :")
+            logger.debug(gold.occ)
+
+            t0 = time.perf_counter()
+            gw_method = GW(Ginit=gold, W=w_prev, hdf5file=hdf5file, group=group, iteration=iter)
+            sigmah, sigmaf, sigmagwc, pol = gw_method()
+            iter_timing["GWMethod"] = time.perf_counter() - t0
+
+            sigmah.Save(f'sigmah.{iter}')
+            sigmaf.Save(f'sigmaf.{iter}')
+
+            if iter == 1:
+                pkfold = np.zeros_like(pol.kf)
+            pol.kf = pol_mixer(iter=iter, mix=mix, Fnew=pol.kf, Fold=pkfold)
+            pol.Save(f'pkf.{iter}')
+
+            t0 = time.perf_counter()
+            w = W(crystal=self.crystal, dlr=self.dlr, pol=pol.kf, vbare=vbare, c=self.c, hdf5file=hdf5file, group=group)
+            iter_timing["WLat"] = time.perf_counter() - t0
+            w.Save(f'wkf.{iter}')
+
+            if iter == 1:
+                ckfold = np.zeros_like(sigmagwc.kf)
+            sigmagwc.kf = sig_mixer(iter=iter, mix=mix, Fnew=sigmagwc.kf, Fold=ckfold)
+            sigmagwc.Save(f'sigmagwckf.{iter}')
+
+            t0 = time.perf_counter()
+            gnew = G(crystal=self.crystal, dlr=self.dlr, greenbare=gbare.kf, sigmah=sigmah.k, sigmaf=sigmaf.k, sigmagwc=sigmagwc.kf, hdf5file=hdf5file, group=group)
+            gnew.subgroup = "GreenInt"
+            iter_timing["GreenInt"] = time.perf_counter() - t0
+            gnew.Save(f'gkf.{iter}')
+
+            self.gw_object_times.append(iter_timing)
+            init_msg = ""
+            if "GreenInt_init" in iter_timing:
+                init_msg += f", GreenInt_init: {iter_timing['GreenInt_init']:.4f}s"
+            if "WLat_init" in iter_timing:
+                init_msg += f", WLat_init: {iter_timing['WLat_init']:.4f}s"
+            logger.info(
+                f"[GW modular timing][iter {iter}] GreenInt: {iter_timing['GreenInt']:.4f}s, "
+                f"GWMethod: {iter_timing['GWMethod']:.4f}s, "
+                f"WLat: {iter_timing['WLat']:.4f}s{init_msg}"
+            )
+
+            self.conv.StartIter(iter, ready_after=pol_mixer.npulay)
+            self.conv.CheckSelf("F", value=gnew.kf, kind="array")
+            self.conv.CheckSelf("B", value=w.kf, kind="array")
+            self.conv.CheckSelf("mu", value=float(gnew.mu), kind="scalar")
+            self.conv.RecordDiagnostics({})
+            converged, info = self.conv.Commit(iter, will_continue=(iter < itermax))
+            fcheck = info["self"]["F"]["abs"]
+            bcheck = info["self"]["B"]["abs"]
+
+            logger.info(f"iteration : {iter} \nfcriteria : {fcheck} \nbcriteria : {bcheck} \nchemicalpotential : {gnew.mu}")
+
+            if converged:
+                logger.info(f"Self-consistency is achived with {iter}-th")
+                self.green = gnew
+                self.pol = pol
+                self.w = w
+                self.sigmagwc = sigmagwc
+                self.sigmaf = sigmaf
+                self.sigmah = sigmah
+                gnew.Save('gkf', chem=True)
+                sigmah.Save('sigmah')
+                sigmaf.Save('sigmaf')
+                sigmagwc.Save('sigmagwckf')
+                pol.Save('pkf')
+                w.Save('wkf')
+                del niham, vbare, gbare, gnew, gold, sigmaf, sigmah, sigmagwc, pol, w, w_prev
+                gc.collect()
+                break
+            elif iter == itermax:
+                logger.info(f"Notice: Broadening schemes will be turned off from the {iter}-th iteration.")
+                self.green = gnew
+                self.pol = pol
+                self.w = w
+                self.sigmagwc = sigmagwc
+                self.sigmaf = sigmaf
+                self.sigmah = sigmah
+                gnew.Save('gkf', chem=True)
+                sigmah.Save('sigmah')
+                sigmaf.Save('sigmaf')
+                sigmagwc.Save('sigmagwckf')
+                pol.Save('pkf')
+                w.Save('wkf')
+                del niham, vbare, gbare, gnew, gold, sigmaf, sigmah, sigmagwc, pol, w, w_prev
+                gc.collect()
+            else:
+                gold = gnew
+                w_prev = w
+                ckfold = sigmagwc.kf
+                pkfold = pol.kf
+
+                del sigmah, sigmaf, sigmagwc, pol
                 gc.collect()
 
     def ImpurityAction(self):
