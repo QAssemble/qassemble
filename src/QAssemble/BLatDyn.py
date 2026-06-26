@@ -73,16 +73,73 @@ class BLatDyn(object):
 
         return matout
 
-    def Moment(self, bf: np.ndarray, oddzero: bool, highzero: bool) -> tuple:
-        norb = bf.shape[0]
-        ns = bf.shape[2]
-        nrk = bf.shape[4]
+    def Moment(
+        self,
+        bf: np.ndarray,
+        oddzero: bool = False,
+        highzero: bool = False,
+        tail_points: int = 5,
+        grid: str = "dlr",
+    ) -> tuple:
+        """Physical high-frequency moments of a lattice bosonic function.
 
+        ``grid`` selects the sampling grid of ``bf``.  Returns
+        ``moment[..., :] = [c1, c2, c3]`` and ``high = c0`` in physical sign.
+        ``oddzero``/``highzero`` are accepted for compatibility but do not alter
+        the robust tail fit.
+        """
+        arr = np.asarray(bf, dtype=np.complex128)
+        if arr.ndim != 6:
+            raise ValueError(
+                f"bf must be 6D (norb,norb,ns,ns,nrk,nfreq), got {arr.ndim}D"
+            )
+        nu = self._ResolveCausalGrid(grid)
+        if arr.shape[5] != nu.size:
+            raise ValueError(
+                f"frequency dimension {arr.shape[5]} does not match {grid} nu size {nu.size}"
+            )
+        if arr.shape[5] < tail_points:
+            raise ValueError(
+                f"Need at least {tail_points} frequency points to build "
+                "high-frequency moments."
+            )
+
+        norb = arr.shape[0]
+        ns = arr.shape[2]
+        nrk = arr.shape[4]
         moment = np.zeros((norb, norb, ns, ns, nrk, 3), dtype=np.complex128, order="F")
-        high = np.zeros((norb, norb, ns, nrk), dtype=np.complex128, order="F")
-
-        # moment, high = QAFort.fourier.blatdyn_m(self.dlr.nu, bf, oddzero, highzero)
-        moment, high = Fourier.BLatDynM(self.dlr.nu, bf, oddzero, highzero)
+        high = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
+        idx = np.argsort(np.abs(nu))[-tail_points:]
+        z = 1j * nu[idx]
+        design = np.column_stack(
+            [np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3]
+        )
+        for irk in range(nrk):
+            for is_ in range(ns):
+                for js in range(ns):
+                    for jorb in range(norb):
+                        for iorb in range(norb):
+                            if iorb == jorb and is_ == js:
+                                tail = Fourier.BosonTailCoefficients(
+                                    nu, arr[iorb, jorb, is_, js, irk, :], tail_points
+                                ).astype(np.complex128)
+                            else:
+                                tail, *_ = np.linalg.lstsq(
+                                    design,
+                                    arr[iorb, jorb, is_, js, irk, idx],
+                                    rcond=None,
+                                )
+                            high[iorb, jorb, is_, js, irk] = tail[0]
+                            moment[iorb, jorb, is_, js, irk, :] = tail[1:]
+            high_orig = high[..., irk].copy()
+            high[..., irk] = 0.5 * (
+                high_orig + np.swapaxes(np.swapaxes(high_orig, 0, 1), 2, 3).conj()
+            )
+            for imom in range(3):
+                mom_orig = moment[..., irk, imom].copy()
+                moment[..., irk, imom] = 0.5 * (
+                    mom_orig + np.swapaxes(np.swapaxes(mom_orig, 0, 1), 2, 3).conj()
+                )
 
         return moment, high
 
@@ -91,7 +148,7 @@ class BLatDyn(object):
 
         ``grid='dlr'``     -> ``self.dlr.nu`` (sparse DLR sampling grid).
         ``grid='uniform'`` -> ``self.dlr.MatsubaraBosonUniform()`` (uniform
-        positive-frequency grid covering the DLR range).
+        non-negative-frequency grid covering the DLR range).
 
         The returned array is what the input data's frequency dimension is
         validated against, so the two can never drift apart.
@@ -120,15 +177,13 @@ class BLatDyn(object):
 
         ``grid`` selects the Matsubara sampling grid the input data lives on:
         ``"dlr"`` (sparse DLR grid, default) or ``"uniform"`` (uniform
-        positive-frequency grid). The DLR pole basis is unchanged either way;
+        non-negative-frequency grid). The DLR pole basis is unchanged either way;
         uniform output is returned on the DLR grid.
 
-        The caller must pass the **dynamic** part only: a static (frequency-
-        independent) offset is not representable by the decaying pole basis, so
-        it must already be subtracted on all frequencies (e.g. the screened
-        interaction's dynamic part ``Wc = W - V``).  A target that does not
-        decay at the largest ``|nu|`` nodes raises ``RuntimeError`` (the
-        projector's static guard, controlled by ``tail_tol``).
+        A frequency-independent ``c0`` is estimated from the input tail, removed
+        before the decaying pole projection, and re-added to the returned
+        channel.  If ``target - c0`` does not decay at the largest ``|nu|``
+        nodes, ``RuntimeError`` is raised (``tail_tol`` controls this guard).
 
         Only the diagonal blocks ``[iorb, iorb, is_, is_, irk, :]`` are
         projected; all other entries are copied unchanged.
@@ -164,24 +219,21 @@ class BLatDyn(object):
         if not np.all(np.isfinite(np.real(arr))) or not np.all(np.isfinite(np.imag(arr))):
             raise ValueError("matin contains non-finite values")
 
-        # Uniform input: estimate each (orbital, spin, k) tail on the native
-        # uniform grid, then interpolate to the DLR grid per-k (since
+        # Estimate physical moments on the input grid before any interpolation,
+        # then pass [high, moment...] explicitly to the projector.
+        moment, high = self.Moment(arr, grid=grid)
+
+        # Uniform input: interpolate to the DLR grid per-k (since
         # MatsubaraUniformGrid2DLR handles the 5D bosonic case only).  Output is
         # on the DLR grid.
         if grid == "uniform":
-            tail = np.zeros((norb, ns, nk, 4), dtype=np.float64)
             ndlr = len(self.dlr.nu)
             converted = np.zeros(
                 (norb, norb, ns, ns, nk, ndlr), dtype=np.complex128
             )
             for irk in range(nk):
-                for is_ in range(ns):
-                    for iorb in range(norb):
-                        tail[iorb, is_, irk, :] = Fourier.BosonTailCoefficients(
-                            nu, arr[iorb, iorb, is_, is_, irk, :]
-                        )
                 converted[:, :, :, :, irk, :] = self.dlr.MatsubaraUniformGrid2DLR(
-                    arr[:, :, :, :, irk, :], sign=1
+                    arr[:, :, :, :, irk, :], omega=nu, sign=1
                 )
             arr = converted
 
@@ -204,9 +256,9 @@ class BLatDyn(object):
         for irk in range(nk):
             for is_ in range(ns):
                 for iorb in range(norb):
-                    tail_coeffs = (
-                        tail[iorb, is_, irk, :] if grid == "uniform" else None
-                    )
+                    tail_coeffs = np.empty(4, dtype=float)
+                    tail_coeffs[0] = float(np.real(high[iorb, iorb, is_, is_, irk]))
+                    tail_coeffs[1:] = np.real(moment[iorb, iorb, is_, is_, irk, :])
                     out[iorb, iorb, is_, is_, irk, :] = projector.project(
                         arr[iorb, iorb, is_, is_, irk, :],
                         tail_coeffs=tail_coeffs,
@@ -812,5 +864,3 @@ class W(BLatDyn):
             w.create_dataset(fn, dtype=complex, data=self.kf)
 
         return None
-
-

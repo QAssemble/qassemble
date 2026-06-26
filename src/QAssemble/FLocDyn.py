@@ -96,6 +96,24 @@ class FLocDyn(object):
             return np.asarray(self.dlr.MatsubaraFermionUniformFull(), dtype=np.float64)
         raise ValueError(f"grid must be 'dlr' or 'uniform', got {grid!r}")
 
+    def _ExpandPositiveUniform(self, arr4 : np.ndarray) -> np.ndarray:
+        """Expand a positive-only (iw_n >= 0) uniform fermion input to the full
+        signed grid, leaving a full signed input untouched.
+
+        ``arr4`` is ``(norb, norb, ns, nfreq)``.  When ``nfreq`` matches the
+        positive-only grid ``MatsubaraFermionUniform()``, the negative half is
+        reconstructed via the Hermitian relation G(-iw)=G(iw)dagger using the
+        transpose-correct :meth:`DLR.MatsubaraAddNegativeFrequency`; the result
+        then matches ``MatsubaraFermionUniformFull()`` so the downstream length
+        check, tail fit, and DLR conversion proceed unchanged.  When ``nfreq``
+        already matches the full signed grid, the input is returned as-is.
+        """
+        nfreq_in = arr4.shape[3]
+        npos = len(self.dlr.MatsubaraFermionUniform())
+        if nfreq_in == npos:
+            return self.dlr.MatsubaraAddNegativeFrequency(arr4)
+        return arr4
+
     def CausalProjection(
         self,
         matin : np.ndarray,
@@ -114,9 +132,11 @@ class FLocDyn(object):
         ``"dlr"`` (sparse DLR grid, default) or ``"uniform"`` (full signed
         uniform grid). The DLR pole basis is unchanged either way.
 
-        Moments are anchored internally to the unconstrained fit of each
-        channel; data not representable by the real-coefficient pole basis
-        (node fit residual above ``fit_tol``) raise ``RuntimeError``.
+        Physical tail coefficients are estimated on the input grid before any
+        interpolation and passed to the projector; only the projector's QP
+        layer converts them to its internal sign convention.  Data not
+        representable by the real-coefficient pole basis (node fit residual
+        above ``fit_tol``) raise ``RuntimeError``.
         """
 
         omega = self._ResolveCausalGrid(grid)
@@ -143,6 +163,11 @@ class FLocDyn(object):
             raise ValueError(
                 f"spin dimension mismatch: matin ns={arr4.shape[2]}, crystal ns={self.crystal.ns}"
             )
+        # Accept positive-only (iw_n >= 0) uniform input by expanding it to the
+        # full signed grid via Hermitian symmetry before the length check, so a
+        # caller can pass either the positive-only or the full signed grid.
+        if grid == "uniform":
+            arr4 = self._ExpandPositiveUniform(arr4)
         if arr4.shape[3] != nfreq:
             raise ValueError(
                 f"frequency dimension mismatch: matin nf={arr4.shape[3]}, grid nf={nfreq}"
@@ -150,17 +175,14 @@ class FLocDyn(object):
         if not np.all(np.isfinite(np.real(arr4))) or not np.all(np.isfinite(np.imag(arr4))):
             raise ValueError("matin contains non-finite values")
 
-        # For uniform input, estimate each channel's tail on the native uniform
-        # grid (many high-frequency points -> stable), then interpolate the data
-        # onto the DLR basis and project there.  The projection grid is always
-        # the DLR grid; uniform output is returned on the DLR grid.
+        # Estimate physical moments on the input grid before any interpolation,
+        # then pass [high, moment...] explicitly to the projector.
+        moment, high = self.Moment(arr4, grid=grid)
+
+        # For uniform input, interpolate the data onto the DLR basis.  The
+        # projection grid is always the DLR grid; uniform output is returned on
+        # the DLR grid.
         if grid == "uniform":
-            tail = np.zeros((norb, self.crystal.ns, 4), dtype=np.float64)
-            for js in range(self.crystal.ns):
-                for iorb in range(norb):
-                    tail[iorb, js, :] = Fourier.FermionTailCoefficients(
-                        omega, arr4[iorb, iorb, js, :]
-                    )
             # conversion preserves the (norb, norb, ns, .) layout; squeeze rule
             # is unchanged
             arr4 = self.dlr.MatsubaraUniformGrid2DLR(arr4, sign=-1)
@@ -181,7 +203,9 @@ class FLocDyn(object):
         out = np.array(arr4, dtype=np.complex128, copy=True, order='F')
         for js in range(self.crystal.ns):
             for iorb in range(norb):
-                tail_coeffs = tail[iorb, js, :] if grid == "uniform" else None
+                tail_coeffs = np.empty(4, dtype=float)
+                tail_coeffs[0] = float(np.real(high[iorb, iorb, js]))
+                tail_coeffs[1:] = np.real(moment[iorb, iorb, js, :])
                 out[iorb, iorb, js, :] = projector.project(
                     arr4[iorb, iorb, js, :],
                     tail_coeffs=tail_coeffs,
@@ -242,6 +266,11 @@ class FLocDyn(object):
             raise ValueError(
                 f"spin dimension mismatch: matin ns={arr4.shape[2]}, crystal ns={self.crystal.ns}"
             )
+        # Accept positive-only (iw_n >= 0) uniform input by expanding it to the
+        # full signed grid via Hermitian symmetry before the length check, so a
+        # caller can pass either the positive-only or the full signed grid.
+        if grid == "uniform":
+            arr4 = self._ExpandPositiveUniform(arr4)
         if arr4.shape[3] != nfreq:
             raise ValueError(
                 f"frequency dimension mismatch: matin nf={arr4.shape[3]}, grid nf={nfreq}"
@@ -250,15 +279,9 @@ class FLocDyn(object):
             raise ValueError("matin contains non-finite values")
 
         ns = self.crystal.ns
-        # mirror CausalProjection: uniform input has its tail estimated on the
-        # native grid, then is interpolated onto the DLR grid for the check.
+        # mirror CausalProjection: moments on native input grid, then DLR data.
+        moment, high = self.Moment(arr4, grid=grid)
         if grid == "uniform":
-            tail = np.zeros((norb, ns, 4), dtype=np.float64)
-            for js in range(ns):
-                for iorb in range(norb):
-                    tail[iorb, js, :] = Fourier.FermionTailCoefficients(
-                        omega, arr4[iorb, iorb, js, :]
-                    )
             arr4 = self.dlr.MatsubaraUniformGrid2DLR(arr4, sign=-1)
 
         proj_omega = np.asarray(self.dlr.omega, dtype=np.float64)
@@ -279,9 +302,12 @@ class FLocDyn(object):
         max_equality = np.zeros((norb, ns), dtype=float)
         violating_count = np.zeros((norb, ns), dtype=int)
         node_residual = np.zeros((norb, ns), dtype=float)
+        c0 = np.zeros((norb, ns), dtype=float)
         for js in range(ns):
             for iorb in range(norb):
-                tail_coeffs = tail[iorb, js, :] if grid == "uniform" else None
+                tail_coeffs = np.empty(4, dtype=float)
+                tail_coeffs[0] = float(np.real(high[iorb, iorb, js]))
+                tail_coeffs[1:] = np.real(moment[iorb, iorb, js, :])
                 verdict = projector.check(
                     arr4[iorb, iorb, js, :],
                     enforce_gate=False,
@@ -292,6 +318,7 @@ class FLocDyn(object):
                 max_equality[iorb, js] = verdict.max_equality_residual
                 violating_count[iorb, js] = verdict.violating_count
                 node_residual[iorb, js] = verdict.node_residual
+                c0[iorb, js] = verdict.c0
 
         report = {
             "causal": causal,
@@ -299,10 +326,70 @@ class FLocDyn(object):
             "max_equality_residual": max_equality,
             "violating_count": violating_count,
             "node_residual": node_residual,
+            "c0": c0,
         }
         if squeeze_spin:
             report = {key: value[:, 0] for key, value in report.items()}
         return report
+
+    def Moment(
+        self,
+        ff: np.ndarray,
+        isgreen: bool = False,
+        highzero: bool = False,
+        tail_points: int = 5,
+        grid: str = "dlr",
+    ) -> tuple:
+        """Physical high-frequency moments of a local fermionic function.
+
+        ``grid`` selects the sampling grid of ``ff``.  For uniform fermion input,
+        positive-only data is expanded before fitting, matching
+        ``CausalProjection``.  Returns ``moment[..., :] = [c1, c2, c3]`` and
+        ``high = c0`` in physical sign.
+        """
+        arr4 = self._as_dynamic_spin_matrix(ff)
+        omega = self._ResolveCausalGrid(grid)
+        if grid == "uniform":
+            arr4 = self._ExpandPositiveUniform(arr4)
+        if arr4.shape[3] != omega.size:
+            raise ValueError(
+                f"frequency dimension {arr4.shape[3]} does not match {grid} omega size {omega.size}"
+            )
+        if arr4.shape[3] < tail_points:
+            raise ValueError(
+                f"Need at least {tail_points} frequency points to build "
+                "high-frequency moments."
+            )
+
+        norb = arr4.shape[0]
+        ns = arr4.shape[2]
+        moment = np.zeros((norb, norb, ns, 3), dtype=np.complex128, order="F")
+        high = np.zeros((norb, norb, ns), dtype=np.complex128, order="F")
+        idx = np.argsort(np.abs(omega))[-tail_points:]
+        z = 1j * omega[idx]
+        design = np.column_stack(
+            [np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3]
+        )
+        for js in range(ns):
+            for jorb in range(norb):
+                for iorb in range(norb):
+                    if iorb == jorb:
+                        tail = Fourier.FermionTailCoefficients(
+                            omega, arr4[iorb, jorb, js, :], tail_points
+                        ).astype(np.complex128)
+                    else:
+                        tail, *_ = np.linalg.lstsq(
+                            design, arr4[iorb, jorb, js, idx], rcond=None
+                        )
+                    high[iorb, jorb, js] = tail[0]
+                    moment[iorb, jorb, js, :] = tail[1:]
+            h = high[:, :, js].copy()
+            high[:, :, js] = 0.5 * (h + h.T.conj())
+            for imom in range(3):
+                m = moment[:, :, js, imom].copy()
+                moment[:, :, js, imom] = 0.5 * (m + m.T.conj())
+
+        return moment, high
 
     def CheckGroup(self, filepath :str, group : str):
         

@@ -133,6 +133,37 @@ class FLatDyn(object):
             return np.asarray(self.dlr.MatsubaraFermionUniformFull(), dtype=np.float64)
         raise ValueError(f"grid must be 'dlr' or 'uniform', got {grid!r}")
 
+    def _ExpandPositiveUniform(self, arr : np.ndarray) -> np.ndarray:
+        """Expand a positive-only (iw_n >= 0) uniform fermion input to the full
+        signed grid, leaving a full signed input untouched.
+
+        ``arr`` is the 5D lattice array ``(norb, norb, ns, nk, nfreq)``.  When
+        ``nfreq`` matches the positive-only grid ``MatsubaraFermionUniform()``,
+        the negative half is reconstructed per-k via the Hermitian relation
+        G(-iw)=G(iw)dagger using the transpose-correct
+        :meth:`DLR.MatsubaraAddNegativeFrequency` (which takes the 4D
+        ``(norb, norb, ns, nfreq)`` layout); the result then matches
+        ``MatsubaraFermionUniformFull()`` so the downstream length check, tail
+        fit, and DLR conversion proceed unchanged.  When ``nfreq`` already
+        matches the full signed grid, the input is returned as-is.
+        """
+        nfreq_in = arr.shape[4]
+        npos = len(self.dlr.MatsubaraFermionUniform())
+        if nfreq_in != npos:
+            return arr
+        nk = arr.shape[3]
+        out = None
+        for ik in range(nk):
+            expanded = self.dlr.MatsubaraAddNegativeFrequency(arr[:, :, :, ik, :])
+            if out is None:
+                out = np.zeros(
+                    (arr.shape[0], arr.shape[1], arr.shape[2], nk, expanded.shape[3]),
+                    dtype=np.complex128,
+                    order="F",
+                )
+            out[:, :, :, ik, :] = expanded
+        return out
+
     def CausalProjection(
         self,
         matin : np.ndarray,
@@ -151,9 +182,11 @@ class FLatDyn(object):
         ``"dlr"`` (sparse DLR grid, default) or ``"uniform"`` (full signed
         uniform grid). The DLR pole basis is unchanged either way.
 
-        Moments are anchored internally to the unconstrained fit of each
-        channel; data not representable by the real-coefficient pole basis
-        (node fit residual above ``fit_tol``) raise ``RuntimeError``.
+        Physical tail coefficients are estimated on the input grid before any
+        interpolation and passed to the projector; only the projector's QP
+        layer converts them to its internal sign convention.  Data not
+        representable by the real-coefficient pole basis (node fit residual
+        above ``fit_tol``) raise ``RuntimeError``.
         """
 
         omega = self._ResolveCausalGrid(grid)
@@ -173,6 +206,11 @@ class FLatDyn(object):
             raise ValueError(
                 f"k dimension mismatch: matin nk={arr.shape[3]}, crystal nk={len(self.crystal.kpoint)}"
             )
+        # Accept positive-only (iw_n >= 0) uniform input by expanding it to the
+        # full signed grid via Hermitian symmetry before the length check, so a
+        # caller can pass either the positive-only or the full signed grid.
+        if grid == "uniform":
+            arr = self._ExpandPositiveUniform(arr)
         if arr.shape[4] != nfreq:
             raise ValueError(
                 f"frequency dimension mismatch: matin nf={arr.shape[4]}, grid nf={nfreq}"
@@ -182,20 +220,17 @@ class FLatDyn(object):
 
         nk = arr.shape[3]
         ns = self.crystal.ns
-        # Uniform input: estimate each (k, spin, orbital) tail on the native
-        # uniform grid, then interpolate to the DLR grid (per-k, since
+        # Estimate physical moments on the input grid before any interpolation,
+        # then pass [high, moment...] explicitly to the projector.
+        moment, high = self.Moment(arr, isgreen=False, highzero=False, grid=grid)
+
+        # Uniform input: interpolate to the DLR grid (per-k, since
         # MatsubaraUniformGrid2DLR handles the 4D fermion case only).  Output is
         # on the DLR grid.
         if grid == "uniform":
-            tail = np.zeros((norb, ns, nk, 4), dtype=np.float64)
             ndlr = len(self.dlr.omega)
             converted = np.zeros((norb, norb, ns, nk, ndlr), dtype=np.complex128)
             for ik in range(nk):
-                for js in range(ns):
-                    for iorb in range(norb):
-                        tail[iorb, js, ik, :] = Fourier.FermionTailCoefficients(
-                            omega, arr[iorb, iorb, js, ik, :]
-                        )
                 converted[:, :, :, ik, :] = self.dlr.MatsubaraUniformGrid2DLR(
                     arr[:, :, :, ik, :], sign=-1
                 )
@@ -218,9 +253,9 @@ class FLatDyn(object):
         for ik in range(nk):
             for js in range(ns):
                 for iorb in range(norb):
-                    tail_coeffs = (
-                        tail[iorb, js, ik, :] if grid == "uniform" else None
-                    )
+                    tail_coeffs = np.empty(4, dtype=float)
+                    tail_coeffs[0] = float(np.real(high[iorb, iorb, js, ik]))
+                    tail_coeffs[1:] = np.real(moment[iorb, iorb, js, ik, :])
                     out[iorb, iorb, js, ik, :] = projector.project(
                         arr[iorb, iorb, js, ik, :],
                         tail_coeffs=tail_coeffs,
@@ -270,6 +305,11 @@ class FLatDyn(object):
             raise ValueError(
                 f"k dimension mismatch: matin nk={arr.shape[3]}, crystal nk={len(self.crystal.kpoint)}"
             )
+        # Accept positive-only (iw_n >= 0) uniform input by expanding it to the
+        # full signed grid via Hermitian symmetry before the length check, so a
+        # caller can pass either the positive-only or the full signed grid.
+        if grid == "uniform":
+            arr = self._ExpandPositiveUniform(arr)
         if arr.shape[4] != nfreq:
             raise ValueError(
                 f"frequency dimension mismatch: matin nf={arr.shape[4]}, grid nf={nfreq}"
@@ -279,17 +319,12 @@ class FLatDyn(object):
 
         nk = arr.shape[3]
         ns = self.crystal.ns
-        # mirror CausalProjection: uniform input tail on native grid, then DLR.
+        # mirror CausalProjection: moments on native input grid, then DLR data.
+        moment, high = self.Moment(arr, isgreen=False, highzero=False, grid=grid)
         if grid == "uniform":
-            tail = np.zeros((norb, ns, nk, 4), dtype=np.float64)
             ndlr = len(self.dlr.omega)
             converted = np.zeros((norb, norb, ns, nk, ndlr), dtype=np.complex128)
             for ik in range(nk):
-                for js in range(ns):
-                    for iorb in range(norb):
-                        tail[iorb, js, ik, :] = Fourier.FermionTailCoefficients(
-                            omega, arr[iorb, iorb, js, ik, :]
-                        )
                 converted[:, :, :, ik, :] = self.dlr.MatsubaraUniformGrid2DLR(
                     arr[:, :, :, ik, :], sign=-1
                 )
@@ -313,12 +348,13 @@ class FLatDyn(object):
         max_equality = np.zeros((norb, ns, nk), dtype=float)
         violating_count = np.zeros((norb, ns, nk), dtype=int)
         node_residual = np.zeros((norb, ns, nk), dtype=float)
+        c0 = np.zeros((norb, ns, nk), dtype=float)
         for ik in range(nk):
             for js in range(ns):
                 for iorb in range(norb):
-                    tail_coeffs = (
-                        tail[iorb, js, ik, :] if grid == "uniform" else None
-                    )
+                    tail_coeffs = np.empty(4, dtype=float)
+                    tail_coeffs[0] = float(np.real(high[iorb, iorb, js, ik]))
+                    tail_coeffs[1:] = np.real(moment[iorb, iorb, js, ik, :])
                     verdict = projector.check(
                         arr[iorb, iorb, js, ik, :],
                         enforce_gate=False,
@@ -329,6 +365,7 @@ class FLatDyn(object):
                     max_equality[iorb, js, ik] = verdict.max_equality_residual
                     violating_count[iorb, js, ik] = verdict.violating_count
                     node_residual[iorb, js, ik] = verdict.node_residual
+                    c0[iorb, js, ik] = verdict.c0
 
         return {
             "causal": causal,
@@ -336,50 +373,82 @@ class FLatDyn(object):
             "max_equality_residual": max_equality,
             "violating_count": violating_count,
             "node_residual": node_residual,
+            "c0": c0,
         }
 
     
-    def Moment(self, ff : np.ndarray, isgreen : bool, highzero : bool, tail_points : int = 5) -> tuple:
+    def Moment(
+        self,
+        ff : np.ndarray,
+        isgreen : bool = False,
+        highzero : bool = False,
+        tail_points : int = 5,
+        grid: str = "dlr",
+    ) -> tuple:
         """High-frequency tail coefficients of a lattice fermionic function.
 
-        For each diagonal channel ``(iorb, js, ik)`` fit
+        For each orbital matrix element ``(iorb, jorb, js, ik)`` fit
         ``G(iw) ~ c0 + c1/(iw) + c2/(iw)^2 + c3/(iw)^3`` by a robust
         least squares over the ``tail_points`` largest ``|omega|`` points
         (``Fourier.FermionTailCoefficients``).  Returns
-        ``moment[..., 0:3] = [c1, c2, c3]`` and ``high = c0`` in **physical
-        sign** (``FermionTailCoefficients`` reports the moment convention with
-        ``c1,c2,c3`` negated, so they are flipped back here).
+        ``moment[..., 0:3] = [c1, c2, c3]`` and ``high = c0`` in physical sign.
+        ``grid`` selects the sampling grid of ``ff``; for uniform fermion input,
+        positive-only data is expanded before fitting, matching
+        ``CausalProjection``.
 
-        Only diagonal channels are populated; off-diagonal elements stay zero
-        (the previous two-point ``FLocDynM`` hermitization is not reproduced —
-        no consumer uses off-diagonal moments).  ``isgreen``/``highzero`` are
-        accepted for backward compatibility but no longer alter the fit (the
-        robust fit determines ``c0`` and all moments directly from the data).
+        All orbital matrix elements are fitted, then each moment matrix is
+        Hermitian-symmetrized as in the original ``FLocDynM`` path.
+        ``isgreen``/``highzero`` are accepted for backward compatibility but no
+        longer alter the fit (the robust fit determines ``c0`` and all moments
+        directly from the data).
         """
-        norb = ff.shape[0]
-        ns = ff.shape[2]
-        nk = ff.shape[3]
+        arr = np.asarray(ff, dtype=np.complex128)
+        if arr.ndim != 5:
+            raise ValueError(f"ff must be 5D (norb,norb,ns,nk,nfreq), got {arr.ndim}D")
+        if grid == "uniform":
+            arr = self._ExpandPositiveUniform(arr)
+
+        norb = arr.shape[0]
+        ns = arr.shape[2]
+        nk = arr.shape[3]
 
         moment = np.zeros((norb, norb, ns, nk, 3), dtype=np.complex128, order='F')
         high = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order='F')
 
-        if ff.shape[4] < tail_points:
+        omega = self._ResolveCausalGrid(grid)
+        if arr.shape[4] != omega.size:
+            raise ValueError(
+                f"frequency dimension {arr.shape[4]} does not match {grid} omega size {omega.size}"
+            )
+        if arr.shape[4] < tail_points:
             raise ValueError(
                 f"Need at least {tail_points} frequency points to build "
                 "high-frequency moments."
             )
-
-        omega = np.asarray(self.dlr.omega, dtype=np.float64)
+        idx = np.argsort(np.abs(omega))[-tail_points:]
+        z = 1j * omega[idx]
+        design = np.column_stack(
+            [np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3]
+        )
         for ik in range(nk):
             for js in range(ns):
-                for iorb in range(norb):
-                    c = Fourier.FermionTailCoefficients(
-                        omega, ff[iorb, iorb, js, ik, :], tail_points
-                    )
-                    high[iorb, iorb, js, ik] = c[0]
-                    # FermionTailCoefficients returns moment-convention c1,c2,c3
-                    # (negated); flip back to physical sign for moment ratios.
-                    moment[iorb, iorb, js, ik, :] = -c[1:]
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        if iorb == jorb:
+                            tail = Fourier.FermionTailCoefficients(
+                                omega, arr[iorb, jorb, js, ik, :], tail_points
+                            ).astype(np.complex128)
+                        else:
+                            tail, *_ = np.linalg.lstsq(
+                                design, arr[iorb, jorb, js, ik, idx], rcond=None
+                            )
+                        high[iorb, jorb, js, ik] = tail[0]
+                        moment[iorb, jorb, js, ik, :] = tail[1:]
+                h = high[:, :, js, ik].copy()
+                high[:, :, js, ik] = 0.5 * (h + h.T.conj())
+                for imom in range(3):
+                    m = moment[:, :, js, ik, imom].copy()
+                    moment[:, :, js, ik, imom] = 0.5 * (m + m.T.conj())
 
         return moment, high
     

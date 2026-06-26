@@ -42,6 +42,18 @@ def _single_band_hubbard():
     return crystal, dlr, hamtb
 
 
+def _two_orbital_crystal():
+    return Crystal(
+        {
+            "RVec": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            "Basis": [[[0, 0, 0], 2]],
+            "NSpin": 1,
+            "NElec": 2.0,
+            "KGrid": [2, 1, 1],
+        }
+    )
+
+
 class _Verifier:
     """Implementation-independent kernel/moment construction.
 
@@ -89,6 +101,38 @@ def _causal_coefficients(verifier):
     return -0.2 * np.exp(-0.1 * verifier.nodes**2) - 0.05
 
 
+def _tail_model(freq, coeff):
+    freq = np.asarray(freq, dtype=float)
+    z = 1j * freq
+    return (
+        coeff[0]
+        + coeff[1] / z
+        + coeff[2] / z**2
+        + coeff[3] / z**3
+    )
+
+
+def _matrix_tail_model(freq, coeff):
+    freq = np.asarray(freq, dtype=float)
+    z = 1j * freq
+    return (
+        coeff[0][..., np.newaxis]
+        + coeff[1][..., np.newaxis] / z
+        + coeff[2][..., np.newaxis] / z**2
+        + coeff[3][..., np.newaxis] / z**3
+    )
+
+
+def _hermitian_tail_coefficients(norb):
+    coeff = np.zeros((4, norb, norb), dtype=np.complex128)
+    for imom in range(4):
+        diag = np.linspace(0.2 + imom, 0.6 + imom, norb)
+        coeff[imom] += np.diag(diag)
+    coeff[:, 0, 1] = np.array([0.3 + 0.2j, -0.7 + 0.1j, 0.5 - 0.4j, 1.2 + 0.3j])
+    coeff[:, 1, 0] = np.conj(coeff[:, 0, 1])
+    return coeff
+
+
 def _bad_coefficients(verifier, column=0, alpha_extra=0.2):
     moment_rows = verifier.moment_rows
     _, _, vh = np.linalg.svd(moment_rows)
@@ -106,15 +150,16 @@ def _bad_coefficients(verifier, column=0, alpha_extra=0.2):
 
 
 def _causal_tail_coeffs(verifier, coeff):
-    """Analytic tail ``[c0, c1, c2, c3]`` (moment convention) of a pure
+    """Analytic physical tail ``[c0, c1, c2, c3]`` of a pure
     decaying channel ``kernel @ coeff``.  Such channels have ``c0 = 0`` and
-    ``[c1, c2, c3] = moment_rows @ coeff``.  Injecting these via
+    the projector's internal ``moment_rows @ coeff`` is
+    ``-[c1, c2, c3]``.  Injecting these via
     ``tail_coeffs`` bypasses the noisy 5-point tail fit, which on the coarse
     22-point DLR grid produces a spurious ``c0 ~ 1e-4``; that spurious
     constant is not pole-representable and, amplified by the ill-conditioned
     kernel, destabilizes the *unconstrained* reference fit used by ``check``.
     The QP-based ``project`` regularizes and does not need the injection."""
-    return np.concatenate(([0.0], verifier.moment_rows @ np.asarray(coeff, float)))
+    return np.concatenate(([0.0], -(verifier.moment_rows @ np.asarray(coeff, float))))
 
 
 def _assert_projected_channel(verifier, values, moment_target, c0=0.0):
@@ -124,12 +169,13 @@ def _assert_projected_channel(verifier, values, moment_target, c0=0.0):
     ``c0`` on return).  The constant is not pole-representable, so it must be
     subtracted before the (ill-conditioned) refit; otherwise the lstsq blows
     up trying to express it.  After subtraction the recovered pole weights are
-    causal and their moments equal the preserved data-tail moments."""
+    causal and their internal moments equal the negative of the preserved
+    physical data-tail moments."""
     coeff = verifier.fit(np.asarray(values, dtype=np.complex128) - c0)
     assert np.max(coeff) <= 1.0e-5
     np.testing.assert_allclose(
         verifier.moment_rows @ coeff,
-        moment_target,
+        -np.asarray(moment_target, dtype=float),
         atol=1.0e-7,
         rtol=1.0e-6,
     )
@@ -218,11 +264,11 @@ def test_causal_fermion_enforces_sign_and_preserves_data_tail_moments():
     coeff = fermion.last_coefficients
     c0 = fermion.last_validation["c0"]
     assert np.max(coeff) <= 1.0e-6
-    # the QP equality target is now the DATA tail [c1, c2, c3] of the input
+    # the QP equality target is the internally signed physical DATA tail.
     data_tail = fermion_tail_coefficients(verifier.omega, target)
     np.testing.assert_allclose(
         fermion.moment_rows @ coeff,
-        data_tail[1:],
+        -data_tail[1:],
         atol=1.0e-9,
         rtol=1.0e-9,
     )
@@ -235,6 +281,16 @@ def test_causal_fermion_enforces_sign_and_preserves_data_tail_moments():
     relative = np.linalg.norm(projected - target) / np.linalg.norm(target)
     assert np.isfinite(relative)
     assert relative < 0.5
+
+
+def test_fermion_tail_coefficients_are_physical_sign():
+    omega = np.array([-9.0, -5.0, -3.0, 3.0, 5.0, 9.0])
+    coeff = np.array([0.7, -1.2, 0.4, 2.1])
+    target = _tail_model(omega, coeff)
+
+    tail = Fourier.FermionTailCoefficients(omega, target, tail_points=6)
+
+    np.testing.assert_allclose(tail, coeff, atol=1.0e-12)
 
 
 def test_causal_fermion_check_reports_unscaled_violations():
@@ -602,6 +658,76 @@ def test_flocdyn_causal_projection_preserves_data_tail_moments():
         bad,
         verifier.fit(projected4[0, 0, 0, :] - tail[0]),
         "FLocDyn single-band Hubbard local channel",
+    )
+
+
+def test_fermion_loc_lat_moment_matches_physical_tail():
+    crystal, dlr, _ = _single_band_hubbard()
+    local = FLocDyn(crystal, dlr, projector=None)
+    flat = FLatDyn(crystal, dlr)
+    coeff = np.array([1.3, -0.8, 0.25, 1.1])
+    values = _tail_model(dlr.omega, coeff)
+
+    local_values = np.zeros((1, 1, 1, len(dlr.omega)), dtype=np.complex128, order="F")
+    local_values[0, 0, 0, :] = values
+    moment, high = local.Moment(local_values)
+    np.testing.assert_allclose(high[0, 0, 0], coeff[0], atol=1.0e-12)
+    np.testing.assert_allclose(moment[0, 0, 0, :], coeff[1:], atol=1.0e-12)
+    assert moment.shape == (1, 1, 1, 3)
+    assert high.shape == (1, 1, 1)
+
+    lat_values = np.zeros(
+        (1, 1, 1, crystal.nk, len(dlr.omega)),
+        dtype=np.complex128,
+        order="F",
+    )
+    lat_values[0, 0, 0, :, :] = values
+    moment_lat, high_lat = flat.Moment(lat_values, isgreen=False, highzero=False)
+    np.testing.assert_allclose(high_lat[0, 0, 0, :], coeff[0], atol=1.0e-12)
+    np.testing.assert_allclose(
+        moment_lat[0, 0, 0, :, :],
+        np.tile(coeff[1:], (crystal.nk, 1)),
+        atol=1.0e-12,
+    )
+    assert moment_lat.shape == (1, 1, 1, crystal.nk, 3)
+    assert high_lat.shape == (1, 1, 1, crystal.nk)
+
+
+def test_fermion_moment_fits_offdiagonal_matrix_tail():
+    crystal = _two_orbital_crystal()
+    dlr = DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1.0e-12})
+    norb = len(crystal.find)
+    coeff = _hermitian_tail_coefficients(norb)
+    values = _matrix_tail_model(dlr.omega, coeff)
+
+    local = FLocDyn(crystal, dlr, projector=None)
+    local_values = np.zeros((norb, norb, 1, len(dlr.omega)), dtype=np.complex128, order="F")
+    local_values[:, :, 0, :] = values
+    moment, high = local.Moment(local_values)
+    expected_moment = np.moveaxis(coeff[1:], 0, -1)[:, :, np.newaxis, :]
+    expected_high = coeff[0][:, :, np.newaxis]
+    np.testing.assert_allclose(high, expected_high, atol=1.0e-11)
+    np.testing.assert_allclose(moment, expected_moment, atol=1.0e-11)
+    assert abs(moment[0, 1, 0, 0]) > 0.0
+    np.testing.assert_allclose(moment[:, :, 0, 0], moment[:, :, 0, 0].T.conj())
+
+    flat = FLatDyn(crystal, dlr)
+    lat_values = np.zeros(
+        (norb, norb, 1, crystal.nk, len(dlr.omega)),
+        dtype=np.complex128,
+        order="F",
+    )
+    lat_values[:, :, 0, :, :] = values[:, :, np.newaxis, :]
+    moment_lat, high_lat = flat.Moment(lat_values)
+    np.testing.assert_allclose(
+        high_lat,
+        np.repeat(expected_high[:, :, :, np.newaxis], crystal.nk, axis=3),
+        atol=1.0e-11,
+    )
+    np.testing.assert_allclose(
+        moment_lat,
+        np.repeat(expected_moment[:, :, :, np.newaxis, :], crystal.nk, axis=3),
+        atol=1.0e-11,
     )
 
 

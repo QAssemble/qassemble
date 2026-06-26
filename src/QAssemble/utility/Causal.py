@@ -43,6 +43,7 @@ class CausalCheckResult:
     max_equality_residual: float
     violating_count: int
     node_residual: float | None = None
+    c0: float = 0.0
 
 
 class CausalProjection:
@@ -253,6 +254,7 @@ class CausalProjection:
             max_inequality_violation=ineq,
             max_equality_residual=eq,
             violating_count=violating_count,
+            c0=0.0,
         )
 
     def _resolve_tol(self, tol: float | None) -> float:
@@ -444,7 +446,7 @@ class CausalProjector:
     The pipeline for one scalar Matsubara channel is:
 
     1. scale the target by ``max(|target|, 1)``;
-    2. estimate the tail ``[c0, c1, c2, c3]`` by a robust real least squares
+    2. estimate the physical tail ``[c0, c1, c2, c3]`` by a robust real least squares
        over the ``tail_points`` largest ``|omega|`` points
        (``_tail_coefficients``); the constant ``c0`` is not representable by
        the decaying pole basis, so subtract it (``target_dec = target - c0``)
@@ -453,9 +455,9 @@ class CausalProjector:
     3. decompose ``target_dec`` into real DLR pole weights via stacked
        real/imag least squares on the native node kernel; a node fit residual
        above ``fit_tol`` (gate) -> ``RuntimeError``;
-    4. the QP equality target is the *data* tail ``[c1, c2, c3]`` (not the
-       moments of the fitted coefficients); ``moment_rows = nodes**p`` maps
-       coefficients to those same physical moments;
+    4. the QP equality target is the internally signed data tail
+       ``[-c1, -c2, -c3]`` (not the moments of the fitted coefficients);
+       ``moment_rows = nodes**p`` maps coefficients to those internal moments;
     5. if the reference is already causal, skip the QP (the output is still
        the refit ``kernel @ reference + c0``);
     6. otherwise solve the W = Re(K^H K) weighted sign-constrained QP, which
@@ -477,11 +479,10 @@ class CausalProjector:
     least-squares representative and can therefore report non-causal for
     data that admits a causal representation (e.g. the output of
     ``project``, whose causal coefficients are in ``last_coefficients``).
-    ``project`` itself is unaffected.  The bosonic caller must isolate the
-    dynamic part first (``W = V + W_dyn``): a constant offset is not
-    representable by decaying poles; targets that do not decay at the
-    largest ``|nu|`` nodes are rejected with a ``RuntimeError``
-    (``tail_tol`` controls this guard).
+    ``project`` itself is unaffected.  A constant offset is estimated as
+    ``c0`` and subtracted before the decaying pole fit; targets whose
+    ``target - c0`` does not decay at the largest ``|nu|`` nodes are rejected
+    with a ``RuntimeError`` (``tail_tol`` controls this guard).
     """
 
     DEFAULT_SOLVERS = CausalProjection.DEFAULT_SOLVERS
@@ -621,15 +622,15 @@ class CausalProjector:
             name="target",
             expected_size=self.omega.size,
         )
-        self._validate_target(target_vec)
         scale = float(max(np.max(np.abs(target_vec)), 1.0))
         target_scaled = target_vec / scale
 
-        c0, c1, c2, c3 = self._tail_coefficients(
+        c0, c1_phys, c2_phys, c3_phys = self._tail_coefficients(
             target_scaled, tail_coeffs=tail_coeffs, scale=scale
         )
         # remove the constant tail; only the decaying part is pole-representable
         target_dec = target_scaled - c0
+        self._validate_target(target_dec)
 
         reference, node_residual = self._fit_coefficients(target_dec)
         normal_eq_residual = float(
@@ -639,6 +640,7 @@ class CausalProjector:
             )
         )
 
+        c1, c2, c3 = self._internal_tail_moments(c1_phys, c2_phys, c3_phys)
         equality_target = self._equality_target(c1, c2, c3)
         eff_tol, tol_scaled = self._effective_tol(node_residual, scale)
 
@@ -718,19 +720,20 @@ class CausalProjector:
             name="target",
             expected_size=self.omega.size,
         )
-        self._validate_target(target_vec)
         scale = float(max(np.max(np.abs(target_vec)), 1.0))
         target_scaled = target_vec / scale
 
-        c0, c1, c2, c3 = self._tail_coefficients(
+        c0, c1_phys, c2_phys, c3_phys = self._tail_coefficients(
             target_scaled, tail_coeffs=tail_coeffs, scale=scale
         )
         target_dec = target_scaled - c0
+        self._validate_target(target_dec)
 
         reference, node_residual = self._fit_coefficients(target_dec)
         if enforce_gate:
             self._gate(node_residual)
 
+        c1, c2, c3 = self._internal_tail_moments(c1_phys, c2_phys, c3_phys)
         equality_target = self._equality_target(c1, c2, c3)
         _, tol_scaled = self._effective_tol(node_residual, scale)
         verdict = self.qp.check(
@@ -745,6 +748,7 @@ class CausalProjector:
             max_equality_residual=verdict.max_equality_residual * scale,
             violating_count=verdict.violating_count,
             node_residual=node_residual,
+            c0=float(c0 * scale),
         )
 
     def _tail_coefficients(
@@ -754,7 +758,7 @@ class CausalProjector:
         tail_coeffs: np.ndarray | None = None,
         scale: float,
     ) -> np.ndarray:
-        """Estimate ``[c0, c1, c2, c3]`` of the high-frequency tail (scaled).
+        """Estimate physical ``[c0, c1, c2, c3]`` of the high-frequency tail.
 
         The model is ``G(iw) ~ c0 + c1/(iw) + c2/(iw)^2 + c3/(iw)^3``, fit by a
         real (real/imag-stacked) least squares over the ``tail_points`` largest
@@ -767,12 +771,9 @@ class CausalProjector:
         ``tail_coeffs`` (unscaled ``[c0, c1, c2, c3]`` computed on a different
         grid by the caller) bypasses the local fit; it is rescaled by ``scale``.
 
-        For bosons the tail uses the same ``[c1, c2, c3]`` model on the bosonic
-        Matsubara grid (``Fourier.BosonTailCoefficients``), but ``c0`` is forced
-        to ``0``: the decaying pole basis cannot represent a constant, the static
-        guard (``_validate_target``) already enforces genuine decay, and any
-        fitted ``c0`` is only tail-truncation noise whose subtraction would
-        corrupt the decaying part.
+        For both fermions and bosons the returned tail is in physical sign.
+        The QP-only sign convention is applied later by
+        :meth:`_internal_tail_moments`.
         """
 
         if tail_coeffs is not None:
@@ -783,41 +784,40 @@ class CausalProjector:
                 )
             if not np.all(np.isfinite(c)):
                 raise ValueError("tail_coeffs contains non-finite values")
-            # injected coeffs are already in the moment convention (e.g. from
+            # injected coeffs are physical-sign tail coefficients (e.g. from
             # FermionTailCoefficients/BosonTailCoefficients on the native grid);
             # only rescale.
             c = c / scale
-            if self.statistic == "B":
-                # the bosonic pole basis cannot represent a constant; any fitted
-                # c0 is tail-truncation noise (the static guard already enforces
-                # genuine decay), so subtracting it would only corrupt the
-                # decaying part.  Force c0 = 0.
-                c[0] = 0.0
             return c
 
         if self.statistic == "F":
             return Fourier.FermionTailCoefficients(
                 self.omega, target_scaled, self.tail_points
             )
-        c = Fourier.BosonTailCoefficients(
+        return Fourier.BosonTailCoefficients(
             self.omega, target_scaled, self.tail_points
         )
-        # see the injection branch: c0 is not pole-representable for bosons.
-        c[0] = 0.0
-        return c
+
+    @staticmethod
+    def _internal_tail_moments(
+        c1_phys: float,
+        c2_phys: float,
+        c3_phys: float,
+    ) -> tuple[float, float, float]:
+        """Convert physical tail moments to the projector's pole convention."""
+        return -float(c1_phys), -float(c2_phys), -float(c3_phys)
 
     def _equality_target(self, c1: float, c2: float, c3: float) -> np.ndarray:
         """QP equality target (scaled) matching ``moment_rows`` per statistic.
 
-        Fermion: 3 rows ``nodes**p`` (p=0,1,2) <-> the data tail
-        ``[c1, c2, c3]``.
+        Fermion: 3 rows ``nodes**p`` (p=0,1,2) <-> the internally signed data
+        tail ``[-c1_phys, -c2_phys, -c3_phys]``.
 
         Boson: the tanh-weighted ``moment_rows`` encode
-        ``c_p = - sum_l tanh(x_l/2) * omega_l^(p-1) * g_l`` (see
-        ``Fourier.BosonTailCoefficients``).  The reflection-symmetrized kernel
+        the internally signed physical tail.  The reflection-symmetrized kernel
         keeps only even powers, so the single row ``tanh(x/2)*omega`` anchors
-        ``c2``; the plain kernel's two rows ``[tanh(x/2), tanh(x/2)*omega]``
-        anchor ``[c1, c2]``.
+        ``-c2_phys``; the plain kernel's two rows
+        ``[tanh(x/2), tanh(x/2)*omega]`` anchor ``[-c1_phys, -c2_phys]``.
         """
         if self.statistic == "F":
             return np.array([c1, c2, c3], dtype=float)
@@ -896,22 +896,19 @@ class CausalProjector:
     def _validate_target(self, target_vec: np.ndarray) -> None:
         if self.statistic == "F":
             return
-        # Boson: a static offset is not representable by decaying poles, so
-        # the target must decay at the largest |nu| nodes (the caller must
-        # subtract the static part on ALL frequencies first).
+        # Boson: after subtracting c0, the decaying target must be small at the
+        # largest |nu| nodes.
         magnitude = float(np.max(np.abs(target_vec)))
-        if magnitude == 0.0:
+        if magnitude <= 100.0 * np.finfo(float).eps:
             return
         tail_indices = np.argsort(np.abs(self.omega))[-2:]
         tail_magnitude = float(np.max(np.abs(target_vec[tail_indices])))
         if tail_magnitude > self.tail_tol * magnitude:
             raise RuntimeError(
-                "bosonic target does not decay at the largest |nu| nodes "
+                "bosonic target minus c0 does not decay at the largest |nu| nodes "
                 f"(|tail|/max = {tail_magnitude / magnitude:.3e} > tail_tol "
-                f"{self.tail_tol:.1e}); a static offset is not representable "
-                "by decaying poles — subtract the static part on ALL "
-                "frequencies first (zeroing only the nu=0 node is "
-                "insufficient)"
+                f"{self.tail_tol:.1e}); the fitted c0 does not isolate a "
+                "decaying bosonic pole contribution"
             )
 
     def _fit_coefficients(self, target: np.ndarray) -> tuple[np.ndarray, float]:
@@ -978,4 +975,3 @@ class CausalProjector:
             "max_coefficient": float(np.max(coefficients)),
             "min_coefficient": float(np.min(coefficients)),
         }
-

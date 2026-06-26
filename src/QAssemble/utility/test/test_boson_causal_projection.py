@@ -1,12 +1,78 @@
 import numpy as np
 import pytest
 
+from QAssemble.BLatDyn import BLatDyn
+from QAssemble.BLocDyn import BLocDyn
+from QAssemble.Crystal import Crystal
 from QAssemble.utility.Causal import CausalProjector
 from QAssemble.utility.DLR import DLR
+from QAssemble.utility.Fourier import Fourier
 
 
 def _boson_dlr():
     return DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1.0e-12})
+
+
+def _single_band_crystal():
+    return Crystal(
+        {
+            "RVec": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            "Basis": [[[0, 0, 0], 1]],
+            "NSpin": 1,
+            "NElec": 1.0,
+            "KGrid": [2, 2, 2],
+        }
+    )
+
+
+def _two_orbital_crystal():
+    return Crystal(
+        {
+            "RVec": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            "Basis": [[[0, 0, 0], 2]],
+            "NSpin": 1,
+            "NElec": 2.0,
+            "KGrid": [2, 1, 1],
+        }
+    )
+
+
+def _boson_tail_model(freq, coeff):
+    freq = np.asarray(freq, dtype=float)
+    z = 1j * freq
+    out = np.full(freq.shape, coeff[0], dtype=np.complex128)
+    mask = ~np.isclose(freq, 0.0)
+    out[mask] = (
+        coeff[0]
+        + coeff[1] / z[mask]
+        + coeff[2] / z[mask] ** 2
+        + coeff[3] / z[mask] ** 3
+    )
+    return out
+
+
+def _boson_matrix_tail_model(freq, coeff):
+    freq = np.asarray(freq, dtype=float)
+    z = 1j * freq
+    out = np.repeat(coeff[0][..., np.newaxis], freq.size, axis=-1)
+    mask = ~np.isclose(freq, 0.0)
+    out[..., mask] = (
+        coeff[0][..., np.newaxis]
+        + coeff[1][..., np.newaxis] / z[mask]
+        + coeff[2][..., np.newaxis] / z[mask] ** 2
+        + coeff[3][..., np.newaxis] / z[mask] ** 3
+    )
+    return out
+
+
+def _hermitian_tail_coefficients(norb):
+    coeff = np.zeros((4, norb, norb), dtype=np.complex128)
+    for imom in range(4):
+        diag = np.linspace(0.1 + imom, 0.9 + imom, norb)
+        coeff[imom] += np.diag(diag)
+    coeff[:, 0, 1] = np.array([0.25 - 0.15j, -0.3 + 0.2j, 0.7 + 0.1j, -0.5j])
+    coeff[:, 1, 0] = np.conj(coeff[:, 0, 1])
+    return coeff
 
 
 class _BosonVerifier:
@@ -72,22 +138,22 @@ def _causal_coefficients(verifier):
 
 
 def _causal_tail_coeffs(verifier, coeff):
-    """Analytic tail ``[c0, c1, c2, c3]`` (moment convention) of a pure
+    """Analytic physical tail ``[c0, c1, c2, c3]`` of a pure
     decaying bosonic channel ``kernel @ coeff``.
 
     Such channels have ``c0 = 0``.  The tanh-weighted moment rows give the
-    physical tail: ``moment_rows @ coeff`` is ``[c2]`` for the reflection-
-    symmetrized kernel (only the even ``1/(inu)^2`` term survives) or
-    ``[c1, c2]`` for the plain kernel.  Injecting these via ``tail_coeffs``
-    bypasses the 5-point lstsq tail fit, which on the coarse, sparse DLR grid
-    is an unreliable estimator of the higher moments (mirrors the fermion
-    ``_causal_tail_coeffs`` helper)."""
+    projector's internal tail convention, so the physical tail is its negative:
+    ``-moment_rows @ coeff`` is ``[c2]`` for the reflection-symmetrized kernel
+    (only the even ``1/(inu)^2`` term survives) or ``[c1, c2]`` for the plain
+    kernel.  Injecting these via ``tail_coeffs`` bypasses the 5-point lstsq tail
+    fit, which on the coarse, sparse DLR grid is an unreliable estimator of the
+    higher moments (mirrors the fermion ``_causal_tail_coeffs`` helper)."""
     mom = np.asarray(verifier.moment_rows @ np.asarray(coeff, float), dtype=float)
     if verifier.reflection_symmetry:
         # moment_rows row is [tanh(x/2)*omega] <-> c2; c1 is unconstrained
-        c1, c2 = 0.0, float(mom[0])
+        c1, c2 = 0.0, -float(mom[0])
     else:
-        c1, c2 = float(mom[0]), float(mom[1])
+        c1, c2 = -float(mom[0]), -float(mom[1])
     return np.array([0.0, c1, c2, 0.0], dtype=float)
 
 
@@ -181,6 +247,16 @@ def test_causal_boson_projects_and_roundtrips(reflection):
     assert relative < 0.5
 
 
+def test_boson_tail_coefficients_are_physical_sign():
+    nu = np.array([0.0, 1.0, 2.0, 4.0, 7.0, 11.0])
+    coeff = np.array([1.4, -0.6, 2.3, -1.1])
+    target = _boson_tail_model(nu, coeff)
+
+    tail = Fourier.BosonTailCoefficients(nu, target, tail_points=5)
+
+    np.testing.assert_allclose(tail, coeff, atol=1.0e-12)
+
+
 @pytest.mark.parametrize("reflection", [True, False])
 def test_causal_boson_skips_qp_for_causal_input(reflection):
     dlr = _boson_dlr()
@@ -198,32 +274,39 @@ def test_causal_boson_skips_qp_for_causal_input(reflection):
     np.testing.assert_allclose(projected, target, atol=1.0e-8)
 
 
-def test_static_contamination_is_rejected():
+def test_static_contamination_is_split_as_c0():
     dlr = _boson_dlr()
     verifier = _BosonVerifier(dlr)
-    target = verifier.reconstruct(_causal_coefficients(verifier))
+    coeff = _causal_coefficients(verifier)
+    target = verifier.reconstruct(coeff)
     offset = 0.5 * float(np.max(np.abs(target)))
     contaminated = target + offset
 
     boson = _boson(dlr)
-    with pytest.raises(RuntimeError, match="static"):
-        boson.project(contaminated)
-    with pytest.raises(RuntimeError, match="static"):
-        boson.check(contaminated)
+    tail = _causal_tail_coeffs(verifier, coeff)
+    tail[0] = offset
 
-    # cleaning only the nu = 0 node must NOT silence the guard
-    nu = np.asarray(dlr.nu, dtype=float)
-    izero = int(np.argmin(np.abs(nu)))
-    half_cleaned = contaminated.copy()
-    half_cleaned[izero] = target[izero]
-    with pytest.raises(RuntimeError, match="insufficient"):
-        boson.project(half_cleaned)
+    assert boson.check(contaminated, tail_coeffs=tail).causal
+    projected = boson.project(contaminated, tail_coeffs=tail)
 
-    # the clean dynamic part passes the static guard and is causal by
-    # construction, confirming the guard fires only for the contaminated data
-    # above (not for legitimate decaying input).
-    tail = _causal_tail_coeffs(verifier, _causal_coefficients(verifier))
+    assert boson.last_validation["skipped"] is True
+    assert boson.last_validation["c0"] == pytest.approx(offset, abs=1.0e-12)
+    np.testing.assert_allclose(projected, contaminated, atol=1.0e-8)
+
+
+def test_static_only_boson_is_split_as_c0():
+    dlr = _boson_dlr()
+    offset = 1.25
+    target = np.full_like(dlr.nu, offset, dtype=np.complex128)
+    tail = np.array([offset, 0.0, 0.0, 0.0], dtype=float)
+
+    boson = _boson(dlr)
     assert boson.check(target, tail_coeffs=tail).causal
+    projected = boson.project(target, tail_coeffs=tail)
+
+    assert boson.last_validation["skipped"] is True
+    assert boson.last_validation["c0"] == pytest.approx(offset, abs=1.0e-12)
+    np.testing.assert_allclose(projected, target, atol=1.0e-12)
 
 
 def test_clean_target_decays_within_tail_guard():
@@ -235,6 +318,81 @@ def test_clean_target_decays_within_tail_guard():
     nu = np.asarray(dlr.nu, dtype=float)
     tail = np.max(np.abs(target[np.argsort(np.abs(nu))[-2:]]))
     assert tail < 0.1 * np.max(np.abs(target))
+
+
+def test_boson_loc_lat_moment_matches_physical_tail():
+    crystal = _single_band_crystal()
+    dlr = _boson_dlr()
+    coeff = np.array([0.9, -0.4, 1.2, 0.7])
+    values = _boson_tail_model(dlr.nu, coeff)
+
+    local = BLocDyn(crystal, dlr, projector=None)
+    local_values = np.zeros((1, 1, 1, 1, len(dlr.nu)), dtype=np.complex128, order="F")
+    local_values[0, 0, 0, 0, :] = values
+    moment, high = local.Moment(local_values)
+    np.testing.assert_allclose(high[0, 0, 0, 0], coeff[0], atol=1.0e-12)
+    np.testing.assert_allclose(moment[0, 0, 0, 0, :], coeff[1:], atol=1.0e-12)
+    assert moment.shape == (1, 1, 1, 1, 3)
+    assert high.shape == (1, 1, 1, 1)
+
+    lattice = BLatDyn(crystal, dlr)
+    lat_values = np.zeros(
+        (1, 1, 1, 1, crystal.nk, len(dlr.nu)),
+        dtype=np.complex128,
+        order="F",
+    )
+    lat_values[0, 0, 0, 0, :, :] = values
+    moment_lat, high_lat = lattice.Moment(lat_values)
+    np.testing.assert_allclose(high_lat[0, 0, 0, 0, :], coeff[0], atol=1.0e-12)
+    np.testing.assert_allclose(
+        moment_lat[0, 0, 0, 0, :, :],
+        np.tile(coeff[1:], (crystal.nk, 1)),
+        atol=1.0e-12,
+    )
+    assert moment_lat.shape == (1, 1, 1, 1, crystal.nk, 3)
+    assert high_lat.shape == (1, 1, 1, 1, crystal.nk)
+
+
+def test_boson_moment_fits_offdiagonal_matrix_tail():
+    crystal = _two_orbital_crystal()
+    dlr = _boson_dlr()
+    norb = len(crystal.bind)
+    coeff = _hermitian_tail_coefficients(norb)
+    values = _boson_matrix_tail_model(dlr.nu, coeff)
+
+    local = BLocDyn(crystal, dlr, projector=None)
+    local_values = np.zeros(
+        (norb, norb, 1, 1, len(dlr.nu)),
+        dtype=np.complex128,
+        order="F",
+    )
+    local_values[:, :, 0, 0, :] = values
+    moment, high = local.Moment(local_values)
+    expected_moment = np.moveaxis(coeff[1:], 0, -1)[:, :, np.newaxis, np.newaxis, :]
+    expected_high = coeff[0][:, :, np.newaxis, np.newaxis]
+    np.testing.assert_allclose(high, expected_high, atol=1.0e-11)
+    np.testing.assert_allclose(moment, expected_moment, atol=1.0e-11)
+    assert abs(moment[0, 1, 0, 0, 0]) > 0.0
+    np.testing.assert_allclose(moment[:, :, 0, 0, 0], moment[:, :, 0, 0, 0].T.conj())
+
+    lattice = BLatDyn(crystal, dlr)
+    lat_values = np.zeros(
+        (norb, norb, 1, 1, crystal.nk, len(dlr.nu)),
+        dtype=np.complex128,
+        order="F",
+    )
+    lat_values[:, :, 0, 0, :, :] = values[:, :, np.newaxis, :]
+    moment_lat, high_lat = lattice.Moment(lat_values)
+    np.testing.assert_allclose(
+        high_lat,
+        np.repeat(expected_high[:, :, :, :, np.newaxis], crystal.nk, axis=4),
+        atol=1.0e-11,
+    )
+    np.testing.assert_allclose(
+        moment_lat,
+        np.repeat(expected_moment[:, :, :, :, np.newaxis, :], crystal.nk, axis=4),
+        atol=1.0e-11,
+    )
 
 
 def test_invalid_tail_tol_is_rejected():

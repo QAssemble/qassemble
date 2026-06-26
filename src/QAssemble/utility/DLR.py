@@ -62,22 +62,22 @@ class DLR(object):
         omega = self.MatsubaraFermionUniform(Emax=Emax, beta=beta)
         return np.concatenate((-omega[::-1], omega))
 
-    def MatsubaraBosonUniform(self) -> np.ndarray:
-        Emax = self.nu[-1]
-        Emin = self.nu[0]
-
-        nstart = int(np.floor((self.beta / np.pi * Emin) / 2))
-        nend = int(np.ceil((self.beta / np.pi * Emax) / 2))
-
-        number = np.arange(nstart, nend + 1)
-        nu = []
-
-        for inu in number:
-            nu.append(np.float64(np.pi / self.beta * (2 * inu)))
-
-        nu = np.array(nu, dtype=np.float64, order="F")
+    def MatsubaraBosonUniform(self, Emax : np.float64 = None, beta : np.float64 = None) -> np.ndarray:
+        if Emax is None:
+            Emax = max(abs(float(self.nu[0])), abs(float(self.nu[-1])))
+        if beta is None:
+            beta = self.beta
+        nend = int(np.ceil(beta * Emax / (2.0 * np.pi)))
+        if nend < 0:
+            raise ValueError("Cannot build non-negative boson Matsubara grid")
+        number = np.arange(nend + 1)
+        nu = np.array(2.0 * np.pi / beta * number, dtype=np.float64, order="F")
 
         return nu
+
+    def MatsubaraBosonUniformFull(self, Emax : np.float64 = None, beta : np.float64 = None) -> np.ndarray:
+        nu = self.MatsubaraBosonUniform(Emax=Emax, beta=beta)
+        return np.concatenate((-nu[:0:-1], nu))
 
     def _as_dynamic_spin_matrix(self, mat : np.ndarray) -> np.ndarray:
         mat = np.asarray(mat, dtype=np.complex128)
@@ -123,8 +123,7 @@ class DLR(object):
         ff_2d = np.ascontiguousarray(ff_t).reshape(nfreq, batch)
 
         out_2d = self.MatsubaraDLR2Uniform(ff_2d, sign=sign)
-        if out_2d.ndim == 3:
-            out_2d = out_2d[:, :, 0]
+        out_2d = np.asarray(out_2d).reshape(out_2d.shape[0], batch)
 
         nfreq_uniform = out_2d.shape[0]
         out = out_2d.reshape(nfreq_uniform, *ff.shape[:-1])
@@ -138,10 +137,29 @@ class DLR(object):
         omega : np.ndarray = None,
         sign : int = -1,
     ) -> np.ndarray:
-        """Fit full uniform Matsubara data and evaluate it on the DLR grid."""
+        """Fit uniform Matsubara data and evaluate it on the DLR grid.
+
+        ``omega=None`` means the full signed default grid.  Positive-only input is
+        expanded only when the caller passes an explicit non-negative 1D
+        ``omega``; no data-length inference is performed.
+        """
         if sign == 1:
             ff = self._as_bosonic_dynamic_matrix(ff)
-            omega = self.MatsubaraBosonUniform() if omega is None else np.asarray(omega, dtype=np.float64)
+            omega_was_none = omega is None
+            omega = self.MatsubaraBosonUniformFull() if omega_was_none else np.asarray(omega, dtype=np.float64)
+            if omega.ndim != 1:
+                raise ValueError(f"omega must be a 1D Matsubara grid, got {omega.ndim}D")
+            if omega.size == 0:
+                raise ValueError("omega must be a non-empty 1D Matsubara grid")
+            if omega_was_none and ff.shape[-1] != omega.size:
+                raise ValueError(
+                    f"frequency dimension {ff.shape[-1]} does not match full signed omega length {omega.size}; "
+                    "pass an explicit positive omega to enable positive-only expansion"
+                )
+            if omega.ndim == 1 and omega.size > 0 and np.all(omega >= 0.0):
+                istart = 1 if np.isclose(omega[0], 0.0) else 0
+                ff = np.concatenate((np.conjugate(ff[..., istart:][..., ::-1]), ff), axis=-1)
+                omega = np.concatenate((-omega[istart:][::-1], omega))
             nfreq = ff.shape[-1]
 
             block = np.moveaxis(ff, -1, 0)
@@ -156,7 +174,21 @@ class DLR(object):
             raise ValueError("sign must be -1 for fermions or 1 for bosons")
 
         ff = self._as_dynamic_spin_matrix(ff)
-        omega = self.MatsubaraFermionUniformFull() if omega is None else np.asarray(omega, dtype=np.float64)
+        omega_was_none = omega is None
+        omega = self.MatsubaraFermionUniformFull() if omega_was_none else np.asarray(omega, dtype=np.float64)
+        if omega.ndim != 1:
+            raise ValueError(f"omega must be a 1D Matsubara grid, got {omega.ndim}D")
+        if omega.size == 0:
+            raise ValueError("omega must be a non-empty 1D Matsubara grid")
+        if omega_was_none and ff.shape[-1] != omega.size:
+            raise ValueError(
+                f"frequency dimension {ff.shape[-1]} does not match full signed omega length {omega.size}; "
+                "pass an explicit positive omega to enable positive-only expansion"
+            )
+
+        if omega.ndim == 1 and omega.size > 0 and np.all(omega >= 0.0):
+            ff = self.MatsubaraAddNegativeFrequency(ff)
+            omega = np.concatenate((-omega[::-1], omega))
 
         out = np.zeros(
             (ff.shape[0], ff.shape[1], ff.shape[2], len(self.omega)),
@@ -283,13 +315,20 @@ class DLR(object):
             fout = self.dF.eval_dlr_freq(fxx[:, None, None], z, beta=self.beta, xi=sign)
         else:
             fxx = lu_solve((self.dB.dlrmf2cf, self.dB.mf2cfpiv), ff / self.beta)
-            fxx /= self.dB.bosonic_corr_x
+            corr_shape = (self.dB.bosonic_corr_x.size,) + (1,) * (np.ndim(fxx) - 1)
+            fxx = fxx / self.dB.bosonic_corr_x.reshape(corr_shape)
             z = self.MatsubaraBosonUniform() * 1j
             fout = self.dB.eval_dlr_freq(fxx[:, None, None], z, beta=self.beta, xi=sign)
 
         return fout
 
     def MatsubaraUniform2DLR(self, ff: np.ndarray, omega: np.ndarray = None, sign: int = -1):
+        """Convert full signed uniform Matsubara data to the DLR grid.
+
+        Positive-only Hermitian expansion is a wrapper-level operation, where the
+        orbital axes are still available.  This flattened core expects ``omega`` to
+        describe every input row directly.
+        """
         ff = np.asarray(ff, dtype=np.complex128)
         ff_ndim = ff.ndim
         if ff_ndim == 1:
@@ -303,12 +342,21 @@ class DLR(object):
             raise ValueError("sign must be -1 for fermions or 1 for bosons")
 
         omega_dlr = self.omega if sign == -1 else self.nu
-        omega_default = self.MatsubaraFermionUniformFull if sign == -1 else self.MatsubaraBosonUniform
-        omega = omega_default() if omega is None else np.asarray(omega, dtype=np.float64)
+        omega_default = self.MatsubaraFermionUniformFull if sign == -1 else self.MatsubaraBosonUniformFull
+        omega_was_none = omega is None
+        omega = omega_default() if omega_was_none else np.asarray(omega, dtype=np.float64)
 
-        if ff.shape[0] != len(omega):
+        if omega.ndim != 1:
+            raise ValueError(f"omega must be a 1D Matsubara grid, got {omega.ndim}D")
+        if omega.size == 0:
+            raise ValueError("omega must be a non-empty 1D Matsubara grid")
+
+        if ff.shape[0] != omega.size:
+            message = f"frequency dimension {ff.shape[0]} does not match omega length {omega.size}"
+            if omega_was_none:
+                message += "; omega=None uses the default full signed grid"
             raise ValueError(
-                f"frequency dimension {ff.shape[0]} does not match omega length {len(omega)}"
+                message
             )
 
         # np.interp requires an ascending source grid; sort defensively and
@@ -322,7 +370,7 @@ class DLR(object):
         # not bypass it), for both statistics.  ``np.interp`` would otherwise
         # silently clamp out-of-range DLR nodes to the endpoint value.  The
         # tolerance absorbs the bosonic outermost-|nu| node, which floor/ceil
-        # rounding in MatsubaraBosonUniform can leave marginally outside the
+        # rounding in MatsubaraBosonUniformFull can leave marginally outside the
         # source range; that single node is then clamped (decaying boundary).
         x_target = np.asarray(omega_dlr, dtype=np.float64)
         scale = max(abs(float(x_target[0])), abs(float(x_target[-1])), 1.0)

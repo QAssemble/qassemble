@@ -38,21 +38,29 @@ class BLocDyn(object):
             raise KeyError(f"Projector equivalence matrix is missing key '{pkey}'")
         return pkey
 
-    def BosonUniform2DLR(self, mat : np.ndarray, omega : np.ndarray = None) -> np.ndarray:
+    def BosonUniform2DLR(self, mat : np.ndarray, omega : np.ndarray = None, hermitian: bool = False) -> np.ndarray:
         mat = np.asarray(mat, dtype=np.complex128)
         nfreq = mat.shape[-1]
         if omega is None:
             omega = 2.0 * np.pi / self.dlr.beta * np.arange(nfreq, dtype=np.float64)
         else:
             omega = np.asarray(omega, dtype=np.float64)
+        if omega.ndim != 1:
+            raise ValueError(f"omega must be a 1D Matsubara grid, got {omega.ndim}D")
+        if omega.size == 0:
+            raise ValueError("omega must be a non-empty 1D Matsubara grid")
         if omega.shape[0] != nfreq:
             raise ValueError(
                 f"frequency dimension {nfreq} does not match omega length {omega.shape[0]}"
             )
 
-        if omega[0] >= 0.0:
+        if omega.ndim == 1 and omega.size > 0 and np.all(omega >= 0.0):
             istart = 1 if np.isclose(omega[0], 0.0) else 0
-            mat = np.concatenate((np.conjugate(mat[..., istart:][..., ::-1]), mat), axis=-1)
+            if hermitian:
+                neg = np.swapaxes(np.conjugate(mat[..., istart:][..., ::-1]), 0, 1)
+            else:
+                neg = np.conjugate(mat[..., istart:][..., ::-1])
+            mat = np.concatenate((neg, mat), axis=-1)
             omega = np.concatenate((-omega[istart:][::-1], omega))
             nfreq = mat.shape[-1]
 
@@ -386,7 +394,7 @@ class BLocDyn(object):
 
         ``grid='dlr'``     -> ``self.dlr.nu`` (sparse DLR sampling grid).
         ``grid='uniform'`` -> ``self.dlr.MatsubaraBosonUniform()`` (uniform
-        positive-frequency grid covering the DLR range).
+        non-negative-frequency grid covering the DLR range).
 
         The returned array is what the input data's frequency dimension is
         validated against, so the two can never drift apart.
@@ -415,15 +423,13 @@ class BLocDyn(object):
 
         ``grid`` selects the Matsubara sampling grid the input data lives on:
         ``"dlr"`` (sparse DLR grid, default) or ``"uniform"`` (uniform
-        positive-frequency grid). The DLR pole basis is unchanged either way;
+        non-negative-frequency grid). The DLR pole basis is unchanged either way;
         uniform output is returned on the DLR grid.
 
-        The caller must pass the **dynamic** part only: a static (frequency-
-        independent) offset is not representable by the decaying pole basis, so
-        it must already be subtracted on all frequencies (e.g. the bosonic Weiss
-        field ``ubar_rf = utilde_rf - v_rf``).  A target that does not decay at
-        the largest ``|nu|`` nodes raises ``RuntimeError`` (the projector's
-        static guard, controlled by ``tail_tol``).
+        A frequency-independent ``c0`` is estimated from the input tail, removed
+        before the decaying pole projection, and re-added to the returned
+        channel.  If ``target - c0`` does not decay at the largest ``|nu|``
+        nodes, ``RuntimeError`` is raised (``tail_tol`` controls this guard).
 
         Only the diagonal blocks ``[iorb, iorb, is_, is_, :]`` are projected;
         all other entries are copied unchanged.
@@ -452,18 +458,15 @@ class BLocDyn(object):
         if not np.all(np.isfinite(np.real(arr))) or not np.all(np.isfinite(np.imag(arr))):
             raise ValueError("matin contains non-finite values")
 
-        # For uniform input, estimate each channel's tail on the native uniform
-        # grid (many high-frequency points -> stable), then interpolate the data
-        # onto the DLR basis and project there.  The projection grid is always
-        # the DLR grid; uniform output is returned on the DLR grid.
+        # Estimate physical moments on the input grid before any interpolation,
+        # then pass [high, moment...] explicitly to the projector.
+        moment, high = self.Moment(arr, grid=grid)
+
+        # For uniform input, interpolate the data onto the DLR basis.  The
+        # projection grid is always the DLR grid; uniform output is returned on
+        # the DLR grid.
         if grid == "uniform":
-            tail = np.zeros((norb, ns, 4), dtype=np.float64)
-            for is_ in range(ns):
-                for iorb in range(norb):
-                    tail[iorb, is_, :] = Fourier.BosonTailCoefficients(
-                        nu, arr[iorb, iorb, is_, is_, :]
-                    )
-            arr = self.dlr.MatsubaraUniformGrid2DLR(arr, sign=1)
+            arr = self.dlr.MatsubaraUniformGrid2DLR(arr, omega=nu, sign=1)
 
         proj_nu = np.asarray(self.dlr.nu, dtype=np.float64)
         projector = CausalProjector(
@@ -483,13 +486,79 @@ class BLocDyn(object):
         out = np.array(arr, dtype=np.complex128, copy=True, order='F')
         for is_ in range(ns):
             for iorb in range(norb):
-                tail_coeffs = tail[iorb, is_, :] if grid == "uniform" else None
+                tail_coeffs = np.empty(4, dtype=float)
+                tail_coeffs[0] = float(np.real(high[iorb, iorb, is_, is_]))
+                tail_coeffs[1:] = np.real(moment[iorb, iorb, is_, is_, :])
                 out[iorb, iorb, is_, is_, :] = projector.project(
                     arr[iorb, iorb, is_, is_, :],
                     tail_coeffs=tail_coeffs,
                 )
 
         return np.asfortranarray(out)
+
+    def Moment(
+        self,
+        bf: np.ndarray,
+        oddzero: bool = False,
+        highzero: bool = False,
+        tail_points: int = 5,
+        grid: str = "dlr",
+    ) -> tuple:
+        """Physical high-frequency moments of a local bosonic function.
+
+        ``grid`` selects the sampling grid of ``bf``.  Returns
+        ``moment[..., :] = [c1, c2, c3]`` and ``high = c0`` in physical sign.
+        ``oddzero``/``highzero`` are accepted for compatibility but do not alter
+        the robust tail fit.
+        """
+        arr = np.asarray(bf, dtype=np.complex128)
+        if arr.ndim != 5:
+            raise ValueError(f"bf must be 5D (norb,norb,ns,ns,nfreq), got {arr.ndim}D")
+        nu = self._ResolveCausalGrid(grid)
+        if arr.shape[4] != nu.size:
+            raise ValueError(
+                f"frequency dimension {arr.shape[4]} does not match {grid} nu size {nu.size}"
+            )
+        if arr.shape[4] < tail_points:
+            raise ValueError(
+                f"Need at least {tail_points} frequency points to build "
+                "high-frequency moments."
+            )
+
+        norb = arr.shape[0]
+        ns = arr.shape[2]
+        moment = np.zeros((norb, norb, ns, ns, 3), dtype=np.complex128, order="F")
+        high = np.zeros((norb, norb, ns, ns), dtype=np.complex128, order="F")
+        idx = np.argsort(np.abs(nu))[-tail_points:]
+        z = 1j * nu[idx]
+        design = np.column_stack(
+            [np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3]
+        )
+        for is_ in range(ns):
+            for js in range(ns):
+                for jorb in range(norb):
+                    for iorb in range(norb):
+                        if iorb == jorb and is_ == js:
+                            tail = Fourier.BosonTailCoefficients(
+                                nu, arr[iorb, jorb, is_, js, :], tail_points
+                            ).astype(np.complex128)
+                        else:
+                            tail, *_ = np.linalg.lstsq(
+                                design, arr[iorb, jorb, is_, js, idx], rcond=None
+                            )
+                        high[iorb, jorb, is_, js] = tail[0]
+                        moment[iorb, jorb, is_, js, :] = tail[1:]
+        high_orig = high.copy()
+        high[...] = 0.5 * (
+            high_orig + np.swapaxes(np.swapaxes(high_orig, 0, 1), 2, 3).conj()
+        )
+        for imom in range(3):
+            mom_orig = moment[..., imom].copy()
+            moment[..., imom] = 0.5 * (
+                mom_orig + np.swapaxes(np.swapaxes(mom_orig, 0, 1), 2, 3).conj()
+            )
+
+        return moment, high
 
 class Chi(BLocDyn):
 

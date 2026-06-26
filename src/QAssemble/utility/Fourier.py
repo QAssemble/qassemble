@@ -25,7 +25,7 @@ class Fourier:
         target: np.ndarray,
         tail_points: int = 5,
     ) -> np.ndarray:
-        """Robust fermionic high-frequency tail ``[c0, c1, c2, c3]`` (moment sign).
+        """Robust fermionic high-frequency tail ``[c0, c1, c2, c3]``.
 
         Fits ``G(iw) ~ c0 + c1/(iw) + c2/(iw)^2 + c3/(iw)^3`` for a single
         scalar channel by a real (real/imag-stacked) least squares over the
@@ -33,13 +33,9 @@ class Fourier:
         over-determined replacement for the former two-point ``FLocDynM``
         formula and is stable against high-frequency noise.
 
-        The returned ``c1, c2, c3`` are in the *moment* convention used by the
-        DLR causal projector (``moment_rows @ coeff``): pydlr's
-        ``eval_dlr_freq`` carries a hidden ``.conj()``, so the kernel-produced
-        moment is the negative of the physically-fit ``c_{p+1}``; this helper
-        negates them accordingly.  ``c0`` is a genuine ``(iw)^0`` constant and
-        keeps its physical sign.  Callers that want physical-sign moments
-        (e.g. ``FLatDyn.Moment``) must flip ``c1, c2, c3`` back.
+        The returned coefficients use the physical high-frequency expansion
+        sign directly.  The causal projector owns any internal sign conversion
+        needed to match its pole-moment convention.
 
         Parameters
         ----------
@@ -53,7 +49,7 @@ class Fourier:
         Returns
         -------
         ndarray[4], dtype=float
-            ``[c0, c1, c2, c3]`` in the moment convention described above.
+            ``[c0, c1, c2, c3]`` in physical high-frequency expansion sign.
         """
         omega = np.asarray(omega, dtype=np.float64)
         target = np.asarray(target, dtype=np.complex128)
@@ -74,7 +70,6 @@ class Fourier:
         c = np.asarray(c, dtype=float)
         if not np.all(np.isfinite(c)):
             raise ValueError("tail coefficient fit produced non-finite values")
-        c[1:] = -c[1:]
         return c
 
     @staticmethod
@@ -83,7 +78,7 @@ class Fourier:
         target: np.ndarray,
         tail_points: int = 5,
     ) -> np.ndarray:
-        """Robust bosonic high-frequency tail ``[c0, c1, c2, c3]`` (moment sign).
+        """Robust bosonic high-frequency tail ``[c0, c1, c2, c3]``.
 
         Fits ``chi(inu) ~ c0 + c1/(inu) + c2/(inu)^2 + c3/(inu)^3`` for a single
         scalar bosonic channel by a real (real/imag-stacked) least squares over
@@ -91,17 +86,10 @@ class Fourier:
         counterpart of :meth:`FermionTailCoefficients`: same robust,
         over-determined fit, applied on the bosonic Matsubara grid.
 
-        The returned ``c1, c2, c3`` are in the *moment* convention used by the
-        DLR causal projector.  The bosonic DLR kernel is
-        ``K_B(inu, omega_l) = tanh(beta*omega_l/2) / (omega_l - inu)``, whose
-        large-``|nu|`` expansion gives the data tail
-        ``c_p = - sum_l tanh(x_l/2) * omega_l^(p-1) * g_l`` with
-        ``x_l = beta*omega_l``.  That extra minus sign (the same pydlr
-        hidden-``.conj()`` effect handled for fermions) is baked in here by
-        negating ``c1, c2, c3`` so they match ``moment_rows @ coeff``.  ``c0`` is
-        a genuine ``(inu)^0`` constant and keeps its physical sign; for a
-        legitimate (dynamic) bosonic input ``c0 ~ 0`` (the projector's static
-        guard rejects non-decaying targets).
+        The returned coefficients use the physical high-frequency expansion
+        sign directly.  The causal projector owns any internal sign conversion
+        needed to match its pole-moment convention.  ``c0`` is a genuine
+        ``(inu)^0`` constant and keeps its physical sign.
 
         Parameters
         ----------
@@ -116,7 +104,7 @@ class Fourier:
         Returns
         -------
         ndarray[4], dtype=float
-            ``[c0, c1, c2, c3]`` in the moment convention described above.
+            ``[c0, c1, c2, c3]`` in physical high-frequency expansion sign.
         """
         nu = np.asarray(nu, dtype=np.float64)
         target = np.asarray(target, dtype=np.complex128)
@@ -137,7 +125,6 @@ class Fourier:
         c = np.asarray(c, dtype=float)
         if not np.all(np.isfinite(c)):
             raise ValueError("tail coefficient fit produced non-finite values")
-        c[1:] = -c[1:]
         return c
 
     @staticmethod
