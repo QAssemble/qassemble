@@ -1260,11 +1260,7 @@ class SigGWC(FLatDyn):
 
                 G_block = G_flat[np.ix_(oa, ob)]  # (na, nb, S)
 
-                # out[k,p,S] = sum_{a,b} Wc[a,b,S] * (sum_{i:bb_a[k,i]=a} G[i,:,S])
-                #                                     * (sum_{j:bb_b[j,p]=b} delta)
-                # Precompute indicator matrices (small, orbital-sized):
-                #   Ma[a, k, i] = delta(bb_a[k,i], a)
-                #   Mb[b, j, p] = delta(bb_b[j,p], b)
+                
                 # Only allocate for boson indices that actually appear.
 
                 unique_a = np.unique(bb_a)
@@ -1305,43 +1301,6 @@ class SigGWC(FLatDyn):
 
         return None
     
-    def SigmaStc(self):
-
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nk = len(self.crystal.kpoint)
-        nfreq = len(self.dlr.omega)#self.ft.size
-
-        sigma0 = self.kf[..., 0]
-        sigma0_dag = np.transpose(np.conjugate(sigma0), (1, 0, 2, 3))
-        sigmastc = 0.5 * (sigma0 + sigma0_dag)
-
-        self.stck = np.asfortranarray(sigmastc, dtype=np.complex128)
-        # self.Save('sigmastc',obj=sigmastc)
-
-        return None
-    
-    def Zfactor(self):
-
-        norb = len(self.crystal.find)
-        ns = self.crystal.ns
-        nk = len(self.crystal.kpoint)
-        nfreq = len(self.dlr.omega)#self.ft.size
-        beta = self.dlr.beta
-
-        sigma0 = self.kf[..., 0]
-        sigma0_dag = np.transpose(np.conjugate(sigma0), (1, 0, 2, 3))
-        iw = 1j * beta / (2.0 * np.pi)
-        tempmat = np.asfortranarray(iw * (sigma0 - sigma0_dag), dtype=np.complex128)
-
-        diag_idx = np.arange(norb)
-        tempmat[diag_idx, diag_idx, :, :] += 1.0
-
-        z = self.flatstc.Inverse(tempmat)
-
-        self.z = z
-        # self.Save('zfactor',obj=z)
-        return None
     
     def Save(self, fn: str, obj : np.ndarray = None):
 

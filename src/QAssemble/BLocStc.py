@@ -325,13 +325,27 @@ class VLoc(BLocStc):
         ns = self.crystal.ns
         self.onsitelist = None
         self.vloc = np.zeros((norb,norb,ns,ns),dtype=float,order='F')
+        self.vproj = {}
         if voption is None:
             logger.error("voption does not exist")
             sys.exit()
 
         self.parameter = {}
         self.SetLocalInteracting(voption)
+        if self.projector is not None:
+            self.BuildProjection()
         # self.GenOnsite()
+
+    def BuildProjection(self, projector : Projector = None) -> dict:
+
+        if projector is not None:
+            self.projector = projector
+
+        self.vproj = {}
+        for key in self.projector.bprojector.keys():
+            self.vproj[key] = self.Projection(self.vloc, key)
+
+        return self.vproj
 
     def _format_slater_values(self, l: int, value: list) -> dict:
         labels = ("F0", "F2", "F4", "F6")

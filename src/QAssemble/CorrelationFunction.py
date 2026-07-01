@@ -19,7 +19,7 @@ from .BLocDyn import *
 from .BLocStc import *
 from .Projector import Projector
 from .CTQMC import CTQMC
-from .Method import GW
+from .Method import HF, GW
 
 logger = logging.getLogger("QAssemble")
 
@@ -234,7 +234,7 @@ class CorrelationFunction(object):
                 self.conv.seed_prev("F", gold.kf, kind="array")
                 self.conv.seed_prev("mu", float(gold.mu), kind="scalar")
                 logger.info(f"Initial chemical potential : {gold.mu}")
-                iter_timing["GreenInt_init"] = time.perf_counter() - t0
+                iter_timing["G_init"] = time.perf_counter() - t0
                 gold.Save(f'gkf_ini')
                 # gbare.Save('gbare')
 
@@ -250,21 +250,21 @@ class CorrelationFunction(object):
             # if (iter % 50 == 0)or(iter == 1):
             sigmaf.Save(f'sigmaf.{iter}')
             # print("Fock calculation finish")
-            # print("Polarizability calculation start")
+            # print("P calculation start")
             t0 = time.perf_counter()
             pol = P(crystal=self.crystal,dlr=self.dlr,green=gold.rt,hdf5file=hdf5file,group=group)
-            iter_timing["Polarizability"] = time.perf_counter() - t0
+            iter_timing["P"] = time.perf_counter() - t0
             if iter == 1:
                 pkfold = np.zeros_like(pol.kf)
             pol.kf = pol_mixer(iter=iter, mix=mix, Fnew=pol.kf, Fold=pkfold)
             pol.Save(f'pkf.{iter}')
-            # print("Polarizability calculation finish")
+            # print("P calculation finish")
             # print("Screened coulomb interaction calculation start")
             t0 = time.perf_counter()
             w = W(crystal=self.crystal,dlr=self.dlr,pol=pol.kf,vbare=vbare,c=self.c,hdf5file=hdf5file,group=group)
             if iter == 1:
                 self.conv.seed_prev("B", np.zeros_like(w.kf), kind="array")
-            iter_timing["WLat"] = time.perf_counter() - t0
+            iter_timing["W"] = time.perf_counter() - t0
             # if (iter % 50 == 0)or(iter == 1):
             w.Save(f'wkf.{iter}')
             # w.Save(w.ckf,f'wckf.{iter}')
@@ -272,7 +272,7 @@ class CorrelationFunction(object):
             # print("GW self-energy calculation start")
             t0 = time.perf_counter()
             sigmagwc = SigGWC(crystal=self.crystal,dlr=self.dlr,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group)
-            iter_timing["SigmaGW"] = time.perf_counter() - t0
+            iter_timing["SigGWC"] = time.perf_counter() - t0
             if iter == 1:
                 ckfold = np.zeros_like(sigmagwc.kf)
             sigmagwc.kf = sig_mixer(iter=iter, mix=mix, Fnew=sigmagwc.kf, Fold=ckfold)
@@ -282,19 +282,19 @@ class CorrelationFunction(object):
             t0 = time.perf_counter()
 
             gnew = G(crystal=self.crystal,dlr=self.dlr,greenbare=gbare.kf,sigmah=sigmah.k,sigmaf=sigmaf.k,sigmagwc=sigmagwc.kf,hdf5file=hdf5file,group=group)
-            iter_timing["GreenInt"] = time.perf_counter() - t0
+            iter_timing["G"] = time.perf_counter() - t0
             # if (iter % 50 == 0)or(iter == 1):
             gnew.Save(f'gkf.{iter}')
             # print("GW green's function calculation start")
             self.gw_object_times.append(iter_timing)
             init_msg = ""
-            if "GreenInt_init" in iter_timing:
-                init_msg = f", GreenInt_init: {iter_timing['GreenInt_init']:.4f}s"
+            if "G_init" in iter_timing:
+                init_msg = f", G_init: {iter_timing['G_init']:.4f}s"
             logger.info(
-                f"[GW timing][iter {iter}] GreenInt: {iter_timing['GreenInt']:.4f}s, "
-                f"Polarizability: {iter_timing['Polarizability']:.4f}s, "
-                f"WLat: {iter_timing['WLat']:.4f}s, "
-                f"SigmaGW: {iter_timing['SigmaGW']:.4f}s{init_msg}"
+                f"[GW timing][iter {iter}] G: {iter_timing['G']:.4f}s, "
+                f"P: {iter_timing['P']:.4f}s, "
+                f"W: {iter_timing['W']:.4f}s, "
+                f"SigGWC: {iter_timing['SigGWC']:.4f}s{init_msg}"
             )
             self.conv.StartIter(iter, ready_after=pol_mixer.npulay)
             self.conv.CheckSelf("F", value=gnew.kf, kind="array")
@@ -386,11 +386,10 @@ class CorrelationFunction(object):
             if iter == 1:
                 t0 = time.perf_counter()
                 gold = G(crystal=self.crystal, dlr=self.dlr, greenbare=gbare.kf, hdf5file=hdf5file, group=group)
-                gold.subgroup = "GreenInt"
                 self.conv.seed_prev("F", gold.kf, kind="array")
                 self.conv.seed_prev("mu", float(gold.mu), kind="scalar")
                 logger.info(f"Initial chemical potential : {gold.mu}")
-                iter_timing["GreenInt_init"] = time.perf_counter() - t0
+                iter_timing["G_init"] = time.perf_counter() - t0
                 gold.Save(f'gkf_ini')
 
                 nfreq = len(self.dlr.nu)
@@ -398,19 +397,24 @@ class CorrelationFunction(object):
                 t0 = time.perf_counter()
                 w_prev = W(crystal=self.crystal, dlr=self.dlr, pol=zero_pol, vbare=vbare, c=self.c, hdf5file=hdf5file, group=group)
                 self.conv.seed_prev("B", np.zeros_like(w_prev.kf), kind="array")
-                iter_timing["WLat_init"] = time.perf_counter() - t0
+                iter_timing["W_init"] = time.perf_counter() - t0
                 w_prev.Save(f'wkf_ini')
 
             logger.info("Density Matrix :")
             logger.debug(gold.occ)
 
             t0 = time.perf_counter()
-            gw_method = GW(Ginit=gold, W=w_prev, hdf5file=hdf5file, group=group, iteration=iter)
-            sigmah, sigmaf, sigmagwc, pol = gw_method()
-            iter_timing["GWMethod"] = time.perf_counter() - t0
+            hf_method = HF(occ=gold.occ, occr=gold.occr, v=vbare, hdf5file=hdf5file, group=group, iteration=iter)
+            sigh, sigf = hf_method()
+            iter_timing["HF"] = time.perf_counter() - t0
 
-            sigmah.Save(f'sigmah.{iter}')
-            sigmaf.Save(f'sigmaf.{iter}')
+            t0 = time.perf_counter()
+            gw_method = GW(g=gold, w=w_prev, hdf5file=hdf5file, group=group, iteration=iter)
+            siggwc, pol = gw_method()
+            iter_timing["GW"] = time.perf_counter() - t0
+
+            sigh.Save(f'sigh.{iter}')
+            sigf.Save(f'sigf.{iter}')
 
             if iter == 1:
                 pkfold = np.zeros_like(pol.kf)
@@ -419,30 +423,30 @@ class CorrelationFunction(object):
 
             t0 = time.perf_counter()
             w = W(crystal=self.crystal, dlr=self.dlr, pol=pol.kf, vbare=vbare, c=self.c, hdf5file=hdf5file, group=group)
-            iter_timing["WLat"] = time.perf_counter() - t0
+            iter_timing["W"] = time.perf_counter() - t0
             w.Save(f'wkf.{iter}')
 
             if iter == 1:
-                ckfold = np.zeros_like(sigmagwc.kf)
-            sigmagwc.kf = sig_mixer(iter=iter, mix=mix, Fnew=sigmagwc.kf, Fold=ckfold)
-            sigmagwc.Save(f'sigmagwckf.{iter}')
+                ckfold = np.zeros_like(siggwc.kf)
+            siggwc.kf = sig_mixer(iter=iter, mix=mix, Fnew=siggwc.kf, Fold=ckfold)
+            siggwc.Save(f'siggwckf.{iter}')
 
             t0 = time.perf_counter()
-            gnew = G(crystal=self.crystal, dlr=self.dlr, greenbare=gbare.kf, sigmah=sigmah.k, sigmaf=sigmaf.k, sigmagwc=sigmagwc.kf, hdf5file=hdf5file, group=group)
-            gnew.subgroup = "GreenInt"
-            iter_timing["GreenInt"] = time.perf_counter() - t0
+            gnew = G(self.crystal, self.dlr, gbare.kf, sigh.k, sigf.k, siggwc.kf, hdf5file=hdf5file, group=group)
+            iter_timing["G"] = time.perf_counter() - t0
             gnew.Save(f'gkf.{iter}')
 
             self.gw_object_times.append(iter_timing)
             init_msg = ""
-            if "GreenInt_init" in iter_timing:
-                init_msg += f", GreenInt_init: {iter_timing['GreenInt_init']:.4f}s"
-            if "WLat_init" in iter_timing:
-                init_msg += f", WLat_init: {iter_timing['WLat_init']:.4f}s"
+            if "G_init" in iter_timing:
+                init_msg += f", G_init: {iter_timing['G_init']:.4f}s"
+            if "W_init" in iter_timing:
+                init_msg += f", W_init: {iter_timing['W_init']:.4f}s"
             logger.info(
-                f"[GW modular timing][iter {iter}] GreenInt: {iter_timing['GreenInt']:.4f}s, "
-                f"GWMethod: {iter_timing['GWMethod']:.4f}s, "
-                f"WLat: {iter_timing['WLat']:.4f}s{init_msg}"
+                f"[GW modular timing][iter {iter}] G: {iter_timing['G']:.4f}s, "
+                f"HF: {iter_timing['HF']:.4f}s, "
+                f"GW: {iter_timing['GW']:.4f}s, "
+                f"W: {iter_timing['W']:.4f}s{init_msg}"
             )
 
             self.conv.StartIter(iter, ready_after=pol_mixer.npulay)
@@ -461,16 +465,16 @@ class CorrelationFunction(object):
                 self.green = gnew
                 self.pol = pol
                 self.w = w
-                self.sigmagwc = sigmagwc
-                self.sigmaf = sigmaf
-                self.sigmah = sigmah
+                self.siggwc = siggwc
+                self.sigf = sigf
+                self.sigh = sigh
                 gnew.Save('gkf', chem=True)
-                sigmah.Save('sigmah')
-                sigmaf.Save('sigmaf')
-                sigmagwc.Save('sigmagwckf')
+                sigh.Save('sigh')
+                sigf.Save('sigf')
+                siggwc.Save('siggwckf')
                 pol.Save('pkf')
                 w.Save('wkf')
-                del niham, vbare, gbare, gnew, gold, sigmaf, sigmah, sigmagwc, pol, w, w_prev
+                del niham, vbare, gbare, gnew, gold, sigf, sigh, siggwc, pol, w, w_prev
                 gc.collect()
                 break
             elif iter == itermax:
@@ -478,24 +482,24 @@ class CorrelationFunction(object):
                 self.green = gnew
                 self.pol = pol
                 self.w = w
-                self.sigmagwc = sigmagwc
-                self.sigmaf = sigmaf
-                self.sigmah = sigmah
+                self.siggwc = siggwc
+                self.sigf = sigf
+                self.sigh = sigh
                 gnew.Save('gkf', chem=True)
-                sigmah.Save('sigmah')
-                sigmaf.Save('sigmaf')
-                sigmagwc.Save('sigmagwckf')
+                sigh.Save('sigh')
+                sigf.Save('sigf')
+                siggwc.Save('siggwckf')
                 pol.Save('pkf')
                 w.Save('wkf')
-                del niham, vbare, gbare, gnew, gold, sigmaf, sigmah, sigmagwc, pol, w, w_prev
+                del niham, vbare, gbare, gnew, gold, sigf, sigh, siggwc, pol, w, w_prev
                 gc.collect()
             else:
                 gold = gnew
                 w_prev = w
-                ckfold = sigmagwc.kf
+                ckfold = siggwc.kf
                 pkfold = pol.kf
 
-                del sigmah, sigmaf, sigmagwc, pol
+                del gnew, sigh, sigf, siggwc, pol, w
                 gc.collect()
 
     def ImpurityAction(self):

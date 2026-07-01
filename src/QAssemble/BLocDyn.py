@@ -1,12 +1,6 @@
 import numpy as np
-import logging
-import sys
 import json
-import scipy.optimize
-import scipy.linalg.lapack
-import copy
 import h5py
-import time, datetime
 from .Crystal import Crystal
 from .BLocStc import VLoc
 from .Projector import Projector
@@ -78,14 +72,14 @@ class BLocDyn(object):
 
         if key is None and hasattr(self, "key"):
             key = self.key
-        if key is None or not hasattr(self, "ubar_rf") or self.ubar_rf is None:
+        if key is None or not hasattr(self, "cf") or self.cf is None:
             return {"1": np.zeros(len(self.dlr.nu), dtype=float).tolist()}
 
         pkey = self.ResolveProblemKey(key)
         if hasattr(self, "key") and self.key != pkey:
             raise ValueError(f"object key '{self.key}' does not match requested key '{pkey}'")
 
-        dyn = np.asarray(self.ubar_rf, dtype=np.complex128)
+        dyn = np.asarray(self.cf, dtype=np.complex128)
 
         return {"1": self._dynamic_average(pkey, dyn).real.tolist()}
 
@@ -163,6 +157,35 @@ class BLocDyn(object):
         bf = np.asfortranarray(bf)
 
         return bf
+
+    def T2mT(self, ftau : np.ndarray) -> np.ndarray:
+
+        norb = ftau.shape[0]
+        ns = ftau.shape[2]
+        ntau = ftau.shape[3]
+
+        fout = np.zeros((norb, norb, ns, ntau), dtype=np.complex128, order='F')
+
+        for js in range(ns):
+            for jorb in range(norb):
+                for iorb in range(norb):
+                    fout[iorb, jorb, js] = self.dlr.T2mT(ftau[iorb, jorb, js])
+
+        return fout
+    
+    def TauF2TauB(self, ftau : np.ndarray) -> np.ndarray:
+
+        norb = ftau.shape[0]
+        ns = ftau.shape[2]
+        ntau = len(self.dlr.tauB)
+        fout = np.zeros((norb, norb, ns, ntau), dtype=np.complex128, order='F')
+
+        for js in range(ns):
+            for jorb in range(norb):
+                for iorb in range(norb):
+                    fout[iorb, jorb, js] = self.dlr.TauF2TauB(ftau[iorb, jorb, js])
+
+        return fout
 
     def GaussianLinearBroad(self,x, y, w1, temperature, cutoff):
 
@@ -856,22 +879,16 @@ class BWeiss(BLocDyn):
             self.vloc.projector = projector
         self.ploc = ploc
         self.wloc = wloc
-        self.v = None
-        self.v_rf = None
-        self.utilde_t = None
-        self.utilde_rf = None
-        self.ubar_t = None
-        self.ubar_rf = None
+        self.f = None
+        self.t = None
+        self.cf = None
+        self.ct = None
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
 
-        if not hasattr(self.vloc, "vloc") or self.vloc.vloc is None:
-            raise TypeError("BWeiss requires vloc to be a VLoc object with vloc data")
-
-        self.v = self.vloc.Projection(self.vloc.vloc, self.key)
-        if (self.wloc is None) != (self.ploc is None):
-            raise ValueError("BWeiss requires both wloc and ploc, or neither")
+        if self.key not in self.vloc.vproj:
+            self.vloc.BuildProjection(self.projector)
         if self.wloc is not None and self.ploc is not None:
             self.Cal()
 
@@ -906,21 +923,27 @@ class BWeiss(BLocDyn):
         if self.wloc is None or self.ploc is None:
             raise ValueError("BWeiss.Cal requires both wloc and ploc")
 
-        self.v_rf = self._static_to_dynamic(self.v)
-        w = self.Projection(self.wloc.f, self.key)
-        p = self.Projection(self.ploc.f, self.key)
-        self.utilde_rf = self.Dyson(w, -p)
+        w = np.asarray(self.wloc.f, dtype=np.complex128)
+        p = np.asarray(self.ploc.f, dtype=np.complex128)
+        self.f = self.Dyson(w, -p)
 
-        self.ubar_rf = self.utilde_rf - self.v_rf
-
-        if self.utilde_rf.shape[4] != nfreq:
+        if self.f.shape[4] != nfreq:
             raise ValueError(
                 f"BWeiss frequency mismatch for key '{self.key}': "
-                f"{self.utilde_rf.shape[4]} != {nfreq}"
+                f"{self.f.shape[4]} != {nfreq}"
             )
 
-        self.utilde_t = self.F2T(self.utilde_rf)
-        self.ubar_t = self.F2T(self.ubar_rf)
+        v = np.asarray(self.vloc.vproj[self.key], dtype=np.complex128)
+        if v.shape != self.f.shape[:4]:
+            raise ValueError(
+                f"BWeiss static interaction shape mismatch for key '{self.key}': "
+                f"{v.shape} != {self.f.shape[:4]}"
+            )
+        vdyn = np.broadcast_to(v[..., np.newaxis], self.f.shape)
+        self.cf = self.f - vdyn
+
+        self.t = self.F2T(self.f)
+        self.ct = self.F2T(self.cf)
 
         return None
 
@@ -931,17 +954,96 @@ class BWeiss(BLocDyn):
             if obj is not None:
                 Common.HDF5CreateDataset(bweiss, fn, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(bweiss, fn, self.v, dtype=complex)
+                Common.HDF5CreateDataset(bweiss, fn, self.vloc.vproj[self.key], dtype=complex)
 
         return None
-# class PolLoc(BLocDyn):
 
-#     def __init__(self, crystal: Crystal, ft: FTGrid, green, pol : object):
-#         super().__init__(crystal, ft)
-#         self.Cal()
+class PLoc(BLocDyn):
 
-#     def Cal(self):
-#         pass
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, gloc : np.ndarray = None, hdf5file : str = None, group : str = None):
+
+        super().__init__(crystal, dlr, projector)
+
+        self.key = self.ResolveProblemKey(key)
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+
+        ns = self.crystal.ns
+        nborb = self.projector.bprojector[self.key].shape[1]
+        nfreq = len(self.dlr.nu)
+        ntau = len(self.dlr.tauB)
+
+        self.t = np.zeros((nborb, nborb, ns, ns, ntau), dtype=np.complex128, order='F')
+        self.f = np.zeros((nborb, nborb, ns, ns, nfreq), dtype=np.complex128, order='F')
+
+        if gloc is None:
+            raise ValueError("Error, There is no local Green's function.")
+        self.gloc = gloc
+        
+        self.Cal()
+        self.f = self.T2F(self.t)
+
+    def Cal(self):
+
+        ns = self.crystal.ns
+        ntau = len(self.dlr.tauB)
+
+        grt = np.asarray(self.gloc, dtype=np.complex128)
+
+        grt = self.TauF2TauB(grt)
+
+        nborb = self.projector.bprojector[self.key].shape[1]
+        pol_tau = np.zeros((nborb, nborb, ns, ns, ntau), dtype=np.complex128, order='F')
+
+        gmrt = self.T2mT(grt)
+
+        if ns == 2:
+            map0 = np.array([self.projector.ProbBorb2FPair(self.key, iorb)[0] for iorb in range(nborb)])
+            map1 = np.array([self.projector.ProbBorb2FPair(self.key, iorb)[1] for iorb in range(nborb)])
+            
+            term1_tensor = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], :, :]
+            term2_tensor = grt[map1[:, np.newaxis], map0[np.newaxis, :], :, :]
+            diagonal_product = term1_tensor * term2_tensor
+            s_indices = np.arange(ns)
+
+            pol_tau[:, :, s_indices, s_indices, :] = diagonal_product
+
+        else:
+            if self.crystal.soc == True:
+                C = 1
+                map0 = np.array([self.projector.ProbBorb2FPair(self.key, iorb)[0] for iorb in range(nborb)])
+                map1 = np.array([self.projector.ProbBorb2FPair(self.key, iorb)[1] for iorb in range(nborb)])
+
+                term1_slice = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], 0, :]
+                term2_slice = grt[map1[:, np.newaxis], map0[np.newaxis, :], 0, :]
+                result_slice = term1_slice * term2_slice * C
+                pol_tau[:, :, 0, 0, :] = result_slice
+
+            else:
+                C = 2
+                map0 = np.array([self.projector.ProbBorb2FPair(self.key, iorb)[0] for iorb in range(nborb)])
+                map1 = np.array([self.projector.ProbBorb2FPair(self.key, iorb)[1] for iorb in range(nborb)])
+
+                term1_slice = gmrt[map1[np.newaxis, :], map0[:, np.newaxis], 0, :]
+                term2_slice = grt[map1[:, np.newaxis], map0[np.newaxis, :], 0, :]
+                result_slice = term1_slice * term2_slice * C
+                pol_tau[:, :, 0, 0, :] = result_slice
+
+        self.t = np.asfortranarray(pol_tau)
+
+        return None
+
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            ploc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(ploc, fn, obj, dtype=complex)
+            else:
+                Common.HDF5CreateDataset(ploc, fn, self.f, dtype=complex)
+
+        return None
 
 # class PolImp(BLocDyn): # read Polarizability from CTQMC
 
@@ -950,12 +1052,66 @@ class BWeiss(BLocDyn):
 
 #         pass
 
-# class WLoc(BLocDyn):
+class WLoc(BLocDyn):
 
-#     def __init__(self, crystal: Crystal, ft: FTGrid, flocdyn: FLocDyn):
-#         super().__init__(crystal, ft, flocdyn)
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, pol : np.ndarray = None, vloc : np.ndarray = None, c : float = 1.0, hdf5file : str = None, group : str = None):
 
-#         pass
+        super().__init__(crystal, dlr, projector)
+
+        self.key = self.ResolveProblemKey(key)
+
+        ns = self.crystal.ns
+        nborb = self.projector.bprojector[self.key].shape[1]
+        nfreq = len(self.dlr.nu)
+        ntau = len(self.dlr.tauB)
+
+        # W quantity
+        self.t = np.zeros((nborb, nborb, ns, ns, ntau), dtype=np.complex128, order='F')
+        self.f = np.zeros((nborb, nborb, ns, ns, nfreq), dtype=np.complex128, order='F')
+
+        # Wc quantity
+        self.ct = np.zeros((nborb, nborb, ns, ns, ntau), dtype=np.complex128, order='F')
+        self.cf = np.zeros((nborb, nborb, ns, ns, nfreq), dtype=np.complex128, order='F')
+
+        self.c = c
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        if pol is None:
+            raise ValueError("Error, polarizability doesn't exist")
+        if vloc is None:
+            raise ValueError("Error, bare coulomb interaction doesn't exist")
+        self.pol = pol
+        self.vloc = vloc
+
+        self.Cal()
+
+    def Cal(self):  # calculate W and Wc
+
+        pol = np.asarray(self.pol, dtype=np.complex128)
+        vdyn = np.broadcast_to(
+            np.asarray(self.vloc, dtype=np.complex128)[..., np.newaxis],
+            pol.shape,
+        )
+
+        self.f = self.Dyson(vdyn, pol * self.c)
+        self.cf = self.f - vdyn
+
+        self.t = self.F2T(self.f)
+        self.ct = self.F2T(self.cf)
+
+        return None
+
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            wloc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(wloc, fn, obj, dtype=complex)
+            else:
+                Common.HDF5CreateDataset(wloc, fn, self.f, dtype=complex)
+
+        return None
 
 # class WImp(BLocDyn):
 

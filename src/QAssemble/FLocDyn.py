@@ -80,6 +80,28 @@ class FLocDyn(object):
 
         return ff
 
+    def TauB2TauF(self, btau : np.ndarray) -> np.ndarray:
+
+        nborb = btau.shape[0]
+        ns = btau.shape[2]
+        ntau = btau.shape[4]
+
+        btau_t = np.moveaxis(btau, -1, 0)
+        batch = nborb * nborb * ns * ns
+        btau_2d = np.ascontiguousarray(btau_t).reshape(ntau, batch)
+
+        bxx = self.dlr.dB.dlr_from_tau(btau_2d)
+        btauf_2d = self.dlr.dB.eval_dlr_tau(
+            bxx[:, :, None], self.dlr.tauF, self.dlr.beta
+        )[:, :, 0]
+
+        ntauF = btauf_2d.shape[0]
+        btauf = btauf_2d.reshape(ntauF, nborb, nborb, ns, ns)
+        btauf = np.moveaxis(btauf, 0, -1)
+        btauf = np.asfortranarray(btauf)
+
+        return btauf
+
     def _ResolveCausalGrid(self, grid : str) -> np.ndarray:
         """Fermionic Matsubara sampling grid for a causal projection.
 
@@ -856,6 +878,76 @@ class GImp(FLocDyn):
             else:
                 Common.HDF5CreateDataset(gloc, fn, self.f, dtype=complex)
                 Common.HDF5CreateDataset(gloc, fn+'_uniform', self.f_uniform, dtype=complex)
+
+        return None
+
+
+class SigGWCLoc(FLocDyn):
+
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, green : np.ndarray = None, wloc : np.ndarray = None, hdf5file : str = None, group : str = None):
+
+        super().__init__(crystal, dlr, projector)
+
+        self.key = self.ResolveProblemKey(key)
+        self.green = green
+        self.wloc = wloc
+        self.f = None
+        self.t = None
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        self.Cal()
+
+    def Cal(self):
+
+        green = np.asarray(self.green, dtype=np.complex128)
+        Wc = self.TauB2TauF(np.asarray(self.wloc, dtype=np.complex128))
+
+        norb = green.shape[0]
+        ns = green.shape[2]
+        ntau = green.shape[3]
+
+        s_idx = np.arange(ns)
+        Wc_diag = Wc[:, :, s_idx, s_idx, :]
+        pair_map = np.zeros((norb, norb), dtype=int)
+        for iorb in range(norb):
+            for jorb in range(norb):
+                pair_map[iorb, jorb] = self.projector.ProbFPair2Borb(
+                    self.key, iorb, jorb
+                )
+
+        S = ns * ntau
+        Wc_flat = np.ascontiguousarray(Wc_diag).reshape(Wc_diag.shape[0], Wc_diag.shape[1], S)
+        green_flat = np.ascontiguousarray(green).reshape(norb, norb, S)
+        sigma_flat = np.zeros((norb, norb, S), dtype=np.complex128)
+
+        temp_by_pair = {}
+        unique_pairs = np.unique(pair_map)
+        for ib in unique_pairs:
+            mask = (pair_map == ib).astype(np.float64)
+            temp_by_pair[ib] = np.einsum('ki,ijS->kjS', mask, green_flat)
+
+        for ib in unique_pairs:
+            for jb in unique_pairs:
+                mask_b = (pair_map == jb).astype(np.float64)
+                contracted = np.einsum('kjS,jp->kpS', temp_by_pair[ib], mask_b)
+                sigma_flat -= Wc_flat[ib, jb][np.newaxis, np.newaxis, :] * contracted
+
+        sigma_tau = sigma_flat.reshape(norb, norb, ns, ntau)
+
+        self.t = np.asfortranarray(sigma_tau)
+        self.f = self.T2F(self.t)
+
+        return None
+
+    def Save(self, fn: str, obj : np.ndarray = None):
+
+        with h5py.File(self.hdf5file,'a') as file:
+            siggwc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            if obj is not None:
+                Common.HDF5CreateDataset(siggwc, fn, obj, dtype=complex)
+            else:
+                Common.HDF5CreateDataset(siggwc, fn, self.f, dtype=complex)
 
         return None
 

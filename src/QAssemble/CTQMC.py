@@ -76,7 +76,7 @@ class CTQMC(object):
         return labels
 
     def _use_dyn(self) -> bool:
-        return getattr(self.bweiss, "ubar_rf", None) is not None
+        return getattr(self.bweiss, "cf", None) is not None
 
     def PreProcessing(self, iter : int):
 
@@ -282,8 +282,8 @@ class CTQMC(object):
                 hdf5file=self.hdf5file,
                 group=self.group,
             )
-            static_interaction = self.bweiss.v
-            dynamic_interaction = self.bweiss.utilde_rf
+            static_interaction = self.bweiss.vloc.vproj[key]
+            dynamic_interaction = self.bweiss.f
 
             self.sighimp = SigHImp(
                 crystal=self.crystal,
