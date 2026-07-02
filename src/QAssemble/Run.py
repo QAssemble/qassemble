@@ -385,11 +385,11 @@ class Run:
             logger.info(f"Modular GW loop time = {delta}")
 
         if method == "dmft":
-            logger.info("GW calculation start")
+            logger.info("DMFT calculation start")
 
 
             start = time.time()
-            func.ImpurityAction()
+            func.DMFT()
             end = time.time()
             logger.info("DMFT calculation finish")
             delta = datetime.timedelta(seconds=(end - start))

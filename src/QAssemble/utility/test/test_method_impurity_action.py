@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import numpy as np
+
 from QAssemble import Method as method_mod
 
 
@@ -42,14 +44,14 @@ def _install_fake_ctqmc(monkeypatch, *, missing=(), include_bosons=False):
 
         def PostProcessing(self, iter):
             self.calls.append(("PostProcessing", iter))
-            self.gimp = _SavedObject(f="gimp-f")
-            self.sighimp = _SavedObject(h="sigh-h")
-            self.sigfimp = _SavedObject(s="sigf-s")
-            self.sigimp = _SavedObject(f="sigimp-f")
+            self.gimp = _SavedObject(f=np.asarray([10.0]))
+            self.sighimp = _SavedObject(h=np.asarray([1.0]))
+            self.sigfimp = _SavedObject(s=np.asarray([2.0]))
+            self.sigimp = _SavedObject(f=np.asarray([3.0]))
             self.diagnostics = {"sign": 1.0}
             if include_bosons:
-                self.chi = _SavedObject(f="chi-f")
-                self.pimp = _SavedObject(f="pimp-f")
+                self.chi = _SavedObject(f=np.asarray([4.0]))
+                self.pimp = _SavedObject(f=np.asarray([5.0]))
             for attr in missing:
                 setattr(self, attr, None)
 
@@ -57,15 +59,20 @@ def _install_fake_ctqmc(monkeypatch, *, missing=(), include_bosons=False):
     return FakeCTQMC
 
 
-def _weiss_pair():
-    fweiss = SimpleNamespace(dlr="dlr", key="imp0", hdf5file="calc.h5", group="impurity_solver")
+def _weiss_pair(tmp_path):
+    fweiss = SimpleNamespace(
+        dlr="dlr",
+        key="imp0",
+        hdf5file=str(tmp_path / "calc.h5"),
+        group="impurity_solver",
+    )
     bweiss = SimpleNamespace(key="imp0")
     return fweiss, bweiss
 
 
-def test_impurity_action_runs_ctqmc_and_returns_outputs(monkeypatch):
+def test_impurity_action_runs_ctqmc_and_returns_outputs(monkeypatch, tmp_path):
     fake_ctqmc = _install_fake_ctqmc(monkeypatch)
-    fweiss, bweiss = _weiss_pair()
+    fweiss, bweiss = _weiss_pair(tmp_path)
 
     result = method_mod.ImpurityAction(
         fweiss,
@@ -82,23 +89,23 @@ def test_impurity_action_runs_ctqmc_and_returns_outputs(monkeypatch):
     ]
     assert ctqmc.dlr == "dlr"
     assert ctqmc.key == "imp0"
-    assert ctqmc.hdf5file == "calc.h5"
+    assert ctqmc.hdf5file == str(tmp_path / "calc.h5")
     assert ctqmc.group == "impurity_solver"
     assert isinstance(result, method_mod.ImpurityActionResult)
     assert result.ctqmc is ctqmc
     assert result.key == "imp0"
-    assert result.gimp.f == "gimp-f"
-    assert result.sighimp.h == "sigh-h"
-    assert result.sigfimp.s == "sigf-s"
-    assert result.sigimp.f == "sigimp-f"
+    np.testing.assert_allclose(result.gimp.f, [10.0])
+    np.testing.assert_allclose(result.sighimp.h, [1.0])
+    np.testing.assert_allclose(result.sigfimp.s, [2.0])
+    np.testing.assert_allclose(result.sigimp.f, [3.0])
     assert result.chi is None
     assert result.pimp is None
     assert result.diagnostics == {"sign": 1.0}
 
 
-def test_impurity_action_saves_required_and_optional_outputs(monkeypatch):
+def test_impurity_action_saves_required_and_optional_outputs(monkeypatch, tmp_path):
     fake_ctqmc = _install_fake_ctqmc(monkeypatch, include_bosons=True)
-    fweiss, bweiss = _weiss_pair()
+    fweiss, bweiss = _weiss_pair(tmp_path)
 
     result = method_mod.ImpurityAction(fweiss, bweiss, iteration=2)()
 
@@ -111,11 +118,11 @@ def test_impurity_action_saves_required_and_optional_outputs(monkeypatch):
     assert fake_ctqmc.instances[0].calls[-1] == ("PostProcessing", 2)
 
 
-def test_impurity_action_can_return_missing_optional_outputs_without_validation(monkeypatch):
+def test_impurity_action_can_return_missing_optional_outputs_without_validation(monkeypatch, tmp_path):
     _install_fake_ctqmc(monkeypatch, missing=("sigimp",))
-    fweiss, bweiss = _weiss_pair()
+    fweiss, bweiss = _weiss_pair(tmp_path)
 
-    result = method_mod.ImpurityAction(fweiss, bweiss, iteration=3, save=False)()
+    result = method_mod.ImpurityAction(fweiss, bweiss, iteration=3)()
 
     assert result.sigimp is None
 

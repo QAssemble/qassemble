@@ -74,19 +74,10 @@ class BLocStc(object):
         return matout
     
     def Mixing(self, iter : int, mix : float, Bb : np.ndarray, Bold : np.ndarray)-> np.ndarray:
-
-        norb = Bb.shape[0]
-        ns = Bb.shape[2]
-
-        Bnew = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
-
-        if iter == 1:
-            mix = 1.0
-            Bold = np.zeros((norb,norb,ns,ns),dtype=np.complex128,order='F')
-        
-        Bnew = mix*Bb + (1-mix)*Bold
-
-        return Bnew
+        raise NotImplementedError(
+            "Object-local single-array mixing is no longer supported. "
+            "Use utility.Mixing with HDF5-backed quantities."
+        )
 
     def Imp2Loc(self,matimp : np.ndarray)-> np.ndarray:
 

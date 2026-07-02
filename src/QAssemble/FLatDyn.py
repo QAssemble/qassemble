@@ -13,7 +13,6 @@ from .utility.DLR import DLR
 from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
-from .utility.Mixing import Mixing
 from .utility.Embedding import Embedding as EB
 from .utility.Causal import CausalFermionProjector
 
@@ -23,7 +22,6 @@ class FLatDyn(object):
     def __init__(self,crystal : Crystal, dlr : DLR, mixing_method: str = "pulay", npulay: int = 5) -> object:
         self.crystal = crystal
         self.dlr = dlr
-        self._mixer = Mixing(method=mixing_method, npulay=npulay)
         self.mappingidx = None
         self._fermion_phase_cache_k2r = self._get_fermion_phaseK2R()
         self._fermion_phase_cache_r2k = self._get_fermion_phaseR2K()
@@ -535,9 +533,10 @@ class FLatDyn(object):
         return ynew
     
     def Mixing(self, iter : int, mix : float, Fb : np.ndarray, Fm : np.ndarray) -> np.ndarray:
-        if iter == 1:
-            Fm = np.zeros_like(Fb)
-        return self._mixer(iter=iter, mix=mix, Fnew=Fb, Fold=Fm)
+        raise NotImplementedError(
+            "Object-local single-array mixing is no longer supported. "
+            "Use utility.Mixing with HDF5-backed quantities."
+        )
     
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
 
@@ -1177,6 +1176,118 @@ class G(FLatDyn):
             if chem:
                 mureal = np.real(self.mu)
                 Common.HDF5CreateDataset(green, 'mu', mureal, dtype=float)
+
+        return None
+
+
+class SigC(FLatDyn):
+
+    def __init__(
+        self,
+        crystal: Crystal,
+        dlr: DLR,
+        sigh: np.ndarray = None,
+        sigf: np.ndarray = None,
+        siggwc: np.ndarray = None,
+        mixing_method: str = "pulay",
+        npulay: int = 5,
+    ) -> object:
+        super().__init__(crystal, dlr, mixing_method=mixing_method, npulay=npulay)
+        self.flatstc = FLatStc(crystal=crystal)
+
+        norb = len(self.crystal.find)
+        ns = self.crystal.ns
+        nk = len(self.crystal.kpoint)
+        nfreq = len(self.dlr.omega)
+        self._static_shape = (norb, norb, ns, nk)
+        self._dynamic_shape = (norb, norb, ns, nk, nfreq)
+
+        self.sigh = self._validated_array("sigh", sigh, self._static_shape)
+        self.sigf = self._validated_array("sigf", sigf, self._static_shape)
+        self.siggwc = self._validated_array("siggwc", siggwc, self._dynamic_shape)
+        self.sigimp = None
+        self.kf = np.zeros(self._dynamic_shape, dtype=np.complex128, order="F")
+
+    def _validated_array(
+        self,
+        name: str,
+        value: np.ndarray,
+        expected_shape: tuple,
+    ) -> np.ndarray:
+        if value is None:
+            return None
+
+        arr = np.asarray(value, dtype=np.complex128)
+        if arr.shape != expected_shape:
+            raise ValueError(
+                f"{name} shape mismatch: expected {expected_shape}, got {arr.shape}"
+            )
+        return np.array(arr, dtype=np.complex128, order="F", copy=True)
+
+    def _accumulate_static(self, name: str, value: np.ndarray) -> None:
+        arr = self._validated_array(name, value, self._static_shape)
+        current = getattr(self, name)
+        if current is None:
+            setattr(self, name, arr)
+        else:
+            current += arr
+
+        return None
+
+    def _accumulate_dynamic(self, name: str, value: np.ndarray) -> None:
+        arr = self._validated_array(name, value, self._dynamic_shape)
+        current = getattr(self, name)
+        if current is None:
+            setattr(self, name, arr)
+        else:
+            current += arr
+
+        return None
+
+    def ImpEmbedding(
+        self,
+        sigimp: np.ndarray = None,
+        sighimp: np.ndarray = None,
+        sigfimp: np.ndarray = None,
+        projector: Projector = None,
+        key = None,
+    ) -> None:
+        if projector is None:
+            raise ValueError("projector is required for ImpEmbedding")
+        if key is None:
+            raise ValueError("key is required for ImpEmbedding")
+        if sigimp is None and sighimp is None and sigfimp is None:
+            raise ValueError("at least one impurity self-energy is required")
+
+        if sigimp is not None:
+            self._accumulate_dynamic(
+                "sigimp",
+                self.Embedding(sigimp, projector=projector, key=key),
+            )
+        if sighimp is not None:
+            self._accumulate_static(
+                "sigh",
+                self.flatstc.Embedding(sighimp, projector=projector, key=key),
+            )
+        if sigfimp is not None:
+            self._accumulate_static(
+                "sigf",
+                self.flatstc.Embedding(sigfimp, projector=projector, key=key),
+            )
+
+        return None
+
+    def __call__(self) -> None:
+        self.kf.fill(0.0)
+
+        if self.siggwc is not None:
+            self.kf += self.siggwc
+        if self.sigimp is not None:
+            self.kf += self.sigimp
+        if self.sigh is not None:
+            self.kf += self.sigh[..., np.newaxis]
+        if self.sigf is not None:
+            self.kf += self.sigf[..., np.newaxis]
 
         return None
 

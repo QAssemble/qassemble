@@ -8,7 +8,6 @@ from .utility.DLR import DLR
 from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
-from .utility.Mixing import Mixing
 from .utility.Projection import Projection as PJ
 from .utility.Causal import CausalBosonProjector
 
@@ -216,20 +215,10 @@ class BLocDyn(object):
         return ynew
     
     def Mixing(self,iter : int, mix : float, Bb : np.ndarray, Bold : np.ndarray):
-
-        norb = Bb.shape[0]
-        ns = Bb.shape[2]
-        nft = Bb.shape[4]
-
-        Bnew = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex128,order='F')
-
-        if iter == 1:
-            mix = 1.0
-            Bold = np.zeros((norb,norb,ns,ns,nft),dtype=np.complex128,order='F')
-
-        Bnew = mix*Bb + (1-mix)*Bold
-
-        return Bnew
+        raise NotImplementedError(
+            "Object-local single-array mixing is no longer supported. "
+            "Use utility.Mixing with HDF5-backed quantities."
+        )
 
     def _resolve_equiv_matrix(self, imp=None, key=None) -> np.ndarray:
         """Resolve an equivalent-orbital matrix from legacy/new impurity inputs."""
@@ -654,10 +643,8 @@ class Chi(BLocDyn):
 
     def QuadSusceptibility2Boson(self, chi : np.ndarray) -> np.ndarray:
         chi = np.asarray(chi, dtype=np.complex128)
-        if chi.ndim == 5:
-            return np.asfortranarray(chi)
         if chi.ndim != 7:
-            raise ValueError(f"chi must be 5D or 7D, got {chi.ndim}D")
+            raise ValueError(f"chi must be 7D, got {chi.ndim}D")
 
         nspin = chi.shape[4]
         nfreq = chi.shape[6]

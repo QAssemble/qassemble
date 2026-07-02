@@ -257,8 +257,7 @@ class ImpurityAction(object):
         ctqmc.PostProcessing(iter=iter)
 
         self.key = getattr(ctqmc, 'key', self.key)
-        if (self.iteration % 50 == 0) or (self.iteration == 1):
-            self._save_outputs(ctqmc, iter)
+        # self._save_outputs(ctqmc, iter)
 
         return ImpurityActionResult(
             ctqmc=ctqmc,

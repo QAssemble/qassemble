@@ -9,9 +9,11 @@ import numpy as np
 
 from .BLocStc import VLoc
 from .Crystal import Crystal
+from .Projector import Projector
 from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
+from .utility.Embedding import Embedding as EB
 
 logger = logging.getLogger("QAssemble")
 
@@ -97,23 +99,48 @@ class BLatStc(object):
     def Mixing(
         self, iter: int, mix: float, Bb: np.ndarray, Bold: np.ndarray
     ) -> np.ndarray:
-
-        norb = Bb.shape[0]
-        ns = Bb.shape[2]
-        nrk = Bb.shape[4]
-
-        Bnew = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
-
-        if iter == 1:
-            mix = 1.0
-
-        Bnew = mix * Bb + (1.0 - mix) * Bold
-
-        return Bnew
+        raise NotImplementedError(
+            "Object-local single-array mixing is no longer supported. "
+            "Use utility.Mixing with HDF5-backed quantities."
+        )
 
     def Dyson(self, mat1: np.ndarray, mat2: np.ndarray):
         # matout = QAFort.dyson.blatstc(mat1, mat2)
         return Dyson.BLatDyn(mat1, mat2)
+
+    def Embedding(self, matin: np.ndarray, projector: Projector, key) -> np.ndarray:
+        if projector is None:
+            raise ValueError("projector is required for Embedding")
+
+        nrk = len(self.crystal.kpoint)
+        pkey = key if key in projector.bprojector else str(key)
+        if pkey not in projector.bprojector:
+            raise KeyError(f"Unknown impurity problem key '{key}'")
+
+        matin = np.asarray(matin, dtype=np.complex128)
+        if matin.ndim != 4:
+            raise ValueError(f"matin must be 4D, got {matin.ndim}D")
+        if matin.shape[2] != self.crystal.ns or matin.shape[3] != self.crystal.ns:
+            raise ValueError(
+                "spin dimension mismatch: "
+                f"matin spin shape=({matin.shape[2]}, {matin.shape[3]}), "
+                f"crystal ns={self.crystal.ns}"
+            )
+
+        proj = projector.bprojector[pkey]
+        rep_emb = EB.BLatStc(matin, proj, nrk)
+        expanded = np.zeros_like(rep_emb, dtype=np.complex128, order="F")
+        rep_orbs = projector.bimpdict[pkey][0]
+
+        for tgt_orbs in projector.bimpdict[pkey]:
+            if len(tgt_orbs) != len(rep_orbs):
+                raise ValueError(
+                    f"Equivalent spaces in key '{pkey}' have different boson orbital counts"
+                )
+
+            expanded[np.ix_(tgt_orbs, tgt_orbs)] = rep_emb[np.ix_(rep_orbs, rep_orbs)]
+
+        return expanded
 
     # def Projection(self, matin: np.ndarray):
 

@@ -13,7 +13,6 @@ from .utility.DLR import DLR
 from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
-from .utility.Mixing import Mixing
 from .utility.Projection import Projection as PJ
 
 logger = logging.getLogger("QAssemble")
@@ -46,19 +45,10 @@ class FLocStc(object):
         return matinv
 
     def Mixing(self,iter : int, mix : float, Fb : np.ndarray, Fold : np.ndarray) -> np.ndarray:
-
-        norb = Fb.shape[0]
-        ns = Fb.shape[2]
-
-        Fnew = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
-
-        if iter == 1:
-            mix = 1.0
-            Fold = np.zeros((norb,norb,ns),dtype=np.complex128,order='F')
-
-        Fnew = mix*Fb + (1.0-mix)*Fold
-
-        return Fnew
+        raise NotImplementedError(
+            "Object-local single-array mixing is no longer supported. "
+            "Use utility.Mixing with HDF5-backed quantities."
+        )
 
     def Arr2Dict(self, equiv : np.ndarray, matin : np.ndarray) -> dict:
         """Average a local static fermionic matrix over equivalent orbital pairs."""

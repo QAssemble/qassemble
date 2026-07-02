@@ -6,11 +6,12 @@ import logging
 import h5py
 from .Crystal import Crystal
 from .BLatStc import V
+from .Projector import Projector
 from .utility.Common import Common
 from .utility.DLR import DLR
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
-from .utility.Mixing import Mixing
+from .utility.Embedding import Embedding as EB
 from .utility.Causal import CausalBosonProjector
 
 logger = logging.getLogger("QAssemble")
@@ -20,7 +21,6 @@ class BLatDyn(object):
     def __init__(self, crystal: Crystal, dlr: DLR, mixing_method: str = "pulay", npulay: int = 5):
         self.crystal = crystal
         self.dlr = dlr
-        self.mixer = Mixing(method=mixing_method, npulay=npulay)
         # self.flatdyn = flatdyn
         self._boson_phase_cache_k2r = self._get_boson_phaseK2R()
         self._boson_phase_cache_r2k = self._get_boson_phaseR2K()
@@ -373,13 +373,53 @@ class BLatDyn(object):
         return ynew
 
     def Mixing(self, iter: int, mix: float, Bb: np.ndarray, Bold: np.ndarray) -> np.ndarray:
-        if iter == 1:
-            Bold = np.zeros_like(Bb)
-        return self.mixer(iter=iter, mix=mix, Fnew=Bb, Fold=Bold)
+        raise NotImplementedError(
+            "Object-local single-array mixing is no longer supported. "
+            "Use utility.Mixing with HDF5-backed quantities."
+        )
 
     def Dyson(self, mat1: np.ndarray, mat2: np.ndarray) -> np.ndarray:
         # matout = QAFort.dyson.blatdyn(mat1, mat2)
         return Dyson.BLatDyn(mat1, mat2)
+
+    def Embedding(self, matin: np.ndarray, projector: Projector, key) -> np.ndarray:
+        if projector is None:
+            raise ValueError("projector is required for Embedding")
+
+        nrk = len(self.crystal.kpoint)
+        pkey = key if key in projector.bprojector else str(key)
+        if pkey not in projector.bprojector:
+            raise KeyError(f"Unknown impurity problem key '{key}'")
+
+        matin = np.asarray(matin, dtype=np.complex128)
+        if matin.ndim != 5:
+            raise ValueError(f"matin must be 5D, got {matin.ndim}D")
+        if matin.shape[2] != self.crystal.ns or matin.shape[3] != self.crystal.ns:
+            raise ValueError(
+                "spin dimension mismatch: "
+                f"matin spin shape=({matin.shape[2]}, {matin.shape[3]}), "
+                f"crystal ns={self.crystal.ns}"
+            )
+        if matin.shape[4] != len(self.dlr.nu):
+            raise ValueError(
+                f"frequency dimension mismatch: matin nf={matin.shape[4]}, "
+                f"dlr nf={len(self.dlr.nu)}"
+            )
+
+        proj = projector.bprojector[pkey]
+        rep_emb = EB.BLatDyn(matin, proj, nrk)
+        expanded = np.zeros_like(rep_emb, dtype=np.complex128, order="F")
+        rep_orbs = projector.bimpdict[pkey][0]
+
+        for tgt_orbs in projector.bimpdict[pkey]:
+            if len(tgt_orbs) != len(rep_orbs):
+                raise ValueError(
+                    f"Equivalent spaces in key '{pkey}' have different boson orbital counts"
+                )
+
+            expanded[np.ix_(tgt_orbs, tgt_orbs)] = rep_emb[np.ix_(rep_orbs, rep_orbs)]
+
+        return expanded
 
     # def Projection(self, matin: np.ndarray):
     #     norbc = self.crystal.bprojector.shape[1]

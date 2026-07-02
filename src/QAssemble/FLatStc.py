@@ -16,7 +16,6 @@ from .utility.Common import Common
 from .utility.Dyson import Dyson
 from .utility.Embedding import Embedding as EB
 from .utility.Fourier import Fourier
-from .utility.Mixing import Mixing
 
 # from .FLatDyn import SigmaGWC
 # qapath = os.environ.get("QAssemble", "")
@@ -31,7 +30,6 @@ class FLatStc(object):
     def __init__(self, crystal: Crystal, mixing_method: str = "pulay", npulay: int = 5):
 
         self.crystal = crystal
-        self._mixer = Mixing(method=mixing_method, npulay=npulay)
 
     def Inverse(self, mat: np.ndarray):
 
@@ -358,9 +356,10 @@ class FLatStc(object):
     def Mixing(
         self, iter: int, mix: float, Fb: np.ndarray, Fm: np.ndarray
     ) -> np.ndarray:
-        if iter == 1:
-            Fm = np.zeros_like(Fb)
-        return self._mixer(iter=iter, mix=mix, Fnew=Fb, Fold=Fm)
+        raise NotImplementedError(
+            "Object-local single-array mixing is no longer supported. "
+            "Use utility.Mixing with HDF5-backed quantities."
+        )
 
     def ChemEmbedding(self, mu: float) -> np.ndarray:
 

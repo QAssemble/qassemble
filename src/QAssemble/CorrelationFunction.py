@@ -18,8 +18,8 @@ from .BLatStc import *
 from .BLocDyn import *
 from .BLocStc import *
 from .Projector import Projector
-from .CTQMC import CTQMC
-from .Method import HF, GW
+from .Method import HF, GW, ImpurityAction
+from .utility.Mixing import Mixing
 
 logger = logging.getLogger("QAssemble")
 
@@ -102,6 +102,8 @@ class CorrelationFunction(object):
         hdf5file = self.control["run"]["fn"] + '.h5'
         mode = self.control["run"]["mode"]
         group = 'hf'
+        mixing_method = self.control["run"].get("mixing_method", "pulay")
+        npulay = int(self.control["run"].get("npulay", 5))
 
         if (mode == 'FromScratch'):
             
@@ -114,6 +116,12 @@ class CorrelationFunction(object):
             niham = self.niham
             vbare = self.vbare
 
+        sigma_mixer = Mixing(
+            method=mixing_method,
+            npulay=npulay,
+            hdf5file=hdf5file,
+            group=group,
+        )
 
         onebody = self.control["ham"].get("onebody")
         # twobody = self.control["ham"].get("twobody")
@@ -148,17 +156,19 @@ class CorrelationFunction(object):
                 self.conv.seed_prev("F", hold.k, kind="array")
                 self.conv.seed_prev("mu", float(hold.mu), kind="scalar")
 
-                hartreeold = None
-                fockold = None
-
             logger.debug(hold.occ)
             sigmah = SigH(crystal=self.crystal,occ=hold.occ,vbare=vbare.k,hdf5file=hdf5file,group=group)
-            sigmah.k = sigmah.Mixing(iter=iter,mix=mix,Fb=sigmah.k,Fm=hartreeold)
+            sigmaf = SigF(crystal=self.crystal,occr=hold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
+            mixed_sigma = sigma_mixer(
+                iter=iter,
+                mix=mix,
+                key="global",
+                quantities={"sigh": sigmah.k, "sigf": sigmaf.k},
+            )
+            sigmah.k = mixed_sigma["sigh"]
+            sigmaf.k = mixed_sigma["sigf"]
             if (iter % 50 == 0):
                 sigmah.Save(f'sigh.{iter}')
-            sigmaf = SigF(crystal=self.crystal,occr=hold.occr,vbare=vbare.r,hdf5file=hdf5file,group=group)
-            sigmaf.k = sigmaf.Mixing(iter=iter,mix=mix,Fb=sigmaf.k,Fm=fockold)
-            if (iter % 50 == 0):
                 sigmaf.Save(f'sigf.{iter}')
             hnew = H(crystal=self.crystal,ham=niham.k,beta=self.dlr.beta,sigmah=sigmah.k,sigmaf=sigmaf.k,hdf5file=hdf5file,group=group)
             # hnew = Hamiltonian(crystal=self.crystal,ham=niham.k,beta=self.ft.beta,sigmah=None,sigmaf=sigmaf,hdf5file=fn,group=group)
@@ -198,8 +208,6 @@ class CorrelationFunction(object):
             else:
                 # hnew.OccMixing(iter=iter, mix=mix, occkb = hnew.occk, occkm=hold.occk)
                 hold=hnew
-                hartreeold = sigmah.k
-                fockold = sigmaf.k
                 del sigmaf,sigmah,hnew
                 # del sigmaf,hnew
                 gc.collect()
@@ -214,13 +222,19 @@ class CorrelationFunction(object):
         hdf5file = self.control["run"]["fn"] + '.h5'
         # mode = self.control["run"]["mode"]
         group = 'gw'
+        mixing_method = self.control["run"].get("mixing_method", "pulay")
+        npulay = int(self.control["run"].get("npulay", 5))
 
         niham = self.niham
         gbare = self.greenbare
         vbare = self.vbare
 
-        pol_mixer = Mixing()
-        sig_mixer = Mixing()
+        gw_mixer = Mixing(
+            method=mixing_method,
+            npulay=npulay,
+            hdf5file=hdf5file,
+            group=group,
+        )
 
         self.conv.Start()
 
@@ -254,9 +268,12 @@ class CorrelationFunction(object):
             t0 = time.perf_counter()
             pol = P(crystal=self.crystal,dlr=self.dlr,green=gold.rt,hdf5file=hdf5file,group=group)
             iter_timing["P"] = time.perf_counter() - t0
-            if iter == 1:
-                pkfold = np.zeros_like(pol.kf)
-            pol.kf = pol_mixer(iter=iter, mix=mix, Fnew=pol.kf, Fold=pkfold)
+            pol.kf = gw_mixer(
+                iter=iter,
+                mix=mix,
+                key="global",
+                quantities={"pol": pol.kf},
+            )["pol"]
             pol.Save(f'pkf.{iter}')
             # print("P calculation finish")
             # print("Screened coulomb interaction calculation start")
@@ -273,9 +290,12 @@ class CorrelationFunction(object):
             t0 = time.perf_counter()
             sigmagwc = SigGWC(crystal=self.crystal,dlr=self.dlr,green=gold.rt,wlat=w.crt,hdf5file=hdf5file,group=group)
             iter_timing["SigGWC"] = time.perf_counter() - t0
-            if iter == 1:
-                ckfold = np.zeros_like(sigmagwc.kf)
-            sigmagwc.kf = sig_mixer(iter=iter, mix=mix, Fnew=sigmagwc.kf, Fold=ckfold)
+            sigmagwc.kf = gw_mixer(
+                iter=iter,
+                mix=mix,
+                key="global",
+                quantities={"siggwc": sigmagwc.kf},
+            )["siggwc"]
             sigmagwc.Save(f'sigmagwckf.{iter}')
             # print("GW self-energy calculation finish")
             # print("GW green's function calculation start")
@@ -296,7 +316,7 @@ class CorrelationFunction(object):
                 f"W: {iter_timing['W']:.4f}s, "
                 f"SigGWC: {iter_timing['SigGWC']:.4f}s{init_msg}"
             )
-            self.conv.StartIter(iter, ready_after=pol_mixer.npulay)
+            self.conv.StartIter(iter, ready_after=gw_mixer.npulay)
             self.conv.CheckSelf("F", value=gnew.kf, kind="array")
             self.conv.CheckSelf("B", value=w.kf, kind="array")
             self.conv.CheckSelf("mu", value=float(gnew.mu), kind="scalar")
@@ -346,8 +366,6 @@ class CorrelationFunction(object):
                 gc.collect()
             else:
                 gold = gnew
-                ckfold = sigmagwc.kf
-                pkfold = pol.kf
 
                 del gnew, sigmah, sigmaf, sigmagwc, pol, w
                 gc.collect()
@@ -360,6 +378,8 @@ class CorrelationFunction(object):
         mix = self.control["run"]["mix"]
         hdf5file = self.control["run"]["fn"] + '.h5'
         group = 'gw_modular'
+        mixing_method = self.control["run"].get("mixing_method", "pulay")
+        npulay = int(self.control["run"].get("npulay", 5))
 
         niham = self.niham
         gbare = self.greenbare
@@ -370,16 +390,18 @@ class CorrelationFunction(object):
         if hasattr(self.conv, "_conv_hdf5_group"):
             self.conv._conv_hdf5_group = conv_group
 
-        pol_mixer = Mixing()
-        sig_mixer = Mixing()
+        gw_mixer = Mixing(
+            method=mixing_method,
+            npulay=npulay,
+            hdf5file=hdf5file,
+            group=group,
+        )
 
         self.conv.Start()
 
         self.gw_object_times = []
         gold = None
         w_prev = None
-        pkfold = None
-        ckfold = None
 
         for iter in range(1, itermax + 1):
             iter_timing = {"iter": iter}
@@ -416,9 +438,14 @@ class CorrelationFunction(object):
             sigh.Save(f'sigh.{iter}')
             sigf.Save(f'sigf.{iter}')
 
-            if iter == 1:
-                pkfold = np.zeros_like(pol.kf)
-            pol.kf = pol_mixer(iter=iter, mix=mix, Fnew=pol.kf, Fold=pkfold)
+            mixed_gw = gw_mixer(
+                iter=iter,
+                mix=mix,
+                key="global",
+                quantities={"pol": pol.kf, "siggwc": siggwc.kf},
+            )
+            pol.kf = mixed_gw["pol"]
+            siggwc.kf = mixed_gw["siggwc"]
             pol.Save(f'pkf.{iter}')
 
             t0 = time.perf_counter()
@@ -426,9 +453,6 @@ class CorrelationFunction(object):
             iter_timing["W"] = time.perf_counter() - t0
             w.Save(f'wkf.{iter}')
 
-            if iter == 1:
-                ckfold = np.zeros_like(siggwc.kf)
-            siggwc.kf = sig_mixer(iter=iter, mix=mix, Fnew=siggwc.kf, Fold=ckfold)
             siggwc.Save(f'siggwckf.{iter}')
 
             t0 = time.perf_counter()
@@ -449,7 +473,7 @@ class CorrelationFunction(object):
                 f"W: {iter_timing['W']:.4f}s{init_msg}"
             )
 
-            self.conv.StartIter(iter, ready_after=pol_mixer.npulay)
+            self.conv.StartIter(iter, ready_after=gw_mixer.npulay)
             self.conv.CheckSelf("F", value=gnew.kf, kind="array")
             self.conv.CheckSelf("B", value=w.kf, kind="array")
             self.conv.CheckSelf("mu", value=float(gnew.mu), kind="scalar")
@@ -496,19 +520,17 @@ class CorrelationFunction(object):
             else:
                 gold = gnew
                 w_prev = w
-                ckfold = siggwc.kf
-                pkfold = pol.kf
 
                 del gnew, sigh, sigf, siggwc, pol, w
                 gc.collect()
 
-    def ImpurityAction(self):
+    def DMFT(self):
 
         errmessage = "missing input for DMFT calculation"
 
         itermax = self.control["run"]["nscf"]
         hdf5file = self.control["run"]["fn"] + '.h5'
-        group = 'impurity_solver'
+        group = 'dmft'
         # self.control["run"]["method"]
 
         config = self.control.get("impurity", self.control.get("dmft", {}))
@@ -522,12 +544,7 @@ class CorrelationFunction(object):
 
         projector = Projector(basisindex=self.crystal._basis_index,impdict=copy.deepcopy(impdict),equiv=copy.deepcopy(equiv),)
         self.vbare.vloc.projector=projector
-        voption = self.control["ham"]["twobody"].get("Local")
-        if voption is None:
-            raise KeyError("DMFT requires control['ham']['twobody']['Local']")
-        # vloc = VLoc(crystal=self.crystal, voption=voption)
         
-
         sigmah_current = None
         sigmaf_current = None
         sigc_current = None
@@ -551,15 +568,27 @@ class CorrelationFunction(object):
         self.dmft_object_times = []
 
         mix = float(self.control["run"].get("mix_sigma", 0.1))
+        mixing_method = self.control["run"].get(
+            "mix_sigma_method",
+            self.control["run"].get("mixing_method", "pulay"),
+        )
+        npulay = int(self.control["run"].get("npulay_sigma", self.control["run"].get("npulay", 5)))
         min_iter = self.conv.min_iter
 
-        logger.info(f"[ImpurityAction] mix_sigma={mix}, min_iter={min_iter}")
+        logger.info(f"[DMFT] mix_sigma={mix}, min_iter={min_iter}")
 
         if itermax <= min_iter:
             logger.warning(f"nscf={itermax} <= min_iter={min_iter}; delta convergence "
                            f"cannot trigger break. Loop will run to max_iter.")
 
         self.conv.Start()
+
+        dmft_mixer = Mixing(
+            method=mixing_method,
+            npulay=npulay,
+            hdf5file=hdf5file,
+            group=group,
+        )
 
         for iter in range(1, itermax+1):
             iter_timing = {
@@ -568,37 +597,19 @@ class CorrelationFunction(object):
                 "GLoc": initial_gloc_time if iter == 1 else 0.0,
             }
 
-            sigctemp = np.zeros_like(green.kf)
-            sightemp = np.zeros_like(self.niham.k)
-            sigftemp = np.zeros_like(self.niham.k)
+            sigc = SigC(crystal=self.crystal, dlr=self.dlr)
 
             gcheck = 0.0
             iter_timing["BWeiss"] = 0.0
             iter_timing["FWeiss"] = 0.0
             iter_timing["CTQMC"] = 0.0
-            if self.control["run"]["method"] == "gw+edmft":
-                subtract_local_dc = True
-            else:
-                subtract_local_dc = False
             
             gimp_by_key = {}
             diag_by_key = {}        # captured immediately inside the per-key loop
 
             for key in projector.fprojector.keys():
-                norbc = projector.fprojector[key].shape[1]
-                dc_shape = (norbc, norbc, self.crystal.ns)
-                sigh_dc = np.zeros(dc_shape, dtype=np.complex128, order='F')
-                sigf_dc = np.zeros(dc_shape, dtype=np.complex128, order='F')
-
-                if subtract_local_dc:
-                    sigh_dc_obj = SigHLoc(crystal=self.crystal, projector=projector, occ=gloc.occ[key], vloc=self.vbare.vloc.Projection(self.vbare.vloc.vloc, key=key), key=key, hdf5file=hdf5file, group=group)
-                    sigf_dc_obj = SigFLoc(crystal=self.crystal, projector=projector, occ=gloc.occ[key], vloc=self.vbare.vloc.Projection(self.vbare.vloc.vloc, key=key), key=key, hdf5file=hdf5file, group=group)
-                    sigh_dc = sigh_dc_obj.hloc
-                    sigf_dc = sigf_dc_obj.floc
-                    sigh_dc_obj.Save(f'sigh_dc.{iter}.{key}')
-                    sigf_dc_obj.Save(f'sigf_dc.{iter}.{key}')
                 t0 = time.perf_counter()
-                eimp = EImp(crystal=self.crystal,projector=projector,key=key,hamtb=self.niham.k,mu=green.mu, hloc=sigh_dc, floc=sigf_dc, hdf5file=hdf5file, group=group)
+                eimp = EImp(crystal=self.crystal,projector=projector,key=key,hamtb=self.niham.k,mu=green.mu,hdf5file=hdf5file, group=group)
                 eimp.Save(f'eimp.{iter}.{key}')
 
                 sighloc = None
@@ -606,7 +617,6 @@ class CorrelationFunction(object):
                 sigcloc = None
                 if sigmah_current is not None:
                     sighloc = eimp.Projection(sigmah_current, key)
-                    # sighloc carries no c-shift: lattice G no longer subtracts Hartree trace.
                 if sigmaf_current is not None:
                     sigfloc = eimp.Projection(sigmaf_current, key)
                 if sigc_current is not None:
@@ -629,61 +639,71 @@ class CorrelationFunction(object):
                 iter_timing["BWeiss"] += time.perf_counter() - t0
 
                 t0 = time.perf_counter()
-                ## Impurity Solver
-                ctqmc = CTQMC(dlr=self.dlr,fweiss=fweiss,bweiss=bweiss,key=key,control=self.control["run"],hdf5file=hdf5file,group=group,)
-                ctqmc.PreProcessing(iter=iter)
-                ctqmc.Run(iter=iter)
-                ctqmc.PostProcessing(iter=iter)
+                impurity_method = ImpurityAction(
+                    fweiss=fweiss,
+                    bweiss=bweiss,
+                    key=key,
+                    control=self.control["run"],
+                    hdf5file=hdf5file,
+                    group=group,
+                    iteration=iter,
+                )
+                impurity_result = impurity_method()
                 
                 iter_timing["CTQMC"] += time.perf_counter() - t0
 
                 # ---- CTQMC output guard (F12): explicit failure if PostProcessing
                 #      produced no sigma/Green's function for this key. ----
                 for _attr in ("gimp", "sighimp", "sigfimp", "sigimp"):
-                    if getattr(ctqmc, _attr, None) is None:
+                    if getattr(impurity_result, _attr, None) is None:
                         raise RuntimeError(
                             f"CTQMC produced no {_attr} for key={key}, iter={iter}. "
                             f"Inspect params.obs.json or solver stderr."
                         )
 
-                gimp_new = ctqmc.gimp.f
-                ctqmc.gimp.Save(f'gimp.{iter}.{key}')
-                ctqmc.sighimp.Save(f'sighimp.{iter}.{key}')
-                ctqmc.sigfimp.Save(f'sigfimp.{iter}.{key}')
-                ctqmc.sigimp.Save(f'sigimp.{iter}.{key}')
-                if (self.control["run"]["method"] == 'edmft')or(self.control["run"]["method"] ==("gw+edmft")):
-                    if ctqmc.chi is not None and ctqmc.chi.f is not None:
-                        ctqmc.chi.Save(f'chi.{iter}.{key}')
-                    if ctqmc.pimp is not None and ctqmc.pimp.f is not None:
-                        ctqmc.pimp.Save(f'pimp.{iter}.{key}')
+                gimp_new = impurity_result.gimp.f
 
-                sigc_embed = green.Embedding(ctqmc.sigimp.f, projector=projector, key=key)
-                sigh_embed = self.niham.Embedding(ctqmc.sighimp.h - sigh_dc, projector=projector, key=key)
-                sigf_embed = self.niham.Embedding(ctqmc.sigfimp.s - sigf_dc, projector=projector, key=key)
+                sighimp = impurity_result.sighimp
+                sigfimp = impurity_result.sigfimp
+                sigimp = impurity_result.sigimp
+                mixed_dmft = dmft_mixer(
+                    iter=iter,
+                    mix=mix,
+                    key=key,
+                    quantities={
+                        "sighimp": sighimp.h,
+                        "sigfimp": sigfimp.s,
+                        "sigimp": sigimp.f,
+                    },
+                )
+                sighimp.h = np.asfortranarray(mixed_dmft["sighimp"])
+                if hasattr(sighimp, "s"):
+                    sighimp.s = sighimp.h
+                sigfimp.s = np.asfortranarray(mixed_dmft["sigfimp"])
+                sigimp.f = np.asfortranarray(mixed_dmft["sigimp"])
+                sigimp_dlr = getattr(sigimp, "dlr", None)
+                if hasattr(sigimp, "f_uniform") and hasattr(sigimp_dlr, "MatsubaraDLR2UniformGrid"):
+                    sigimp.f_uniform = sigimp_dlr.MatsubaraDLR2UniformGrid(sigimp.f, sign=-1)
+                impurity_method._save_outputs(impurity_result.ctqmc, iter)
+
+                sigc.ImpEmbedding(
+                    sigimp=sigimp.f,
+                    sighimp=sighimp.h,
+                    sigfimp=sigfimp.s,
+                    projector=projector,
+                    key=key,
+                )
                 gimp_by_key[key] = gimp_new
-                diag_by_key[key] = dict(getattr(ctqmc, "diagnostics", {}))
+                diag_by_key[key] = dict(impurity_result.diagnostics)
 
-                sigctemp += sigc_embed
-                sightemp += sigh_embed
-                sigftemp += sigf_embed
-
-            if iter == 1:
-                sigmah_next = sightemp.copy()
-                sigmaf_next = sigftemp.copy()
-                sigc_next = sigctemp.copy()
-            else:
-                sigmah_next = mix * sightemp + (1.0 - mix) * sigmah_current
-                sigmaf_next = mix * sigftemp + (1.0 - mix) * sigmaf_current
-                sigc_next = mix * sigctemp + (1.0 - mix) * sigc_current
+            sigc()
 
             t0 = time.perf_counter()
             green_next = G(
                 crystal=self.crystal,
                 dlr=self.dlr,
                 greenbare=self.greenbare.kf,
-                sigmah=sigmah_next,
-                sigmaf=sigmaf_next,
-                sigmagwc=sigc_next,
+                sigmagwc=sigc.kf,
                 hdf5file=hdf5file,
                 group=group,
             )
@@ -739,9 +759,9 @@ class CorrelationFunction(object):
                     f"dmu={dmu:.3e}"
                 )
             else:
-                sigmah_current = sigmah_next
-                sigmaf_current = sigmaf_next
-                sigc_current   = sigc_next
+                sigmah_current = sigc.sigh
+                sigmaf_current = sigc.sigf
+                sigc_current = sigc.sigimp
                 green = green_next
                 gloc  = gloc_next
 

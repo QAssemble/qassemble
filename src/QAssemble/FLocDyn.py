@@ -10,7 +10,6 @@ from .utility.DLR import DLR
 from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
-from .utility.Mixing import Mixing
 from .utility.Projection import Projection as PJ
 from .utility.Causal import CausalFermionProjector
 
@@ -500,20 +499,10 @@ class FLocDyn(object):
         return ynew
     
     def Mixing(self,iter : int, mix : float, Fb : np.ndarray, Fold : np.ndarray):
-
-        norb = Fb.shape[0]
-        ns = Fb.shape[2]
-        nft = Fb.shape[3]
-
-        Fnew = np.zeros((norb,norb,ns,nft),dtype=np.complex128,order='F')
-
-        if iter == 1:
-            mix = 1.0
-            Fold = np.zeros((norb,norb,ns,nft),dtype=np.complex128,order='F')
-
-        Fnew = mix*Fb+(1.0-mix)*Fold
-
-        return Fnew
+        raise NotImplementedError(
+            "Object-local single-array mixing is no longer supported. "
+            "Use utility.Mixing with HDF5-backed quantities."
+        )
 
     def _resolve_equiv_matrix(self, imp=None, key=None) -> np.ndarray:
         """Resolve an equivalent-orbital matrix from legacy/new impurity inputs.

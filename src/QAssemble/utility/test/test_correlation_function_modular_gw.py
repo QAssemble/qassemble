@@ -50,8 +50,11 @@ class _FakeConvergence:
 class _FakeMixing:
     npulay = 1
 
-    def __call__(self, iter, mix, Fnew, Fold):
-        return Fnew
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __call__(self, iter, mix, key, quantities):
+        return quantities
 
 
 def test_gw_approximation_modular_uses_current_hf_and_gw_results(monkeypatch):
