@@ -22,11 +22,14 @@ from .Projector import Projector
 from .utility.Common import Common
 from .utility.Dyson import Dyson
 from .utility.Projection import Projection as PJ
+from .utility.HDF5 import IO
+from .utility.Mixing import Mixing as MixingKernel
 
 logger = logging.getLogger("QAssemble")
 
 
 class BLocStc(object):
+    mixer = MixingKernel()
 
     def __init__(self,crystal : Crystal, projector : Projector = None):
 
@@ -73,10 +76,31 @@ class BLocStc(object):
         
         return matout
     
-    def Mixing(self, iter : int, mix : float, Bb : np.ndarray, Bold : np.ndarray)-> np.ndarray:
-        raise NotImplementedError(
-            "Object-local single-array mixing is no longer supported. "
-            "Use utility.Mixing with HDF5-backed quantities."
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        component: str = None,
+        value: np.ndarray = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> np.ndarray:
+        if iter is None:
+            iter = getattr(self, "iteration", None)
+        if key is None:
+            key = getattr(self, "key", None)
+        return IO.MixComponent(
+            hdf5file=getattr(self, "hdf5file", None),
+            group=getattr(self, "group", None),
+            key=key,
+            component=component,
+            value=value,
+            iter=iter,
+            mix=mix,
+            method=method,
+            npulay=npulay,
+            mixer=self.mixer,
         )
 
     def Imp2Loc(self,matimp : np.ndarray)-> np.ndarray:

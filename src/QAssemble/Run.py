@@ -29,7 +29,6 @@ class Run:
                 (self.control["run"]["method"] == "tb")
                 | (self.control["run"]["method"] == "hf")
                 | (self.control["run"]["method"] == "gw")
-                | (self.control["run"]["method"] == "gw_modular")
                 | (self.control["run"]["method"] == "dmft")
                 | (self.control["run"]["method"] == "edmft")
                 | (self.control["run"]["method"] == "gw+edmft")
@@ -373,17 +372,6 @@ class Run:
             delta = datetime.timedelta(seconds=(end - start))
             logger.info(f"GW loop time = {delta}")
 
-        if method == "gw_modular":
-            logger.info("Modular GW calculation start")
-
-
-            start = time.time()
-            func.GWApproximation_Modular()
-            end = time.time()
-            logger.info("Modular GW calculation finish")
-            delta = datetime.timedelta(seconds=(end - start))
-            logger.info(f"Modular GW loop time = {delta}")
-
         if method == "dmft":
             logger.info("DMFT calculation start")
 
@@ -394,6 +382,17 @@ class Run:
             logger.info("DMFT calculation finish")
             delta = datetime.timedelta(seconds=(end - start))
             logger.info(f"DMFT loop time = {delta}")
+
+        if method == "edmft":
+            logger.info("EDMFT calculation start")
+
+
+            start = time.time()
+            func.EDMFT()
+            end = time.time()
+            logger.info("EDMFT calculation finish")
+            delta = datetime.timedelta(seconds=(end - start))
+            logger.info(f"EDMFT loop time = {delta}")
 
         
 

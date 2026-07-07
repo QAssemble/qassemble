@@ -7,7 +7,9 @@ import h5py
 from .Crystal import Crystal
 from .BLatStc import V
 from .Projector import Projector
-from .utility.Common import Common
+from .utility.Common import Common, timed_init
+from .utility.HDF5 import IO
+from .utility.Mixing import Mixing as MixingKernel
 from .utility.DLR import DLR
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
@@ -18,6 +20,8 @@ logger = logging.getLogger("QAssemble")
 
 
 class BLatDyn(object):
+    mixer = MixingKernel()
+
     def __init__(self, crystal: Crystal, dlr: DLR, mixing_method: str = "pulay", npulay: int = 5):
         self.crystal = crystal
         self.dlr = dlr
@@ -372,10 +376,31 @@ class BLatDyn(object):
 
         return ynew
 
-    def Mixing(self, iter: int, mix: float, Bb: np.ndarray, Bold: np.ndarray) -> np.ndarray:
-        raise NotImplementedError(
-            "Object-local single-array mixing is no longer supported. "
-            "Use utility.Mixing with HDF5-backed quantities."
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        component: str = None,
+        value: np.ndarray = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> np.ndarray:
+        if iter is None:
+            iter = getattr(self, "iteration", None)
+        if key is None:
+            key = "global"
+        return IO.MixComponent(
+            hdf5file=getattr(self, "hdf5file", None),
+            group=getattr(self, "group", None),
+            key=key,
+            component=component,
+            value=value,
+            iter=iter,
+            mix=mix,
+            method=method,
+            npulay=npulay,
+            mixer=self.mixer,
         )
 
     def Dyson(self, mat1: np.ndarray, mat2: np.ndarray) -> np.ndarray:
@@ -658,8 +683,19 @@ class BLatDyn(object):
         return fout
 
 
+@timed_init
 class P(BLatDyn):
-    def __init__(self,crystal: Crystal,dlr: DLR,green: np.ndarray = None,hdf5file: str = "glob.h5",group: str = None,):
+    component = "pol"
+
+    def __init__(
+        self,
+        crystal: Crystal,
+        dlr: DLR,
+        green: np.ndarray = None,
+        hdf5file: str = "glob.h5",
+        group: str = None,
+        iteration: int = None,
+    ):
         super().__init__(crystal, dlr)
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -681,6 +717,7 @@ class P(BLatDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         if green is None:
             logger.error("Error, There is no Green's function.")
             sys.exit()
@@ -752,7 +789,35 @@ class P(BLatDyn):
 
         return None
 
-    def Save(self, fn: str):
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> None:
+        self.kf = super().Mixing(
+            iter=iter,
+            mix=mix,
+            component=self.component,
+            value=self.kf,
+            method=method,
+            npulay=npulay,
+            key=key,
+        )
+        self.kt = self.F2T(self.kf)
+        self.rf = self.K2R(self.kf)
+        self.rt = self.K2R(self.kt)
+
+    def Save(self, fn: str, scf: bool = True):
+        if fn is None:
+            raise ValueError("P.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("P.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}"
         with h5py.File(self.hdf5file, "a") as file:
             if self.CheckGroup(self.hdf5file, self.group):
                 group = file[self.group]
@@ -763,13 +828,24 @@ class P(BLatDyn):
             else:
                 group = file.create_group(self.group)
                 pol = group.create_group(self.subgroup)
-            pol.create_dataset(fn, dtype=complex, data=self.kf)
+            IO.CreateDataset(pol, fn_write, self.kf, dtype=complex)
 
         return None
 
 
+@timed_init
 class W(BLatDyn):
-    def __init__(self,crystal: Crystal,dlr: DLR,pol: np.ndarray = None,vbare: V = None,c: float = 1.0,hdf5file: str = "glob.h5", group: str = None,):
+    def __init__(
+        self,
+        crystal: Crystal,
+        dlr: DLR,
+        pol: np.ndarray = None,
+        vbare: V = None,
+        c: float = 1.0,
+        hdf5file: str = "glob.h5",
+        group: str = None,
+        iteration: int = None,
+    ):
         super().__init__(crystal, dlr)
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
@@ -809,6 +885,7 @@ class W(BLatDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         if pol is None:
             logger.error("Error, polarizability doesn't exist")
             sys.exit()
@@ -888,7 +965,14 @@ class W(BLatDyn):
 
         return None
 
-    def Save(self, fn: str):
+    def Save(self, fn: str, scf: bool = True):
+        if fn is None:
+            raise ValueError("W.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("W.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}"
         with h5py.File(self.hdf5file, "a") as file:
             if self.CheckGroup(self.hdf5file, self.group):
                 group = file[self.group]
@@ -900,6 +984,6 @@ class W(BLatDyn):
                 group = file.create_group(self.group)
                 w = group.create_group(self.subgroup)
 
-            w.create_dataset(fn, dtype=complex, data=self.kf)
+            IO.CreateDataset(w, fn_write, self.kf, dtype=complex)
 
         return None

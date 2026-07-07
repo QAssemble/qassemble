@@ -14,10 +14,13 @@ from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Projection import Projection as PJ
+from .utility.HDF5 import IO
+from .utility.Mixing import Mixing as MixingKernel
 
 logger = logging.getLogger("QAssemble")
 
 class FLocStc(object):
+    mixer = MixingKernel()
 
     def __init__(self,crystal : Crystal, projector : Projector):
 
@@ -44,10 +47,31 @@ class FLocStc(object):
 
         return matinv
 
-    def Mixing(self,iter : int, mix : float, Fb : np.ndarray, Fold : np.ndarray) -> np.ndarray:
-        raise NotImplementedError(
-            "Object-local single-array mixing is no longer supported. "
-            "Use utility.Mixing with HDF5-backed quantities."
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        component: str = None,
+        value: np.ndarray = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> np.ndarray:
+        if iter is None:
+            iter = getattr(self, "iteration", None)
+        if key is None:
+            key = getattr(self, "key", None)
+        return IO.MixComponent(
+            hdf5file=getattr(self, "hdf5file", None),
+            group=getattr(self, "group", None),
+            key=key,
+            component=component,
+            value=value,
+            iter=iter,
+            mix=mix,
+            method=method,
+            npulay=npulay,
+            mixer=self.mixer,
         )
 
     def Arr2Dict(self, equiv : np.ndarray, matin : np.ndarray) -> dict:
@@ -215,7 +239,21 @@ class FLocStc(object):
     
 class EImp(FLocStc):
 
-    def __init__(self, crystal : Crystal, projector : Projector, key, hamtb : np.ndarray, mu : float, sigh : np.ndarray = None, sigf : np.ndarray = None, hloc : np.ndarray = None, floc : np.ndarray = None, hdf5file : str = None, group : str = None):
+    def __init__(
+        self,
+        crystal : Crystal,
+        projector : Projector,
+        key,
+        hamtb : np.ndarray,
+        mu : float,
+        sigh : np.ndarray = None,
+        sigf : np.ndarray = None,
+        hloc : np.ndarray = None,
+        floc : np.ndarray = None,
+        hdf5file : str = None,
+        group : str = None,
+        iteration: int = None,
+    ):
 
         super().__init__(crystal, projector)
         print("Enter the EImp class")
@@ -232,6 +270,7 @@ class EImp(FLocStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
 
         print("Non Interacting Hamiltonian : ", self.hamtb[:, :, 0, 0])
         print("Chemical Potential : ", self.mu)
@@ -313,14 +352,21 @@ class EImp(FLocStc):
         logger.info("Impurity Level : %s", self.e)
         return None
 
-    def Save(self, fn: str, obj : np.ndarray = None):
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("EImp.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("EImp.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            eimp = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            eimp = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(eimp, fn, obj, dtype=complex)
+                IO.CreateDataset(eimp, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(eimp, fn, self.e, dtype=complex)
+                IO.CreateDataset(eimp, fn_write, self.e, dtype=complex)
 
         return None
 
@@ -357,7 +403,17 @@ class EImp(FLocStc):
             
 class SigHLoc(FLocStc):
 
-    def __init__(self, crystal : Crystal, projector : Projector, key, occ : np.ndarray = None, vloc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None):
+    def __init__(
+        self,
+        crystal : Crystal,
+        projector : Projector,
+        key,
+        occ : np.ndarray = None,
+        vloc : np.ndarray = None,
+        hdf5file : str = 'glob.h5',
+        group : str = None,
+        iteration: int = None,
+    ):
 
         super().__init__(crystal, projector)
 
@@ -368,6 +424,7 @@ class SigHLoc(FLocStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         self.Cal()
 
     
@@ -421,21 +478,40 @@ class SigHLoc(FLocStc):
 
         return None
 
-    def Save(self, fn: str, obj : np.ndarray = None):
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("SigHLoc.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("SigHLoc.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            sighloc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            sighloc = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(sighloc, fn, obj, dtype=complex)
+                IO.CreateDataset(sighloc, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(sighloc, fn, self.hloc, dtype=complex)
+                IO.CreateDataset(sighloc, fn_write, self.hloc, dtype=complex)
 
         return None
 
 
 class SigHImp(FLocStc):
+    component = "sighimp"
 
-    def __init__(self, crystal : Crystal, projector : Projector, key, gimp = None, occ : np.ndarray = None, vloc = None, hdf5file : str = 'glob.h5', group : str = None):
+    def __init__(
+        self,
+        crystal : Crystal,
+        projector : Projector,
+        key,
+        gimp = None,
+        occ : np.ndarray = None,
+        vloc = None,
+        hdf5file : str = 'glob.h5',
+        group : str = None,
+        iteration: int = None,
+    ):
 
         super().__init__(crystal, projector)
 
@@ -448,6 +524,7 @@ class SigHImp(FLocStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         self.Cal()
 
     def _occupation_from_gimp(self):
@@ -522,20 +599,56 @@ class SigHImp(FLocStc):
 
         return None
 
-    def Save(self, fn: str, obj : np.ndarray = None):
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> None:
+        self.h = super().Mixing(
+            iter=iter,
+            mix=mix,
+            component=self.component,
+            value=self.h,
+            method=method,
+            npulay=npulay,
+            key=key,
+        )
+        self.s = self.h
+
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("SigHImp.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("SigHImp.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            sighimp = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            sighimp = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(sighimp, fn, obj, dtype=complex)
+                IO.CreateDataset(sighimp, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(sighimp, fn, self.s, dtype=complex)
+                IO.CreateDataset(sighimp, fn_write, self.s, dtype=complex)
 
         return None
 
 class SigFLoc(FLocStc):
 
-    def __init__(self, crystal : Crystal, projector : Projector, key, occ : np.ndarray = None, vloc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None):
+    def __init__(
+        self,
+        crystal : Crystal,
+        projector : Projector,
+        key,
+        occ : np.ndarray = None,
+        vloc : np.ndarray = None,
+        hdf5file : str = 'glob.h5',
+        group : str = None,
+        iteration: int = None,
+    ):
 
         super().__init__(crystal, projector)
 
@@ -546,6 +659,7 @@ class SigFLoc(FLocStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
 
         self.Cal()
 
@@ -581,21 +695,39 @@ class SigFLoc(FLocStc):
 
         return None
 
-    def Save(self, fn: str, obj : np.ndarray = None):
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("SigFLoc.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("SigFLoc.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            sigfloc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            sigfloc = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(sigfloc, fn, obj, dtype=complex)
+                IO.CreateDataset(sigfloc, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(sigfloc, fn, self.floc, dtype=complex)
+                IO.CreateDataset(sigfloc, fn_write, self.floc, dtype=complex)
 
         return None
 
 
 class SigFImp(FLocStc):
+    component = "sigfimp"
 
-    def __init__(self, crystal : Crystal, projector : Projector, key, sigma, sigh = None, hdf5file : str = 'glob.h5', group : str = None):
+    def __init__(
+        self,
+        crystal : Crystal,
+        projector : Projector,
+        key,
+        sigma,
+        sigh = None,
+        hdf5file : str = 'glob.h5',
+        group : str = None,
+        iteration: int = None,
+    ):
 
         super().__init__(crystal, projector)
 
@@ -607,6 +739,7 @@ class SigFImp(FLocStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         self.Cal()
 
     def _read_ctqmc_sigma_hf(self, sigma : dict) -> dict:
@@ -638,14 +771,39 @@ class SigFImp(FLocStc):
 
         return None
 
-    def Save(self, fn: str, obj : np.ndarray = None):
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> None:
+        self.s = super().Mixing(
+            iter=iter,
+            mix=mix,
+            component=self.component,
+            value=self.s,
+            method=method,
+            npulay=npulay,
+            key=key,
+        )
+
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("SigFImp.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("SigFImp.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            sigfimp = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            sigfimp = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(sigfimp, fn, obj, dtype=complex)
+                IO.CreateDataset(sigfimp, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(sigfimp, fn, self.s, dtype=complex)
+                IO.CreateDataset(sigfimp, fn_write, self.s, dtype=complex)
 
         return None
 

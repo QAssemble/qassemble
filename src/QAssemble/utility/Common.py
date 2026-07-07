@@ -2,7 +2,9 @@
 This module provides a collection of common utility functions for numerical calculations,
 including matrix operations, interpolation, and special polynomials.
 """
+import functools
 import logging
+import time
 import numpy as np
 from scipy.linalg import eigh
 from scipy.linalg import lapack
@@ -10,30 +12,24 @@ from scipy.linalg import lapack
 logger = logging.getLogger("QAssemble")
 
 
+def timed_init(cls):
+    orig = cls.__init__
+
+    @functools.wraps(orig)
+    def wrapper(self, *args, **kwargs):
+        t0 = time.perf_counter()
+        orig(self, *args, **kwargs)
+        self.elapsed = time.perf_counter() - t0
+        logger.debug(f"[timing] {cls.__name__}: {self.elapsed:.4f}s")
+
+    cls.__init__ = wrapper
+    return cls
+
+
 class Common:
     """
     A collection of static methods for common numerical tasks.
     """
-
-    @staticmethod
-    def HDF5Subgroup(file, group_name : str, subgroup_name : str):
-        """Return file[group_name][subgroup_name], creating groups when needed."""
-        if group_name is None:
-            raise ValueError("HDF5 group name is required")
-        if subgroup_name is None:
-            raise ValueError("HDF5 subgroup name is required")
-
-        group = file[group_name] if group_name in file else file.create_group(group_name)
-        return group[subgroup_name] if subgroup_name in group else group.create_group(subgroup_name)
-
-    @staticmethod
-    def HDF5CreateDataset(group, name : str, data, dtype=None):
-        """Create or replace a dataset in an HDF5 group."""
-        if name in group:
-            del group[name]
-        if dtype is None:
-            return group.create_dataset(name, data=data)
-        return group.create_dataset(name, dtype=dtype, data=data)
 
     @staticmethod
     def MatInv(matin : np.ndarray) -> np.ndarray:
@@ -735,4 +731,3 @@ class Common:
         if not np.all(np.isfinite(np.real(arr))) or not np.all(np.isfinite(np.imag(arr))):
             raise ValueError(f"{name} contains non-finite values")
         return np.ascontiguousarray(arr)
-

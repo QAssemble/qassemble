@@ -281,6 +281,7 @@ class CTQMC(object):
                 green=obsjson["green"],
                 hdf5file=self.hdf5file,
                 group=self.group,
+                iteration=iter,
             )
             static_interaction = self.bweiss.vloc.vproj[key]
             dynamic_interaction = self.bweiss.f
@@ -293,6 +294,7 @@ class CTQMC(object):
                 vloc=dynamic_interaction if dynamic_interaction is not None else static_interaction,
                 hdf5file=self.hdf5file,
                 group=self.group,
+                iteration=iter,
             )
             self.sigfimp = SigFImp(
                 crystal=self.crystal,
@@ -302,6 +304,7 @@ class CTQMC(object):
                 sigh=self.sighimp,
                 hdf5file=self.hdf5file,
                 group=self.group,
+                iteration=iter,
             )
             self.sigimp = SigCImp(
                 crystal=self.crystal,
@@ -311,6 +314,7 @@ class CTQMC(object):
                 sigma=obsjson["self-energy"],
                 hdf5file=self.hdf5file,
                 group=self.group,
+                iteration=iter,
             )
             if self._use_dyn():
                 self.chi = Chi(
@@ -321,6 +325,7 @@ class CTQMC(object):
                     partition=obsjson,
                     hdf5file=self.hdf5file,
                     group=self.group,
+                    iteration=iter,
                 )
                 self.pimp = PImp(
                     crystal=self.crystal,
@@ -331,6 +336,7 @@ class CTQMC(object):
                     utilde=dynamic_interaction,
                     hdf5file=self.hdf5file,
                     group=self.group,
+                    iteration=iter,
                 )
 
             params = json.load(open('./params.json'))

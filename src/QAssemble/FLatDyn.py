@@ -10,7 +10,9 @@ from .Crystal import Crystal
 from .FLatStc import FLatStc
 from .Projector import Projector
 from .utility.DLR import DLR
-from .utility.Common import Common
+from .utility.Common import Common, timed_init
+from .utility.HDF5 import IO
+from .utility.Mixing import Mixing as MixingKernel
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Embedding import Embedding as EB
@@ -19,6 +21,8 @@ from .utility.Causal import CausalFermionProjector
 logger = logging.getLogger("QAssemble")
 
 class FLatDyn(object):
+    mixer = MixingKernel()
+
     def __init__(self,crystal : Crystal, dlr : DLR, mixing_method: str = "pulay", npulay: int = 5) -> object:
         self.crystal = crystal
         self.dlr = dlr
@@ -532,10 +536,31 @@ class FLatDyn(object):
 
         return ynew
     
-    def Mixing(self, iter : int, mix : float, Fb : np.ndarray, Fm : np.ndarray) -> np.ndarray:
-        raise NotImplementedError(
-            "Object-local single-array mixing is no longer supported. "
-            "Use utility.Mixing with HDF5-backed quantities."
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        component: str = None,
+        value: np.ndarray = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> np.ndarray:
+        if iter is None:
+            iter = getattr(self, "iteration", None)
+        if key is None:
+            key = "global"
+        return IO.MixComponent(
+            hdf5file=getattr(self, "hdf5file", None),
+            group=getattr(self, "group", None),
+            key=key,
+            component=component,
+            value=value,
+            iter=iter,
+            mix=mix,
+            method=method,
+            npulay=npulay,
+            mixer=self.mixer,
         )
     
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
@@ -853,6 +878,7 @@ class FLatDyn(object):
         return expanded
 
 
+@timed_init
 class G0(FLatDyn):
 
     def __init__(self, crystal: Crystal, dlr : DLR, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
@@ -915,13 +941,25 @@ class G0(FLatDyn):
             else:
                 group = file.create_group(self.group)
                 gbare = group.create_group(self.subgroup)
-            Common.HDF5CreateDataset(gbare, 'g0kf', self.kf, dtype=complex)
+            IO.CreateDataset(gbare, 'g0kf', self.kf, dtype=complex)
 
         return None
     
+@timed_init
 class G(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
+    def __init__(
+        self,
+        crystal: Crystal,
+        dlr : DLR,
+        greenbare : np.ndarray = None,
+        sigmah : np.ndarray = None,
+        sigmaf : np.ndarray = None,
+        sigmagwc : np.ndarray = None,
+        hdf5file : str = 'glob.h5',
+        group : str = None,
+        iteration: int = None,
+    ) -> object:
         
         if greenbare is None:
             logger.error("Bare Green's function doesn't exist")
@@ -953,6 +991,7 @@ class G(FLatDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         
         logger.info("Interacting Green's function Calculation Start")
         start = time.time()
@@ -960,6 +999,8 @@ class G(FLatDyn):
 
         self.SearchMu()
         end = time.time()
+        logger.info(f"chemical potential : {self.mu}")
+        logger.debug(self.occ)
         logger.info("Interacting Green's function Calculation Finish")
         logger.info(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
 
@@ -994,7 +1035,7 @@ class G(FLatDyn):
         self.gktmu0 = self.F2T(self.gkfmu0)
         self.grfmu0 = self.K2R(self.gkfmu0)
         self.grtmu0 = self.K2R(self.gktmu0)
-        print(f"[G.CalMu0] c={self.c}, gkfmu0[0,0,0,0,-1]={self.gkfmu0[0,0,0,0,-1]}")
+        logger.debug(f"[G.CalMu0] c={self.c}, gkfmu0[0,0,0,0,-1]={self.gkfmu0[0,0,0,0,-1]}")
         logger.info("Initialization finish")
         return None
     
@@ -1148,7 +1189,7 @@ class G(FLatDyn):
             sys.exit()
         sol = scipy.optimize.brentq(self.NumOfE,mumin,mumax,xtol=1.0e-6)
         self.mu = sol  # physical chemical potential (c-shift no longer applied)
-        print(f"[G.SearchMu] sol={sol}, mu={self.mu}, mumin={mumin}, mumax={mumax}")
+        logger.debug(f"[G.SearchMu] sol={sol}, mu={self.mu}, mumin={mumin}, mumax={mumax}")
         logger.info("Finding chemical potential finish")
 
         # Clean up caches
@@ -1158,7 +1199,16 @@ class G(FLatDyn):
         self.UpdateMu()
         return None
     
-    def Save(self, fn: str, chem : bool = False):
+    def Save(self, fn: str, scf: bool = True):
+        if fn is None:
+            raise ValueError("G.Save requires fn")
+        fn_write = fn
+        mu_write = "mu"
+        if scf:
+            if self.iteration is None:
+                raise ValueError("G.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}"
+            mu_write = f"mu.{self.iteration}"
 
         
         with h5py.File(self.hdf5file,'a') as file:
@@ -1171,11 +1221,11 @@ class G(FLatDyn):
             else:
                 group = file.create_group(self.group)
                 green = group.create_group(self.subgroup)
-            Common.HDF5CreateDataset(green, fn, self.kf, dtype=complex)
+            IO.CreateDataset(green, fn_write, self.kf, dtype=complex)
             
-            if chem:
-                mureal = np.real(self.mu)
-                Common.HDF5CreateDataset(green, 'mu', mureal, dtype=float)
+            
+            # mureal = np.real(self.mu)
+            IO.CreateDataset(green, mu_write, self.mu, dtype=float)
 
         return None
 
@@ -1292,9 +1342,20 @@ class SigC(FLatDyn):
         return None
 
     
+@timed_init
 class SigGWC(FLatDyn):
+    component = "siggwc"
 
-    def __init__(self, crystal: Crystal, dlr : DLR, green : np.ndarray = None, wlat : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None) -> object:
+    def __init__(
+        self,
+        crystal: Crystal,
+        dlr : DLR,
+        green : np.ndarray = None,
+        wlat : np.ndarray = None,
+        hdf5file : str = 'glob.h5',
+        group : str = None,
+        iteration: int = None,
+    ) -> object:
         super().__init__(crystal, dlr)
         self.flatstc = FLatStc(crystal=crystal)
         norb, _, ns, nk, nfreq = green.shape
@@ -1308,6 +1369,7 @@ class SigGWC(FLatDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
 
         if green is None:
             logger.error("Error, green doesn't exist")
@@ -1411,9 +1473,37 @@ class SigGWC(FLatDyn):
         self.kf = ckfreq
 
         return None
+
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> None:
+        self.kf = super().Mixing(
+            iter=iter,
+            mix=mix,
+            component=self.component,
+            value=self.kf,
+            method=method,
+            npulay=npulay,
+            key=key,
+        )
+        self.kt = self.F2T(self.kf)
+        self.rf = self.K2R(self.kf)
+        self.rt = self.K2R(self.kt)
     
     
-    def Save(self, fn: str, obj : np.ndarray = None):
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("SigGWC.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("SigGWC.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}"
 
         with h5py.File(self.hdf5file,'a') as file:
             if self.CheckGroup(self.hdf5file,self.group):
@@ -1428,9 +1518,9 @@ class SigGWC(FLatDyn):
             
 
             if obj is not None:
-                Common.HDF5CreateDataset(sigmac, fn, obj, dtype=complex)
+                IO.CreateDataset(sigmac, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(sigmac, fn, self.kf, dtype=complex)
+                IO.CreateDataset(sigmac, fn_write, self.kf, dtype=complex)
 
         return None
 

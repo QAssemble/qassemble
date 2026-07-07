@@ -10,8 +10,11 @@ from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Projection import Projection as PJ
 from .utility.Causal import CausalBosonProjector
+from .utility.HDF5 import IO
+from .utility.Mixing import Mixing as MixingKernel
 
 class BLocDyn(object):
+    mixer = MixingKernel()
 
     def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector):
 
@@ -214,10 +217,31 @@ class BLocDyn(object):
 
         return ynew
     
-    def Mixing(self,iter : int, mix : float, Bb : np.ndarray, Bold : np.ndarray):
-        raise NotImplementedError(
-            "Object-local single-array mixing is no longer supported. "
-            "Use utility.Mixing with HDF5-backed quantities."
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        component: str = None,
+        value: np.ndarray = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> np.ndarray:
+        if iter is None:
+            iter = getattr(self, "iteration", None)
+        if key is None:
+            key = getattr(self, "key", None)
+        return IO.MixComponent(
+            hdf5file=getattr(self, "hdf5file", None),
+            group=getattr(self, "group", None),
+            key=key,
+            component=component,
+            value=value,
+            iter=iter,
+            mix=mix,
+            method=method,
+            npulay=npulay,
+            mixer=self.mixer,
         )
 
     def _resolve_equiv_matrix(self, imp=None, key=None) -> np.ndarray:
@@ -573,7 +597,17 @@ class BLocDyn(object):
 
 class Chi(BLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, partition : dict = None, hdf5file : str = None, group : str = None):
+    def __init__(
+        self,
+        crystal : Crystal,
+        dlr : DLR,
+        projector : Projector,
+        key,
+        partition : dict = None,
+        hdf5file : str = None,
+        group : str = None,
+        iteration: int = None,
+    ):
 
         super().__init__(crystal, dlr, projector)
 
@@ -587,6 +621,7 @@ class Chi(BLocDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         self.Cal()
 
     def _json_complex_array(self, val) -> np.ndarray:
@@ -760,21 +795,29 @@ class Chi(BLocDyn):
 
         return None
 
-    def Save(self, fn: str, obj : np.ndarray = None):
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("Chi.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("Chi.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            chi = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            chi = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(chi, fn, obj, dtype=complex)
+                IO.CreateDataset(chi, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(chi, fn, self.f, dtype=complex)
+                IO.CreateDataset(chi, fn_write, self.f, dtype=complex)
 
         return None
 
 
 class PImp(BLocDyn):
+    component = "pimp"
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, chi : Chi = None, utilde = None, hdf5file : str = None, group : str = None):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, chi : Chi = None, utilde = None, hdf5file : str = None, group : str = None, iteration: int = None):
 
         super().__init__(crystal, dlr, projector)
 
@@ -787,6 +830,7 @@ class PImp(BLocDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         self.Cal()
 
     def _quad_to_local_boson(self, chi : np.ndarray) -> np.ndarray:
@@ -843,20 +887,46 @@ class PImp(BLocDyn):
 
         return None
 
-    def Save(self, fn: str, obj : np.ndarray = None):
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> None:
+        self.f = super().Mixing(
+            iter=iter,
+            mix=mix,
+            component=self.component,
+            value=self.f,
+            method=method,
+            npulay=npulay,
+            key=key,
+        )
+        self.t = self.F2T(self.f)
+
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("PImp.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("PImp.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            pimp = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            pimp = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(pimp, fn, obj, dtype=complex)
+                IO.CreateDataset(pimp, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(pimp, fn, self.f, dtype=complex)
+                IO.CreateDataset(pimp, fn_write, self.f, dtype=complex)
 
         return None
 
 class BWeiss(BLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, vloc : VLoc, ploc = None, wloc = None, hdf5file : str = None, group : str = None):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, vloc : VLoc, ploc = None, wloc = None, hdf5file : str = None, group : str = None, iteration: int = None):
 
         super().__init__(crystal, dlr, projector)
 
@@ -873,6 +943,7 @@ class BWeiss(BLocDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
 
         if self.key not in self.vloc.vproj:
             self.vloc.BuildProjection(self.projector)
@@ -934,20 +1005,27 @@ class BWeiss(BLocDyn):
 
         return None
 
-    def Save(self, fn: str, obj : np.ndarray = None):
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("BWeiss.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("BWeiss.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            bweiss = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            bweiss = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(bweiss, fn, obj, dtype=complex)
+                IO.CreateDataset(bweiss, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(bweiss, fn, self.vloc.vproj[self.key], dtype=complex)
+                IO.CreateDataset(bweiss, fn_write, self.vloc.vproj[self.key], dtype=complex)
 
         return None
 
 class PLoc(BLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, gloc : np.ndarray = None, hdf5file : str = None, group : str = None):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, gloc : np.ndarray = None, hdf5file : str = None, group : str = None, iteration: int = None):
 
         super().__init__(crystal, dlr, projector)
 
@@ -955,6 +1033,7 @@ class PLoc(BLocDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
 
         ns = self.crystal.ns
         nborb = self.projector.bprojector[self.key].shape[1]
@@ -1021,14 +1100,21 @@ class PLoc(BLocDyn):
 
         return None
 
-    def Save(self, fn: str, obj : np.ndarray = None):
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("PLoc.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("PLoc.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            ploc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            ploc = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(ploc, fn, obj, dtype=complex)
+                IO.CreateDataset(ploc, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(ploc, fn, self.f, dtype=complex)
+                IO.CreateDataset(ploc, fn_write, self.f, dtype=complex)
 
         return None
 
@@ -1041,7 +1127,7 @@ class PLoc(BLocDyn):
 
 class WLoc(BLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, pol : np.ndarray = None, vloc : np.ndarray = None, c : float = 1.0, hdf5file : str = None, group : str = None):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, pol : np.ndarray = None, vloc : np.ndarray = None, c : float = 1.0, hdf5file : str = None, group : str = None, iteration: int = None):
 
         super().__init__(crystal, dlr, projector)
 
@@ -1064,6 +1150,7 @@ class WLoc(BLocDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         if pol is None:
             raise ValueError("Error, polarizability doesn't exist")
         if vloc is None:
@@ -1089,14 +1176,21 @@ class WLoc(BLocDyn):
 
         return None
 
-    def Save(self, fn: str, obj : np.ndarray = None):
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("WLoc.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("WLoc.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            wloc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            wloc = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(wloc, fn, obj, dtype=complex)
+                IO.CreateDataset(wloc, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(wloc, fn, self.f, dtype=complex)
+                IO.CreateDataset(wloc, fn_write, self.f, dtype=complex)
 
         return None
 

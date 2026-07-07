@@ -109,12 +109,12 @@ def test_impurity_action_saves_required_and_optional_outputs(monkeypatch, tmp_pa
 
     result = method_mod.ImpurityAction(fweiss, bweiss, iteration=2)()
 
-    assert result.gimp.saved == ["gimp.2.imp0"]
-    assert result.sighimp.saved == ["sighimp.2.imp0"]
-    assert result.sigfimp.saved == ["sigfimp.2.imp0"]
-    assert result.sigimp.saved == ["sigimp.2.imp0"]
-    assert result.chi.saved == ["chi.2.imp0"]
-    assert result.pimp.saved == ["pimp.2.imp0"]
+    assert result.gimp.saved == ["gimp"]
+    assert result.sighimp.saved == ["sighimp"]
+    assert result.sigfimp.saved == ["sigfimp"]
+    assert result.sigimp.saved == ["sigimp"]
+    assert result.chi.saved == ["chi"]
+    assert result.pimp.saved == ["pimp"]
     assert fake_ctqmc.instances[0].calls[-1] == ("PostProcessing", 2)
 
 
@@ -183,6 +183,7 @@ def test_hfloc_builds_local_hf_objects_and_saves_on_first_iteration(monkeypatch)
         "vloc": "vproj",
         "hdf5file": "calc.h5",
         "group": "hfloc",
+        "iteration": 1,
     }
     assert result.sigf.label == "sigfloc"
     assert result.sigf.kwargs == {
@@ -193,9 +194,10 @@ def test_hfloc_builds_local_hf_objects_and_saves_on_first_iteration(monkeypatch)
         "vloc": "vproj",
         "hdf5file": "calc.h5",
         "group": "hfloc",
+        "iteration": 1,
     }
-    assert result.sigh.saved == ["sighloc.1.1"]
-    assert result.sigf.saved == ["sigfloc.1.1"]
+    assert result.sigh.saved == ["sighloc"]
+    assert result.sigf.saved == ["sigfloc"]
     sigh, sigf = result
     assert (sigh, sigf) == (result.sigh, result.sigf)
 
@@ -289,6 +291,7 @@ def test_gwloc_builds_local_gw_objects_and_saves_on_first_iteration(monkeypatch)
         "wloc": "wct",
         "hdf5file": "calc.h5",
         "group": "gwloc",
+        "iteration": 1,
     }
     assert result.pol.label == "ploc"
     assert result.pol.kwargs == {
@@ -299,9 +302,10 @@ def test_gwloc_builds_local_gw_objects_and_saves_on_first_iteration(monkeypatch)
         "gloc": "gtau",
         "hdf5file": "calc.h5",
         "group": "gwloc",
+        "iteration": 1,
     }
-    assert result.siggwc.saved == ["siggwcloc.f.1.1"]
-    assert result.pol.saved == ["ploc.f.1.1"]
+    assert result.siggwc.saved == ["siggwcloc.f"]
+    assert result.pol.saved == ["ploc.f"]
     siggwc, pol = result
     assert (siggwc, pol) == (result.siggwc, result.pol)
 

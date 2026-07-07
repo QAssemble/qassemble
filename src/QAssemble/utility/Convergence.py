@@ -358,6 +358,12 @@ class Convergence:
             row["mu"] = mu_value
 
         self._write_convergence_log(row)
+        deltas = ", ".join(
+            f"{k}={v:.3e}"
+            for k, v in row.items()
+            if k != "iter" and isinstance(v, (int, float, np.floating))
+        )
+        logger.info(f"[conv][iter {row['iter']}] {deltas}")
 
         if will_continue and not converged:
             for name, (val, kind) in self._pending_prev.items():

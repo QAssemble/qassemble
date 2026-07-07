@@ -11,6 +11,8 @@ from .BLocStc import VLoc
 from .Crystal import Crystal
 from .Projector import Projector
 from .utility.Common import Common
+from .utility.HDF5 import IO
+from .utility.Mixing import Mixing as MixingKernel
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Embedding import Embedding as EB
@@ -19,6 +21,7 @@ logger = logging.getLogger("QAssemble")
 
 
 class BLatStc(object):
+    mixer = MixingKernel()
 
     def __init__(self, crystal: Crystal):
         self.crystal = crystal
@@ -97,11 +100,30 @@ class BLatStc(object):
         return matk
 
     def Mixing(
-        self, iter: int, mix: float, Bb: np.ndarray, Bold: np.ndarray
+        self,
+        iter: int = None,
+        mix: float = None,
+        component: str = None,
+        value: np.ndarray = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
     ) -> np.ndarray:
-        raise NotImplementedError(
-            "Object-local single-array mixing is no longer supported. "
-            "Use utility.Mixing with HDF5-backed quantities."
+        if iter is None:
+            iter = getattr(self, "iteration", None)
+        if key is None:
+            key = "global"
+        return IO.MixComponent(
+            hdf5file=getattr(self, "hdf5file", None),
+            group=getattr(self, "group", None),
+            key=key,
+            component=component,
+            value=value,
+            iter=iter,
+            mix=mix,
+            method=method,
+            npulay=npulay,
+            mixer=self.mixer,
         )
 
     def Dyson(self, mat1: np.ndarray, mat2: np.ndarray):
@@ -649,7 +671,7 @@ class V(BLatStc):
             else:
                 group = file.create_group(self.group)
                 vbare = group.create_group(self.subgroup)
-            Common.HDF5CreateDataset(vbare, "vk", self.k, dtype=complex)
+            IO.CreateDataset(vbare, "vk", self.k, dtype=complex)
 
         return None
 

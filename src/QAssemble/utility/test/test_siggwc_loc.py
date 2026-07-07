@@ -115,7 +115,7 @@ def test_siggwc_loc_save_writes_frequency_data(tmp_path):
         hdf5file=str(h5_path),
         group="gwloc",
     )
-    sig.Save("siggwc.loc")
+    sig.Save("siggwc.loc", scf=False)
 
     with h5py.File(h5_path, "r") as handle:
         data = handle["gwloc"]["SigGWCLoc"]["siggwc.loc"][:]

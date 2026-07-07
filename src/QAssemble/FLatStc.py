@@ -12,7 +12,9 @@ import scipy.optimize
 
 from .Crystal import Crystal
 from .Projector import Projector
-from .utility.Common import Common
+from .utility.Common import Common, timed_init
+from .utility.HDF5 import IO
+from .utility.Mixing import Mixing as MixingKernel
 from .utility.Dyson import Dyson
 from .utility.Embedding import Embedding as EB
 from .utility.Fourier import Fourier
@@ -26,6 +28,7 @@ logger = logging.getLogger("QAssemble")
 
 
 class FLatStc(object):
+    mixer = MixingKernel()
 
     def __init__(self, crystal: Crystal, mixing_method: str = "pulay", npulay: int = 5):
 
@@ -354,11 +357,30 @@ class FLatStc(object):
         return None
 
     def Mixing(
-        self, iter: int, mix: float, Fb: np.ndarray, Fm: np.ndarray
+        self,
+        iter: int = None,
+        mix: float = None,
+        component: str = None,
+        value: np.ndarray = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
     ) -> np.ndarray:
-        raise NotImplementedError(
-            "Object-local single-array mixing is no longer supported. "
-            "Use utility.Mixing with HDF5-backed quantities."
+        if iter is None:
+            iter = getattr(self, "iteration", None)
+        if key is None:
+            key = "global"
+        return IO.MixComponent(
+            hdf5file=getattr(self, "hdf5file", None),
+            group=getattr(self, "group", None),
+            key=key,
+            component=component,
+            value=value,
+            iter=iter,
+            mix=mix,
+            method=method,
+            npulay=npulay,
+            mixer=self.mixer,
         )
 
     def ChemEmbedding(self, mu: float) -> np.ndarray:
@@ -734,7 +756,7 @@ class H0(FLatStc):
             else:
                 tb = file.create_group(self.group)
                 niham = tb.create_group(self.subgroup)
-            Common.HDF5CreateDataset(niham, "h0k", self.k, dtype=complex)
+            IO.CreateDataset(niham, "h0k", self.k, dtype=complex)
         # self.hdf5file.create_dataset('h0k',dtype=float,data=self.k)
 
         return None
@@ -825,7 +847,9 @@ class H0(FLatStc):
     #     pass
 
 
+@timed_init
 class SigH(FLatStc):
+    component = "sigh"
 
     def __init__(
         self,
@@ -834,6 +858,7 @@ class SigH(FLatStc):
         vbare: np.ndarray = None,
         hdf5file: str = "glob.h5",
         group: str = None,
+        iteration: int = None,
     ):  # green -> occ
         super().__init__(crystal)
         self.r = None
@@ -842,6 +867,7 @@ class SigH(FLatStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         self.occ = occ
 
         logger.info("Hartree Self-energy Calculation Start")
@@ -974,7 +1000,33 @@ class SigH(FLatStc):
 
         return None
 
-    def Save(self, fn: str):
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> None:
+        self.k = super().Mixing(
+            iter=iter,
+            mix=mix,
+            component=self.component,
+            value=self.k,
+            method=method,
+            npulay=npulay,
+            key=key,
+        )
+        self.r = self.K2R(self.k)
+
+    def Save(self, fn: str, scf: bool = True):
+        if fn is None:
+            raise ValueError("SigH.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("SigH.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}"
 
         # os.chdir('work')
 
@@ -998,12 +1050,14 @@ class SigH(FLatStc):
             else:
                 group = file.create_group(self.group)
                 sigmah = group.create_group(self.subgroup)
-            Common.HDF5CreateDataset(sigmah, fn, self.k, dtype=complex)
+            IO.CreateDataset(sigmah, fn_write, self.k, dtype=complex)
 
         return None
 
 
+@timed_init
 class SigF(FLatStc):
+    component = "sigf"
 
     def __init__(
         self,
@@ -1012,6 +1066,7 @@ class SigF(FLatStc):
         vbare: np.ndarray = None,
         hdf5file: str = "glob.h5",
         group: str = None,
+        iteration: int = None,
     ):  # green -> occ
         super().__init__(crystal)
         self.r = None
@@ -1019,6 +1074,7 @@ class SigF(FLatStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         # self.green = green
         self.occr = occr
         self.vbare = vbare
@@ -1081,7 +1137,33 @@ class SigF(FLatStc):
         del fr, occr
         return None
 
-    def Save(self, fn: str):
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> None:
+        self.k = super().Mixing(
+            iter=iter,
+            mix=mix,
+            component=self.component,
+            value=self.k,
+            method=method,
+            npulay=npulay,
+            key=key,
+        )
+        self.r = self.K2R(self.k)
+
+    def Save(self, fn: str, scf: bool = True):
+        if fn is None:
+            raise ValueError("SigF.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("SigF.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}"
 
         # os.chdir('work')
 
@@ -1105,7 +1187,7 @@ class SigF(FLatStc):
             else:
                 group = file.create_group(self.group)
                 sigmaf = group.create_group(self.subgroup)
-            Common.HDF5CreateDataset(sigmaf, fn, self.k, dtype=complex)
+            IO.CreateDataset(sigmaf, fn_write, self.k, dtype=complex)
 
         return None
 
@@ -1123,6 +1205,7 @@ class H(FLatStc):
         z : np.ndarray = None,
         hdf5file: str = "glob.h5",
         group: str = None,
+        iteration: int = None,
     ):
         super().__init__(crystal)
 
@@ -1142,6 +1225,7 @@ class H(FLatStc):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         # self.muold = mu
         logger.info("Hamiltonian with Self-energy Calculation Start")
         self.CalMu0()
@@ -1279,7 +1363,16 @@ class H(FLatStc):
 
         return None
 
-    def Save(self, fn: str, chem: bool = False):
+    def Save(self, fn: str, scf: bool = True):
+        if fn is None:
+            raise ValueError("H.Save requires fn")
+        fn_write = fn
+        mu_write = "mu"
+        if scf:
+            if self.iteration is None:
+                raise ValueError("H.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}"
+            mu_write = f"mu.{self.iteration}"
         # os.chdir('work')
 
         # filepath = 'flatstc.h5'
@@ -1302,20 +1395,34 @@ class H(FLatStc):
             else:
                 group = file.create_group(self.group)
                 ham = group.create_group(self.subgroup)
-            if chem:
-                Common.HDF5CreateDataset(ham, "mu", self.mu, dtype=float)
-            Common.HDF5CreateDataset(ham, fn, self.k, dtype=complex)
+            IO.CreateDataset(ham, mu_write, self.mu, dtype=float)
+            IO.CreateDataset(ham, fn_write, self.k, dtype=complex)
 
         return None
     
-    def OccMixing(self, iter : int = None, mix : float = None, occkb : np.ndarray = None, occkm : np.ndarray = None) -> np.ndarray:
+    def OccMixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        occkb: np.ndarray = None,
+        occkm: np.ndarray = None,
+        method: str = "pulay",
+        npulay: int = 5,
+    ) -> np.ndarray:
 
         norb = occkb.shape[0]
         ns = occkb.shape[2]
         nk = occkb.shape[3]
         
         occnew = np.zeros((norb, norb, ns),dtype=np.complex128, order="F")
-        occknew = self.Mixing(iter=iter, mix=mix, Fb=occkb, Fm=occkm)
+        occknew = self.Mixing(
+            iter=iter,
+            mix=mix,
+            component="occk",
+            value=occkb,
+            method=method,
+            npulay=npulay,
+        )
 
         for ik in range(nk):
             occnew += occknew[..., ik]
@@ -1422,9 +1529,9 @@ class Z(FLatStc):
             
 
             if obj is not None:
-                Common.HDF5CreateDataset(sigmac, fn, obj, dtype=complex)
+                IO.CreateDataset(sigmac, fn, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(sigmac, fn, self.k, dtype=complex)
+                IO.CreateDataset(sigmac, fn, self.k, dtype=complex)
 
         return None
 
@@ -1482,8 +1589,8 @@ class SigStc(FLatStc):
             
 
             if obj is not None:
-                Common.HDF5CreateDataset(sigmac, fn, obj, dtype=complex)
+                IO.CreateDataset(sigmac, fn, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(sigmac, fn, self.k, dtype=complex)
+                IO.CreateDataset(sigmac, fn, self.k, dtype=complex)
 
         return None

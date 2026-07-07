@@ -47,17 +47,7 @@ class _FakeConvergence:
         }
 
 
-class _FakeMixing:
-    npulay = 1
-
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def __call__(self, iter, mix, key, quantities):
-        return quantities
-
-
-def test_gw_approximation_modular_uses_current_hf_and_gw_results(monkeypatch):
+def test_gw_approximation_uses_current_hf_and_gw_results(monkeypatch):
     cf_mod = importlib.import_module("QAssemble.CorrelationFunction")
     calls = {
         "G": [],
@@ -134,10 +124,17 @@ def test_gw_approximation_modular_uses_current_hf_and_gw_results(monkeypatch):
     monkeypatch.setattr(cf_mod, "W", FakeW)
     monkeypatch.setattr(cf_mod, "HF", fake_hf)
     monkeypatch.setattr(cf_mod, "GW", fake_gw)
-    monkeypatch.setattr(cf_mod, "Mixing", _FakeMixing)
 
     corr = object.__new__(cf_mod.CorrelationFunction)
-    corr.control = {"run": {"nscf": 1, "mix": 0.5, "fn": "calc"}}
+    corr.control = {
+        "run": {
+            "nscf": 1,
+            "mix": 0.5,
+            "fn": "calc",
+            "mixing_method": "linear",
+            "npulay": 2,
+        }
+    }
     corr.crystal = "crystal"
     corr.dlr = SimpleNamespace(nu=[0, 1])
     corr.c = 1.0
@@ -146,21 +143,27 @@ def test_gw_approximation_modular_uses_current_hf_and_gw_results(monkeypatch):
     corr.vbare = SimpleNamespace(k=np.zeros((1, 1, 1, 1)))
     corr.conv = _FakeConvergence()
 
-    corr.GWApproximation_Modular()
+    corr.GWApproximation()
 
     assert len(calls["HF"]) == 1
     assert calls["HF"][0]["occ"] is occ
     assert calls["HF"][0]["occr"] is occr
     assert calls["HF"][0]["v"] is corr.vbare
     assert calls["HF"][0]["hdf5file"] == "calc.h5"
-    assert calls["HF"][0]["group"] == "gw_modular"
+    assert calls["HF"][0]["group"] == "gw"
     assert calls["HF"][0]["iteration"] == 1
+    assert calls["HF"][0]["mix"] == 0.5
+    assert calls["HF"][0]["mixing_method"] == "linear"
+    assert calls["HF"][0]["npulay"] == 2
     assert len(calls["GW"]) == 1
     assert calls["GW"][0]["g"] is FakeG.instances[0]
     assert calls["GW"][0]["w"] is FakeW.instances[0]
     assert calls["GW"][0]["hdf5file"] == "calc.h5"
-    assert calls["GW"][0]["group"] == "gw_modular"
+    assert calls["GW"][0]["group"] == "gw"
     assert calls["GW"][0]["iteration"] == 1
+    assert calls["GW"][0]["mix"] == 0.5
+    assert calls["GW"][0]["mixing_method"] == "linear"
+    assert calls["GW"][0]["npulay"] == 2
     assert calls["G"][1]["args"][3] is sigh_k
     assert calls["G"][1]["args"][4] is sigf_k
     assert calls["G"][1]["args"][5] is siggwc_kf
@@ -171,9 +174,17 @@ def test_gw_approximation_modular_uses_current_hf_and_gw_results(monkeypatch):
     assert corr.siggwc.kf is siggwc_kf
     assert corr.sigh.k is sigh_k
     assert corr.sigf.k is sigf_k
-    assert [item[0] for item in corr.sigh.saved] == ["sigh.1", "sigh"]
-    assert [item[0] for item in corr.sigf.saved] == ["sigf.1", "sigf"]
-    assert [item[0] for item in corr.siggwc.saved] == ["siggwckf.1", "siggwckf"]
+    assert [item[0] for item in corr.sigh.saved] == ["sigh"]
+    assert [item[0] for item in corr.sigf.saved] == ["sigf"]
+    assert [item[0] for item in corr.siggwc.saved] == ["siggwckf", "siggwckf"]
     assert FakeG.instances[0].subgroup == "G"
     assert FakeG.instances[1].subgroup == "G"
-    assert set(corr.gw_object_times[0]) == {"iter", "G_init", "W_init", "HF", "GW", "W", "G"}
+
+
+def test_gw_timing_constructor_targets_are_decorated():
+    from QAssemble.BLatDyn import P, W
+    from QAssemble.FLatDyn import G, G0, SigGWC
+    from QAssemble.FLatStc import SigF, SigH
+
+    for cls in (G0, G, SigGWC, SigH, SigF, P, W):
+        assert hasattr(cls.__init__, "__wrapped__")

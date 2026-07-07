@@ -63,19 +63,50 @@ class HF(object):
         self.hdf5file = kwargs.get('hdf5file', None)
         self.group = kwargs.get('group', 'hf')
         self.iteration = kwargs.get('iteration', None)
+        self.mix = kwargs.get('mix', None)
+        self.mixing_method = kwargs.get('mixing_method', 'pulay')
+        self.npulay = int(kwargs.get('npulay', 5))
 
     def __call__(self):
+        t0 = time.perf_counter()
 
         crystal = self.v.crystal
 
-        sigh = SigH(crystal = crystal, occ = self.occ, vbare = self.v.k, hdf5file = self.hdf5file, group = self.group)
+        sigh = SigH(
+            crystal=crystal,
+            occ=self.occ,
+            vbare=self.v.k,
+            hdf5file=self.hdf5file,
+            group=self.group,
+            iteration=self.iteration,
+        )
 
-        sigf = SigF(crystal = crystal, occr = self.occr, vbare = self.v.r, hdf5file = self.hdf5file, group = self.group)
+        sigf = SigF(
+            crystal=crystal,
+            occr=self.occr,
+            vbare=self.v.r,
+            hdf5file=self.hdf5file,
+            group=self.group,
+            iteration=self.iteration,
+        )
 
-        if (self.iteration % 50 == 0) or (self.iteration == 1):
-            sigh.Save(f'sigh.k.{self.iteration}')
-            sigf.Save(f'sigf.k.{self.iteration}')
+        if self.iteration is not None and ((self.iteration % 50 == 0) or (self.iteration == 1)):
+            sigh.Save('sigh.k')
+            sigf.Save('sigf.k')
 
+        if self.mix is not None:
+            sigh.Mixing(
+                mix=self.mix,
+                method=self.mixing_method,
+                npulay=self.npulay,
+            )
+            sigf.Mixing(
+                mix=self.mix,
+                method=self.mixing_method,
+                npulay=self.npulay,
+            )
+
+        self.elapsed = time.perf_counter() - t0
         return HFResult(sigh=sigh, sigf=sigf)
 
 
@@ -113,6 +144,7 @@ class HFLoc(object):
             vloc=vloc,
             hdf5file=self.hdf5file,
             group=self.group,
+            iteration=self.iteration,
         )
 
         sigf = SigFLoc(
@@ -123,11 +155,12 @@ class HFLoc(object):
             vloc=vloc,
             hdf5file=self.hdf5file,
             group=self.group,
+            iteration=self.iteration,
         )
 
         if (self.iteration % 50 == 0) or (self.iteration == 1):
-            sigh.Save(f'sighloc.{self.iteration}.{self.key}')
-            sigf.Save(f'sigfloc.{self.iteration}.{self.key}')
+            sigh.Save('sighloc')
+            sigf.Save('sigfloc')
 
         return HFResult(sigh=sigh, sigf=sigf)
 
@@ -145,23 +178,54 @@ class GW(object):
         self.hdf5file = kwargs.get('hdf5file', None)
         self.group = kwargs.get('group', 'gw')
         self.iteration = kwargs.get('iteration', None)
+        self.mix = kwargs.get('mix', None)
+        self.mixing_method = kwargs.get('mixing_method', 'pulay')
+        self.npulay = int(kwargs.get('npulay', 5))
 
 
     def __call__(self):
+        t0 = time.perf_counter()
 
         crystal = self.g.crystal
         dlr = self.g.dlr
 
-        siggwc = SigGWC(crystal = crystal, dlr = dlr, green = self.g.rt, wlat = self.w.crt, hdf5file = self.hdf5file, group = self.group)
+        siggwc = SigGWC(
+            crystal=crystal,
+            dlr=dlr,
+            green=self.g.rt,
+            wlat=self.w.crt,
+            hdf5file=self.hdf5file,
+            group=self.group,
+            iteration=self.iteration,
+        )
 
-        p = P(crystal = crystal, dlr = dlr, green = self.g.rt, hdf5file = self.hdf5file, group = self.group)
+        p = P(
+            crystal=crystal,
+            dlr=dlr,
+            green=self.g.rt,
+            hdf5file=self.hdf5file,
+            group=self.group,
+            iteration=self.iteration,
+        )
 
 
-        if (self.iteration % 50 == 0) or (self.iteration == 1):
-            siggwc.Save(f'siggwc.k.{self.iteration}')
-            p.Save(f'p.kf.{self.iteration}')
+        if self.iteration is not None and ((self.iteration % 50 == 0) or (self.iteration == 1)):
+            siggwc.Save('siggwc.k')
+            p.Save('p.kf')
 
+        if self.mix is not None:
+            siggwc.Mixing(
+                mix=self.mix,
+                method=self.mixing_method,
+                npulay=self.npulay,
+            )
+            p.Mixing(
+                mix=self.mix,
+                method=self.mixing_method,
+                npulay=self.npulay,
+            )
 
+        self.elapsed = time.perf_counter() - t0
         return GWResult(siggwc=siggwc, pol=p)
 
 # Double Countaing Correction for GW+EDMFT
@@ -199,6 +263,7 @@ class GWLoc(object):
             wloc=self.wloc.ct,
             hdf5file=self.hdf5file,
             group=self.group,
+            iteration=self.iteration,
         )
 
         p = PLoc(
@@ -209,11 +274,12 @@ class GWLoc(object):
             gloc=green,
             hdf5file=self.hdf5file,
             group=self.group,
+            iteration=self.iteration,
         )
 
         if (self.iteration % 50 == 0) or (self.iteration == 1):
-            siggwc.Save(f'siggwcloc.f.{self.iteration}.{self.key}')
-            p.Save(f'ploc.f.{self.iteration}.{self.key}')
+            siggwc.Save('siggwcloc.f')
+            p.Save('ploc.f')
 
         return GWResult(siggwc=siggwc, pol=p)
 
@@ -232,6 +298,7 @@ class ImpurityAction(object):
         if self.group is None:
             self.group = 'ctqmc'
         self.iteration = kwargs.get('iteration', 1)
+        self.save_outputs = bool(kwargs.get('save_outputs', True))
         
         
 
@@ -257,7 +324,8 @@ class ImpurityAction(object):
         ctqmc.PostProcessing(iter=iter)
 
         self.key = getattr(ctqmc, 'key', self.key)
-        # self._save_outputs(ctqmc, iter)
+        if self.save_outputs:
+            self._save_outputs(ctqmc, iter)
 
         return ImpurityActionResult(
             ctqmc=ctqmc,
@@ -273,12 +341,12 @@ class ImpurityAction(object):
 
     def _save_outputs(self, ctqmc : CTQMC, iter : int):
 
-        self._save_output(getattr(ctqmc, 'gimp', None), f'gimp.{iter}.{self.key}')
-        self._save_output(getattr(ctqmc, 'sighimp', None), f'sighimp.{iter}.{self.key}')
-        self._save_output(getattr(ctqmc, 'sigfimp', None), f'sigfimp.{iter}.{self.key}')
-        self._save_output(getattr(ctqmc, 'sigimp', None), f'sigimp.{iter}.{self.key}')
-        self._save_output(getattr(ctqmc, 'chi', None), f'chi.{iter}.{self.key}')
-        self._save_output(getattr(ctqmc, 'pimp', None), f'pimp.{iter}.{self.key}')
+        self._save_output(getattr(ctqmc, 'gimp', None), 'gimp')
+        self._save_output(getattr(ctqmc, 'sighimp', None), 'sighimp')
+        self._save_output(getattr(ctqmc, 'sigfimp', None), 'sigfimp')
+        self._save_output(getattr(ctqmc, 'sigimp', None), 'sigimp')
+        self._save_output(getattr(ctqmc, 'chi', None), 'chi')
+        self._save_output(getattr(ctqmc, 'pimp', None), 'pimp')
 
         return None
 

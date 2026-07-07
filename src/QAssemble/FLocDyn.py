@@ -12,10 +12,13 @@ from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Projection import Projection as PJ
 from .utility.Causal import CausalFermionProjector
+from .utility.HDF5 import IO
+from .utility.Mixing import Mixing as MixingKernel
 
 logger = logging.getLogger("QAssemble")
 
 class FLocDyn(object):
+    mixer = MixingKernel()
 
     def __init__(self,crystal : Crystal, dlr : DLR, projector : Projector):
 
@@ -498,10 +501,31 @@ class FLocDyn(object):
 
         return ynew
     
-    def Mixing(self,iter : int, mix : float, Fb : np.ndarray, Fold : np.ndarray):
-        raise NotImplementedError(
-            "Object-local single-array mixing is no longer supported. "
-            "Use utility.Mixing with HDF5-backed quantities."
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        component: str = None,
+        value: np.ndarray = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> np.ndarray:
+        if iter is None:
+            iter = getattr(self, "iteration", None)
+        if key is None:
+            key = getattr(self, "key", None)
+        return IO.MixComponent(
+            hdf5file=getattr(self, "hdf5file", None),
+            group=getattr(self, "group", None),
+            key=key,
+            component=component,
+            value=value,
+            iter=iter,
+            mix=mix,
+            method=method,
+            npulay=npulay,
+            mixer=self.mixer,
         )
 
     def _resolve_equiv_matrix(self, imp=None, key=None) -> np.ndarray:
@@ -752,7 +776,16 @@ class FLocDyn(object):
 
 class GLoc(FLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, green : np.ndarray, hdf5file : str = None, group : str = None):
+    def __init__(
+        self,
+        crystal : Crystal,
+        dlr : DLR,
+        projector : Projector,
+        green : np.ndarray,
+        hdf5file : str = None,
+        group : str = None,
+        iteration: int = None,
+    ):
 
         super().__init__(crystal, dlr, projector)
 
@@ -764,6 +797,7 @@ class GLoc(FLocDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         self.Cal()
         
         
@@ -800,17 +834,24 @@ class GLoc(FLocDyn):
 
         return occ
     
-    def Save(self, fn: str, obj : np.ndarray = None):
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("GLoc.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("GLoc.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            gloc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            gloc = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(gloc, fn, obj, dtype=complex)
+                IO.CreateDataset(gloc, fn_write, obj, dtype=complex)
             else:
                 for key, value in self.f.items():
-                    Common.HDF5CreateDataset(
+                    IO.CreateDataset(
                         gloc,
-                        f"{fn}.{str(key)}",
+                        f"{fn_write}.{str(key)}",
                         value,
                         dtype=complex,
                     )
@@ -819,7 +860,17 @@ class GLoc(FLocDyn):
     
 class GImp(FLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, green, hdf5file : str = None, group : str = None):
+    def __init__(
+        self,
+        crystal : Crystal,
+        dlr : DLR,
+        projector : Projector,
+        key,
+        green,
+        hdf5file : str = None,
+        group : str = None,
+        iteration: int = None,
+    ):
 
         super().__init__(crystal, dlr, projector)
 
@@ -830,6 +881,7 @@ class GImp(FLocDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         self.Cal()
 
     def _read_ctqmc_green(self, green : dict) -> dict:
@@ -857,23 +909,41 @@ class GImp(FLocDyn):
         self.t = self.F2T(self.f)
 
         return None
-    
-    def Save(self, fn: str, obj : np.ndarray = None):
+
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("GImp.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("GImp.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            gloc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            gloc = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(gloc, fn, obj, dtype=complex)
+                IO.CreateDataset(gloc, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(gloc, fn, self.f, dtype=complex)
-                Common.HDF5CreateDataset(gloc, fn+'_uniform', self.f_uniform, dtype=complex)
+                IO.CreateDataset(gloc, fn_write, self.f, dtype=complex)
+                IO.CreateDataset(gloc, fn_write + '_uniform', self.f_uniform, dtype=complex)
 
         return None
 
 
 class SigGWCLoc(FLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, green : np.ndarray = None, wloc : np.ndarray = None, hdf5file : str = None, group : str = None):
+    def __init__(
+        self,
+        crystal : Crystal,
+        dlr : DLR,
+        projector : Projector,
+        key,
+        green : np.ndarray = None,
+        wloc : np.ndarray = None,
+        hdf5file : str = None,
+        group : str = None,
+        iteration: int = None,
+    ):
 
         super().__init__(crystal, dlr, projector)
 
@@ -885,6 +955,7 @@ class SigGWCLoc(FLocDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         self.Cal()
 
     def Cal(self):
@@ -929,21 +1000,29 @@ class SigGWCLoc(FLocDyn):
 
         return None
 
-    def Save(self, fn: str, obj : np.ndarray = None):
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("SigGWCLoc.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("SigGWCLoc.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            siggwc = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            siggwc = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(siggwc, fn, obj, dtype=complex)
+                IO.CreateDataset(siggwc, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(siggwc, fn, self.f, dtype=complex)
+                IO.CreateDataset(siggwc, fn_write, self.f, dtype=complex)
 
         return None
 
 
 class SigCImp(FLocDyn):
+    component = "sigimp"
 
-    def __init__(self,crystal : Crystal,dlr : DLR,projector : Projector,key,sigma,sigma_hf : np.ndarray = None,subtract_static : bool = True,hdf5file : str = None,group : str = None,):
+    def __init__(self,crystal : Crystal,dlr : DLR,projector : Projector,key,sigma,sigma_hf : np.ndarray = None,subtract_static : bool = True,hdf5file : str = None,group : str = None,iteration: int = None,):
 
         super().__init__(crystal, dlr, projector)
 
@@ -957,6 +1036,7 @@ class SigCImp(FLocDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
         self.Cal()
 
     def _read_ctqmc_sigma(self, sigma : dict) -> dict:
@@ -1115,23 +1195,52 @@ class SigCImp(FLocDyn):
         self.t = self.F2T(self.f)
 
         return None
-    
-    def Save(self, fn: str, obj : np.ndarray = None):
+
+    def Mixing(
+        self,
+        iter: int = None,
+        mix: float = None,
+        method: str = "pulay",
+        npulay: int = 5,
+        key=None,
+    ) -> None:
+        self.f = super().Mixing(
+            iter=iter,
+            mix=mix,
+            component=self.component,
+            value=self.f,
+            method=method,
+            npulay=npulay,
+            key=key,
+        )
+        if hasattr(self, "f_uniform") and self.f_uniform is not None:
+            if hasattr(self.dlr, "MatsubaraDLR2UniformGrid"):
+                self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=-1)
+        self.t = self.F2T(self.f)
+
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("SigCImp.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("SigCImp.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            sigimp = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            sigimp = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(sigimp, fn, obj, dtype=complex)
+                IO.CreateDataset(sigimp, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(sigimp, fn, self.f, dtype=complex)
-                Common.HDF5CreateDataset(sigimp, fn+'_uniform', self.f_uniform, dtype=complex)
+                IO.CreateDataset(sigimp, fn_write, self.f, dtype=complex)
+                IO.CreateDataset(sigimp, fn_write + '_uniform', self.f_uniform, dtype=complex)
 
         return None
 
 
 class Hyb(FLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, green : np.ndarray, eimp : np.ndarray, sigh : np.ndarray = None, sigf : np.ndarray = None, sigc : np.ndarray = None, hdf5file : str = None, group : str = None):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, green : np.ndarray, eimp : np.ndarray, sigh : np.ndarray = None, sigf : np.ndarray = None, sigc : np.ndarray = None, hdf5file : str = None, group : str = None, iteration: int = None):
 
         super().__init__(crystal, dlr, projector)
 
@@ -1146,6 +1255,7 @@ class Hyb(FLocDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
+        self.iteration = iteration
 
         print("Local Green's Function :", self.green[:, :, 0, 0])
         print("Impurity Level :", self.eimp[:, :, 0])
@@ -1184,15 +1294,22 @@ class Hyb(FLocDyn):
         print(f"[Hyb.Cal] key={self.key}, f[0,0,0,0]={self.f[0,0,0,0]}, f[0,0,0,-1]={self.f[0,0,0,-1]}")
 
         return None
-    
-    def Save(self, fn: str, obj : np.ndarray = None):
+
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("Hyb.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("Hyb.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
-            hyb = Common.HDF5Subgroup(file, self.group, self.subgroup)
+            hyb = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
-                Common.HDF5CreateDataset(hyb, fn, obj, dtype=complex)
+                IO.CreateDataset(hyb, fn_write, obj, dtype=complex)
             else:
-                Common.HDF5CreateDataset(hyb, fn, self.f, dtype=complex)
+                IO.CreateDataset(hyb, fn_write, self.f, dtype=complex)
 
         return None
 
