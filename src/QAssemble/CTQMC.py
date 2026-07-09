@@ -5,12 +5,15 @@ import gc
 import h5py
 import json
 import subprocess
+import logging
 from .utility.DLR import DLR
 from .FLocDyn import *
 from .FLocStc import SigHImp, SigFImp
 from .BLocDyn import *
 from .BLocStc import *
 from .utility.Common import Common
+
+logger = logging.getLogger("QAssemble")
 
 class CTQMC(object):
 
@@ -22,23 +25,14 @@ class CTQMC(object):
         self.control = control if control is not None else {}
         self.hdf5file = hdf5file
         self.group = group
+        self.mix = float(self.control["mix"])
+        self.mixing_method = self.control["mixing_method"]
+        self.npulay = int(self.control["npulay"])
         self.crystal = fweiss.crystal
         self.ft = dlr
         self.projector = fweiss.projector
         self.bprojector = bweiss.projector
-        if self.projector is None or self.bprojector is None:
-            raise ValueError("fweiss and bweiss must provide Projector objects")
-        if set(self.projector.fprojector.keys()) != set(self.bprojector.bprojector.keys()):
-            raise ValueError("fweiss and bweiss projectors must use the same problem keys")
-        self.key = self._problem_key(key)
-        if hasattr(self.fweiss, "key") and self.fweiss.key != self.key:
-            raise ValueError(
-                f"fweiss key '{self.fweiss.key}' does not match CTQMC key '{self.key}'"
-            )
-        if hasattr(self.bweiss, "key") and self.bweiss.key != self.key:
-            raise ValueError(
-                f"bweiss key '{self.bweiss.key}' does not match CTQMC key '{self.key}'"
-            )
+        self.key = key if key in self.projector.fprojector else str(key)
         self.gimp = None
         self.sighimp = None
         self.sigfimp = None
@@ -56,16 +50,6 @@ class CTQMC(object):
             self.ctqmc_dir = os.path.join(self.root_dir, "ctqmc")
         os.makedirs(self.ctqmc_dir, exist_ok=True)
         os.chdir(self.ctqmc_dir)
-
-    def _problem_key(self, key):
-        pkey = key if key in self.projector.fprojector else str(key)
-        if pkey not in self.projector.fprojector:
-            raise KeyError(f"Unknown impurity problem key '{key}'")
-        if pkey not in self.bprojector.bprojector:
-            raise KeyError(f"Unknown bosonic impurity problem key '{pkey}'")
-        if not isinstance(self.projector.equiv, dict) or pkey not in self.projector.equiv:
-            raise KeyError(f"Projector equivalence matrix is missing key '{pkey}'")
-        return pkey
 
     def _ctqmc_matrix_labels(self, equiv : np.ndarray) -> list:
         mat = np.kron(np.eye(2, dtype=int), np.asarray(equiv, dtype=int))
@@ -95,7 +79,7 @@ class CTQMC(object):
             # ctqmc_mu = float(np.real(self.fweiss.mu))
 
             ###########################
-            print('*** write hyb.json file ***')
+            logger.info('*** write hyb.json file ***')
 
             self.fweiss._write_json_pair('hyb', iter, key, self.fweiss._as_hyb_dict(key))
 
@@ -103,7 +87,7 @@ class CTQMC(object):
             ### Write dyn.json file ###
             ###########################
             if self._use_dyn():
-                print('*** write dyn.json file ***')
+                logger.info('*** write dyn.json file ***')
                 self.bweiss._write_json_pair('dyn', iter, key, self.bweiss._as_dyn_dict(key))
 
             ##############################
@@ -167,10 +151,10 @@ class CTQMC(object):
                     with open('params.json','w') as outfile:
                         json.dump(params,outfile, sort_keys=True, indent=4, separators=(',', ': '))
                 elif self.crystal.ns == 2:
-                    print("Nspin is not 1")
+                    logger.error("Nspin is not 1")
                     sys.exit()
             elif self.crystal.soc is True:
-                print("SOC is not  False, please change SOC")
+                logger.error("SOC is not  False, please change SOC")
                 sys.exit()
         finally:
             os.chdir(self.ctqmc_dir)
@@ -200,7 +184,7 @@ class CTQMC(object):
 
         qassemble_path = os.environ.get("QAssemble")
         if qassemble_path is None:
-            print("QAssemble environment variable is not set.")
+            logger.error("QAssemble environment variable is not set.")
             sys.exit()
 
         ctqmc_path = os.path.join(os.path.expanduser(qassemble_path), "CTQMC", "bin", "CTQMC")
@@ -210,7 +194,7 @@ class CTQMC(object):
         with open('./ctqmc.out', 'w') as logfile, open('./ctqmc.err', 'w') as errfile:
             ret = subprocess.call(run_cmd, stdout=logfile, stderr=errfile, shell=True)
             if ret != 0:
-                print("Error in CTQMC. Check ctqmc.err for error message.")
+                logger.error("Error in CTQMC. Check ctqmc.err for error message.")
                 sys.exit()
         
         return None
@@ -219,7 +203,7 @@ class CTQMC(object):
         
         qassemble_path = os.environ.get("QAssemble")
         if qassemble_path is None:
-            print("QAssemble environment variable is not set.")
+            logger.error("QAssemble environment variable is not set.")
             sys.exit()
 
         evalsim_path = os.path.join(os.path.expanduser(qassemble_path), "CTQMC", "bin", "EVALSIM")
@@ -229,9 +213,8 @@ class CTQMC(object):
         with open('./evalsim.out', 'w') as logfile, open('./evalsim.err', 'w') as errfile :
             ret = subprocess.call(run_cmd, stdout=logfile, stderr=errfile, shell=True)
             if ret != 0:
-                print("Error in EVALSIM. Check evalsim.err for error message.")
+                logger.error("Error in EVALSIM. Check evalsim.err for error message.")
                 sys.exit()
-        # print("measure self-energy done")
 
         return None
     
@@ -247,10 +230,10 @@ class CTQMC(object):
         os.chdir(workdir)
         try:
             equiv = np.asarray(self.projector.equiv[key], dtype=int)
-            print("*****************************")
-            print("Impurity Postprocessing Strat")
-            print("*****************************")
-            print(f'key : {key}')
+            logger.info("*****************************")
+            logger.info("Impurity Postprocessing Strat")
+            logger.info("*****************************")
+            logger.info(f'key : {key}')
             fileobs='./params.obs.json'
             filemeas='./params.meas.json'
             
@@ -270,8 +253,8 @@ class CTQMC(object):
             firstmoment=sum(histo[:,0]*histo[:,1])/sum(histo[:,1])
             secondmoment=sum((histo[:,0]-firstmoment)**2*histo[:,1])/sum(histo[:,1])
 
-            print('first moment',  firstmoment)
-            print('second moment', secondmoment)
+            logger.info(f'first moment {firstmoment}')
+            logger.info(f'second moment {secondmoment}')
 
             self.gimp = GImp(
                 crystal=self.crystal,
@@ -283,15 +266,14 @@ class CTQMC(object):
                 group=self.group,
                 iteration=iter,
             )
-            static_interaction = self.bweiss.vloc.vproj[key]
-            dynamic_interaction = self.bweiss.f
-
             self.sighimp = SigHImp(
                 crystal=self.crystal,
                 projector=self.projector,
                 key=key,
-                gimp=self.gimp,
-                vloc=dynamic_interaction if dynamic_interaction is not None else static_interaction,
+                occ=self.gimp.occ,
+                vloc=self.bweiss.f[..., 0]
+                if self.bweiss.f is not None
+                else self.bweiss.vloc.vproj[key],
                 hdf5file=self.hdf5file,
                 group=self.group,
                 iteration=iter,
@@ -333,7 +315,7 @@ class CTQMC(object):
                     projector=self.projector,
                     key=key,
                     chi=self.chi,
-                    utilde=dynamic_interaction,
+                    utilde=self.bweiss.f_uniform,
                     hdf5file=self.hdf5file,
                     group=self.group,
                     iteration=iter,
@@ -350,10 +332,46 @@ class CTQMC(object):
                 "histo_m1": float(firstmoment),
                 "histo_m2": float(secondmoment),
             }
-            print("******************************")
-            print("Impurity Postprocessing Finish")
-            print("******************************")
+            logger.info("******************************")
+            logger.info("Impurity Postprocessing Finish")
+            logger.info("******************************")
         finally:
             os.chdir(self.work_dir)
+
+        self._finalize_outputs(iter)
+
+        return None
+
+    def _finalize_outputs(self, iter : int):
+
+        self._mix_outputs(iter)
+        for attr, fn in (
+            ('gimp', 'gimp'),
+            ('sighimp', 'sighimp'),
+            ('sigfimp', 'sigfimp'),
+            ('sigimp', 'sigimp'),
+            ('chi', 'chi'),
+            ('pimp', 'pimp'),
+        ):
+            obj = getattr(self, attr, None)
+            if obj is not None and hasattr(obj, 'Save'):
+                obj.Save(fn)
+
+        return None
+
+    def _mix_outputs(self, iter : int):
+
+        if self.mix is None:
+            return None
+
+        for attr in ('sighimp', 'sigfimp', 'sigimp', 'pimp'):
+            obj = getattr(self, attr, None)
+            if obj is not None and hasattr(obj, 'Mixing'):
+                obj.Mixing(
+                    iter=iter,
+                    mix=self.mix,
+                    method=self.mixing_method,
+                    npulay=self.npulay,
+                )
 
         return None

@@ -101,8 +101,8 @@ class CorrelationFunction(object):
         hdf5file = self.control["run"]["fn"] + '.h5'
         mode = self.control["run"]["mode"]
         group = 'hf'
-        mixing_method = self.control["run"].get("mixing_method", "pulay")
-        npulay = int(self.control["run"].get("npulay", 5))
+        mixing_method = self.control["run"]["mixing_method"]
+        npulay = int(self.control["run"]["npulay"])
 
         if (mode == 'FromScratch'):
             
@@ -119,6 +119,7 @@ class CorrelationFunction(object):
         # twobody = self.control["ham"].get("twobody")
 
         self.conv.Start()
+        diag_prev_by_key = None
 
         for iter in range(1, itermax+1):
             if iter==1:
@@ -204,8 +205,8 @@ class CorrelationFunction(object):
         mix = self.control["run"]["mix"]
         hdf5file = self.control["run"]["fn"] + '.h5'
         group = 'gw'
-        mixing_method = self.control["run"].get("mixing_method", "pulay")
-        npulay = int(self.control["run"].get("npulay", 5))
+        mixing_method = self.control["run"]["mixing_method"]
+        npulay = int(self.control["run"]["npulay"])
 
         gbare = self.greenbare
         vbare = self.vbare
@@ -312,6 +313,7 @@ class CorrelationFunction(object):
             raise KeyError("DMFT requires control['impurity']['equiv']")
 
         projector = Projector(basisindex=self.crystal._basis_index,impdict=copy.deepcopy(impdict),equiv=copy.deepcopy(equiv),)
+        problem_keys = list(projector.fprojector.keys())
         self.vbare.vloc.projector=projector
         
         sigmah_current = None
@@ -327,18 +329,10 @@ class CorrelationFunction(object):
         )
         green.Save('gkf_ini', scf=False)
 
-        gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,hdf5file=hdf5file,group=group,)
-        gloc.Save('gloc_ini', scf=False)
-
-        mix = float(self.control["run"].get("mix_sigma", 0.1))
-        mixing_method = self.control["run"].get(
-            "mix_sigma_method",
-            self.control["run"].get("mixing_method", "pulay"),
-        )
-        npulay = int(self.control["run"].get("npulay_sigma", self.control["run"].get("npulay", 5)))
+        mix = self.control["run"]["mix"]
         min_iter = self.conv.min_iter
 
-        logger.info(f"[DMFT] mix_sigma={mix}, min_iter={min_iter}")
+        logger.info(f"[DMFT] mix={mix}, min_iter={min_iter}")
 
         if itermax <= min_iter:
             logger.warning(f"nscf={itermax} <= min_iter={min_iter}; delta convergence "
@@ -351,10 +345,11 @@ class CorrelationFunction(object):
 
             gcheck = 0.0
             
-            gimp_by_key = {}
             diag_by_key = {}        # captured immediately inside the per-key loop
 
-            for key in projector.fprojector.keys():
+            for key in problem_keys:
+                gloc = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green.kf,key=key,hdf5file=hdf5file,group=group,iteration=iter-1,scf=True)
+
                 eimp = EImp(crystal=self.crystal,projector=projector,key=key,hamtb=self.niham.k,mu=green.mu,hdf5file=hdf5file, group=group, iteration=iter)
                 eimp.Save('eimp')
 
@@ -369,7 +364,7 @@ class CorrelationFunction(object):
                     sigcloc = gloc.Projection(sigc_current, key)
                 print(f"[Hyb-build] key={key}, sighloc[0,0,0]={None if sighloc is None else sighloc[0,0,0]}")
 
-                hyb = Hyb(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,green=gloc.f[key],eimp=eimp.e,sigh=sighloc,sigf=sigfloc,sigc=sigcloc,hdf5file=hdf5file,group=group,iteration=iter)
+                hyb = Hyb(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,green=gloc.f,eimp=eimp.e,sigh=sighloc,sigf=sigfloc,sigc=sigcloc,hdf5file=hdf5file,group=group,iteration=iter)
                 hyb.Save('hyb')
 
                 fweiss = FWeiss(
@@ -389,7 +384,6 @@ class CorrelationFunction(object):
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iter,
-                    save_outputs=False,
                 )
                 impurity_result = impurity_method()
 
@@ -402,15 +396,9 @@ class CorrelationFunction(object):
                             f"Inspect params.obs.json or solver stderr."
                         )
 
-                gimp_new = impurity_result.gimp.f
-
                 sighimp = impurity_result.sighimp
                 sigfimp = impurity_result.sigfimp
                 sigimp = impurity_result.sigimp
-                sighimp.Mixing(iter=iter, mix=mix, method=mixing_method, npulay=npulay)
-                sigfimp.Mixing(iter=iter, mix=mix, method=mixing_method, npulay=npulay)
-                sigimp.Mixing(iter=iter, mix=mix, method=mixing_method, npulay=npulay)
-                impurity_method._save_outputs(impurity_result.ctqmc, iter)
 
                 sigc.ImpEmbedding(
                     sigimp=sigimp.f,
@@ -419,7 +407,6 @@ class CorrelationFunction(object):
                     projector=projector,
                     key=key,
                 )
-                gimp_by_key[key] = gimp_new
                 diag_by_key[key] = dict(impurity_result.diagnostics)
 
             sigc()
@@ -442,30 +429,56 @@ class CorrelationFunction(object):
                     f"Likely cause: Sigma corruption (NaN/Inf) or bisection failure."
                 )
 
-            gloc_next = GLoc(crystal=self.crystal,dlr=self.dlr,projector=projector,green=green_next.kf,hdf5file=hdf5file,group=group,iteration=iter)
             green_next.Save('gkf')
-            gloc_next.Save('gloc')
 
-            self.conv.StartIter(iter)
-            self.conv.CheckSelf('GLoc', value=gloc_next.f,          kind='dict')
-            self.conv.CheckSelf('mu',   value=float(green_next.mu), kind='scalar')
-            self.conv.CheckCross('GLoc',
-                a=gloc_next.f, name_b='GImp', b=gimp_by_key, kind='dict')
-            self.conv.RecordDiagnostics(diag_by_key)
-            converged, info = self.conv.Commit(iter, will_continue=(iter < itermax))
+            converged = False
+            gcheck = float("nan")
+            dG_iter = float("nan")
+            dmu = float("nan")
+            if iter > 1:
+                completed_iter = iter - 1
+                self.conv.StartIter(completed_iter)
+                self.conv.CheckSelfHDF5(
+                    name="GLoc",
+                    group=group,
+                    subgroup="GLoc",
+                    current=f"gloc.{completed_iter}",
+                    previous=f"gloc.{completed_iter - 1}",
+                    keys=problem_keys,
+                )
+                self.conv.CheckSelf('mu', value=float(green.mu), kind='scalar')
+                self.conv.CheckCrossHDF5(
+                    name_a = "GLoc",
+                    name_b="GImp",
+                    group=group,
+                    subgroup_a="GLoc",
+                    subgroup_b="GImp",
+                    stem_a=f"gloc.{completed_iter}",
+                    stem_b=f"gimp.{completed_iter}",
+                    keys=problem_keys,
+                )
+                self.conv.RecordDiagnostics(diag_prev_by_key)
+                converged, info = self.conv.Commit(
+                    completed_iter,
+                    will_continue=(iter < itermax),
+                )
 
-            gcheck = info['cross']['GLoc-GImp']['abs']
-            dG_iter = info['self']['GLoc']['abs']
-            dmu = info['self']['mu']['abs']
+                gcheck = info['cross']['GLoc-GImp']['abs']
+                dG_iter = info['self']['GLoc']['abs']
+                dmu = info['self']['mu']['abs']
 
-            logger.info(
-                f"iteration : {iter} | gcheck={gcheck:.3e} | "
-                f"dG={dG_iter:.3e}/dmu={dmu:.3e} | "
-                f"μ={green_next.mu}"
-            )
+                logger.info(
+                    f"iteration : {completed_iter} | gcheck={gcheck:.3e} | "
+                    f"dG={dG_iter:.3e}/dmu={dmu:.3e} | "
+                    f"μ={green.mu}"
+                )
+            else:
+                logger.info("iteration : 1 | convergence skipped")
 
             if converged:
-                logger.info(f"DMFT self-consistency achieved at iter {iter}")
+                logger.info(
+                    f"DMFT self-consistency achieved at iter {completed_iter}"
+                )
                 break
             elif iter == itermax:
                 logger.info(
@@ -478,7 +491,7 @@ class CorrelationFunction(object):
                 sigmaf_current = sigc.sigf
                 sigc_current = sigc.sigimp
                 green = green_next
-                gloc  = gloc_next
+                diag_prev_by_key = diag_by_key
 
             gc.collect()
 
@@ -504,6 +517,7 @@ class CorrelationFunction(object):
             impdict=copy.deepcopy(impdict),
             equiv=copy.deepcopy(equiv),
         )
+        problem_keys = list(projector.fprojector.keys())
         self.vbare.vloc.projector = projector
         if hasattr(self.vbare.vloc, "BuildProjection"):
             self.vbare.vloc.BuildProjection(projector)
@@ -521,30 +535,26 @@ class CorrelationFunction(object):
         )
         green.Save('gkf_ini', scf=False)
 
-        gloc = GLoc(
-            crystal=self.crystal,
-            dlr=self.dlr,
-            projector=projector,
-            green=green.kf,
-            hdf5file=hdf5file,
-            group=group,
-        )
-        gloc.Save('gloc_ini', scf=False)
+        gloc_by_key = {}
+        for key in problem_keys:
+            gloc = GLoc(
+                crystal=self.crystal,
+                dlr=self.dlr,
+                projector=projector,
+                green=green.kf,
+                key=key,
+                hdf5file=hdf5file,
+                group=group,
+            )
+            gloc.Save('gloc_ini', scf=False)
+            gloc_by_key[key] = gloc
 
         pol_current_by_key = {}
 
-        mix_sigma = float(self.control["run"].get("mix_sigma", 0.1))
-        sigma_mixing_method = self.control["run"].get(
-            "mix_sigma_method",
-            self.control["run"].get("mixing_method", "pulay"),
-        )
-        npulay_sigma = int(
-            self.control["run"].get("npulay_sigma", self.control["run"].get("npulay", 5))
-        )
-
+        mix = self.control["run"]["mix"]
         min_iter = self.conv.min_iter
 
-        logger.info(f"[EDMFT] mix_sigma={mix_sigma}, min_iter={min_iter}")
+        logger.info(f"[EDMFT] mix={mix}, min_iter={min_iter}")
 
         if itermax <= min_iter:
             logger.warning(
@@ -561,7 +571,7 @@ class CorrelationFunction(object):
             diag_by_key = {}
             pol_next_by_key = {}
 
-            for key in projector.fprojector.keys():
+            for key in problem_keys:
                 eimp = EImp(
                     crystal=self.crystal,
                     projector=projector,
@@ -582,7 +592,7 @@ class CorrelationFunction(object):
                 if sigmaf_current is not None:
                     sigfloc = eimp.Projection(sigmaf_current, key)
                 if sigc_current is not None:
-                    sigcloc = gloc.Projection(sigc_current, key)
+                    sigcloc = gloc_by_key[key].Projection(sigc_current, key)
                 sigh_sample = None if sighloc is None else np.asarray(sighloc).flat[0]
                 print(
                     f"[EDMFT Hyb-build] key={key}, "
@@ -594,7 +604,7 @@ class CorrelationFunction(object):
                     dlr=self.dlr,
                     projector=projector,
                     key=key,
-                    green=gloc.f[key],
+                    green=gloc_by_key[key].f,
                     eimp=eimp.e,
                     sigh=sighloc,
                     sigf=sigfloc,
@@ -625,7 +635,7 @@ class CorrelationFunction(object):
                         dlr=self.dlr,
                         projector=projector,
                         key=key,
-                        gloc=gloc.t[key],
+                        gloc=gloc_by_key[key].t,
                         hdf5file=hdf5file,
                         group=group,
                         iteration=iter,
@@ -668,7 +678,6 @@ class CorrelationFunction(object):
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iter,
-                    save_outputs=False,
                 )
                 impurity_result = impurity_method()
 
@@ -686,32 +695,6 @@ class CorrelationFunction(object):
                 sigfimp = impurity_result.sigfimp
                 sigimp = impurity_result.sigimp
                 pimp = impurity_result.pimp
-                sighimp.Mixing(
-                    iter=iter,
-                    mix=mix_sigma,
-                    method=sigma_mixing_method,
-                    npulay=npulay_sigma,
-                )
-                sigfimp.Mixing(
-                    iter=iter,
-                    mix=mix_sigma,
-                    method=sigma_mixing_method,
-                    npulay=npulay_sigma,
-                )
-                sigimp.Mixing(
-                    iter=iter,
-                    mix=mix_sigma,
-                    method=sigma_mixing_method,
-                    npulay=npulay_sigma,
-                )
-                pimp.Mixing(
-                    iter=iter,
-                    mix=mix_sigma,
-                    method=sigma_mixing_method,
-                    npulay=npulay_sigma,
-                )
-
-                impurity_method._save_outputs(impurity_result.ctqmc, iter)
 
                 sigc.ImpEmbedding(
                     sigimp=sigimp.f,
@@ -742,17 +725,24 @@ class CorrelationFunction(object):
                     f"Likely cause: Sigma corruption (NaN/Inf) or bisection failure."
                 )
 
-            gloc_next = GLoc(
-                crystal=self.crystal,
-                dlr=self.dlr,
-                projector=projector,
-                green=green_next.kf,
-                hdf5file=hdf5file,
-                group=group,
-                iteration=iter,
-            )
             green_next.Save('gkf')
-            gloc_next.Save('gloc')
+            gloc_next_by_key = {}
+            for key in problem_keys:
+                gloc_next = GLoc(
+                    crystal=self.crystal,
+                    dlr=self.dlr,
+                    projector=projector,
+                    green=green_next.kf,
+                    key=key,
+                    hdf5file=hdf5file,
+                    group=group,
+                    iteration=iter,
+                )
+                gloc_next.Save('gloc')
+                gloc_next_by_key[key] = gloc_next
+            gloc_next_f_by_key = {
+                key: gloc_next_by_key[key].f for key in problem_keys
+            }
 
             wloc_next_by_key = {}
             wloc_next_f_by_key = {}
@@ -774,12 +764,12 @@ class CorrelationFunction(object):
                 wloc_next_f_by_key[key] = wloc_next.f
 
             self.conv.StartIter(iter)
-            self.conv.CheckSelf('GLoc', value=gloc_next.f, kind='dict')
+            self.conv.CheckSelf('GLoc', value=gloc_next_f_by_key, kind='dict')
             self.conv.CheckSelf('mu', value=float(green_next.mu), kind='scalar')
             self.conv.CheckSelf('WLoc', value=wloc_next_f_by_key, kind='dict')
             self.conv.CheckCross(
                 'GLoc',
-                a=gloc_next.f,
+                a=gloc_next_f_by_key,
                 name_b='GImp',
                 b=gimp_by_key,
                 kind='dict',
@@ -799,7 +789,7 @@ class CorrelationFunction(object):
             )
 
             self.green = green_next
-            self.gloc = gloc_next
+            self.gloc = gloc_next_by_key
             self.sigc = sigc
             self.wloc = wloc_next_by_key
             self.polimp = pol_next_by_key
@@ -818,7 +808,7 @@ class CorrelationFunction(object):
                 sigmaf_current = sigc.sigf
                 sigc_current = sigc.sigimp
                 green = green_next
-                gloc = gloc_next
+                gloc_by_key = gloc_next_by_key
                 pol_current_by_key = pol_next_by_key
 
             gc.collect()

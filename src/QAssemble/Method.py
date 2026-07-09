@@ -1,17 +1,7 @@
 from __future__ import annotations
-
-import copy
-import logging
 import numpy as np
-import matplotlib.pyplot as plt
-import sys, time
-import gc
-import h5py
+import time
 from dataclasses import dataclass
-from .Crystal import Crystal
-# from .FTGrid import FTGrid
-from .utility.DLR import DLR
-from .utility.Convergence import Convergence
 from .FLatDyn import *
 from .FLatStc import *
 from .FLocDyn import *
@@ -20,13 +10,12 @@ from .BLatDyn import *
 from .BLatStc import *
 from .BLocDyn import *
 from .BLocStc import *
-from .Projector import Projector
 from .CTQMC import CTQMC
 
 @dataclass
 class HFResult:
-    sigh: object
-    sigf: object
+    sigh: SigH
+    sigf: SigF
 
     def __iter__(self):
         yield self.sigh
@@ -34,8 +23,8 @@ class HFResult:
 
 @dataclass
 class GWResult:
-    siggwc: object
-    pol: object
+    siggwc: SigGWC
+    pol: P
 
     def __iter__(self):
         yield self.siggwc
@@ -43,14 +32,14 @@ class GWResult:
 
 @dataclass
 class ImpurityActionResult:
-    ctqmc: object
-    key: object
-    gimp: object
-    sighimp: object
-    sigfimp: object
-    sigimp: object
-    chi: object
-    pimp: object
+    ctqmc: CTQMC
+    key: str
+    gimp: GImp
+    sighimp: SigHImp
+    sigfimp: SigFImp
+    sigimp: SigCImp
+    chi: Chi
+    pimp: PImp
     diagnostics: dict
 
 class HF(object):
@@ -131,7 +120,12 @@ class HFLoc(object):
 
         crystal = self.gloc.crystal
         projector = self.gloc.projector
-        occ = self.gloc.occ[self.key]
+        if getattr(self.gloc, "key", self.key) != self.key:
+            raise ValueError(
+                f"{self.__class__.__name__} key '{self.key}' does not match "
+                f"GLoc key '{self.gloc.key}'"
+            )
+        occ = self.gloc.occ
         if self.key not in self.vloc.vproj:
             self.vloc.BuildProjection(projector)
         vloc = self.vloc.vproj[self.key]
@@ -252,7 +246,12 @@ class GWLoc(object):
         crystal = self.gloc.crystal
         dlr = self.gloc.dlr
         projector = self.gloc.projector
-        green = self.gloc.t[self.key]
+        if getattr(self.gloc, "key", self.key) != self.key:
+            raise ValueError(
+                f"{self.__class__.__name__} key '{self.key}' does not match "
+                f"GLoc key '{self.gloc.key}'"
+            )
+        green = self.gloc.t
 
         siggwc = SigGWCLoc(
             crystal=crystal,
@@ -298,9 +297,6 @@ class ImpurityAction(object):
         if self.group is None:
             self.group = 'ctqmc'
         self.iteration = kwargs.get('iteration', 1)
-        self.save_outputs = bool(kwargs.get('save_outputs', True))
-        
-        
 
     def __call__(self, iteration : int = None):
 
@@ -324,8 +320,6 @@ class ImpurityAction(object):
         ctqmc.PostProcessing(iter=iter)
 
         self.key = getattr(ctqmc, 'key', self.key)
-        if self.save_outputs:
-            self._save_outputs(ctqmc, iter)
 
         return ImpurityActionResult(
             ctqmc=ctqmc,
@@ -338,21 +332,3 @@ class ImpurityAction(object):
             pimp=getattr(ctqmc, 'pimp', None),
             diagnostics=dict(getattr(ctqmc, 'diagnostics', {})),
         )
-
-    def _save_outputs(self, ctqmc : CTQMC, iter : int):
-
-        self._save_output(getattr(ctqmc, 'gimp', None), 'gimp')
-        self._save_output(getattr(ctqmc, 'sighimp', None), 'sighimp')
-        self._save_output(getattr(ctqmc, 'sigfimp', None), 'sigfimp')
-        self._save_output(getattr(ctqmc, 'sigimp', None), 'sigimp')
-        self._save_output(getattr(ctqmc, 'chi', None), 'chi')
-        self._save_output(getattr(ctqmc, 'pimp', None), 'pimp')
-
-        return None
-
-    def _save_output(self, obj, fn : str):
-
-        if obj is not None and hasattr(obj, 'Save'):
-            obj.Save(fn)
-
-        return None

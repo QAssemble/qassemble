@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import h5py
 import numpy as np
 import pytest
@@ -14,6 +16,22 @@ from QAssemble.FLocStc import SigFImp, SigHImp
 class _FakeDLR:
     def MatsubaraDLR2UniformGrid(self, value, sign=-1):
         return np.asfortranarray(np.asarray(value, dtype=np.complex128) + 10.0)
+
+
+def _patch_gloc_calculation(monkeypatch):
+    def fake_projection(self, green, key):
+        self.projected_key = key
+        return np.asfortranarray(np.asarray(green, dtype=np.complex128) + 1.0)
+
+    def fake_f2t(self, mat):
+        return np.asfortranarray(np.asarray(mat, dtype=np.complex128) + 2.0)
+
+    def fake_occ(self, mat):
+        return np.asfortranarray(np.asarray(mat, dtype=np.complex128)[..., 0])
+
+    monkeypatch.setattr(GLoc, "Projection", fake_projection)
+    monkeypatch.setattr(GLoc, "F2T", fake_f2t)
+    monkeypatch.setattr(GLoc, "Occ", fake_occ)
 
 
 def _seed_common(obj, path):
@@ -62,18 +80,72 @@ def test_local_save_appends_iteration_and_key(tmp_path):
         np.testing.assert_allclose(handle["calc/SigCImp/sigimp_final_uniform"][()], [3.0])
 
 
-def test_gloc_save_appends_iteration_before_each_key(tmp_path):
+def test_gloc_save_appends_iteration_and_key(tmp_path):
     path = tmp_path / "save.h5"
     obj = object.__new__(GLoc)
-    _seed_save(obj, path, "GLoc", iteration=5)
-    obj.f = {"1": np.asarray([4.0], dtype=np.complex128)}
+    _seed_save(obj, path, "GLoc", iteration=0, key="1")
+    obj.f = np.asarray([4.0], dtype=np.complex128)
 
     obj.Save("gloc")
-    obj.Save("gloc_ini", scf=False)
+    obj.iteration = 1
+    obj.Save("gloc")
 
     with h5py.File(path, "r") as handle:
-        np.testing.assert_allclose(handle["calc/GLoc/gloc.5.1"][()], [4.0])
-        np.testing.assert_allclose(handle["calc/GLoc/gloc_ini.1"][()], [4.0])
+        np.testing.assert_allclose(handle["calc/GLoc/gloc.0.1"][()], [4.0])
+        np.testing.assert_allclose(handle["calc/GLoc/gloc.1.1"][()], [4.0])
+
+
+def test_gloc_auto_selects_single_problem_key(monkeypatch, tmp_path):
+    _patch_gloc_calculation(monkeypatch)
+    projector = SimpleNamespace(fprojector={"1": None})
+    green = np.ones((1, 1, 1, 1), dtype=np.complex128)
+
+    obj = GLoc(
+        crystal=SimpleNamespace(ns=1),
+        dlr=SimpleNamespace(),
+        projector=projector,
+        green=green,
+        hdf5file=str(tmp_path / "gloc.h5"),
+        group="calc",
+        iteration=0,
+    )
+
+    assert obj.key == "1"
+    assert obj.projected_key == "1"
+    np.testing.assert_allclose(obj.f, green + 1.0)
+
+
+def test_gloc_requires_key_for_multiple_problems():
+    projector = SimpleNamespace(fprojector={"1": None, "2": None})
+
+    with pytest.raises(ValueError, match="requires key"):
+        GLoc(
+            crystal=SimpleNamespace(ns=1),
+            dlr=SimpleNamespace(),
+            projector=projector,
+            green=np.ones((1, 1, 1, 1), dtype=np.complex128),
+        )
+
+
+def test_gloc_uses_explicit_problem_key(monkeypatch, tmp_path):
+    _patch_gloc_calculation(monkeypatch)
+    projector = SimpleNamespace(fprojector={"1": None, "2": None})
+    green = np.ones((1, 1, 1, 1), dtype=np.complex128)
+
+    obj = GLoc(
+        crystal=SimpleNamespace(ns=1),
+        dlr=SimpleNamespace(),
+        projector=projector,
+        green=green,
+        key="2",
+        hdf5file=str(tmp_path / "gloc.h5"),
+        group="calc",
+        iteration=0,
+    )
+
+    assert obj.key == "2"
+    assert obj.projected_key == "2"
+    np.testing.assert_allclose(obj.f, green + 1.0)
 
 
 def test_g_and_h_save_mu_with_matching_scf_suffix(tmp_path):

@@ -782,38 +782,50 @@ class GLoc(FLocDyn):
         dlr : DLR,
         projector : Projector,
         green : np.ndarray,
+        key = None,
         hdf5file : str = None,
         group : str = None,
         iteration: int = None,
+        scf : bool = True
     ):
 
         super().__init__(crystal, dlr, projector)
 
         
+        self.key = self._ResolveGLocKey(key)
         self.green = green
-        self.f = {}
-        self.t = {}
-        self.occ = {}
+        self.f = None
+        self.t = None
+        self.occ = None
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
         self.iteration = iteration
+        self.scf = scf
         self.Cal()
+
+        self.Save(fn='gloc', scf=self.scf)
         
         
+    def _ResolveGLocKey(self, key):
+        if key is not None:
+            return self.ResolveProblemKey(key)
+        if self.projector is None:
+            raise ValueError("projector is required to resolve GLoc problem key")
+        keys = list(getattr(self.projector, "fprojector", {}).keys())
+        if len(keys) == 1:
+            return self.ResolveProblemKey(keys[0])
+        if len(keys) == 0:
+            raise ValueError("GLoc requires at least one impurity problem")
+        raise ValueError(
+            "GLoc requires key when multiple impurity problems are present"
+        )
 
     def Cal(self):
 
-        self.f = {}
-        self.t = {}
-        self.occ = {}
-
-        for key in self.projector.fprojector.keys():
-            mat = self.Projection(self.green, key)
-            self.f[key] = mat
-            tau = self.F2T(mat)
-            self.t[key] = tau
-            self.occ[key] = self.Occ(tau)
+        self.f = self.Projection(self.green, self.key)
+        self.t = self.F2T(self.f)
+        self.occ = self.Occ(self.t)
 
         return None
 
@@ -834,27 +846,22 @@ class GLoc(FLocDyn):
 
         return occ
     
-    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
-        if fn is None:
-            raise ValueError("GLoc.Save requires fn")
+    def Save(self, fn: str, scf: bool = True):
+        
         fn_write = fn
+        if self.iteration == 1:
+            fn_write = f"{fn_write}_ini"
         if scf:
             if self.iteration is None:
                 raise ValueError("GLoc.Save requires iteration when scf=True")
             fn_write = f"{fn}.{self.iteration}"
+        if getattr(self, "key", None) is None:
+            raise ValueError("GLoc.Save requires key")
+        fn_write = f"{fn_write}.{self.key}"
 
         with h5py.File(self.hdf5file,'a') as file:
             gloc = IO.Group(file, self.group, self.subgroup)
-            if obj is not None:
-                IO.CreateDataset(gloc, fn_write, obj, dtype=complex)
-            else:
-                for key, value in self.f.items():
-                    IO.CreateDataset(
-                        gloc,
-                        f"{fn_write}.{str(key)}",
-                        value,
-                        dtype=complex,
-                    )
+            IO.CreateDataset(gloc, fn_write, self.f, dtype=complex)
 
         return None
     
@@ -878,6 +885,7 @@ class GImp(FLocDyn):
         self.green = green
         self.f = None
         self.t = None
+        self.occ = None
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
@@ -907,8 +915,26 @@ class GImp(FLocDyn):
             self.f = np.asfortranarray(self.green, dtype=np.complex128)
 
         self.t = self.F2T(self.f)
+        self.occ = self.Occ(self.t)
 
         return None
+
+    def Occ(self, mat : np.ndarray):
+
+        tau_beta = np.array([self.dlr.beta], dtype=np.float64)
+        occ = np.zeros_like(mat[..., 0], dtype=np.complex128)
+        for js in range(mat.shape[2]):
+            block = mat[:, :, js, :].T
+
+            ntau_b = block.shape[0]
+            block_2d = block.reshape(ntau_b, -1)
+
+            fxx = self.dlr.dF.dlr_from_tau(block_2d)
+            fout = self.dlr.dF.eval_dlr_tau(fxx[:, :, None], tau_beta, beta=self.dlr.beta)
+
+            occ[:, :, js] = -fout[0, :, 0].reshape(mat.shape[0], mat.shape[0])
+
+        return occ
 
     def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
         if fn is None:
@@ -1217,6 +1243,8 @@ class SigCImp(FLocDyn):
             if hasattr(self.dlr, "MatsubaraDLR2UniformGrid"):
                 self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=-1)
         self.t = self.F2T(self.f)
+        if iter is not None:
+            self.iteration = iter
 
     def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
         if fn is None:

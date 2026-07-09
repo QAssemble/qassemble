@@ -81,7 +81,8 @@ class BLocDyn(object):
         if hasattr(self, "key") and self.key != pkey:
             raise ValueError(f"object key '{self.key}' does not match requested key '{pkey}'")
 
-        dyn = np.asarray(self.cf, dtype=np.complex128)
+        dyn_source = self.cf_uniform if hasattr(self, "cf_uniform") and self.cf_uniform is not None else self.cf
+        dyn = np.asarray(dyn_source, dtype=np.complex128)
 
         return {"1": self._dynamic_average(pkey, dyn).real.tolist()}
 
@@ -616,6 +617,8 @@ class Chi(BLocDyn):
         self.occupation = None
         self.occupation_susceptibility_bulla = None
         self.occupation_susceptibility_xij = None
+        self.occupation_susceptibility_xij_uniform = None
+        self.f_uniform = None
         self.f = None
         self.t = None
         self.hdf5file = hdf5file
@@ -754,11 +757,7 @@ class Chi(BLocDyn):
         for ii, jj, arr in pairs:
             xij[:, ii, jj] = arr
 
-        self.occupation_susceptibility_xij = np.moveaxis(
-            self.BosonUniform2DLR(np.moveaxis(xij, 0, -1)),
-            -1,
-            0,
-        )
+        self.occupation_susceptibility_xij_uniform = np.asfortranarray(xij)
 
         norbc = self._fermion_orbital_count_from_boson()
         nspin = ndim // norbc
@@ -789,9 +788,10 @@ class Chi(BLocDyn):
             return None
 
         susc_uniform = self.QuadSusceptibility2Boson(susc_uniform)
-        self.f = self.BosonUniform2DLR(susc_uniform)
-        self.occupation_susceptibility_bulla = self.f
-        self.t = self.F2T(self.f)
+        self.f_uniform = np.asfortranarray(susc_uniform)
+        self.occupation_susceptibility_bulla = self.f_uniform
+        self.f = None
+        self.t = None
 
         return None
 
@@ -809,7 +809,7 @@ class Chi(BLocDyn):
             if obj is not None:
                 IO.CreateDataset(chi, fn_write, obj, dtype=complex)
             else:
-                IO.CreateDataset(chi, fn_write, self.f, dtype=complex)
+                IO.CreateDataset(chi, fn_write, self.f_uniform, dtype=complex)
 
         return None
 
@@ -825,6 +825,9 @@ class PImp(BLocDyn):
         self.chi = chi
         self.utilde = utilde
         self.chi_boson = None
+        self.chi_boson_uniform = None
+        self.utilde_uniform = None
+        self.f_uniform = None
         self.f = None
         self.t = None
         self.hdf5file = hdf5file
@@ -840,17 +843,61 @@ class PImp(BLocDyn):
             raise ValueError(f"PImp expects 5D bosonic susceptibility, got {chi.ndim}D")
         return np.asfortranarray(chi)
 
+    def _boson_uniform_size(self) -> int:
+        return int(self._ResolveCausalGrid("uniform").size)
+
+    def _boson_dlr_to_uniform(self, value : np.ndarray, name : str) -> np.ndarray:
+        if not hasattr(self.dlr, "MatsubaraDLR2UniformGrid"):
+            raise ValueError(f"{name} is on the DLR grid but DLR->uniform conversion is unavailable")
+        return np.asfortranarray(self.dlr.MatsubaraDLR2UniformGrid(value, sign=1))
+
+    def _to_uniform_boson(self, value, name : str) -> np.ndarray:
+        if value is None:
+            return None
+
+        if hasattr(value, "f_uniform") and value.f_uniform is not None:
+            value = value.f_uniform
+        elif hasattr(value, "f"):
+            value = value.f
+        if value is None:
+            return None
+
+        arr = self._quad_to_local_boson(value)
+        nfreq_uniform = self._boson_uniform_size()
+        if arr.shape[-1] == nfreq_uniform:
+            return arr
+        if arr.shape[-1] == len(self.dlr.nu):
+            return self._boson_dlr_to_uniform(arr, name)
+        raise ValueError(
+            f"{name} frequency dimension {arr.shape[-1]} does not match "
+            f"uniform grid size {nfreq_uniform} or DLR size {len(self.dlr.nu)}"
+        )
+
     def _dynamic_interaction(self, nfreq : int):
 
         if self.utilde is None:
             return None
 
-        u = np.asarray(self.utilde, dtype=np.complex128)
+        u_source = self.utilde
+        if hasattr(u_source, "f_uniform") and u_source.f_uniform is not None:
+            u_source = u_source.f_uniform
+        elif hasattr(u_source, "f"):
+            u_source = u_source.f
+        if u_source is None:
+            return None
+
+        u = np.asarray(u_source, dtype=np.complex128)
         bproj = self.projector.bprojector[self.key]
         norbb = bproj.shape[1]
 
         if u.ndim == 5:
-            u = u[..., :nfreq]
+            if u.shape[-1] == len(self.dlr.nu) and u.shape[-1] != nfreq:
+                u = self._boson_dlr_to_uniform(u, "utilde")
+            if u.shape[-1] != nfreq:
+                raise ValueError(
+                    f"utilde frequency dimension {u.shape[-1]} does not match "
+                    f"uniform grid size {nfreq}"
+                )
         elif u.ndim == 4:
             if u.shape[0] != norbb:
                 u = PJ.BLocStc(u, bproj)
@@ -868,21 +915,20 @@ class PImp(BLocDyn):
 
     def Cal(self):
 
-        chi = self.chi.f if hasattr(self.chi, "f") else self.chi
-        if chi is None:
+        chi_uniform = self._to_uniform_boson(self.chi, "chi")
+        if chi_uniform is None:
             return None
 
-        chi = np.asarray(chi, dtype=np.complex128)
-        if chi.shape[-1] != len(self.dlr.nu):
-            chi = self.BosonUniform2DLR(chi)
-
-        self.chi_boson = self._quad_to_local_boson(chi)
-        utilde = self._dynamic_interaction(self.chi_boson.shape[4])
+        self.chi_boson_uniform = chi_uniform
+        self.chi_boson = self.chi_boson_uniform
+        utilde = self._dynamic_interaction(self.chi_boson_uniform.shape[4])
+        self.utilde_uniform = utilde
         if utilde is None:
-            self.f = self.chi_boson
+            self.f_uniform = self.chi_boson_uniform
         else:
-            self.f = self.Dyson(self.chi_boson, -utilde)
+            self.f_uniform = self.Dyson(self.chi_boson_uniform, -utilde)
 
+        self.f = self.CausalProjection(self.f_uniform, grid="uniform")
         self.t = self.F2T(self.f)
 
         return None
@@ -905,6 +951,8 @@ class PImp(BLocDyn):
             key=key,
         )
         self.t = self.F2T(self.f)
+        if iter is not None:
+            self.iteration = iter
 
     def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
         if fn is None:
@@ -940,6 +988,8 @@ class BWeiss(BLocDyn):
         self.t = None
         self.cf = None
         self.ct = None
+        self.f_uniform = None
+        self.cf_uniform = None
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
@@ -999,6 +1049,8 @@ class BWeiss(BLocDyn):
             )
         vdyn = np.broadcast_to(v[..., np.newaxis], self.f.shape)
         self.cf = self.f - vdyn
+        self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
+        self.cf_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
 
         self.t = self.F2T(self.f)
         self.ct = self.F2T(self.cf)

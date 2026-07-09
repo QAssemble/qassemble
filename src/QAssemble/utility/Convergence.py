@@ -20,9 +20,12 @@ class Convergence:
 
     Per-iteration usage:
         conv.StartIter(iter)
-        conv.CheckSelf('GLoc', value=..., kind='dict')
+        conv.CheckSelfHDF5('GLoc', group='dmft', subgroup='GLoc',
+                           current='gloc.2', previous='gloc.1', keys=...)
         conv.CheckSelf('mu',   value=..., kind='scalar')
-        conv.CheckCross('GLoc', a=..., name_b='GImp', b=..., kind='dict')
+        conv.CheckCrossHDF5('GLoc', name_b='GImp', group='dmft',
+                            subgroup_a='GLoc', subgroup_b='GImp',
+                            stem_a='gloc.2', stem_b='gimp.2', keys=...)
         conv.RecordDiagnostics(diag_by_key)
         converged, info = conv.Commit(iter, will_continue=...)
 
@@ -141,6 +144,40 @@ class Convergence:
         raise ValueError(f"_max_diff_and_scale: unknown kind {kind!r}")
 
     @staticmethod
+    def _require_hdf5_dataset(handle, path):
+        if path not in handle:
+            raise KeyError(f"Convergence HDF5 dataset not found: {path}")
+        return np.asarray(handle[path])
+
+    @classmethod
+    def _max_diff_and_scale_hdf5_keyed(cls, handle, paths_a, paths_b):
+        if len(paths_a) != len(paths_b):
+            raise ValueError("HDF5 convergence path lists must have same length")
+        if not paths_a:
+            raise ValueError("HDF5 convergence requires at least one key")
+
+        abs_d = 0.0
+        scale = 1e-30
+        for path_a, path_b in zip(paths_a, paths_b):
+            a = cls._require_hdf5_dataset(handle, path_a)
+            b = cls._require_hdf5_dataset(handle, path_b)
+            if a.shape != b.shape:
+                raise ValueError(
+                    "Convergence HDF5 shape mismatch: "
+                    f"{path_a} has {a.shape}, {path_b} has {b.shape}"
+                )
+            abs_d = max(abs_d, float(np.abs(a - b).max()))
+            scale = max(scale, float(np.abs(a).max()))
+        return abs_d, max(scale, 1e-30)
+
+    @staticmethod
+    def _hdf5_keyed_paths(group, subgroup, stem, keys):
+        return [
+            f"{group}/{subgroup}/{stem}.{str(key)}"
+            for key in keys
+        ]
+
+    @staticmethod
     def _copy_value(value, kind):
         if kind == "array":
             return np.asarray(value).copy()
@@ -246,6 +283,78 @@ class Convergence:
             "gating": effective_gating,
         })
 
+    def CheckSelfHDF5(
+        self,
+        name,
+        *,
+        group,
+        subgroup,
+        current,
+        previous,
+        keys,
+        gating=True,
+    ):
+        """Register a self-test by reading keyed datasets from HDF5."""
+        self._require_not_tb("CheckSelfHDF5")
+        self._require_iter("CheckSelfHDF5")
+        key_list = list(keys)
+        abs_key = f"tol_d{name}_abs"
+        rel_key = f"tol_d{name}_rel"
+        tol_abs_raw = self._tol_run.get(abs_key)
+        tol_rel_raw = self._tol_run.get(rel_key)
+        observational = (tol_abs_raw is None) or (tol_rel_raw is None)
+
+        ready = self._iter_no > self._ready_after
+        if ready:
+            paths_current = self._hdf5_keyed_paths(
+                group,
+                subgroup,
+                current,
+                key_list,
+            )
+            paths_previous = self._hdf5_keyed_paths(
+                group,
+                subgroup,
+                previous,
+                key_list,
+            )
+            with h5py.File(self.hdf5path + ".h5", "r") as handle:
+                abs_d, scale = self._max_diff_and_scale_hdf5_keyed(
+                    handle,
+                    paths_current,
+                    paths_previous,
+                )
+            rel_d = abs_d / scale
+        else:
+            abs_d = float("nan")
+            rel_d = float("nan")
+
+        if observational:
+            missing = [k for k, v in ((abs_key, tol_abs_raw),
+                                       (rel_key, tol_rel_raw)) if v is None]
+            self._warn_observational(name, missing)
+            tol_abs = None
+            tol_rel = None
+            passed = None
+            effective_gating = False
+        else:
+            tol_abs = float(tol_abs_raw)
+            tol_rel = float(tol_rel_raw)
+            passed = bool(ready and (abs_d <= tol_abs) and (rel_d <= tol_rel))
+            effective_gating = gating
+
+        self._iter_buf.append({
+            "name": name,
+            "kind_test": "self",
+            "kind_value": "hdf5",
+            "abs": abs_d,
+            "rel": rel_d,
+            "tol_abs": tol_abs,
+            "tol_rel": tol_rel,
+            "passed": passed,
+            "gating": effective_gating,
+        })
+
     def CheckCross(self, name_a, *, a, name_b, b, kind, gating=True):
         """Register a cross-test (same iter, different quantities).
 
@@ -275,6 +384,58 @@ class Convergence:
             "name": f"{name_a}-{name_b}",
             "kind_test": "cross",
             "kind_value": kind,
+            "abs": abs_d,
+            "rel": None,
+            "tol_abs": tol_abs,
+            "tol_rel": None,
+            "passed": passed,
+            "gating": effective_gating,
+        })
+
+    def CheckCrossHDF5(
+        self,
+        name_a,
+        *,
+        name_b,
+        group,
+        subgroup_a,
+        subgroup_b,
+        stem_a,
+        stem_b,
+        keys,
+        gating=True,
+    ):
+        """Register a cross-test by reading keyed datasets from HDF5."""
+        self._require_not_tb("CheckCrossHDF5")
+        self._require_iter("CheckCrossHDF5")
+        key_list = list(keys)
+        key = f"tol_{name_a}_{name_b}_abs"
+        tol_abs_raw = self._tol_run.get(key)
+        observational = tol_abs_raw is None
+
+        paths_a = self._hdf5_keyed_paths(group, subgroup_a, stem_a, key_list)
+        paths_b = self._hdf5_keyed_paths(group, subgroup_b, stem_b, key_list)
+        with h5py.File(self.hdf5path + ".h5", "r") as handle:
+            abs_d, _ = self._max_diff_and_scale_hdf5_keyed(
+                handle,
+                paths_a,
+                paths_b,
+            )
+
+        if observational:
+            self._warn_observational(f"{name_a}-{name_b}", [key])
+            tol_abs = None
+            passed = None
+            effective_gating = False
+        else:
+            tol_abs = float(tol_abs_raw)
+            passed = bool(abs_d <= tol_abs)
+            effective_gating = gating
+
+        self._iter_buf.append({
+            "name": f"{name_a}-{name_b}",
+            "kind_test": "cross",
+            "kind_value": "hdf5",
             "abs": abs_d,
             "rel": None,
             "tol_abs": tol_abs,

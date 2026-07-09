@@ -7,18 +7,29 @@ from QAssemble.BLocDyn import Chi, PImp
 
 
 class _FakeDLR:
-    def __init__(self, nfreq=2):
+    def __init__(self, nfreq=2, nuniform=3):
+        self.beta = 1.0
         self.nu = np.arange(nfreq, dtype=float)
         self.tauB = np.arange(nfreq, dtype=float)
+        self.nu_uniform = np.arange(nuniform, dtype=float)
+        self.uniform_to_dlr_calls = 0
 
     def BatchBF2T(self, bf_2d):
         return np.asarray(bf_2d, dtype=np.complex128)
+
+    def MatsubaraBosonUniform(self):
+        return self.nu_uniform
+
+    def MatsubaraUniform2DLR(self, value, omega=None, sign=1):
+        self.uniform_to_dlr_calls += 1
+        raise AssertionError("Chi must not convert CTQMC susceptibility to DLR")
 
 
 class _FakeProjector:
     def __init__(self):
         self.bprojector = {"1": np.ones((1, 1, 1), dtype=float)}
         self.equiv = {"1": np.eye(1, dtype=int)}
+        self.blocal2pair = {"1": [{0: (0, 0)}]}
 
     def ProbBorb2FPair(self, key, iorbc, ispace=0):
         assert key == "1"
@@ -59,28 +70,70 @@ def test_chi_quad_susceptibility_rejects_non_ctqmc_shape():
         reader.QuadSusceptibility2Boson(chi)
 
 
-def test_pimp_accepts_chi_bosonic_output_and_applies_inverse_dyson():
+def test_chi_cal_keeps_ctqmc_susceptibility_on_uniform_grid():
     crystal = SimpleNamespace(ns=1)
-    dlr = _FakeDLR(nfreq=2)
+    dlr = _FakeDLR(nfreq=2, nuniform=3)
     projector = _FakeProjector()
-    reader = _chi_reader()
-    raw = np.zeros((1, 1, 1, 1, 2, 2, 2), dtype=np.complex128, order="F")
-    raw[0, 0, 0, 0, :, :, 0] = 0.1
-    raw[0, 0, 0, 0, :, :, 1] = 0.15
-    chi = reader.QuadSusceptibility2Boson(raw)
-    utilde = np.zeros_like(chi)
-    utilde[0, 0, 0, 0, :] = [1.0, 2.0]
+    partition = {
+        "occupation-susceptibility-bulla": {
+            "0_0": [1.0, 2.0, 3.0],
+            "0_1": [10.0, 20.0, 30.0],
+            "1_0": [100.0, 200.0, 300.0],
+            "1_1": [1000.0, 2000.0, 3000.0],
+        },
+    }
+
+    chi = Chi(
+        crystal=crystal,
+        dlr=dlr,
+        projector=projector,
+        key="1",
+        partition=partition,
+    )
+
+    expected = 0.5 * np.array([1111.0, 2222.0, 3333.0], dtype=np.complex128)
+    assert dlr.uniform_to_dlr_calls == 0
+    assert chi.f is None
+    assert chi.t is None
+    assert chi.f_uniform.shape == (1, 1, 1, 1, 3)
+    np.testing.assert_allclose(chi.f_uniform[0, 0, 0, 0, :], expected)
+    np.testing.assert_allclose(
+        chi.occupation_susceptibility_xij_uniform[:, 0, 1],
+        [10.0, 20.0, 30.0],
+    )
+
+
+def test_pimp_uses_uniform_chi_and_utilde_before_causal_projection(monkeypatch):
+    crystal = SimpleNamespace(ns=1)
+    dlr = _FakeDLR(nfreq=2, nuniform=3)
+    projector = _FakeProjector()
+    chi_uniform = np.zeros((1, 1, 1, 1, 3), dtype=np.complex128, order="F")
+    utilde_uniform = np.zeros_like(chi_uniform)
+    chi_uniform[0, 0, 0, 0, :] = [0.1, 0.2, 0.3]
+    utilde_uniform[0, 0, 0, 0, :] = [1.0, 2.0, 3.0]
+    projected_inputs = []
+
+    def fake_causal_projection(self, value, *, grid="dlr", **kwargs):
+        assert grid == "uniform"
+        projected_inputs.append(np.array(value, copy=True))
+        return np.asfortranarray(value[..., : len(self.dlr.nu)] + 100.0)
+
+    monkeypatch.setattr(PImp, "CausalProjection", fake_causal_projection)
 
     pimp = PImp(
         crystal=crystal,
         dlr=dlr,
         projector=projector,
         key="1",
-        chi=SimpleNamespace(f=chi),
-        utilde=utilde,
+        chi=SimpleNamespace(f_uniform=chi_uniform),
+        utilde=utilde_uniform,
     )
 
-    expected = chi / (1.0 + utilde * chi)
-    np.testing.assert_allclose(pimp.chi_boson, chi)
-    np.testing.assert_allclose(pimp.f, expected)
-    np.testing.assert_allclose(pimp.t, expected)
+    expected_uniform = chi_uniform / (1.0 + utilde_uniform * chi_uniform)
+    np.testing.assert_allclose(pimp.chi_boson_uniform, chi_uniform)
+    np.testing.assert_allclose(pimp.chi_boson, chi_uniform)
+    np.testing.assert_allclose(pimp.utilde_uniform, utilde_uniform)
+    np.testing.assert_allclose(pimp.f_uniform, expected_uniform)
+    np.testing.assert_allclose(projected_inputs[0], expected_uniform)
+    np.testing.assert_allclose(pimp.f, expected_uniform[..., :2] + 100.0)
+    np.testing.assert_allclose(pimp.t, pimp.f)

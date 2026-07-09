@@ -505,8 +505,7 @@ class SigHImp(FLocStc):
         crystal : Crystal,
         projector : Projector,
         key,
-        gimp = None,
-        occ : np.ndarray = None,
+        occ : np.ndarray,
         vloc = None,
         hdf5file : str = 'glob.h5',
         group : str = None,
@@ -516,7 +515,6 @@ class SigHImp(FLocStc):
         super().__init__(crystal, projector)
 
         self.key = self.ResolveProblemKey(key)
-        self.gimp = gimp
         self.occ = occ
         self.vloc = vloc
         self.s = None
@@ -527,70 +525,43 @@ class SigHImp(FLocStc):
         self.iteration = iteration
         self.Cal()
 
-    def _occupation_from_gimp(self):
-
-        if self.gimp is None or self.gimp.t is None:
-            raise ValueError("SigHImp requires occ or a GImp object with tau data")
-
-        return -self.gimp.t[:, :, :, -1].copy()
-
-    def _local_interaction(self):
-
-        if self.vloc is None:
-            raise ValueError("SigHImp requires vloc or utilde interaction data")
-
-        v = self.vloc.vloc if hasattr(self.vloc, "vloc") else self.vloc
-        if isinstance(v, dict):
-            v = v[self.key]
-        v = np.asarray(v, dtype=np.complex128)
-        bproj = self.projector.bprojector[self.key]
-        norbb = bproj.shape[1]
-
-        if v.ndim == 6:
-            iprob = int(self.key) - 1
-            v = v[..., 0, iprob]
-        elif v.ndim == 5:
-            v = v[..., 0]
-        elif v.ndim != 4:
-            raise ValueError(f"interaction must be 4D, 5D, or 6D, got {v.ndim}D")
-
-        if v.shape[0] != norbb:
-            v = PJ.BLocStc(v, bproj)
-
-        return np.asfortranarray(v)
-
     def Cal(self):
 
-        occ = self.occ if self.occ is not None else self._occupation_from_gimp()
-        v = self._local_interaction()
-
-        norbb = v.shape[0]
-        ns = v.shape[2]
-        norbc = occ.shape[0]
+        occ = self.occ
+        occ = np.asarray(occ, dtype=np.complex128)
+        v = np.asarray(self.vloc, dtype=np.complex128)
+        key = self.key
+        proj = self.projector.fprojector[key]
+        norbc = proj.shape[1]
+        ns = proj.shape[2]
+        bproj = self.projector.bprojector[key]
+        norbb = bproj.shape[1]
         h = np.zeros((norbc, norbc, ns), dtype=np.complex128, order='F')
 
         if ns != 1:
             for ind1 in range(norbb * ns):
                 nn1 = [0] * 2
                 _, [iorb, js] = Common.Indexing(norbb * ns, 2, [norbb, ns], 0, ind1, nn1)
-                iorbc1, iorbc2 = self.projector.ProbBorb2FPair(self.key, iorb)
+                iorbc1, iorbc2 = self.projector.ProbBorb2FPair(key, iorb)
 
                 for ind2 in range(norbb * ns):
                     nn2 = [0] * 2
                     _, [jorb, ks] = Common.Indexing(norbb * ns, 2, [norbb, ns], 0, ind2, nn2)
-                    iorbc3, iorbc4 = self.projector.ProbBorb2FPair(self.key, jorb)
+                    iorbc3, iorbc4 = self.projector.ProbBorb2FPair(key, jorb)
+
                     h[iorbc1, iorbc2, js] += v[iorb, jorb, js, ks] * occ[iorbc4, iorbc3, ks]
         else:
             C = 1 if self.crystal.soc else 2
             for ind1 in range(norbb * ns):
                 nn1 = [0] * 2
                 _, [iorb, js] = Common.Indexing(norbb * ns, 2, [norbb, ns], 0, ind1, nn1)
-                iorbc1, iorbc2 = self.projector.ProbBorb2FPair(self.key, iorb)
+                iorbc1, iorbc2 = self.projector.ProbBorb2FPair(key, iorb)
 
                 for ind2 in range(norbb * ns):
                     nn2 = [0] * 2
                     _, [jorb, ks] = Common.Indexing(norbb * ns, 2, [norbb, ns], 0, ind2, nn2)
-                    iorbc3, iorbc4 = self.projector.ProbBorb2FPair(self.key, jorb)
+                    iorbc3, iorbc4 = self.projector.ProbBorb2FPair(key, jorb)
+
                     h[iorbc1, iorbc2, js] += v[iorb, jorb, js, ks] * occ[iorbc4, iorbc3, ks] * C
 
         self.occ = occ
@@ -617,6 +588,8 @@ class SigHImp(FLocStc):
             key=key,
         )
         self.s = self.h
+        if iter is not None:
+            self.iteration = iter
 
     def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
         if fn is None:
@@ -788,6 +761,8 @@ class SigFImp(FLocStc):
             npulay=npulay,
             key=key,
         )
+        if iter is not None:
+            self.iteration = iter
 
     def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
         if fn is None:

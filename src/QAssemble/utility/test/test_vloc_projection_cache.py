@@ -22,6 +22,10 @@ class _FakeDLR:
     def BatchBF2T(self, bf_2d):
         return np.asarray(bf_2d, dtype=np.complex128)
 
+    def MatsubaraDLR2UniformGrid(self, value, sign=1):
+        assert sign == 1
+        return np.asfortranarray(np.asarray(value, dtype=np.complex128) + 10.0)
+
 
 def _vloc_with_data(projector=None):
     obj = VLoc.__new__(VLoc)
@@ -87,6 +91,8 @@ def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs():
     expected_ubar = expected_utilde - vproj[..., np.newaxis]
     np.testing.assert_allclose(bweiss.f, expected_utilde)
     np.testing.assert_allclose(bweiss.cf, expected_ubar)
+    np.testing.assert_allclose(bweiss.f_uniform, expected_utilde + 10.0)
+    np.testing.assert_allclose(bweiss.cf_uniform, expected_ubar + 10.0)
     np.testing.assert_allclose(bweiss.t, expected_utilde)
     np.testing.assert_allclose(bweiss.ct, expected_ubar)
 

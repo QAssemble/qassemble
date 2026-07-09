@@ -8,11 +8,22 @@ from QAssemble import Method as method_mod
 class _SavedObject:
     def __init__(self, **attrs):
         self.saved = []
+        self.mixed = []
         for key, value in attrs.items():
             setattr(self, key, value)
 
     def Save(self, name):
         self.saved.append(name)
+
+    def Mixing(self, iter=None, mix=None, method="pulay", npulay=5):
+        self.mixed.append(
+            {
+                "iter": iter,
+                "mix": mix,
+                "method": method,
+                "npulay": npulay,
+            }
+        )
 
 
 def _install_fake_ctqmc(monkeypatch, *, missing=(), include_bosons=False):
@@ -89,6 +100,7 @@ def test_impurity_action_runs_ctqmc_and_returns_outputs(monkeypatch, tmp_path):
     ]
     assert ctqmc.dlr == "dlr"
     assert ctqmc.key == "imp0"
+    assert ctqmc.control == {"method": "dmft"}
     assert ctqmc.hdf5file == str(tmp_path / "calc.h5")
     assert ctqmc.group == "impurity_solver"
     assert isinstance(result, method_mod.ImpurityActionResult)
@@ -103,19 +115,45 @@ def test_impurity_action_runs_ctqmc_and_returns_outputs(monkeypatch, tmp_path):
     assert result.diagnostics == {"sign": 1.0}
 
 
-def test_impurity_action_saves_required_and_optional_outputs(monkeypatch, tmp_path):
+def test_impurity_action_leaves_output_finalization_to_ctqmc(monkeypatch, tmp_path):
     fake_ctqmc = _install_fake_ctqmc(monkeypatch, include_bosons=True)
     fweiss, bweiss = _weiss_pair(tmp_path)
 
     result = method_mod.ImpurityAction(fweiss, bweiss, iteration=2)()
 
-    assert result.gimp.saved == ["gimp"]
-    assert result.sighimp.saved == ["sighimp"]
-    assert result.sigfimp.saved == ["sigfimp"]
-    assert result.sigimp.saved == ["sigimp"]
-    assert result.chi.saved == ["chi"]
-    assert result.pimp.saved == ["pimp"]
+    assert result.gimp.saved == []
+    assert result.sighimp.saved == []
+    assert result.sigfimp.saved == []
+    assert result.sigimp.saved == []
+    assert result.chi.saved == []
+    assert result.pimp.saved == []
     assert fake_ctqmc.instances[0].calls[-1] == ("PostProcessing", 2)
+
+
+def test_impurity_action_passes_control_to_ctqmc(monkeypatch, tmp_path):
+    _install_fake_ctqmc(monkeypatch, include_bosons=True)
+    fweiss, bweiss = _weiss_pair(tmp_path)
+    control = {
+        "mix": 0.25,
+        "mixing_method": "linear",
+        "npulay": 3,
+    }
+
+    result = method_mod.ImpurityAction(
+        fweiss,
+        bweiss,
+        control=control,
+        iteration=4,
+    )()
+
+    ctqmc = method_mod.CTQMC.instances[0]
+    assert ctqmc.control is control
+    assert result.gimp.mixed == []
+    assert result.sighimp.mixed == []
+    assert result.sigfimp.mixed == []
+    assert result.sigimp.mixed == []
+    assert result.chi.mixed == []
+    assert result.pimp.mixed == []
 
 
 def test_impurity_action_can_return_missing_optional_outputs_without_validation(monkeypatch, tmp_path):
@@ -159,7 +197,8 @@ def test_hfloc_builds_local_hf_objects_and_saves_on_first_iteration(monkeypatch)
     gloc = SimpleNamespace(
         crystal="crystal",
         projector="projector",
-        occ={"1": "occ"},
+        key="1",
+        occ="occ",
     )
     vloc = FakeVLoc()
 
@@ -215,7 +254,8 @@ def test_hfloc_skips_save_on_non_save_iteration(monkeypatch):
     gloc = SimpleNamespace(
         crystal="crystal",
         projector="projector",
-        occ={"1": "occ"},
+        key="1",
+        occ="occ",
     )
     vloc = SimpleNamespace(vproj={"1": "vproj"})
 
@@ -268,7 +308,8 @@ def test_gwloc_builds_local_gw_objects_and_saves_on_first_iteration(monkeypatch)
         crystal="crystal",
         dlr="dlr",
         projector="projector",
-        t={"1": "gtau"},
+        key="1",
+        t="gtau",
     )
     wloc = SimpleNamespace(key="1", ct="wct")
 
@@ -324,7 +365,8 @@ def test_gwloc_skips_save_on_non_save_iteration(monkeypatch):
         crystal="crystal",
         dlr="dlr",
         projector="projector",
-        t={"1": "gtau"},
+        key="1",
+        t="gtau",
     )
     wloc = SimpleNamespace(key="1", ct="wct")
 

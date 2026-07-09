@@ -153,6 +153,8 @@ class Run:
         ######## Check the method ########
 
         control["run"]["mix"] = ini.get("Mix", 0.1)
+        control["run"]["mixing_method"] = ini.get("MixingMethod", "pulay")
+        control["run"]["npulay"] = int(ini.get("NPulay", 5))
         control["run"]["nscf"] = ini.get("NSCF", 100)
         control["run"]["cw"] = ini.get("ConstantW", 1.0)
 
