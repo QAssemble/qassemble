@@ -378,15 +378,21 @@ def test_dmft_skips_convergence_on_first_loop(monkeypatch, tmp_path):
     assert conv.cross_hdf5_checks == []
 
 
-def test_edmft_uses_initial_dynamic_bath_and_wloc_self_check(monkeypatch, tmp_path):
+def test_edmft_uses_initial_dynamic_bath_and_skips_first_convergence(
+    monkeypatch,
+    tmp_path,
+):
     stack = _install_fake_edmft_stack(monkeypatch)
     corr = _edmft_correlation_object(stack.cf_mod, tmp_path)
 
     corr.EDMFT()
 
     assert len(stack.PLoc.instances) == 1
-    assert [item.kwargs["key"] for item in stack.GLoc.instances] == ["1", "1"]
-    assert len(stack.WLoc.instances) == 2
+    assert [item.kwargs["key"] for item in stack.GLoc.instances] == ["1"]
+    assert [item.kwargs["iteration"] for item in stack.GLoc.instances] == [0]
+    assert len(stack.WLoc.instances) == 1
+    assert [item.kwargs["iteration"] for item in stack.WLoc.instances] == [0]
+    assert stack.WLoc.instances[0].saved == [("wloc", (), {})]
     assert len(stack.BWeiss.instances) == 1
     assert stack.BWeiss.instances[0].ploc is stack.PLoc.instances[0]
     assert stack.BWeiss.instances[0].wloc is stack.WLoc.instances[0]
@@ -400,18 +406,85 @@ def test_edmft_uses_initial_dynamic_bath_and_wloc_self_check(monkeypatch, tmp_pa
     assert result.sigimp.mixing_calls == []
     assert result.pimp.mixing_calls == []
 
-    self_check_names = [name for name, _, _ in corr.conv.self_checks]
-    assert "GLoc" in self_check_names
-    assert "mu" in self_check_names
-    assert "WLoc" in self_check_names
-    gloc_self = next(value for name, value, _ in corr.conv.self_checks if name == "GLoc")
-    assert gloc_self["1"] is stack.GLoc.instances[-1].f
-    assert len(corr.conv.cross_checks) == 1
-    name_a, name_b, cross_a, cross_b, kind = corr.conv.cross_checks[0]
-    assert (name_a, name_b, kind) == ("GLoc", "GImp", "dict")
-    assert cross_a["1"] is stack.GLoc.instances[-1].f
-    np.testing.assert_allclose(cross_b["1"], [1.0])
-    assert all("WLoc" not in item[:2] for item in corr.conv.cross_checks)
+    assert corr.conv.start_iters == []
+    assert corr.conv.self_checks == []
+    assert corr.conv.self_hdf5_checks == []
+    assert corr.conv.cross_checks == []
+    assert corr.conv.cross_hdf5_checks == []
+    assert not hasattr(corr, "gloc")
+    assert not hasattr(corr, "wloc")
+    np.testing.assert_allclose(corr.polimp["1"], result.pimp.f)
+    assert corr.polimp["1"] is not result.pimp
+
+
+def test_edmft_projects_gloc_in_problem_loop_and_uses_hdf5_convergence(
+    monkeypatch,
+    tmp_path,
+):
+    stack = _install_fake_edmft_stack(monkeypatch)
+    conv = _FakeConvergence(converge_after=99)
+    corr = _edmft_correlation_object(
+        stack.cf_mod,
+        tmp_path,
+        nscf=2,
+        conv=conv,
+    )
+
+    corr.EDMFT()
+
+    assert [item.kwargs["key"] for item in stack.GLoc.instances] == ["1", "1"]
+    assert [item.kwargs["iteration"] for item in stack.GLoc.instances] == [0, 1]
+    assert stack.Hyb.instances[0].kwargs["green"] is stack.GLoc.instances[0].f
+    assert stack.Hyb.instances[1].kwargs["green"] is stack.GLoc.instances[1].f
+
+    assert [item.kwargs["iteration"] for item in stack.WLoc.instances] == [0, 1]
+    assert [item.saved for item in stack.WLoc.instances] == [
+        [("wloc", (), {})],
+        [("wloc", (), {})],
+    ]
+
+    assert conv.start_iters == [1]
+    assert conv.self_hdf5_checks == [
+        (
+            "GLoc",
+            {
+                "group": "edmft",
+                "subgroup": "GLoc",
+                "current": "gloc.1",
+                "previous": "gloc.0",
+                "keys": ["1"],
+            },
+        ),
+        (
+            "WLoc",
+            {
+                "group": "edmft",
+                "subgroup": "WLoc",
+                "current": "wloc.1",
+                "previous": "wloc.0",
+                "keys": ["1"],
+            },
+        ),
+    ]
+    assert conv.cross_hdf5_checks == [
+        (
+            "GLoc",
+            {
+                "name_b": "GImp",
+                "group": "edmft",
+                "subgroup_a": "GLoc",
+                "subgroup_b": "GImp",
+                "stem_a": "gloc.1",
+                "stem_b": "gimp.1",
+                "keys": ["1"],
+            },
+        )
+    ]
+    assert [name for name, _, _ in conv.self_checks] == ["mu"]
+    assert conv.cross_checks == []
+    assert conv.diagnostics == {"1": {"sign": 1.0, "nimp": 1.0}}
+    assert not hasattr(corr, "gloc")
+    assert not hasattr(corr, "wloc")
 
 
 def test_edmft_reuses_previous_mixed_pimp_as_next_boson_input(monkeypatch, tmp_path):
@@ -428,7 +501,11 @@ def test_edmft_reuses_previous_mixed_pimp_as_next_boson_input(monkeypatch, tmp_p
     assert len(stack.PLoc.instances) == 1
     assert len(stack.BWeiss.instances) == 2
     assert stack.BWeiss.instances[0].ploc is stack.PLoc.instances[0]
-    assert stack.BWeiss.instances[1].ploc is stack.ImpurityAction.results[0].pimp
+    assert stack.BWeiss.instances[1].ploc is not stack.ImpurityAction.results[0].pimp
+    np.testing.assert_allclose(
+        stack.BWeiss.instances[1].ploc.f,
+        stack.ImpurityAction.results[0].pimp.f,
+    )
 
 
 @pytest.mark.parametrize("missing_attr", ["chi", "pimp"])

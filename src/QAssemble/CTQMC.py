@@ -26,6 +26,8 @@ class CTQMC(object):
         self.hdf5file = hdf5file
         self.group = group
         self.mix = float(self.control["mix"])
+        self.mix_sig = float(self.control["mix_sig"])
+        self.mix_p = float(self.control["mix_p"])
         self.mixing_method = self.control["mixing_method"]
         self.npulay = int(self.control["npulay"])
         self.crystal = fweiss.crystal
@@ -361,17 +363,29 @@ class CTQMC(object):
 
     def _mix_outputs(self, iter : int):
 
-        if self.mix is None:
-            return None
+        if self.mix_sig is not None:
+            for attr in ('sighimp', 'sigfimp', 'sigimp'):
+                obj = getattr(self, attr, None)
+                if obj is not None and hasattr(obj, 'Mixing'):
+                    obj.Mixing(
+                        iter=iter,
+                        mix=self.mix_sig,
+                        method=self.mixing_method,
+                        npulay=self.npulay,
+                    )
 
-        for attr in ('sighimp', 'sigfimp', 'sigimp', 'pimp'):
-            obj = getattr(self, attr, None)
-            if obj is not None and hasattr(obj, 'Mixing'):
-                obj.Mixing(
-                    iter=iter,
-                    mix=self.mix,
-                    method=self.mixing_method,
-                    npulay=self.npulay,
-                )
+        obj = getattr(self, 'pimp', None)
+        if (
+            self._use_dyn()
+            and self.mix_p is not None
+            and obj is not None
+            and hasattr(obj, 'Mixing')
+        ):
+            obj.Mixing(
+                iter=iter,
+                mix=self.mix_p,
+                method=self.mixing_method,
+                npulay=self.npulay,
+            )
 
         return None

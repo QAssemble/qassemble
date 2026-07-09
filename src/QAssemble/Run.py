@@ -153,8 +153,20 @@ class Run:
         ######## Check the method ########
 
         control["run"]["mix"] = ini.get("Mix", 0.1)
-        control["run"]["mixing_method"] = ini.get("MixingMethod", "pulay")
-        control["run"]["npulay"] = int(ini.get("NPulay", 5))
+        control["run"]["mix_sig"] = ini.get("MixSig", control["run"]["mix"])
+        control["run"]["mix_p"] = ini.get("MixP", control["run"]["mix_sig"])
+        control["run"]["MixingMethod"] = ini.get("MixingMethod", "pulay")
+        if "MinSCF" in ini:
+            min_scf = int(ini["MinSCF"])
+        elif str(control["run"]["MixingMethod"]).lower() == "pulay":
+            min_scf = 5
+        else:
+            min_scf = 1
+        control["run"]["MinSCF"] = min_scf
+        control["run"]["min_iter"] = min_scf
+        control["run"]["NPulay"] = int(ini.get("NPulay", min_scf))
+        control["run"]["mixing_method"] = control["run"]["MixingMethod"]
+        control["run"]["npulay"] = control["run"]["NPulay"]
         control["run"]["nscf"] = ini.get("NSCF", 100)
         control["run"]["cw"] = ini.get("ConstantW", 1.0)
 
@@ -184,8 +196,20 @@ class Run:
                 continue
             if k.startswith("tol_"):
                 control["run"][k] = v
-        if "min_iter" in ini:
-            control["run"]["min_iter"] = int(ini["min_iter"])
+        for shortcut in ("TolerenceG", "ToleranceG"):
+            if shortcut in ini:
+                gtol = ini[shortcut]
+                for key in (
+                    "tol_dGLoc_abs",
+                    "tol_dGLoc_rel",
+                    "tol_GLoc_GImp_abs",
+                ):
+                    control["run"].setdefault(key, gtol)
+                break
+        if "ToleranceW" in ini:
+            wtol = ini["ToleranceW"]
+            for key in ("tol_dWLoc_abs", "tol_dWLoc_rel"):
+                control["run"].setdefault(key, wtol)
         if "convergence_hdf5_group" in ini:
             control["run"]["convergence_hdf5_group"] = ini["convergence_hdf5_group"]
         _LEGACY_TOL_KEYS = {
@@ -209,17 +233,6 @@ class Run:
                 logger.warning(
                     f"input.ini Control key '{old}' is deprecated. "
                     f"Rename to '{hint}'."
-                )
-
-        # ---- DMFT-without-min_iter migration hint ----------------------
-        if control["run"]["method"] in ("dmft", "edmft", "gw+edmft"):
-            if "min_iter" not in control["run"]:
-                logger.warning(
-                    "DMFT-family method without 'min_iter' in input.ini "
-                    "Control: convergence self-tests will be eligible "
-                    "from iter 2 onward. Previously the implicit default "
-                    "was 3 (CTQMC warm-up). Add 'min_iter = 3' to Control "
-                    "to restore old behavior."
                 )
 
         # CheckKeyinString("MatsubaraMesh",ini)
