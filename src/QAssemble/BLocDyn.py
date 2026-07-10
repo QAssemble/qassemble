@@ -725,6 +725,7 @@ class Chi(BLocDyn):
             return None
 
         xij_json = partition[dict_name]
+        nfreq_uniform = int(self.dlr.MatsubaraBosonUniform().size)
         pairs = []
         ndim = 0
         nfreq = None
@@ -739,6 +740,12 @@ class Chi(BLocDyn):
             arr = self._json_complex_array(val)
             if arr.ndim != 1:
                 arr = arr.reshape(-1)
+            if arr.shape[0] < nfreq_uniform:
+                raise ValueError(
+                    f"solver susceptibility '{xij_key}' has {arr.shape[0]} frequencies, "
+                    f"needs at least {nfreq_uniform}; increase 'susceptibility tail'"
+                )
+            arr = arr[:nfreq_uniform]
             if nfreq is None:
                 nfreq = arr.shape[0]
             elif arr.shape[0] != nfreq:
