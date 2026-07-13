@@ -13,6 +13,7 @@ class _FakeDLR:
         self.tauB = np.arange(nfreq, dtype=float)
         self.nu_uniform = np.arange(nuniform, dtype=float)
         self.uniform_to_dlr_calls = 0
+        self.dlr_to_uniform_calls = []
 
     def BatchBF2T(self, bf_2d):
         return np.asarray(bf_2d, dtype=np.complex128)
@@ -22,7 +23,11 @@ class _FakeDLR:
 
     def MatsubaraUniform2DLR(self, value, omega=None, sign=1):
         self.uniform_to_dlr_calls += 1
-        raise AssertionError("Chi must not convert CTQMC susceptibility to DLR")
+        raise AssertionError("unexpected direct uniform->DLR conversion in test")
+
+    def MatsubaraDLR2UniformGrid(self, value, sign=1):
+        self.dlr_to_uniform_calls.append(sign)
+        return np.asarray(value, dtype=np.complex128) + 1000.0
 
 
 class _FakeProjector:
@@ -70,7 +75,7 @@ def test_chi_quad_susceptibility_rejects_non_ctqmc_shape():
         reader.QuadSusceptibility2Boson(chi)
 
 
-def test_chi_cal_keeps_ctqmc_susceptibility_on_uniform_grid():
+def test_chi_cal_projects_ctqmc_susceptibility_causally(monkeypatch):
     crystal = SimpleNamespace(ns=1)
     dlr = _FakeDLR(nfreq=2, nuniform=3)
     projector = _FakeProjector()
@@ -83,6 +88,14 @@ def test_chi_cal_keeps_ctqmc_susceptibility_on_uniform_grid():
         },
     }
 
+    projection_calls = []
+
+    def fake_causal_projection(self, value, *, grid="dlr", **kwargs):
+        projection_calls.append((np.array(value, copy=True), grid, kwargs))
+        return np.asfortranarray(value[..., : len(self.dlr.nu)] + 100.0)
+
+    monkeypatch.setattr(Chi, "CausalProjection", fake_causal_projection)
+
     chi = Chi(
         crystal=crystal,
         dlr=dlr,
@@ -91,12 +104,26 @@ def test_chi_cal_keeps_ctqmc_susceptibility_on_uniform_grid():
         partition=partition,
     )
 
-    expected = 0.5 * np.array([1111.0, 2222.0, 3333.0], dtype=np.complex128)
-    assert dlr.uniform_to_dlr_calls == 0
-    assert chi.f is None
-    assert chi.t is None
-    assert chi.f_uniform.shape == (1, 1, 1, 1, 3)
-    np.testing.assert_allclose(chi.f_uniform[0, 0, 0, 0, :], expected)
+    raw = 0.5 * np.array([1111.0, 2222.0, 3333.0], dtype=np.complex128)
+    value, grid, kwargs = projection_calls[0]
+    assert grid == "uniform"
+    assert kwargs["coefficient_sign"] == 1
+    assert kwargs["oddzero"] is True
+    assert kwargs["highzero"] is True
+    np.testing.assert_allclose(value[0, 0, 0, 0, :], raw)
+    # Raw solver data stays available for diagnostics.
+    np.testing.assert_allclose(
+        chi.occupation_susceptibility_bulla[0, 0, 0, 0, :], raw
+    )
+    # f holds the projected data on the DLR grid.
+    projected = raw[:2] + 100.0
+    assert chi.f.shape == (1, 1, 1, 1, 2)
+    np.testing.assert_allclose(chi.f[0, 0, 0, 0, :], projected)
+    # f_uniform is re-derived from the projected f (fake adds 1000).
+    assert dlr.dlr_to_uniform_calls == [1]
+    np.testing.assert_allclose(chi.f_uniform[0, 0, 0, 0, :], projected + 1000.0)
+    # t follows the projected f (fake BF2T is the identity).
+    np.testing.assert_allclose(chi.t, chi.f)
     np.testing.assert_allclose(
         chi.occupation_susceptibility_xij_uniform[:, 0, 1],
         [10.0, 20.0, 30.0],

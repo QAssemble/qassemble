@@ -9,7 +9,7 @@ from .utility.Common import Common
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
 from .utility.Projection import Projection as PJ
-from .utility.Causal import CausalBosonProjector
+from .utility.Causal import CausalBosonProjector, ProjectBosonComponentWithFallback
 from .utility.HDF5 import IO
 from .utility.Mixing import Mixing as MixingKernel
 
@@ -448,6 +448,8 @@ class BLocDyn(object):
         *,
         grid : str = "dlr",
         coefficient_sign : int = -1,
+        oddzero : bool = False,
+        highzero : bool = False,
         reflection_symmetry : bool = True,
         solvers = None,
         max_iter : int = 100000,
@@ -455,21 +457,32 @@ class BLocDyn(object):
         fit_tol : float = 1.0e-6,
         tail_tol : float = 1.0e-1,
     ) -> np.ndarray:
-        """Project diagonal local bosonic channels onto real pole-weight
-        causal QP via CausalBosonProjector.
+        """Project local bosonic channels onto real pole-weight causal QP via
+        CausalBosonProjector, component-wise over the orbital upper triangle.
 
         ``grid`` selects the Matsubara sampling grid the input data lives on:
         ``"dlr"`` (sparse DLR grid, default) or ``"uniform"`` (uniform
         non-negative-frequency grid). The DLR pole basis is unchanged either way;
         uniform output is returned on the DLR grid.
 
-        A frequency-independent ``c0`` is estimated from the input tail, removed
-        before the decaying pole projection, and re-added to the returned
-        channel.  If ``target - c0`` does not decay at the largest ``|nu|``
-        nodes, ``RuntimeError`` is raised (``tail_tol`` controls this guard).
+        Each spin-diagonal component ``[iorb, jorb, is_, is_, :]`` with
+        ``iorb <= jorb`` is projected as a scalar channel; the lower triangle is
+        filled with the complex conjugate so the orbital matrix stays Hermitian.
+        The (possibly complex) frequency-independent ``c0`` is estimated from
+        the Hermitian-symmetrized input tail, removed before the decaying pole
+        projection, and re-added to the returned channel.  ``oddzero``/
+        ``highzero`` are forwarded to :meth:`Moment`; with ``highzero=True``
+        the constant is excluded from the tail fit and the ``c0`` split is
+        skipped, so the projected output strictly decays (response functions
+        such as chi).  If a component's QP
+        is infeasible with the hard moment equality, it is retried with the
+        equality relaxed and finally falls back to the unprojected channel with
+        a warning (mirroring causal_boson.py).
 
-        Only the diagonal blocks ``[iorb, iorb, is_, is_, :]`` are projected;
-        all other entries are copied unchanged.
+        Known limitations carried over from causal_boson.py: the per-component
+        sign constraint over-constrains off-diagonal spectra (no matrix-level
+        PSD enforcement), the dynamic part of the output is purely real, and
+        spin off-diagonal blocks are copied unchanged.
         """
 
         nu = self._ResolveCausalGrid(grid)
@@ -497,7 +510,7 @@ class BLocDyn(object):
 
         # Estimate physical moments on the input grid before any interpolation,
         # then pass [high, moment...] explicitly to the projector.
-        moment, high = self.Moment(arr, grid=grid)
+        moment, high = self.Moment(arr, grid=grid, oddzero=oddzero, highzero=highzero)
 
         # For uniform input, interpolate the data onto the DLR basis.  The
         # projection grid is always the DLR grid; uniform output is returned on
@@ -522,13 +535,23 @@ class BLocDyn(object):
         out = np.array(arr, dtype=np.complex128, copy=True, order='F')
         for is_ in range(ns):
             for iorb in range(norb):
-                tail_coeffs = np.empty(4, dtype=float)
-                tail_coeffs[0] = float(np.real(high[iorb, iorb, is_, is_]))
-                tail_coeffs[1:] = np.real(moment[iorb, iorb, is_, is_, :])
-                out[iorb, iorb, is_, is_, :] = projector.project(
-                    arr[iorb, iorb, is_, is_, :],
-                    tail_coeffs=tail_coeffs,
-                )
+                for jorb in range(iorb, norb):
+                    # Moment() Hermitian-symmetrizes, so c0 is real on the
+                    # diagonal and conj-consistent across (iorb, jorb) pairs.
+                    # With highzero the constant is excluded from the fit, so
+                    # high is identically zero and the split is a no-op.
+                    c0 = complex(high[iorb, jorb, is_, is_])
+                    tail_coeffs = np.empty(4, dtype=float)
+                    tail_coeffs[0] = 0.0
+                    tail_coeffs[1:] = np.real(moment[iorb, jorb, is_, is_, :])
+                    projected = ProjectBosonComponentWithFallback(
+                        projector,
+                        arr[iorb, jorb, is_, is_, :] - c0,
+                        tail_coeffs,
+                    ) + c0
+                    out[iorb, jorb, is_, is_, :] = projected
+                    if iorb != jorb:
+                        out[jorb, iorb, is_, is_, :] = np.conj(projected)
 
         return np.asfortranarray(out)
 
@@ -544,8 +567,10 @@ class BLocDyn(object):
 
         ``grid`` selects the sampling grid of ``bf``.  Returns
         ``moment[..., :] = [c1, c2, c3]`` and ``high = c0`` in physical sign.
-        ``oddzero``/``highzero`` are accepted for compatibility but do not alter
-        the robust tail fit.
+        ``highzero=True`` removes the constant column from the tail fit
+        (``c0 = 0``); ``oddzero=True`` removes the odd columns (``c1 = c3 = 0``).
+        With both set the fit is the single-column ``c2/(i nu)^2`` form used for
+        response functions that decay to zero.
         """
         arr = np.asarray(bf, dtype=np.complex128)
         if arr.ndim != 5:
@@ -567,21 +592,28 @@ class BLocDyn(object):
         high = np.zeros((norb, norb, ns, ns), dtype=np.complex128, order="F")
         idx = np.argsort(np.abs(nu))[-tail_points:]
         z = 1j * nu[idx]
-        design = np.column_stack(
-            [np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3]
-        )
+        columns = [np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3]
+        active = [
+            imom
+            for imom in range(4)
+            if not (highzero and imom == 0) and not (oddzero and imom % 2 == 1)
+        ]
+        design = np.column_stack([columns[imom] for imom in active])
+        restricted = len(active) < 4
         for is_ in range(ns):
             for js in range(ns):
                 for jorb in range(norb):
                     for iorb in range(norb):
-                        if iorb == jorb and is_ == js:
+                        if iorb == jorb and is_ == js and not restricted:
                             tail = Fourier.BosonTailCoefficients(
                                 nu, arr[iorb, jorb, is_, js, :], tail_points
                             ).astype(np.complex128)
                         else:
-                            tail, *_ = np.linalg.lstsq(
+                            fit, *_ = np.linalg.lstsq(
                                 design, arr[iorb, jorb, is_, js, idx], rcond=None
                             )
+                            tail = np.zeros(4, dtype=np.complex128)
+                            tail[active] = fit
                         high[iorb, jorb, is_, js] = tail[0]
                         moment[iorb, jorb, is_, js, :] = tail[1:]
         high_orig = high.copy()
@@ -795,10 +827,22 @@ class Chi(BLocDyn):
             return None
 
         susc_uniform = self.QuadSusceptibility2Boson(susc_uniform)
-        self.f_uniform = np.asfortranarray(susc_uniform)
-        self.occupation_susceptibility_bulla = self.f_uniform
-        self.f = None
-        self.t = None
+        raw_uniform = np.asfortranarray(susc_uniform)
+        self.occupation_susceptibility_bulla = raw_uniform
+        # chi decays to zero and has non-negative diagonal spectral weight, so
+        # the causal projection runs with positive pole weights and no
+        # constant/odd tail terms.
+        self.f = self.CausalProjection(
+            raw_uniform,
+            grid="uniform",
+            coefficient_sign=1,
+            oddzero=True,
+            highzero=True,
+        )
+        self.f_uniform = np.asfortranarray(
+            self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
+        )
+        self.t = self.F2T(self.f)
 
         return None
 
@@ -816,7 +860,8 @@ class Chi(BLocDyn):
             if obj is not None:
                 IO.CreateDataset(chi, fn_write, obj, dtype=complex)
             else:
-                IO.CreateDataset(chi, fn_write, self.f_uniform, dtype=complex)
+                IO.CreateDataset(chi, fn_write, self.f, dtype=complex)
+                IO.CreateDataset(chi, fn_write + '_uniform', self.f_uniform, dtype=complex)
 
         return None
 

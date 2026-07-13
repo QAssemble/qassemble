@@ -8,6 +8,7 @@ from QAssemble.utility.Causal import (
     BosonPoleQPProjector,
     CausalBosonProjector,
     CausalProjector,
+    ProjectBosonComponentWithFallback,
 )
 from QAssemble.utility.DLR import DLR
 from QAssemble.utility.Fourier import Fourier
@@ -448,7 +449,7 @@ def test_boson_moment_fits_offdiagonal_matrix_tail():
     )
 
 
-def test_boson_loc_lat_causal_projection_preserves_shape_order_and_offdiagonal():
+def test_boson_loc_projects_offdiagonal_lat_preserves_offdiagonal():
     crystal = _two_orbital_crystal()
     dlr = _boson_dlr()
     norb = len(crystal.bind)
@@ -465,8 +466,17 @@ def test_boson_loc_lat_causal_projection_preserves_shape_order_and_offdiagonal()
     local_out = local.CausalProjection(local_values)
     assert local_out.shape == local_values.shape
     assert np.isfortran(local_out)
-    np.testing.assert_allclose(local_out[0, 1, 0, 0, :], local_values[0, 1, 0, 0, :])
-    np.testing.assert_allclose(local_out[1, 0, 0, 0, :], local_values[1, 0, 0, 0, :])
+    # Off-diagonal is now projected component-wise (the model is not causal
+    # near nu=0, so values there legitimately change); the lower triangle is
+    # the conjugate mirror and the constant diagonals are preserved.
+    assert not np.allclose(local_out[0, 1, 0, 0, :], local_values[0, 1, 0, 0, :])
+    np.testing.assert_allclose(
+        local_out[1, 0, 0, 0, :],
+        np.conj(local_out[0, 1, 0, 0, :]),
+        atol=1.0e-13,
+    )
+    np.testing.assert_allclose(local_out[0, 0, 0, 0, :], 1.0, atol=1.0e-5)
+    np.testing.assert_allclose(local_out[1, 1, 0, 0, :], 0.5, atol=1.0e-5)
 
     lattice = BLatDyn(crystal, dlr)
     lat_values = np.zeros(
@@ -486,9 +496,252 @@ def test_boson_loc_lat_causal_projection_preserves_shape_order_and_offdiagonal()
     np.testing.assert_allclose(lat_out[1, 0, 0, 0, :, :], lat_values[1, 0, 0, 0, :, :])
 
 
+def test_boson_loc_offdiagonal_roundtrips_and_preserves_complex_c0():
+    crystal = _two_orbital_crystal()
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    norb = len(crystal.bind)
+    nfreq = len(dlr.nu)
+
+    # Causal matrix model: sign-compatible real pole weights per component plus
+    # a Hermitian static matrix with a complex off-diagonal c0.
+    base = _causal_coefficients(verifier)
+    c0_offdiag = 0.25 - 0.15j
+    local_values = np.zeros((norb, norb, 1, 1, nfreq), dtype=np.complex128, order="F")
+    local_values[0, 0, 0, 0, :] = verifier.reconstruct(base) + 0.3
+    local_values[1, 1, 0, 0, :] = verifier.reconstruct(0.8 * base) + 0.1
+    offdiag_dyn = verifier.reconstruct(0.5 * base)
+    local_values[0, 1, 0, 0, :] = offdiag_dyn + c0_offdiag
+    local_values[1, 0, 0, 0, :] = np.conj(local_values[0, 1, 0, 0, :])
+
+    local = BLocDyn(crystal, dlr, projector=None)
+    local_out = local.CausalProjection(local_values)
+
+    # Hermiticity of the output orbital matrix at every frequency.
+    np.testing.assert_allclose(
+        local_out[1, 0, 0, 0, :],
+        np.conj(local_out[0, 1, 0, 0, :]),
+        atol=1.0e-13,
+    )
+    # The complex static part of the off-diagonal survives (imaginary part of
+    # c0 is carried through the projection, dynamic output is purely real).
+    np.testing.assert_allclose(
+        np.imag(local_out[0, 1, 0, 0, :]),
+        np.imag(c0_offdiag),
+        atol=1.0e-3,
+    )
+    # Already-causal input roundtrips on every component up to the accuracy of
+    # the 5-point tail fit on the sparse DLR grid.
+    np.testing.assert_allclose(local_out, local_values, atol=2.0e-2)
+
+
+def test_boson_uniform_expansion_uses_transposed_conjugate():
+    dlr = _boson_dlr()
+    nu_uniform = dlr.MatsubaraBosonUniform()
+    nu_dlr = np.asarray(dlr.nu, dtype=float)
+
+    poles = np.array([0.7, -0.4])
+    weights = np.zeros((2, 2, poles.size), dtype=np.complex128)
+    weights[0, 0] = [-0.3, -0.2]
+    weights[1, 1] = [-0.25, -0.15]
+    weights[0, 1] = [0.1 + 0.05j, -0.08 + 0.02j]
+    weights[1, 0] = np.conj(weights[0, 1])
+
+    def model(freq):
+        z = 1j * np.asarray(freq, dtype=float)
+        out = np.zeros((2, 2, 1, 1, z.size), dtype=np.complex128)
+        for il, pole in enumerate(poles):
+            out[:, :, 0, 0, :] += weights[:, :, il, np.newaxis] / (z - pole)
+        return out
+
+    # Pole model with a Hermitian weight matrix satisfies
+    # F_ij(-nu) = conj(F_ji(+nu)) analytically, so expanding the non-negative
+    # grid must reproduce the direct evaluation on the signed DLR grid.
+    converted = dlr.MatsubaraUniformGrid2DLR(
+        model(nu_uniform), omega=nu_uniform, sign=1
+    )
+    np.testing.assert_allclose(converted, model(nu_dlr), atol=1.0e-8)
+
+
+def test_boson_offdiag_infeasible_moment_relaxes_instead_of_raising():
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    base = _causal_coefficients(verifier)
+    target = verifier.reconstruct(base)
+
+    boson = _boson(dlr)
+    # Physical c2 < 0 maps to an internal m2 > 0, which the sign-constrained
+    # weights (A_l <= 0) can never satisfy: the hard equality is infeasible.
+    infeasible_tail = np.array([0.0, 0.0, -0.5, 0.0])
+    with pytest.raises(RuntimeError):
+        boson.project(target, tail_coeffs=infeasible_tail)
+
+    projected = ProjectBosonComponentWithFallback(boson, target, infeasible_tail)
+    assert projected.shape == target.shape
+    assert np.all(np.isfinite(projected))
+    # The relaxed retry drops the equality and fits the causal target well.
+    relative = np.linalg.norm(projected - target) / np.linalg.norm(target)
+    assert relative < 1.0e-4
+
+
+def test_boson_loc_spin_offdiagonal_blocks_pass_through():
+    dlr = _boson_dlr()
+    crystal = Crystal(
+        {
+            "RVec": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            "Basis": [[[0, 0, 0], 1]],
+            "NSpin": 2,
+            "NElec": 1.0,
+            "KGrid": [2, 1, 1],
+        }
+    )
+    nfreq = len(dlr.nu)
+    spin_offdiag = _boson_tail_model(dlr.nu, np.array([0.05, 0.02, 0.1, 0.0]))
+
+    local = BLocDyn(crystal, dlr, projector=None)
+    values = np.zeros((1, 1, 2, 2, nfreq), dtype=np.complex128, order="F")
+    values[0, 0, 0, 0, :] = 1.0
+    values[0, 0, 1, 1, :] = 0.5
+    values[0, 0, 0, 1, :] = spin_offdiag
+    values[0, 0, 1, 0, :] = np.conj(spin_offdiag)
+
+    out = local.CausalProjection(values)
+    np.testing.assert_allclose(out[0, 0, 0, 1, :], values[0, 0, 0, 1, :])
+    np.testing.assert_allclose(out[0, 0, 1, 0, :], values[0, 0, 1, 0, :])
+
+
 def test_invalid_tail_tol_is_rejected():
     dlr = _boson_dlr()
     with pytest.raises(ValueError, match="tail_tol"):
         _boson(dlr, tail_tol=0.0)
     with pytest.raises(ValueError, match="tail_tol"):
         _boson(dlr, tail_tol=-1.0)
+
+
+def test_boson_moment_restricted_fit_recovers_pure_c2():
+    crystal = _single_band_crystal()
+    dlr = _boson_dlr()
+    c2 = 1.7
+    values = _boson_tail_model(dlr.nu, np.array([0.0, 0.0, c2, 0.0]))
+
+    local = BLocDyn(crystal, dlr, projector=None)
+    local_values = np.zeros((1, 1, 1, 1, len(dlr.nu)), dtype=np.complex128, order="F")
+    local_values[0, 0, 0, 0, :] = values
+    moment, high = local.Moment(local_values, oddzero=True, highzero=True)
+
+    np.testing.assert_allclose(high[0, 0, 0, 0], 0.0, atol=1.0e-14)
+    np.testing.assert_allclose(moment[0, 0, 0, 0, 0], 0.0, atol=1.0e-14)
+    np.testing.assert_allclose(moment[0, 0, 0, 0, 1], c2, atol=1.0e-12)
+    np.testing.assert_allclose(moment[0, 0, 0, 0, 2], 0.0, atol=1.0e-14)
+
+    # Single flags restrict only their own columns.
+    moment_h, high_h = local.Moment(local_values, highzero=True)
+    np.testing.assert_allclose(high_h[0, 0, 0, 0], 0.0, atol=1.0e-14)
+    np.testing.assert_allclose(moment_h[0, 0, 0, 0, 1], c2, atol=1.0e-10)
+    moment_o, high_o = local.Moment(local_values, oddzero=True)
+    np.testing.assert_allclose(moment_o[0, 0, 0, 0, 0], 0.0, atol=1.0e-14)
+    np.testing.assert_allclose(moment_o[0, 0, 0, 0, 2], 0.0, atol=1.0e-14)
+    np.testing.assert_allclose(moment_o[0, 0, 0, 0, 1], c2, atol=1.0e-10)
+
+
+def test_boson_loc_positive_chi_projection_roundtrips():
+    # chi convention: non-negative pole weights (coefficient_sign=+1) and a
+    # strictly decaying tail (no constant, no odd moments).
+    crystal = _single_band_crystal()
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    pos_coeff = -_causal_coefficients(verifier)
+    assert np.all(pos_coeff >= 0.0)
+    target = verifier.reconstruct(pos_coeff)
+
+    local = BLocDyn(crystal, dlr, projector=None)
+    local_values = np.zeros((1, 1, 1, 1, len(dlr.nu)), dtype=np.complex128, order="F")
+    local_values[0, 0, 0, 0, :] = target
+
+    out = local.CausalProjection(
+        local_values, coefficient_sign=1, oddzero=True, highzero=True
+    )
+
+    np.testing.assert_allclose(out[0, 0, 0, 0, :], target, atol=2.0e-2)
+    np.testing.assert_allclose(np.imag(out[0, 0, 0, 0, :]), 0.0, atol=1.0e-10)
+    assert np.all(np.real(out[0, 0, 0, 0, :]) > 0.0)
+
+
+def test_boson_loc_highzero_output_is_strictly_decaying():
+    # A large constant fails the projector's tail-decay guard under highzero
+    # (fallback returns the input), so contaminate with a noise-level offset
+    # that stays below the guard and assert the structural property instead:
+    # with highzero the output lies exactly in the decaying pole span, while
+    # the default path carries the constant, which the span cannot represent.
+    crystal = _single_band_crystal()
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    pos_coeff = -_causal_coefficients(verifier)
+    target = verifier.reconstruct(pos_coeff)
+
+    tail_idx = np.argsort(np.abs(np.asarray(dlr.nu, dtype=float)))[-2:]
+    scale = float(np.max(np.abs(target)))
+    tail_frac = float(np.max(np.abs(target[tail_idx]))) / scale
+    offset = (0.08 - tail_frac) * scale
+    assert offset > 0.0
+    contaminated = target + offset
+
+    local = BLocDyn(crystal, dlr, projector=None)
+    local_values = np.zeros((1, 1, 1, 1, len(dlr.nu)), dtype=np.complex128, order="F")
+    local_values[0, 0, 0, 0, :] = contaminated
+
+    def pole_residual(values):
+        coeff = verifier.fit(values)
+        return float(np.linalg.norm(values - verifier.reconstruct(coeff)))
+
+    # Default behavior splits and preserves the constant at the tail; the
+    # resulting channel is NOT representable by decaying poles alone.
+    kept = local.CausalProjection(local_values, coefficient_sign=1)
+    np.testing.assert_allclose(
+        np.real(kept[0, 0, 0, 0, tail_idx]), offset, atol=0.1 * offset
+    )
+    kept_residual = pole_residual(kept[0, 0, 0, 0, :])
+
+    # highzero skips the c0 split entirely: the output is a pure pole sum,
+    # hence strictly decaying beyond the grid.
+    cleaned = local.CausalProjection(
+        local_values, coefficient_sign=1, oddzero=True, highzero=True
+    )
+    cleaned_residual = pole_residual(cleaned[0, 0, 0, 0, :])
+    assert cleaned_residual < 1.0e-6 * np.linalg.norm(cleaned)
+    assert kept_residual > 100.0 * max(cleaned_residual, 1.0e-12)
+
+
+def test_boson_loc_positive_chi_offdiag_infeasible_falls_back():
+    # Off-diagonal chi components can carry the "wrong" c2 sign for A_l >= 0
+    # (mirror of the -1 case): the hard moment equality is infeasible and the
+    # fallback cascade must complete without raising.
+    crystal = _two_orbital_crystal()
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    norb = len(crystal.bind)
+    nfreq = len(dlr.nu)
+    pos_coeff = -_causal_coefficients(verifier)
+
+    local_values = np.zeros((norb, norb, 1, 1, nfreq), dtype=np.complex128, order="F")
+    local_values[0, 0, 0, 0, :] = verifier.reconstruct(pos_coeff)
+    local_values[1, 1, 0, 0, :] = verifier.reconstruct(0.8 * pos_coeff)
+    # Negative weights give physical c2 > 0, infeasible under A_l >= 0.
+    local_values[0, 1, 0, 0, :] = verifier.reconstruct(-0.5 * pos_coeff)
+    local_values[1, 0, 0, 0, :] = np.conj(local_values[0, 1, 0, 0, :])
+
+    local = BLocDyn(crystal, dlr, projector=None)
+    out = local.CausalProjection(
+        local_values, coefficient_sign=1, oddzero=True, highzero=True
+    )
+
+    assert np.all(np.isfinite(out))
+    np.testing.assert_allclose(
+        out[1, 0, 0, 0, :], np.conj(out[0, 1, 0, 0, :]), atol=1.0e-13
+    )
+    np.testing.assert_allclose(
+        out[0, 0, 0, 0, :], local_values[0, 0, 0, 0, :], atol=2.0e-2
+    )
+    np.testing.assert_allclose(
+        out[1, 1, 0, 0, :], local_values[1, 1, 0, 0, :], atol=2.0e-2
+    )

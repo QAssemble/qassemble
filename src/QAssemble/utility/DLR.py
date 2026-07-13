@@ -158,7 +158,12 @@ class DLR(object):
                 )
             if omega.ndim == 1 and omega.size > 0 and np.all(omega >= 0.0):
                 istart = 1 if np.isclose(omega[0], 0.0) else 0
-                ff = np.concatenate((np.conjugate(ff[..., istart:][..., ::-1]), ff), axis=-1)
+                # F_ij(-nu) = conj(F_ji(+nu)): transpose orbital and spin axes,
+                # mirroring the fermionic MatsubaraAddNegativeFrequency.
+                negative = np.conjugate(
+                    np.swapaxes(np.swapaxes(ff[..., istart:][..., ::-1], 0, 1), 2, 3)
+                )
+                ff = np.concatenate((negative, ff), axis=-1)
                 omega = np.concatenate((-omega[istart:][::-1], omega))
             nfreq = ff.shape[-1]
 

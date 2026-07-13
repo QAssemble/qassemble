@@ -4,7 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import gc
 import h5py
-from types import SimpleNamespace
 from .Crystal import Crystal
 # from .FTGrid import FTGrid
 from .utility.DLR import DLR
@@ -549,12 +548,10 @@ class CorrelationFunction(object):
 
         self.conv.Start()
         diag_prev_by_key = None
-        pimp_f_current_by_key = {}
 
         for iter in range(1, itermax + 1):
             sigc = SigC(crystal=self.crystal, dlr=self.dlr)
             diag_by_key = {}
-            pimp_f_next_by_key = {}
 
             for key in problem_keys:
                 gloc = GLoc(
@@ -624,20 +621,17 @@ class CorrelationFunction(object):
                     group=group,
                 )
 
-                if key in pimp_f_current_by_key:
-                    ploc = SimpleNamespace(f=pimp_f_current_by_key[key])
-                else:
-                    ploc = PLoc(
-                        crystal=self.crystal,
-                        dlr=self.dlr,
-                        projector=projector,
-                        key=key,
-                        gloc=gloc.t,
-                        hdf5file=hdf5file,
-                        group=group,
-                        iteration=iter,
-                    )
-                    ploc.Save('ploc_seed')
+                ploc = PLoc(
+                    crystal=self.crystal,
+                    dlr=self.dlr,
+                    projector=projector,
+                    key=key,
+                    gloc=gloc.t,
+                    hdf5file=hdf5file,
+                    group=group,
+                    iteration=iter,
+                )
+                ploc.Save('ploc_seed')
 
                 wloc = WLoc(
                     crystal=self.crystal,
@@ -689,7 +683,6 @@ class CorrelationFunction(object):
                 sighimp = impurity_result.sighimp
                 sigfimp = impurity_result.sigfimp
                 sigimp = impurity_result.sigimp
-                pimp = impurity_result.pimp
 
                 sigc.ImpEmbedding(
                     sigimp=sigimp.f,
@@ -699,7 +692,6 @@ class CorrelationFunction(object):
                     key=key,
                 )
                 diag_by_key[key] = dict(impurity_result.diagnostics)
-                pimp_f_next_by_key[key] = np.asarray(pimp.f).copy()
 
             sigc()
 
@@ -777,7 +769,6 @@ class CorrelationFunction(object):
 
             self.green = green_next
             self.sigc = sigc
-            self.polimp = pimp_f_next_by_key
 
             if converged:
                 logger.info(
@@ -795,7 +786,6 @@ class CorrelationFunction(object):
                 sigmaf_current = sigc.sigf
                 sigc_current = sigc.sigimp
                 green = green_next
-                pimp_f_current_by_key = pimp_f_next_by_key
                 diag_prev_by_key = diag_by_key
 
             gc.collect()

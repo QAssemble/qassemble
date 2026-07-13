@@ -413,8 +413,7 @@ def test_edmft_uses_initial_dynamic_bath_and_skips_first_convergence(
     assert corr.conv.cross_hdf5_checks == []
     assert not hasattr(corr, "gloc")
     assert not hasattr(corr, "wloc")
-    np.testing.assert_allclose(corr.polimp["1"], result.pimp.f)
-    assert corr.polimp["1"] is not result.pimp
+    assert not hasattr(corr, "polimp")
 
 
 def test_edmft_projects_gloc_in_problem_loop_and_uses_hdf5_convergence(
@@ -487,7 +486,7 @@ def test_edmft_projects_gloc_in_problem_loop_and_uses_hdf5_convergence(
     assert not hasattr(corr, "wloc")
 
 
-def test_edmft_reuses_previous_mixed_pimp_as_next_boson_input(monkeypatch, tmp_path):
+def test_edmft_rebuilds_ploc_each_iteration_without_pimp_cache(monkeypatch, tmp_path):
     stack = _install_fake_edmft_stack(monkeypatch)
     corr = _edmft_correlation_object(
         stack.cf_mod,
@@ -498,14 +497,13 @@ def test_edmft_reuses_previous_mixed_pimp_as_next_boson_input(monkeypatch, tmp_p
 
     corr.EDMFT()
 
-    assert len(stack.PLoc.instances) == 1
+    assert len(stack.PLoc.instances) == 2
     assert len(stack.BWeiss.instances) == 2
     assert stack.BWeiss.instances[0].ploc is stack.PLoc.instances[0]
-    assert stack.BWeiss.instances[1].ploc is not stack.ImpurityAction.results[0].pimp
-    np.testing.assert_allclose(
-        stack.BWeiss.instances[1].ploc.f,
-        stack.ImpurityAction.results[0].pimp.f,
-    )
+    assert stack.BWeiss.instances[1].ploc is stack.PLoc.instances[1]
+    assert stack.PLoc.instances[1].kwargs["gloc"] is stack.GLoc.instances[1].t
+    assert stack.WLoc.instances[1].kwargs["pol"] is stack.PLoc.instances[1].f
+    assert not hasattr(corr, "polimp")
 
 
 @pytest.mark.parametrize("missing_attr", ["chi", "pimp"])

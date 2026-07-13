@@ -567,8 +567,14 @@ class CausalBosonProjector:
         tail_coeffs: np.ndarray | None = None,
         moments: dict[str, float] | None = None,
         scale: float | None = None,
+        enforce_moments: bool = True,
     ) -> np.ndarray:
-        """Project one bosonic scalar channel and return it on ``output_omega``."""
+        """Project one bosonic scalar channel and return it on ``output_omega``.
+
+        ``enforce_moments=False`` drops the moment equality rows from the QP
+        (the sign constraint alone can be incompatible with an off-diagonal
+        moment target); moment residuals are then recorded as diagnostics only.
+        """
 
         self._reset_diagnostics()
         target_vec = Common.ComplexVector(
@@ -595,8 +601,12 @@ class CausalBosonProjector:
         p, q = self._objective(target_dec)
         g = csc_matrix(-self.coefficient_sign * np.eye(self.rank))
         h = np.zeros(self.rank, dtype=float)
-        a = csc_matrix(self.moment_rows)
-        b = self._moment_vector(moment_target)
+        if enforce_moments:
+            a = csc_matrix(self.moment_rows)
+            b = self._moment_vector(moment_target)
+        else:
+            a = None
+            b = None
         solution = self._solve_qp(p, q, g, h, a, b, tol_scaled)
         if solution is None:
             if self.raise_on_failure:
@@ -630,6 +640,7 @@ class CausalBosonProjector:
             skipped=False,
             c0=c0_unscaled,
             constraint_tol=eff_tol,
+            enforce_moments=enforce_moments,
         )
         if self.raise_on_failure and not bool(self.last_validation["valid"]):
             raise RuntimeError(
@@ -825,7 +836,9 @@ class CausalBosonProjector:
 
             sol = np.asarray(sol, dtype=float)
             coefficient_violation = float(max(np.max(g @ sol - h), 0.0))
-            moment_violation = float(np.max(np.abs(a @ sol - b)))
+            moment_violation = (
+                0.0 if a is None else float(np.max(np.abs(a @ sol - b)))
+            )
             status = "|".join(str(item.message).replace(" ", "_") for item in caught) or "ok"
             attempts.append(
                 f"{solver}:coef={coefficient_violation:.3e}:moment={moment_violation:.3e}"
@@ -893,6 +906,7 @@ class CausalBosonProjector:
         skipped: bool,
         c0: float,
         constraint_tol: float,
+        enforce_moments: bool = True,
     ) -> dict[str, float | bool]:
         fit_projected = self.kernel @ coefficients
         relative_change = float(
@@ -916,7 +930,7 @@ class CausalBosonProjector:
             "valid": bool(
                 np.all(np.isfinite(coefficients))
                 and coefficient_violation <= constraint_tol
-                and moment_residual <= constraint_tol
+                and (not enforce_moments or moment_residual <= constraint_tol)
                 and np.isfinite(relative_change)
             ),
             "relative_change": relative_change,
@@ -934,6 +948,35 @@ class CausalBosonProjector:
             "positive_count": int(np.sum(coefficients > 0.0)),
             "fit_grid_size": int(self.fit_omega.size),
         }
+
+
+def ProjectBosonComponentWithFallback(
+    projector: CausalBosonProjector,
+    target: np.ndarray,
+    tail_coeffs: np.ndarray,
+) -> np.ndarray:
+    """Project one bosonic channel with the causal_boson.py fallback cascade.
+
+    Hard moment equality first; on failure retry with the equality relaxed
+    (the sign constraint alone can be incompatible with an off-diagonal moment
+    target); if both fail, warn and return the unprojected channel.
+    """
+    try:
+        return projector.project(target, tail_coeffs=tail_coeffs)
+    except RuntimeError:
+        pass
+    try:
+        return projector.project(
+            target, tail_coeffs=tail_coeffs, enforce_moments=False
+        )
+    except RuntimeError as exc:
+        warnings.warn(
+            "bosonic causal projection failed even with relaxed moments; "
+            f"returning the unprojected channel: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return np.array(target, dtype=np.complex128, copy=True)
 
 
 BosonPoleQPProjector = CausalBosonProjector
