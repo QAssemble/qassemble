@@ -130,7 +130,7 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
             FakeWLoc.instances.append(self)
             self.args = args
             self.kwargs = kwargs
-            self.f = np.asarray(kwargs["pol"], dtype=np.complex128) + 1.0
+            self.f = np.mean(np.asarray(kwargs["wlat"], dtype=np.complex128), axis=4)
             self.saved = []
 
         def Save(self, name, *args, **kwargs):
@@ -180,13 +180,45 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
             FakeBWeiss.instances.append(self)
             self.args = args
             self.kwargs = kwargs
-            self.ploc = kwargs["ploc"]
+            self.polarization = kwargs.get("polarization")
             self.wloc = kwargs["wloc"]
-            self.cf = np.asarray([1.0])
+            self.f = None if self.wloc is None else np.asarray(self.wloc.f)
+            self.cf = None if self.wloc is None else np.asarray([1.0])
             self.saved = []
 
         def Save(self, name, *args, **kwargs):
             self.saved.append((name, args, kwargs))
+
+        def Dyson(self, value, polarization):
+            return np.asarray(value) + np.asarray(polarization)
+
+    class FakeW:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            FakeW.instances.append(self)
+            self.kwargs = kwargs
+            self.is_bare = kwargs.get("pol") is None
+            value = 1.0 if self.is_bare else 2.0
+            self.kf = np.ones((1, 1, 1, 1, 1, 2), dtype=np.complex128) * value
+            self.saved = []
+
+        def Save(self, name, *args, **kwargs):
+            self.saved.append((name, args, kwargs))
+
+    class FakePolC:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            FakePolC.instances.append(self)
+            self.embedded = []
+            self.kf = np.ones((1, 1, 1, 1, 1, 2), dtype=np.complex128) * 0.4
+
+        def ImpEmbedding(self, value, projector, key):
+            self.embedded.append((value, projector, key))
+
+        def __call__(self):
+            return self.kf
 
     class FakeSigC:
         instances = []
@@ -229,6 +261,9 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
                 pimp=_SavedObject(
                     f=np.ones((1, 1, 1, 1, 2), dtype=np.complex128) * 0.4
                 ),
+                wimp=_SavedObject(
+                    f=np.ones((1, 1, 1, 1, 2), dtype=np.complex128) * 0.6
+                ),
             )
             for attr in missing:
                 setattr(result, attr, None)
@@ -244,6 +279,8 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
     monkeypatch.setattr(cf_mod, "Hyb", FakeHyb)
     monkeypatch.setattr(cf_mod, "FWeiss", FakeFWeiss)
     monkeypatch.setattr(cf_mod, "BWeiss", FakeBWeiss)
+    monkeypatch.setattr(cf_mod, "W", FakeW)
+    monkeypatch.setattr(cf_mod, "PolC", FakePolC)
     monkeypatch.setattr(cf_mod, "SigC", FakeSigC)
     monkeypatch.setattr(cf_mod, "ImpurityAction", FakeImpurityAction)
 
@@ -255,6 +292,8 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
         WLoc=FakeWLoc,
         Hyb=FakeHyb,
         BWeiss=FakeBWeiss,
+        W=FakeW,
+        PolC=FakePolC,
         SigC=FakeSigC,
         ImpurityAction=FakeImpurityAction,
     )
@@ -339,7 +378,7 @@ def test_dmft_projects_gloc_in_problem_loop_and_uses_hdf5_convergence(
                 "previous": "gloc.0",
                 "keys": ["1"],
             },
-        )
+        ),
     ]
     assert conv.cross_hdf5_checks == [
         (
@@ -353,7 +392,7 @@ def test_dmft_projects_gloc_in_problem_loop_and_uses_hdf5_convergence(
                 "stem_b": "gimp.1",
                 "keys": ["1"],
             },
-        )
+        ),
     ]
     assert [name for name, _, _ in conv.self_checks] == ["mu"]
     assert conv.cross_checks == []
@@ -387,18 +426,18 @@ def test_edmft_uses_initial_dynamic_bath_and_skips_first_convergence(
 
     corr.EDMFT()
 
-    assert len(stack.PLoc.instances) == 1
+    assert len(stack.PLoc.instances) == 0
     assert [item.kwargs["key"] for item in stack.GLoc.instances] == ["1"]
     assert [item.kwargs["iteration"] for item in stack.GLoc.instances] == [0]
     assert len(stack.WLoc.instances) == 1
     assert [item.kwargs["iteration"] for item in stack.WLoc.instances] == [0]
     assert stack.WLoc.instances[0].saved == [("wloc", (), {})]
     assert len(stack.BWeiss.instances) == 1
-    assert stack.BWeiss.instances[0].ploc is stack.PLoc.instances[0]
+    assert stack.BWeiss.instances[0].polarization is None
     assert stack.BWeiss.instances[0].wloc is stack.WLoc.instances[0]
     assert stack.Hyb.instances[0].kwargs["green"] is stack.GLoc.instances[0].f
-    assert stack.PLoc.instances[0].kwargs["gloc"] is stack.GLoc.instances[0].t
-    assert stack.WLoc.instances[0].kwargs["pol"] is stack.PLoc.instances[0].f
+    assert stack.W.instances[0].is_bare
+    assert stack.WLoc.instances[0].kwargs["wlat"] is stack.W.instances[0].kf
 
     result = stack.ImpurityAction.results[0]
     assert result.sighimp.mixing_calls == []
@@ -413,7 +452,7 @@ def test_edmft_uses_initial_dynamic_bath_and_skips_first_convergence(
     assert corr.conv.cross_hdf5_checks == []
     assert not hasattr(corr, "gloc")
     assert not hasattr(corr, "wloc")
-    assert not hasattr(corr, "polimp")
+    assert corr.w is stack.W.instances[1]
 
 
 def test_edmft_projects_gloc_in_problem_loop_and_uses_hdf5_convergence(
@@ -477,7 +516,19 @@ def test_edmft_projects_gloc_in_problem_loop_and_uses_hdf5_convergence(
                 "stem_b": "gimp.1",
                 "keys": ["1"],
             },
-        )
+        ),
+        (
+            "WLoc",
+            {
+                "name_b": "WImp",
+                "group": "edmft",
+                "subgroup_a": "WLoc",
+                "subgroup_b": "WImp",
+                "stem_a": "wloc.1",
+                "stem_b": "wimp.1",
+                "keys": ["1"],
+            },
+        ),
     ]
     assert [name for name, _, _ in conv.self_checks] == ["mu"]
     assert conv.cross_checks == []
@@ -486,7 +537,7 @@ def test_edmft_projects_gloc_in_problem_loop_and_uses_hdf5_convergence(
     assert not hasattr(corr, "wloc")
 
 
-def test_edmft_rebuilds_ploc_each_iteration_without_pimp_cache(monkeypatch, tmp_path):
+def test_edmft_feeds_mixed_pimp_into_next_lattice_iteration(monkeypatch, tmp_path):
     stack = _install_fake_edmft_stack(monkeypatch)
     corr = _edmft_correlation_object(
         stack.cf_mod,
@@ -497,16 +548,17 @@ def test_edmft_rebuilds_ploc_each_iteration_without_pimp_cache(monkeypatch, tmp_
 
     corr.EDMFT()
 
-    assert len(stack.PLoc.instances) == 2
+    assert len(stack.PLoc.instances) == 0
     assert len(stack.BWeiss.instances) == 2
-    assert stack.BWeiss.instances[0].ploc is stack.PLoc.instances[0]
-    assert stack.BWeiss.instances[1].ploc is stack.PLoc.instances[1]
-    assert stack.PLoc.instances[1].kwargs["gloc"] is stack.GLoc.instances[1].t
-    assert stack.WLoc.instances[1].kwargs["pol"] is stack.PLoc.instances[1].f
-    assert not hasattr(corr, "polimp")
+    assert stack.BWeiss.instances[0].polarization is None
+    assert stack.BWeiss.instances[1].polarization is stack.ImpurityAction.results[0].pimp
+    assert stack.W.instances[0].is_bare
+    assert not stack.W.instances[1].is_bare
+    assert not stack.W.instances[2].is_bare
+    assert stack.PolC.instances[0].embedded[0][0] is stack.ImpurityAction.results[0].pimp
 
 
-@pytest.mark.parametrize("missing_attr", ["chi", "pimp"])
+@pytest.mark.parametrize("missing_attr", ["chi", "pimp", "wimp"])
 def test_edmft_requires_bosonic_impurity_outputs(monkeypatch, tmp_path, missing_attr):
     stack = _install_fake_edmft_stack(monkeypatch, missing=(missing_attr,))
     corr = _edmft_correlation_object(stack.cf_mod, tmp_path)

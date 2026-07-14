@@ -40,6 +40,7 @@ class ImpurityActionResult:
     sigimp: SigCImp
     chi: Chi
     pimp: PImp
+    wimp: WImp
     diagnostics: dict
 
 class HF(object):
@@ -330,5 +331,6 @@ class ImpurityAction(object):
             sigimp=getattr(ctqmc, 'sigimp', None),
             chi=getattr(ctqmc, 'chi', None),
             pimp=getattr(ctqmc, 'pimp', None),
+            wimp=getattr(ctqmc, 'wimp', None),
             diagnostics=dict(getattr(ctqmc, 'diagnostics', {})),
         )

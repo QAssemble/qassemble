@@ -507,6 +507,7 @@ class SigHImp(FLocStc):
         key,
         occ : np.ndarray,
         vloc = None,
+        control = None,
         hdf5file : str = 'glob.h5',
         group : str = None,
         iteration: int = None,
@@ -517,6 +518,7 @@ class SigHImp(FLocStc):
         self.key = self.ResolveProblemKey(key)
         self.occ = occ
         self.vloc = vloc
+        self.control = control if control is not None else {}
         self.s = None
         self.h = None
         self.hdf5file = hdf5file
@@ -570,26 +572,17 @@ class SigHImp(FLocStc):
 
         return None
 
-    def Mixing(
-        self,
-        iter: int = None,
-        mix: float = None,
-        method: str = "pulay",
-        npulay: int = 5,
-        key=None,
-    ) -> None:
+    def Mixing(self) -> None:
         self.h = super().Mixing(
-            iter=iter,
-            mix=mix,
+            iter=self.iteration,
+            mix=float(self.control["mix"]),
             component=self.component,
             value=self.h,
-            method=method,
-            npulay=npulay,
-            key=key,
+            method=self.control["mixing_method"],
+            npulay=int(self.control["npulay"]),
+            key=self.key,
         )
         self.s = self.h
-        if iter is not None:
-            self.iteration = iter
 
     def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
         if fn is None:
@@ -697,6 +690,7 @@ class SigFImp(FLocStc):
         key,
         sigma,
         sigh = None,
+        control = None,
         hdf5file : str = 'glob.h5',
         group : str = None,
         iteration: int = None,
@@ -707,6 +701,7 @@ class SigFImp(FLocStc):
         self.key = self.ResolveProblemKey(key)
         self.sigma_in = sigma
         self.sigh = sigh
+        self.control = control if control is not None else {}
         self.hf = None
         self.s = None
         self.hdf5file = hdf5file
@@ -744,25 +739,16 @@ class SigFImp(FLocStc):
 
         return None
 
-    def Mixing(
-        self,
-        iter: int = None,
-        mix: float = None,
-        method: str = "pulay",
-        npulay: int = 5,
-        key=None,
-    ) -> None:
+    def Mixing(self) -> None:
         self.s = super().Mixing(
-            iter=iter,
-            mix=mix,
+            iter=self.iteration,
+            mix=float(self.control["mix"]),
             component=self.component,
             value=self.s,
-            method=method,
-            npulay=npulay,
-            key=key,
+            method=self.control["mixing_method"],
+            npulay=int(self.control["npulay"]),
+            key=self.key,
         )
-        if iter is not None:
-            self.iteration = iter
 
     def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
         if fn is None:

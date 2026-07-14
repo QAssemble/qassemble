@@ -83,8 +83,8 @@ def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs():
         projector=projector,
         key="1",
         vloc=vloc,
-        ploc=SimpleNamespace(f=p),
         wloc=SimpleNamespace(f=w),
+        polarization=SimpleNamespace(f=p),
     )
 
     expected_utilde = w / (1.0 + p * w)

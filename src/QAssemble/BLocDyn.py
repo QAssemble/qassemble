@@ -869,13 +869,14 @@ class Chi(BLocDyn):
 class PImp(BLocDyn):
     component = "pimp"
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, chi : Chi = None, utilde = None, hdf5file : str = None, group : str = None, iteration: int = None):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, chi : Chi = None, utilde = None, control=None, hdf5file : str = None, group : str = None, iteration: int = None):
 
         super().__init__(crystal, dlr, projector)
 
         self.key = self.ResolveProblemKey(key)
         self.chi = chi
         self.utilde = utilde
+        self.control = control if control is not None else {}
         self.chi_boson = None
         self.chi_boson_uniform = None
         self.utilde_uniform = None
@@ -985,26 +986,17 @@ class PImp(BLocDyn):
 
         return None
 
-    def Mixing(
-        self,
-        iter: int = None,
-        mix: float = None,
-        method: str = "pulay",
-        npulay: int = 5,
-        key=None,
-    ) -> None:
+    def Mixing(self) -> None:
         self.f = super().Mixing(
-            iter=iter,
-            mix=mix,
+            iter=self.iteration,
+            mix=float(self.control["mix"]),
             component=self.component,
             value=self.f,
-            method=method,
-            npulay=npulay,
-            key=key,
+            method=self.control["mixing_method"],
+            npulay=int(self.control["npulay"]),
+            key=self.key,
         )
         self.t = self.F2T(self.f)
-        if iter is not None:
-            self.iteration = iter
 
     def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
         if fn is None:
@@ -1026,7 +1018,9 @@ class PImp(BLocDyn):
 
 class BWeiss(BLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, vloc : VLoc, ploc = None, wloc = None, hdf5file : str = None, group : str = None, iteration: int = None):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key,
+                 vloc : VLoc, wloc = None, polarization = None, ploc = None,
+                 hdf5file : str = None, group : str = None, iteration: int = None):
 
         super().__init__(crystal, dlr, projector)
 
@@ -1034,6 +1028,11 @@ class BWeiss(BLocDyn):
         self.vloc = vloc
         if hasattr(self.vloc, "projector") and self.vloc.projector is None:
             self.vloc.projector = projector
+        # ``ploc`` is retained as a compatibility alias.  New callers must
+        # pass the irreducible impurity polarization explicitly.
+        if polarization is not None and ploc is not None:
+            raise ValueError("pass either polarization or ploc, not both")
+        self.polarization = polarization if polarization is not None else ploc
         self.ploc = ploc
         self.wloc = wloc
         self.f = None
@@ -1049,7 +1048,8 @@ class BWeiss(BLocDyn):
 
         if self.key not in self.vloc.vproj:
             self.vloc.BuildProjection(self.projector)
-        if self.wloc is not None and self.ploc is not None:
+        self.is_bare = self.polarization is None
+        if self.wloc is not None:
             self.Cal()
 
     def _dynamic_average(self, key, mat : np.ndarray) -> np.ndarray:
@@ -1080,12 +1080,22 @@ class BWeiss(BLocDyn):
     def Cal(self):
         nfreq = len(self.dlr.nu)
 
-        if self.wloc is None or self.ploc is None:
-            raise ValueError("BWeiss.Cal requires both wloc and ploc")
+        if self.wloc is None:
+            raise ValueError("BWeiss.Cal requires wloc")
 
         w = np.asarray(self.wloc.f, dtype=np.complex128)
-        p = np.asarray(self.ploc.f, dtype=np.complex128)
-        self.f = self.Dyson(w, -p)
+        if self.polarization is None:
+            self.f = np.array(w, copy=True, order="F")
+        else:
+            psource = getattr(self.polarization, "f", self.polarization)
+            p = np.asarray(psource, dtype=np.complex128)
+            if p.shape != w.shape:
+                raise ValueError(
+                    f"BWeiss polarization shape mismatch: {p.shape} != {w.shape}"
+                )
+            if not np.all(np.isfinite(p)):
+                raise ValueError("BWeiss polarization contains non-finite values")
+            self.f = self.Dyson(w, -p)
 
         if self.f.shape[4] != nfreq:
             raise ValueError(
@@ -1122,10 +1132,69 @@ class BWeiss(BLocDyn):
             bweiss = IO.Group(file, self.group, self.subgroup)
             if obj is not None:
                 IO.CreateDataset(bweiss, fn_write, obj, dtype=complex)
-            else:
+            elif self.f is None:
+                # Static DMFT: retain the historical bare-interaction record
+                # without pretending that a dynamic bosonic bath exists.
                 IO.CreateDataset(bweiss, fn_write, self.vloc.vproj[self.key], dtype=complex)
+                bweiss[fn_write].attrs['is_bare'] = True
+            else:
+                IO.CreateDataset(bweiss, fn_write, self.f, dtype=complex)
+                IO.CreateDataset(bweiss, fn_write + '_correlated', self.cf, dtype=complex)
+                IO.CreateDataset(bweiss, fn_write + '_uniform', self.f_uniform, dtype=complex)
+                IO.CreateDataset(bweiss, fn_write + '_correlated_uniform', self.cf_uniform, dtype=complex)
+                bweiss[fn_write].attrs['is_bare'] = bool(self.is_bare)
 
         return None
+
+
+class WImp(BLocDyn):
+
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key,
+                 utilde : np.ndarray, polarization : np.ndarray, hdf5file : str = None,
+                 group : str = None, iteration: int = None):
+
+        super().__init__(crystal, dlr, projector)
+
+        self.key = self.ResolveProblemKey(key)
+        self.utilde = utilde
+        self.polarization = polarization
+        self.hdf5file = hdf5file
+        self.group = group
+        self.subgroup = self.__class__.__name__
+        self.iteration = iteration
+        self.f = None
+        self.f_uniform = None
+        self.t = None
+        self.Cal()
+
+    def Cal(self):
+        self.f = self.Dyson(self.utilde, self.polarization)
+        self.f_uniform = np.asfortranarray(
+            self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
+        )
+        self.t = self.F2T(self.f)
+
+        return None
+
+    def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
+        if fn is None:
+            raise ValueError("WImp.Save requires fn")
+        fn_write = fn
+        if scf:
+            if self.iteration is None:
+                raise ValueError("WImp.Save requires iteration when scf=True")
+            fn_write = f"{fn}.{self.iteration}.{self.key}"
+
+        with h5py.File(self.hdf5file, 'a') as file:
+            wimp = IO.Group(file, self.group, self.subgroup)
+            if obj is not None:
+                IO.CreateDataset(wimp, fn_write, obj, dtype=complex)
+            else:
+                IO.CreateDataset(wimp, fn_write, self.f, dtype=complex)
+                IO.CreateDataset(wimp, fn_write + '_uniform', self.f_uniform, dtype=complex)
+
+        return None
+
 
 class PLoc(BLocDyn):
 
@@ -1231,7 +1300,9 @@ class PLoc(BLocDyn):
 
 class WLoc(BLocDyn):
 
-    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key, pol : np.ndarray = None, vloc : np.ndarray = None, c : float = 1.0, hdf5file : str = None, group : str = None, iteration: int = None):
+    def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key,
+                 wlat : np.ndarray = None, vloc : np.ndarray = None,
+                 hdf5file : str = None, group : str = None, iteration: int = None):
 
         super().__init__(crystal, dlr, projector)
 
@@ -1250,33 +1321,34 @@ class WLoc(BLocDyn):
         self.ct = np.zeros((nborb, nborb, ns, ns, ntau), dtype=np.complex128, order='F')
         self.cf = np.zeros((nborb, nborb, ns, ns, nfreq), dtype=np.complex128, order='F')
 
-        self.c = c
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
         self.iteration = iteration
-        if pol is None:
-            raise ValueError("Error, polarizability doesn't exist")
-        if vloc is None:
-            raise ValueError("Error, bare coulomb interaction doesn't exist")
-        self.pol = pol
+        if wlat is None:
+            raise ValueError("Error, lattice screened interaction doesn't exist")
+        self.wlat = wlat.kf if hasattr(wlat, "kf") else wlat
         self.vloc = vloc
 
         self.Cal()
 
     def Cal(self):  # calculate W and Wc
 
-        pol = np.asarray(self.pol, dtype=np.complex128)
-        vdyn = np.broadcast_to(
-            np.asarray(self.vloc, dtype=np.complex128)[..., np.newaxis],
-            pol.shape,
-        )
-
-        self.f = self.Dyson(vdyn, pol * self.c)
-        self.cf = self.f - vdyn
+        wlat = np.asarray(self.wlat, dtype=np.complex128)
+        if wlat.ndim != 6:
+            raise ValueError(f"WLoc expects 6D lattice W, got {wlat.ndim}D")
+        self.f = PJ.BLatDyn(wlat, self.projector.bprojector[self.key])
+        if self.vloc is None:
+            self.cf = None
+        else:
+            vdyn = np.broadcast_to(
+                np.asarray(self.vloc, dtype=np.complex128)[..., np.newaxis],
+                self.f.shape,
+            )
+            self.cf = self.f - vdyn
 
         self.t = self.F2T(self.f)
-        self.ct = self.F2T(self.cf)
+        self.ct = None if self.cf is None else self.F2T(self.cf)
 
         return None
 

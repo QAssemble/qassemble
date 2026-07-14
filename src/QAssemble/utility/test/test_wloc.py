@@ -16,30 +16,31 @@ class _FakeDLR:
 
 class _FakeProjector:
     def __init__(self):
-        self.bprojector = {"1": np.zeros((1, 1, 1), dtype=float)}
+        self.bprojector = {"1": np.ones((1, 1, 1), dtype=float)}
         self.equiv = {"1": np.eye(1, dtype=int)}
 
 
-def test_wloc_scalar_screened_interaction_and_correlation_part():
+def test_wloc_projects_lattice_screened_interaction_and_correlation_part():
     dlr = _FakeDLR(nfreq=3)
     crystal = SimpleNamespace(ns=1)
     projector = _FakeProjector()
 
     vloc = np.zeros((1, 1, 1, 1), dtype=np.complex128, order="F")
     vloc[0, 0, 0, 0] = 2.0
-    pol = np.zeros((1, 1, 1, 1, 3), dtype=np.complex128, order="F")
-    pol[0, 0, 0, 0, :] = np.array([0.1, -0.2, 0.05])
+    wlat = np.zeros((1, 1, 1, 1, 2, 3), dtype=np.complex128, order="F")
+    wlat[0, 0, 0, 0, 0, :] = np.array([3.0, 4.0, 5.0])
+    wlat[0, 0, 0, 0, 1, :] = np.array([5.0, 6.0, 7.0])
 
     wloc = WLoc(
         crystal=crystal,
         dlr=dlr,
         projector=projector,
         key="1",
-        pol=pol,
+        wlat=wlat,
         vloc=vloc,
     )
 
-    expected = vloc[..., np.newaxis] / (1.0 - pol * vloc[..., np.newaxis])
+    expected = np.mean(wlat, axis=4)
     np.testing.assert_allclose(wloc.f, expected)
     np.testing.assert_allclose(wloc.cf, expected - vloc[..., np.newaxis])
 
@@ -50,15 +51,15 @@ def test_wloc_builds_tau_quantities_through_f2t():
     projector = _FakeProjector()
 
     vloc = np.ones((1, 1, 1, 1), dtype=np.complex128, order="F")
-    pol = np.zeros((1, 1, 1, 1, 3), dtype=np.complex128, order="F")
-    pol[0, 0, 0, 0, :] = np.array([0.0, 0.25, -0.5])
+    wlat = np.ones((1, 1, 1, 1, 2, 3), dtype=np.complex128, order="F")
+    wlat[..., 1, :] *= 3.0
 
     wloc = WLoc(
         crystal=crystal,
         dlr=dlr,
         projector=projector,
         key="1",
-        pol=pol,
+        wlat=wlat,
         vloc=vloc,
     )
 

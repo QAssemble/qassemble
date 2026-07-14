@@ -101,13 +101,11 @@ def test_input_tolerance_shortcuts_do_not_override_explicit_tol(
     assert runner.control["run"]["tol_dWLoc_rel"] == 2.0e-6
 
 
-def test_input_mix_sig_mix_p_and_mixing_controls(monkeypatch, tmp_path):
+def test_input_mixing_controls(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _write_minimal_input(
         tmp_path / "input.ini",
         "'Mix': 0.1,\n"
-        "                'MixSig': 0.2,\n"
-        "                'MixP': 0.3,\n"
         "                'MixingMethod': 'linear',\n"
         "                'NPulay': 7,",
     )
@@ -116,29 +114,12 @@ def test_input_mix_sig_mix_p_and_mixing_controls(monkeypatch, tmp_path):
     runner.ReadInput()
 
     assert runner.control["run"]["mix"] == 0.1
-    assert runner.control["run"]["mix_sig"] == 0.2
-    assert runner.control["run"]["mix_p"] == 0.3
+    assert "mix_sig" not in runner.control["run"]
+    assert "mix_p" not in runner.control["run"]
     assert runner.control["run"]["MixingMethod"] == "linear"
     assert runner.control["run"]["NPulay"] == 7
     assert runner.control["run"]["mixing_method"] == "linear"
     assert runner.control["run"]["npulay"] == 7
-
-
-def test_input_mix_p_defaults_to_mix_sig(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    _write_minimal_input(
-        tmp_path / "input.ini",
-        "'Mix': 0.1,\n"
-        "                'MixSig': 0.2,",
-    )
-
-    runner = object.__new__(Run)
-    runner.ReadInput()
-
-    assert runner.control["run"]["mix"] == 0.1
-    assert runner.control["run"]["mix_sig"] == 0.2
-    assert runner.control["run"]["mix_p"] == 0.2
-
 
 def test_input_min_scf_defaults_to_five_for_pulay(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)

@@ -833,6 +833,89 @@ class P(BLatDyn):
         return None
 
 
+class PolC(BLatDyn):
+    """Compose lattice polarization contributions for (GW+)EDMFT.
+
+    The assembled polarization follows
+    ``P = P_GW - P_GW_local + P_impurity``.  Local contributions are
+    embedded on every k point through the impurity projector.
+    """
+
+    def __init__(self, crystal: Crystal, dlr: DLR):
+        super().__init__(crystal, dlr)
+        shape = (
+            len(self.crystal.bind),
+            len(self.crystal.bind),
+            self.crystal.ns,
+            self.crystal.ns,
+            self.crystal.nk,
+            len(self.dlr.nu),
+        )
+        self.kf = np.zeros(shape, dtype=np.complex128, order="F")
+        self.pgw = None
+        self.pgw_dc = None
+        self.pimp = None
+        self._impurity_blocks = None
+
+    def _lattice_array(self, value, name: str) -> np.ndarray:
+        if hasattr(value, "kf"):
+            value = value.kf
+        arr = np.asarray(value, dtype=np.complex128)
+        if arr.shape != self.kf.shape:
+            raise ValueError(f"{name} shape mismatch: expected {self.kf.shape}, got {arr.shape}")
+        if not np.all(np.isfinite(arr)):
+            raise ValueError(f"{name} contains non-finite values")
+        return np.asfortranarray(arr)
+
+    def _accumulate(self, attr: str, value: np.ndarray) -> None:
+        current = getattr(self, attr)
+        if current is None:
+            setattr(self, attr, np.array(value, copy=True, order="F"))
+        else:
+            current += value
+
+    def ImpEmbedding(self, pimp, projector: Projector, key) -> None:
+        if hasattr(pimp, "f"):
+            pimp = pimp.f
+        local = np.asarray(pimp, dtype=np.complex128)
+        embedded = self.Embedding(local, projector=projector, key=key)
+
+        # Detect overlapping impurity ownership independently of numerical
+        # values (a valid polarization can be identically zero).
+        ownership = self.Embedding(
+            np.ones_like(local, dtype=np.complex128), projector=projector, key=key
+        )
+        blocks = np.any(np.abs(ownership) > 0.0, axis=(-2, -1))
+        if self._impurity_blocks is None:
+            self._impurity_blocks = blocks
+        elif np.any(self._impurity_blocks & blocks):
+            raise ValueError(f"Overlapping bosonic impurity blocks for key '{key}'")
+        else:
+            self._impurity_blocks |= blocks
+        self._accumulate("pimp", embedded)
+
+    def GWContribution(self, pgw) -> None:
+        self.pgw = self._lattice_array(pgw, "pgw")
+
+    def GWDoubleCounting(self, pgw_loc, projector: Projector, key) -> None:
+        if hasattr(pgw_loc, "f"):
+            pgw_loc = pgw_loc.f
+        embedded = self.Embedding(
+            np.asarray(pgw_loc, dtype=np.complex128), projector=projector, key=key
+        )
+        self._accumulate("pgw_dc", embedded)
+
+    def __call__(self) -> np.ndarray:
+        self.kf.fill(0.0)
+        if self.pgw is not None:
+            self.kf += self.pgw
+        if self.pgw_dc is not None:
+            self.kf -= self.pgw_dc
+        if self.pimp is not None:
+            self.kf += self.pimp
+        return self.kf
+
+
 @timed_init
 class W(BLatDyn):
     def __init__(
@@ -886,13 +969,10 @@ class W(BLatDyn):
         self.group = group
         self.subgroup = self.__class__.__name__
         self.iteration = iteration
-        if pol is None:
-            logger.error("Error, polarizability doesn't exist")
-            sys.exit()
         if vbare is None:
-            logger.error("Error, bare coulomb interaction doesn't exist")
-            sys.exit()
+            raise ValueError("bare Coulomb interaction doesn't exist")
         self.pol = pol
+        self.is_bare = pol is None
         self.vbare = vbare
 
         logger.info("Screened Coulomb Interaction Calculation Start")
@@ -933,6 +1013,20 @@ class W(BLatDyn):
         logger.info("Make dynamic bare Coulomb interaction start")
         vdyn = self.StcEmbedding(self.vbare.k)
         logger.info("Make dynamic bare Coulomb interaction finish")
+
+        if self.pol is None:
+            self.kf = np.asfortranarray(vdyn)
+            self.ckf = np.zeros_like(self.kf, dtype=np.complex128, order="F")
+            return None
+
+        pol = self.pol.kf if hasattr(self.pol, "kf") else self.pol
+        pol = np.asarray(pol, dtype=np.complex128)
+        if pol.shape != wkf.shape:
+            raise ValueError(
+                f"polarization shape mismatch: expected {wkf.shape}, got {pol.shape}"
+            )
+        if not np.all(np.isfinite(pol)):
+            raise ValueError("polarization contains non-finite values")
         polcomp = np.zeros(
             (norbc * norbc, norbc * norbc, ns, ns, nk, nfreq),
             dtype=np.complex128,
@@ -944,7 +1038,7 @@ class W(BLatDyn):
             order="F",
         )
         ####### Initialization #######
-        polcomp = self.Double2Full(self.pol) * self.c
+        polcomp = self.Double2Full(pol) * self.c
         # del self.pol
         vcomp = self.Double2Full(vdyn)
 
@@ -985,5 +1079,6 @@ class W(BLatDyn):
                 w = group.create_group(self.subgroup)
 
             IO.CreateDataset(w, fn_write, self.kf, dtype=complex)
+            w[fn_write].attrs["is_bare"] = bool(self.is_bare)
 
         return None

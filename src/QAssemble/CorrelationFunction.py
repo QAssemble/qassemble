@@ -518,6 +518,9 @@ class CorrelationFunction(object):
             equiv=copy.deepcopy(equiv),
         )
         problem_keys = list(projector.fprojector.keys())
+        if len(problem_keys) != 1:
+            raise ValueError("EDMFT currently supports exactly one impurity problem")
+        impurity_key = problem_keys[0]
         self.vbare.vloc.projector = projector
         if hasattr(self.vbare.vloc, "BuildProjection"):
             self.vbare.vloc.BuildProjection(projector)
@@ -548,6 +551,20 @@ class CorrelationFunction(object):
 
         self.conv.Start()
         diag_prev_by_key = None
+
+        # Bare bosonic lattice state used only to construct the first
+        # impurity bath.  Subsequent W updates are made next to green_next.
+        wlat = W(
+            crystal=self.crystal,
+            dlr=self.dlr,
+            pol=None,
+            vbare=self.vbare,
+            c=self.c,
+            hdf5file=hdf5file,
+            group=group,
+            iteration=0,
+        )
+        wlat.Save('wkf')
 
         for iter in range(1, itermax + 1):
             sigc = SigC(crystal=self.crystal, dlr=self.dlr)
@@ -621,26 +638,13 @@ class CorrelationFunction(object):
                     group=group,
                 )
 
-                ploc = PLoc(
-                    crystal=self.crystal,
-                    dlr=self.dlr,
-                    projector=projector,
-                    key=key,
-                    gloc=gloc.t,
-                    hdf5file=hdf5file,
-                    group=group,
-                    iteration=iter,
-                )
-                ploc.Save('ploc_seed')
-
                 wloc = WLoc(
                     crystal=self.crystal,
                     dlr=self.dlr,
                     projector=projector,
                     key=key,
-                    pol=ploc.f,
+                    wlat=wlat.kf,
                     vloc=self.vbare.vloc.vproj[key],
-                    c=self.c,
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iter - 1,
@@ -653,8 +657,8 @@ class CorrelationFunction(object):
                     projector=projector,
                     key=key,
                     vloc=self.vbare.vloc,
-                    ploc=ploc,
                     wloc=wloc,
+                    polarization=None if iter == 1 else pimp,
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iter,
@@ -672,7 +676,7 @@ class CorrelationFunction(object):
                 )
                 impurity_result = impurity_method()
 
-                for _attr in ("gimp", "sighimp", "sigfimp", "sigimp", "chi", "pimp"):
+                for _attr in ("gimp", "sighimp", "sigfimp", "sigimp", "chi", "pimp", "wimp"):
                     if getattr(impurity_result, _attr, None) is None:
                         raise RuntimeError(
                             f"CTQMC produced no {_attr} for key={key}, iter={iter}. "
@@ -691,6 +695,7 @@ class CorrelationFunction(object):
                     projector=projector,
                     key=key,
                 )
+                pimp_new = impurity_result.pimp
                 diag_by_key[key] = dict(impurity_result.diagnostics)
 
             sigc()
@@ -713,6 +718,21 @@ class CorrelationFunction(object):
 
             green_next.Save('gkf')
 
+            polc = PolC(crystal=self.crystal, dlr=self.dlr)
+            polc.ImpEmbedding(pimp_new, projector, impurity_key)
+            polc()
+            wlat_next = W(
+                crystal=self.crystal,
+                dlr=self.dlr,
+                pol=polc.kf,
+                vbare=self.vbare,
+                c=self.c,
+                hdf5file=hdf5file,
+                group=group,
+                iteration=iter,
+            )
+            wlat_next.Save('wkf')
+
             converged = False
             gcheck = float("nan")
             dG_iter = float("nan")
@@ -729,6 +749,15 @@ class CorrelationFunction(object):
                     previous=f"gloc.{completed_iter - 1}",
                     keys=problem_keys,
                 )
+                if iter > 2:
+                    self.conv.CheckSelfHDF5(
+                        name="PImp",
+                        group=group,
+                        subgroup="PImp",
+                        current=f"pimp.{completed_iter}",
+                        previous=f"pimp.{completed_iter - 1}",
+                        keys=problem_keys,
+                    )
                 self.conv.CheckSelfHDF5(
                     name="WLoc",
                     group=group,
@@ -748,6 +777,16 @@ class CorrelationFunction(object):
                     keys=problem_keys,
                 )
                 self.conv.CheckSelf('mu', value=float(green.mu), kind='scalar')
+                self.conv.CheckCrossHDF5(
+                    name_a="WLoc",
+                    name_b="WImp",
+                    group=group,
+                    subgroup_a="WLoc",
+                    subgroup_b="WImp",
+                    stem_a=f"wloc.{completed_iter}",
+                    stem_b=f"wimp.{completed_iter}",
+                    keys=problem_keys,
+                )
                 self.conv.RecordDiagnostics(diag_prev_by_key)
                 converged, info = self.conv.Commit(
                     completed_iter,
@@ -767,8 +806,12 @@ class CorrelationFunction(object):
             else:
                 logger.info("iteration : 1 | convergence skipped")
 
-            self.green = green_next
-            self.sigc = sigc
+            # Keep only the terminal EDMFT result on the driver object.
+            # Intermediate states are carried by local variables below.
+            if converged or iter == itermax:
+                self.green = green_next
+                self.sigc = sigc
+                self.w = wlat_next
 
             if converged:
                 logger.info(
@@ -788,4 +831,14 @@ class CorrelationFunction(object):
                 green = green_next
                 diag_prev_by_key = diag_by_key
 
+                # CTQMC already mixed PImp in PostProcessing; these local
+                # states are needed only when another iteration will run.
+                pimp = pimp_new
+                wlat = wlat_next
+
             gc.collect()
+
+    def GWEDMFT(self):
+
+
+        pass

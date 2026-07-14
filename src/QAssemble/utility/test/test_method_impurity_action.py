@@ -45,6 +45,7 @@ def _install_fake_ctqmc(monkeypatch, *, missing=(), include_bosons=False):
             self.sigimp = None
             self.chi = None
             self.pimp = None
+            self.wimp = None
             FakeCTQMC.instances.append(self)
 
         def PreProcessing(self, iter):
@@ -63,6 +64,7 @@ def _install_fake_ctqmc(monkeypatch, *, missing=(), include_bosons=False):
             if include_bosons:
                 self.chi = _SavedObject(f=np.asarray([4.0]))
                 self.pimp = _SavedObject(f=np.asarray([5.0]))
+                self.wimp = _SavedObject(f=np.asarray([6.0]))
             for attr in missing:
                 setattr(self, attr, None)
 
@@ -112,6 +114,7 @@ def test_impurity_action_runs_ctqmc_and_returns_outputs(monkeypatch, tmp_path):
     np.testing.assert_allclose(result.sigimp.f, [3.0])
     assert result.chi is None
     assert result.pimp is None
+    assert result.wimp is None
     assert result.diagnostics == {"sign": 1.0}
 
 
@@ -127,6 +130,7 @@ def test_impurity_action_leaves_output_finalization_to_ctqmc(monkeypatch, tmp_pa
     assert result.sigimp.saved == []
     assert result.chi.saved == []
     assert result.pimp.saved == []
+    assert result.wimp.saved == []
     assert fake_ctqmc.instances[0].calls[-1] == ("PostProcessing", 2)
 
 
@@ -154,6 +158,7 @@ def test_impurity_action_passes_control_to_ctqmc(monkeypatch, tmp_path):
     assert result.sigimp.mixed == []
     assert result.chi.mixed == []
     assert result.pimp.mixed == []
+    assert result.wimp.mixed == []
 
 
 def test_impurity_action_can_return_missing_optional_outputs_without_validation(monkeypatch, tmp_path):

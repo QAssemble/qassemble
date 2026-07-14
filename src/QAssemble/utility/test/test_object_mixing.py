@@ -38,6 +38,8 @@ def _seed_common(obj, path):
     obj.hdf5file = str(path)
     obj.group = "calc"
     obj.key = "1"
+    obj.control = {"mix": 0.5, "mixing_method": "linear", "npulay": 2}
+    obj.iteration = 1
 
 
 def _seed_save(obj, path, subgroup, iteration=None, key=None):
@@ -192,9 +194,10 @@ def test_sighimp_mixing_assigns_h_and_s(tmp_path):
     obj.h = np.asarray([0.0], dtype=np.complex128)
     obj.s = None
 
-    assert obj.Mixing(iter=1, mix=0.5, method="linear", npulay=2) is None
+    assert obj.Mixing() is None
     obj.h = np.asarray([2.0], dtype=np.complex128)
-    assert obj.Mixing(iter=2, mix=0.5, method="linear", npulay=2) is None
+    obj.iteration = 2
+    assert obj.Mixing() is None
 
     np.testing.assert_allclose(obj.h, [1.0])
     assert obj.s is obj.h
@@ -208,9 +211,11 @@ def test_sigfimp_mixing_assigns_s(tmp_path):
     _seed_common(obj, path)
     obj.s = np.asarray([0.0], dtype=np.complex128)
 
-    assert obj.Mixing(iter=1, mix=0.5, method="linear", npulay=2) is None
+    assert obj.Mixing() is None
     obj.s = np.asarray([4.0], dtype=np.complex128)
-    assert obj.Mixing(iter=2, mix=0.25, method="linear", npulay=2) is None
+    obj.control["mix"] = 0.25
+    obj.iteration = 2
+    assert obj.Mixing() is None
 
     np.testing.assert_allclose(obj.s, [1.0])
     with h5py.File(path, "r") as handle:
@@ -228,9 +233,10 @@ def test_sigcimp_mixing_assigns_f_and_uniform_grid(tmp_path):
         np.asarray(value, dtype=np.complex128) + 20.0
     )
 
-    assert obj.Mixing(iter=1, mix=0.5, method="linear", npulay=2) is None
+    assert obj.Mixing() is None
     obj.f = np.asarray([6.0], dtype=np.complex128)
-    assert obj.Mixing(iter=2, mix=0.5, method="linear", npulay=2) is None
+    obj.iteration = 2
+    assert obj.Mixing() is None
 
     np.testing.assert_allclose(obj.f, [3.0])
     np.testing.assert_allclose(obj.f_uniform, [13.0])
@@ -249,9 +255,10 @@ def test_pimp_mixing_assigns_f_and_tau(tmp_path):
         np.asarray(value, dtype=np.complex128) + 20.0
     )
 
-    assert obj.Mixing(iter=1, mix=0.5, method="linear", npulay=2) is None
+    assert obj.Mixing() is None
     obj.f = np.asarray([8.0], dtype=np.complex128)
-    assert obj.Mixing(iter=2, mix=0.5, method="linear", npulay=2) is None
+    obj.iteration = 2
+    assert obj.Mixing() is None
 
     np.testing.assert_allclose(obj.f, [4.0])
     np.testing.assert_allclose(obj.t, [24.0])

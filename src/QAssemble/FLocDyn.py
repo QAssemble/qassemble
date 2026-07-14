@@ -1048,7 +1048,7 @@ class SigGWCLoc(FLocDyn):
 class SigCImp(FLocDyn):
     component = "sigimp"
 
-    def __init__(self,crystal : Crystal,dlr : DLR,projector : Projector,key,sigma,sigma_hf : np.ndarray = None,subtract_static : bool = True,hdf5file : str = None,group : str = None,iteration: int = None,):
+    def __init__(self,crystal : Crystal,dlr : DLR,projector : Projector,key,sigma,sigma_hf : np.ndarray = None,subtract_static : bool = True,control=None,hdf5file : str = None,group : str = None,iteration: int = None,):
 
         super().__init__(crystal, dlr, projector)
 
@@ -1056,6 +1056,7 @@ class SigCImp(FLocDyn):
         self.sigma_in = sigma
         self.sigma_hf_in = sigma_hf
         self.subtract_static = subtract_static
+        self.control = control if control is not None else {}
         self.hf = None
         self.f = None
         self.t = None
@@ -1222,29 +1223,20 @@ class SigCImp(FLocDyn):
 
         return None
 
-    def Mixing(
-        self,
-        iter: int = None,
-        mix: float = None,
-        method: str = "pulay",
-        npulay: int = 5,
-        key=None,
-    ) -> None:
+    def Mixing(self) -> None:
         self.f = super().Mixing(
-            iter=iter,
-            mix=mix,
+            iter=self.iteration,
+            mix=float(self.control["mix"]),
             component=self.component,
             value=self.f,
-            method=method,
-            npulay=npulay,
-            key=key,
+            method=self.control["mixing_method"],
+            npulay=int(self.control["npulay"]),
+            key=self.key,
         )
         if hasattr(self, "f_uniform") and self.f_uniform is not None:
             if hasattr(self.dlr, "MatsubaraDLR2UniformGrid"):
                 self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=-1)
         self.t = self.F2T(self.f)
-        if iter is not None:
-            self.iteration = iter
 
     def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
         if fn is None:

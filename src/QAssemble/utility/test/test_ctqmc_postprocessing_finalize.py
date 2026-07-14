@@ -28,7 +28,7 @@ def _fake_projector():
     )
 
 
-def test_ctqmc_init_reads_mixing_parameters_from_run_control(monkeypatch, tmp_path):
+def test_ctqmc_keeps_run_control_for_impurity_objects(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     projector = _fake_projector()
     fweiss = SimpleNamespace(crystal=SimpleNamespace(), projector=projector, key="1")
@@ -41,29 +41,24 @@ def test_ctqmc_init_reads_mixing_parameters_from_run_control(monkeypatch, tmp_pa
         key=1,
         control={
             "mix": 0.25,
-            "mix_sig": 0.35,
-            "mix_p": 0.45,
             "mixing_method": "linear",
             "npulay": 3,
         },
     )
 
-    assert ctqmc.mix == 0.25
-    assert ctqmc.mix_sig == 0.35
-    assert ctqmc.mix_p == 0.45
-    assert ctqmc.mixing_method == "linear"
-    assert ctqmc.npulay == 3
+    assert ctqmc.control == {
+        "mix": 0.25,
+        "mixing_method": "linear",
+        "npulay": 3,
+    }
+    assert not hasattr(ctqmc, "mix_sig")
+    assert not hasattr(ctqmc, "mix_p")
     assert os.getcwd() == str(tmp_path / "ctqmc")
 
 
-def test_ctqmc_finalize_mixes_selected_outputs_before_saving_all():
+def test_ctqmc_finalize_only_saves_outputs():
     events = []
     ctqmc = object.__new__(CTQMC)
-    ctqmc.mix = 0.25
-    ctqmc.mix_sig = 0.35
-    ctqmc.mix_p = 0.45
-    ctqmc.mixing_method = "linear"
-    ctqmc.npulay = 3
     ctqmc.bweiss = SimpleNamespace(cf=np.asarray([1.0]))
     ctqmc.gimp = _Output("gimp", events)
     ctqmc.sighimp = _Output("sighimp", events)
@@ -71,61 +66,24 @@ def test_ctqmc_finalize_mixes_selected_outputs_before_saving_all():
     ctqmc.sigimp = _Output("sigimp", events)
     ctqmc.chi = _Output("chi", events)
     ctqmc.pimp = _Output("pimp", events)
+    ctqmc.wimp = _Output("wimp", events)
 
     ctqmc._finalize_outputs(iter=4)
 
     assert events == [
-        ("sighimp", "mix", 4, 0.35, "linear", 3),
-        ("sigfimp", "mix", 4, 0.35, "linear", 3),
-        ("sigimp", "mix", 4, 0.35, "linear", 3),
-        ("pimp", "mix", 4, 0.45, "linear", 3),
         ("gimp", "save", "gimp"),
         ("sighimp", "save", "sighimp"),
         ("sigfimp", "save", "sigfimp"),
         ("sigimp", "save", "sigimp"),
         ("chi", "save", "chi"),
         ("pimp", "save", "pimp"),
+        ("wimp", "save", "wimp"),
     ]
 
 
-def test_ctqmc_does_not_mix_p_for_static_bweiss():
+def test_ctqmc_finalize_saves_only_present_static_outputs():
     events = []
     ctqmc = object.__new__(CTQMC)
-    ctqmc.mix = 0.25
-    ctqmc.mix_sig = 0.35
-    ctqmc.mix_p = 0.45
-    ctqmc.mixing_method = "linear"
-    ctqmc.npulay = 3
-    ctqmc.bweiss = SimpleNamespace(cf=None)
-    ctqmc.gimp = _Output("gimp", events)
-    ctqmc.sighimp = _Output("sighimp", events)
-    ctqmc.sigfimp = _Output("sigfimp", events)
-    ctqmc.sigimp = _Output("sigimp", events)
-    ctqmc.chi = None
-    ctqmc.pimp = _Output("pimp", events)
-
-    ctqmc._finalize_outputs(iter=4)
-
-    assert events == [
-        ("sighimp", "mix", 4, 0.35, "linear", 3),
-        ("sigfimp", "mix", 4, 0.35, "linear", 3),
-        ("sigimp", "mix", 4, 0.35, "linear", 3),
-        ("gimp", "save", "gimp"),
-        ("sighimp", "save", "sighimp"),
-        ("sigfimp", "save", "sigfimp"),
-        ("sigimp", "save", "sigimp"),
-        ("pimp", "save", "pimp"),
-    ]
-
-
-def test_ctqmc_finalize_skips_missing_optional_bosonic_outputs():
-    events = []
-    ctqmc = object.__new__(CTQMC)
-    ctqmc.mix = None
-    ctqmc.mix_sig = None
-    ctqmc.mix_p = None
-    ctqmc.mixing_method = "pulay"
-    ctqmc.npulay = 5
     ctqmc.bweiss = SimpleNamespace(cf=None)
     ctqmc.gimp = _Output("gimp", events)
     ctqmc.sighimp = _Output("sighimp", events)
@@ -133,6 +91,29 @@ def test_ctqmc_finalize_skips_missing_optional_bosonic_outputs():
     ctqmc.sigimp = _Output("sigimp", events)
     ctqmc.chi = None
     ctqmc.pimp = None
+    ctqmc.wimp = None
+
+    ctqmc._finalize_outputs(iter=4)
+
+    assert events == [
+        ("gimp", "save", "gimp"),
+        ("sighimp", "save", "sighimp"),
+        ("sigfimp", "save", "sigfimp"),
+        ("sigimp", "save", "sigimp"),
+    ]
+
+
+def test_ctqmc_finalize_skips_missing_optional_bosonic_outputs():
+    events = []
+    ctqmc = object.__new__(CTQMC)
+    ctqmc.bweiss = SimpleNamespace(cf=None)
+    ctqmc.gimp = _Output("gimp", events)
+    ctqmc.sighimp = _Output("sighimp", events)
+    ctqmc.sigfimp = _Output("sigfimp", events)
+    ctqmc.sigimp = _Output("sigimp", events)
+    ctqmc.chi = None
+    ctqmc.pimp = None
+    ctqmc.wimp = None
 
     ctqmc._finalize_outputs(iter=2)
 

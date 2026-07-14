@@ -25,11 +25,6 @@ class CTQMC(object):
         self.control = control if control is not None else {}
         self.hdf5file = hdf5file
         self.group = group
-        self.mix = float(self.control["mix"])
-        self.mix_sig = float(self.control["mix_sig"])
-        self.mix_p = float(self.control["mix_p"])
-        self.mixing_method = self.control["mixing_method"]
-        self.npulay = int(self.control["npulay"])
         self.crystal = fweiss.crystal
         self.ft = dlr
         self.projector = fweiss.projector
@@ -41,6 +36,7 @@ class CTQMC(object):
         self.sigimp = None
         self.chi = None
         self.pimp = None
+        self.wimp = None
 
         self.work_dir = os.path.abspath(os.getcwd())
         cwd = self.work_dir
@@ -284,30 +280,36 @@ class CTQMC(object):
                 vloc=self.bweiss.f[..., 0]
                 if self.bweiss.f is not None
                 else self.bweiss.vloc.vproj[key],
+                control=self.control,
                 hdf5file=self.hdf5file,
                 group=self.group,
                 iteration=iter,
             )
+            self.sighimp.Mixing()
             self.sigfimp = SigFImp(
                 crystal=self.crystal,
                 projector=self.projector,
                 key=key,
                 sigma=obsjson["self-energy"],
                 sigh=self.sighimp,
+                control=self.control,
                 hdf5file=self.hdf5file,
                 group=self.group,
                 iteration=iter,
             )
+            self.sigfimp.Mixing()
             self.sigimp = SigCImp(
                 crystal=self.crystal,
                 dlr=self.dlr,
                 projector=self.projector,
                 key=key,
                 sigma=obsjson["self-energy"],
+                control=self.control,
                 hdf5file=self.hdf5file,
                 group=self.group,
                 iteration=iter,
             )
+            self.sigimp.Mixing()
             if self._use_dyn():
                 self.chi = Chi(
                     crystal=self.crystal,
@@ -326,6 +328,19 @@ class CTQMC(object):
                     key=key,
                     chi=self.chi,
                     utilde=self.bweiss.f_uniform,
+                    control=self.control,
+                    hdf5file=self.hdf5file,
+                    group=self.group,
+                    iteration=iter,
+                )
+                self.pimp.Mixing()
+                self.wimp = WImp(
+                    crystal=self.crystal,
+                    dlr=self.dlr,
+                    projector=self.projector,
+                    key=key,
+                    utilde=self.bweiss.f,
+                    polarization=self.pimp.f,
                     hdf5file=self.hdf5file,
                     group=self.group,
                     iteration=iter,
@@ -354,7 +369,6 @@ class CTQMC(object):
 
     def _finalize_outputs(self, iter : int):
 
-        self._mix_outputs(iter)
         for attr, fn in (
             ('gimp', 'gimp'),
             ('sighimp', 'sighimp'),
@@ -362,38 +376,10 @@ class CTQMC(object):
             ('sigimp', 'sigimp'),
             ('chi', 'chi'),
             ('pimp', 'pimp'),
+            ('wimp', 'wimp'),
         ):
             obj = getattr(self, attr, None)
             if obj is not None and hasattr(obj, 'Save'):
                 obj.Save(fn)
-
-        return None
-
-    def _mix_outputs(self, iter : int):
-
-        if self.mix_sig is not None:
-            for attr in ('sighimp', 'sigfimp', 'sigimp'):
-                obj = getattr(self, attr, None)
-                if obj is not None and hasattr(obj, 'Mixing'):
-                    obj.Mixing(
-                        iter=iter,
-                        mix=self.mix_sig,
-                        method=self.mixing_method,
-                        npulay=self.npulay,
-                    )
-
-        obj = getattr(self, 'pimp', None)
-        if (
-            self._use_dyn()
-            and self.mix_p is not None
-            and obj is not None
-            and hasattr(obj, 'Mixing')
-        ):
-            obj.Mixing(
-                iter=iter,
-                mix=self.mix_p,
-                method=self.mixing_method,
-                npulay=self.npulay,
-            )
 
         return None

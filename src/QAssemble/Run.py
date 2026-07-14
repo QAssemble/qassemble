@@ -153,8 +153,6 @@ class Run:
         ######## Check the method ########
 
         control["run"]["mix"] = ini.get("Mix", 0.1)
-        control["run"]["mix_sig"] = ini.get("MixSig", control["run"]["mix"])
-        control["run"]["mix_p"] = ini.get("MixP", control["run"]["mix_sig"])
         control["run"]["MixingMethod"] = ini.get("MixingMethod", "pulay")
         if "MinSCF" in ini:
             min_scf = int(ini["MinSCF"])
