@@ -195,7 +195,7 @@ class CTQMC(object):
 
         ctqmc_path = os.path.join(os.path.expanduser(qassemble_path), "CTQMC", "bin", "CTQMC")
         # run_cmd = ["mpirun", "-np", "4", ctqmc_path, "params"]
-        run_cmd = "mpirun -np 4 " + ctqmc_path + " params"
+        run_cmd = "mpirun -np 64 " + ctqmc_path + " params"
 
         with open('./ctqmc.out', 'w') as logfile, open('./ctqmc.err', 'w') as errfile:
             ret = subprocess.call(run_cmd, stdout=logfile, stderr=errfile, shell=True)
@@ -214,7 +214,7 @@ class CTQMC(object):
 
         evalsim_path = os.path.join(os.path.expanduser(qassemble_path), "CTQMC", "bin", "EVALSIM")
         # run_cmd = ["mpirun", "-np", "4", evalsim_path, "params"]
-        run_cmd = "mpirun -np 4 " + evalsim_path + " params"
+        run_cmd = "mpirun -np 64 " + evalsim_path + " params"
 
         with open('./evalsim.out', 'w') as logfile, open('./evalsim.err', 'w') as errfile :
             ret = subprocess.call(run_cmd, stdout=logfile, stderr=errfile, shell=True)
