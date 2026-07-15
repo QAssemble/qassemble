@@ -4,6 +4,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from QAssemble.utility.Projection import Projection as PJ
+
 
 class _SavedObject:
     def __init__(self, **attrs):
@@ -21,6 +23,8 @@ class _SavedObject:
 
     def Projection(self, matin, key):
         self.projection_calls.append((matin, key))
+        if hasattr(self, "projector"):
+            return PJ.BLatDyn(matin, self.projector.bprojector[str(key)])
         return np.asarray(matin)
 
 
@@ -83,9 +87,11 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
             self.fprojector = {
                 key: np.ones((1, 1, 1), dtype=float) for key in keys
             }
-            self.bprojector = {
-                key: np.ones((1, 1, 1), dtype=float) for key in keys
-            }
+            self.bprojector = {}
+            for index, key in enumerate(keys):
+                projection = np.zeros((len(keys), 1, 1), dtype=float)
+                projection[index, 0, 0] = 1.0
+                self.bprojector[key] = projection
 
     class FakeG:
         instances = []
@@ -199,10 +205,10 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
             FakeBWeiss.instances.append(self)
             self.args = args
             self.kwargs = kwargs
-            self.polarization = kwargs.get("polarization")
-            self.wloc = kwargs["wloc"]
-            self.f = None if self.wloc is None else np.asarray(self.wloc.f)
-            self.cf = None if self.wloc is None else np.asarray([1.0])
+            self.p = kwargs.get("p")
+            self.w = kwargs["w"]
+            self.f = None if self.w is None else np.asarray(self.w.f)
+            self.cf = None if self.w is None else np.asarray([1.0])
             self.saved = []
 
         def Save(self, name, *args, **kwargs):
@@ -233,9 +239,22 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
             FakePolC.instances.append(self)
             self.embedded = []
             self.kf = np.ones((1, 1, 1, 1, 1, 2), dtype=np.complex128) * 0.4
+            self.pimp = None
 
         def ImpEmbedding(self, value, projector, key):
             self.embedded.append((value, projector, key))
+            local = np.asarray(value.f, dtype=np.complex128)
+            projection = projector.bprojector[str(key)][:, 0, 0]
+            if self.pimp is None:
+                norb = projection.shape[0]
+                self.pimp = np.zeros(
+                    (norb, norb, 1, 1, 1, local.shape[-1]),
+                    dtype=np.complex128,
+                )
+            orbital_block = projection[:, None] * projection.conj()[None, :]
+            self.pimp[:, :, 0, 0, 0, :] += (
+                orbital_block[..., None] * local[0, 0, 0, 0, :]
+            )
 
         def GWContribution(self, value):
             self.gw = value
@@ -293,12 +312,14 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
             self.kwargs = kwargs
 
         def __call__(self):
-            return SimpleNamespace(
+            self.result = SimpleNamespace(
                 siggwc=_SavedObject(f=np.asarray([6.0])),
                 pol=_SavedObject(
-                    f=np.ones((1, 1, 1, 1, 2), dtype=np.complex128) * 0.2
+                    f=np.ones((1, 1, 1, 1, 2), dtype=np.complex128) * 0.2,
+                    projector=self.kwargs["gloc"].projector,
                 ),
             )
+            return self.result
 
     class FakeSigC:
         instances = []
@@ -330,6 +351,7 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
 
         def __call__(self):
             iter_no = float(self.kwargs["iteration"])
+            key_no = float(self.kwargs["key"])
             result = SimpleNamespace(
                 ctqmc=SimpleNamespace(),
                 diagnostics={"sign": iter_no, "nimp": iter_no},
@@ -339,7 +361,8 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
                 sigimp=_SavedObject(f=np.asarray([4.0])),
                 chi=_SavedObject(f=np.asarray([5.0])),
                 pimp=_SavedObject(
-                    f=np.ones((1, 1, 1, 1, 2), dtype=np.complex128) * 0.4
+                    f=np.ones((1, 1, 1, 1, 2), dtype=np.complex128)
+                    * (0.3 + 0.1 * key_no)
                 ),
                 wimp=_SavedObject(
                     f=np.ones((1, 1, 1, 1, 2), dtype=np.complex128) * 0.6
@@ -522,8 +545,8 @@ def test_edmft_uses_initial_dynamic_bath_and_skips_first_convergence(
     assert [item.kwargs["iteration"] for item in stack.WLoc.instances] == [0]
     assert stack.WLoc.instances[0].saved == [("wloc", (), {})]
     assert len(stack.BWeiss.instances) == 1
-    assert stack.BWeiss.instances[0].polarization is None
-    assert stack.BWeiss.instances[0].wloc is stack.WLoc.instances[0]
+    assert stack.BWeiss.instances[0].p is None
+    assert stack.BWeiss.instances[0].w is stack.WLoc.instances[0]
     assert stack.Hyb.instances[0].kwargs["green"] is stack.GLoc.instances[0].f
     assert stack.W.instances[0].is_bare
     assert stack.WLoc.instances[0].kwargs["wlat"] is stack.W.instances[0].kf
@@ -639,8 +662,8 @@ def test_edmft_feeds_mixed_pimp_into_next_lattice_iteration(monkeypatch, tmp_pat
 
     assert len(stack.PLoc.instances) == 0
     assert len(stack.BWeiss.instances) == 2
-    assert stack.BWeiss.instances[0].polarization is None
-    assert stack.BWeiss.instances[1].polarization is stack.ImpurityAction.results[0].pimp
+    assert stack.BWeiss.instances[0].p is None
+    assert stack.BWeiss.instances[1].p is stack.ImpurityAction.results[0].pimp
     assert stack.W.instances[0].is_bare
     assert not stack.W.instances[1].is_bare
     assert not stack.W.instances[2].is_bare
@@ -710,7 +733,7 @@ def test_gwedmft_composes_gw_dc_and_impurity_without_quantity_dicts(
     assert corr.sigc is sigc
 
 
-def test_gwedmft_builds_weiss_fields_from_projected_lattice_gw(
+def test_gwedmft_builds_bosonic_weiss_from_previous_impurity_polarization(
     monkeypatch,
     tmp_path,
 ):
@@ -724,8 +747,13 @@ def test_gwedmft_builds_weiss_fields_from_projected_lattice_gw(
 
     corr.GWEDMFT()
 
-    for bweiss in stack.BWeiss.instances:
-        np.testing.assert_allclose(bweiss.polarization.f, 0.2)
+    assert stack.BWeiss.instances[0].p is None
+    np.testing.assert_allclose(stack.BWeiss.instances[1].p, 0.4)
+    assert stack.GWLoc.instances[0].result.pol.projection_calls == []
+    assert stack.GWLoc.instances[1].result.pol.projection_calls == [
+        (stack.PolC.instances[0].pimp, "1")
+    ]
+    np.testing.assert_allclose(stack.PolC.instances[1].dc[0].f, 0.2)
     for hyb in stack.Hyb.instances:
         np.testing.assert_allclose(hyb.kwargs["sigh"], 10.0)
         np.testing.assert_allclose(hyb.kwargs["sigf"], 20.0)
@@ -766,8 +794,16 @@ def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
     assert [item.kwargs["key"] for item in stack.ImpurityAction.instances] == [
         "1", "2", "1", "2"
     ]
-    np.testing.assert_allclose(stack.BWeiss.instances[2].polarization.f, 0.2)
-    np.testing.assert_allclose(stack.BWeiss.instances[3].polarization.f, 0.2)
+    assert stack.BWeiss.instances[0].p is None
+    assert stack.BWeiss.instances[1].p is None
+    np.testing.assert_allclose(stack.BWeiss.instances[2].p, 0.4)
+    np.testing.assert_allclose(stack.BWeiss.instances[3].p, 0.5)
+    assert stack.GWLoc.instances[2].result.pol.projection_calls == [
+        (stack.PolC.instances[0].pimp, "1")
+    ]
+    assert stack.GWLoc.instances[3].result.pol.projection_calls == [
+        (stack.PolC.instances[0].pimp, "2")
+    ]
     np.testing.assert_allclose(
         stack.Hyb.instances[2].kwargs["sigf"],
         20.0,

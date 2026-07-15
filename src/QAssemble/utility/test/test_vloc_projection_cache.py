@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from QAssemble.BLocStc import VLoc
-from QAssemble.BLocDyn import BWeiss
+from QAssemble.BLocDyn import BLocDyn, BWeiss
 
 
 class _FakeProjector:
@@ -63,6 +63,21 @@ def test_vloc_build_projection_accepts_late_projector():
     np.testing.assert_allclose(vloc.vproj["2"][0, 0, 0, 0], 3.0)
 
 
+def test_blocdyn_projects_lattice_polarization_by_problem_key():
+    projector = _FakeProjector()
+    bloc = BLocDyn(
+        crystal=SimpleNamespace(ns=1),
+        dlr=_FakeDLR(nfreq=2),
+        projector=projector,
+    )
+    lattice = np.zeros((2, 2, 1, 1, 2, 2), dtype=np.complex128)
+    lattice[0, 0, 0, 0, :, :] = 3.0
+    lattice[1, 1, 0, 0, :, :] = 5.0
+
+    np.testing.assert_allclose(bloc.Projection(lattice, "1"), 3.0)
+    np.testing.assert_allclose(bloc.Projection(lattice, "2"), 5.0)
+
+
 def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs():
     projector = _FakeProjector()
     crystal = SimpleNamespace(ns=1)
@@ -83,8 +98,8 @@ def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs():
         projector=projector,
         key="1",
         vloc=vloc,
-        wloc=SimpleNamespace(f=w),
-        polarization=SimpleNamespace(f=p),
+        w=SimpleNamespace(f=w),
+        p=SimpleNamespace(f=p),
     )
 
     expected_utilde = w / (1.0 + p * w)
@@ -106,3 +121,27 @@ def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs():
     )
     for attr in removed_attrs:
         assert not hasattr(bweiss, attr)
+
+
+def test_bweiss_without_p_copies_w():
+    projector = _FakeProjector()
+    crystal = SimpleNamespace(ns=1)
+    dlr = _FakeDLR(nfreq=2)
+
+    vproj = np.zeros((1, 1, 1, 1), dtype=np.complex128, order="F")
+    vloc = SimpleNamespace(vloc=np.zeros((2, 2, 1, 1)), vproj={"1": vproj})
+    w = np.ones((1, 1, 1, 1, 2), dtype=np.complex128, order="F") * 3.0
+
+    bweiss = BWeiss(
+        crystal=crystal,
+        dlr=dlr,
+        projector=projector,
+        key="1",
+        vloc=vloc,
+        w=SimpleNamespace(f=w),
+        p=None,
+    )
+
+    np.testing.assert_allclose(bweiss.f, w)
+    assert bweiss.f is not w
+    assert bweiss.is_bare

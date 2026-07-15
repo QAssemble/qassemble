@@ -373,7 +373,18 @@ class CorrelationFunction(object):
                     hdf5file=hdf5file, group=group,
                 )
 
-                bweiss = BWeiss(crystal=self.crystal,dlr=self.dlr,projector=projector,key=key,vloc=self.vbare.vloc,ploc=None,wloc=None,hdf5file=hdf5file,group=group,iteration=iter)
+                bweiss = BWeiss(
+                    crystal=self.crystal,
+                    dlr=self.dlr,
+                    projector=projector,
+                    key=key,
+                    vloc=self.vbare.vloc,
+                    w=None,
+                    p=None,
+                    hdf5file=hdf5file,
+                    group=group,
+                    iteration=iter,
+                )
                 bweiss.Save('bweiss')
 
                 impurity_method = ImpurityAction(
@@ -657,8 +668,8 @@ class CorrelationFunction(object):
                     projector=projector,
                     key=key,
                     vloc=self.vbare.vloc,
-                    wloc=wloc,
-                    polarization=None if iter == 1 else pimp,
+                    w=wloc,
+                    p=None if iter == 1 else pimp,
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iter,
@@ -895,6 +906,7 @@ class CorrelationFunction(object):
         wlat.Save('wkf_ini', scf=False)
 
         diag_prev_by_key = None
+        polc_previous = None
         self.conv.Start()
 
         for iter in range(1, itermax + 1):
@@ -988,8 +1000,10 @@ class CorrelationFunction(object):
                 )
                 polc.GWDoubleCounting(gw_loc_result.pol, projector, key)
 
-                # Red EDMFT path.  Build the Weiss fields directly from this
-                # problem's projected lattice quantities and local GW terms.
+                # Build the impurity Weiss fields from the projected lattice
+                # quantities.  The bosonic Weiss field uses only the previous
+                # impurity polarization; local GW polarization remains a
+                # lattice double-counting term above.
                 eimp = EImp(
                     crystal=self.crystal,
                     projector=projector,
@@ -1029,14 +1043,20 @@ class CorrelationFunction(object):
                     hdf5file=hdf5file,
                     group=group,
                 )
+                p = None
+                if polc_previous is not None:
+                    p = gw_loc_result.pol.Projection(
+                        polc_previous.pimp,
+                        key,
+                    )
                 bweiss = BWeiss(
                     crystal=self.crystal,
                     dlr=self.dlr,
                     projector=projector,
                     key=key,
                     vloc=self.vbare.vloc,
-                    wloc=wloc,
-                    polarization=gw_loc_result.pol,
+                    w=wloc,
+                    p=p,
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iter,
@@ -1172,6 +1192,7 @@ class CorrelationFunction(object):
             else:
                 green = green_next
                 wlat = wlat_next
+                polc_previous = polc
                 diag_prev_by_key = diag_by_key
 
             gc.collect()

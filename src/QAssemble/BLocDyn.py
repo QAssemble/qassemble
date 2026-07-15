@@ -97,11 +97,11 @@ class BLocDyn(object):
             raise ValueError("projector is required for Projection")
 
         matin = np.asarray(matin, dtype=np.complex128)
-        if matin.ndim != 5:
-            raise ValueError(f"matin must be 5D, got {matin.ndim}D")
+        if matin.ndim != 6:
+            raise ValueError(f"matin must be 6D, got {matin.ndim}D")
 
         pkey = self.ResolveProblemKey(key)
-        return PJ.BLocDyn(matin, self.projector.bprojector[pkey])
+        return PJ.BLatDyn(matin, self.projector.bprojector[pkey])
 
     def Inverse(self, matin : np.ndarray)-> np.ndarray:
 
@@ -1017,9 +1017,15 @@ class PImp(BLocDyn):
         return None
 
 class BWeiss(BLocDyn):
+    """Bosonic impurity Weiss interaction.
+
+    ``p`` is exclusively the irreducible impurity polarization.  Local GW
+    polarization used for lattice double counting must not be passed here.
+    For a dynamic bath, ``Cal`` evaluates ``U = (W_loc^-1 + p)^-1``.
+    """
 
     def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key,
-                 vloc : VLoc, wloc = None, polarization = None, ploc = None,
+                 vloc : VLoc, w = None, p = None,
                  hdf5file : str = None, group : str = None, iteration: int = None):
 
         super().__init__(crystal, dlr, projector)
@@ -1028,13 +1034,8 @@ class BWeiss(BLocDyn):
         self.vloc = vloc
         if hasattr(self.vloc, "projector") and self.vloc.projector is None:
             self.vloc.projector = projector
-        # ``ploc`` is retained as a compatibility alias.  New callers must
-        # pass the irreducible impurity polarization explicitly.
-        if polarization is not None and ploc is not None:
-            raise ValueError("pass either polarization or ploc, not both")
-        self.polarization = polarization if polarization is not None else ploc
-        self.ploc = ploc
-        self.wloc = wloc
+        self.w = w
+        self.p = p
         self.f = None
         self.t = None
         self.cf = None
@@ -1048,8 +1049,8 @@ class BWeiss(BLocDyn):
 
         if self.key not in self.vloc.vproj:
             self.vloc.BuildProjection(self.projector)
-        self.is_bare = self.polarization is None
-        if self.wloc is not None:
+        self.is_bare = self.p is None
+        if self.w is not None:
             self.Cal()
 
     def _dynamic_average(self, key, mat : np.ndarray) -> np.ndarray:
@@ -1080,21 +1081,22 @@ class BWeiss(BLocDyn):
     def Cal(self):
         nfreq = len(self.dlr.nu)
 
-        if self.wloc is None:
-            raise ValueError("BWeiss.Cal requires wloc")
+        if self.w is None:
+            raise ValueError("BWeiss.Cal requires w")
 
-        w = np.asarray(self.wloc.f, dtype=np.complex128)
-        if self.polarization is None:
+        wsource = getattr(self.w, "f", self.w)
+        w = np.asarray(wsource, dtype=np.complex128)
+        if self.p is None:
             self.f = np.array(w, copy=True, order="F")
         else:
-            psource = getattr(self.polarization, "f", self.polarization)
+            psource = getattr(self.p, "f", self.p)
             p = np.asarray(psource, dtype=np.complex128)
             if p.shape != w.shape:
                 raise ValueError(
-                    f"BWeiss polarization shape mismatch: {p.shape} != {w.shape}"
+                    f"BWeiss p shape mismatch: {p.shape} != {w.shape}"
                 )
             if not np.all(np.isfinite(p)):
-                raise ValueError("BWeiss polarization contains non-finite values")
+                raise ValueError("BWeiss p contains non-finite values")
             self.f = self.Dyson(w, -p)
 
         if self.f.shape[4] != nfreq:
