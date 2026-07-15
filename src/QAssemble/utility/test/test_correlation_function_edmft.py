@@ -9,6 +9,7 @@ class _SavedObject:
     def __init__(self, **attrs):
         self.saved = []
         self.mixing_calls = []
+        self.projection_calls = []
         for key, value in attrs.items():
             setattr(self, key, value)
 
@@ -17,6 +18,10 @@ class _SavedObject:
 
     def Mixing(self, **kwargs):
         self.mixing_calls.append(kwargs)
+
+    def Projection(self, matin, key):
+        self.projection_calls.append((matin, key))
+        return np.asarray(matin)
 
 
 class _FakeConvergence:
@@ -73,9 +78,14 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
         def __init__(self, basisindex=None, impdict=None, equiv=None):
             self.basisindex = basisindex
             self.impdict = impdict
-            self.equiv = {"1": np.eye(1, dtype=int)}
-            self.fprojector = {"1": np.ones((1, 1, 1), dtype=float)}
-            self.bprojector = {"1": np.ones((1, 1, 1), dtype=float)}
+            keys = [str(key) for key in impdict]
+            self.equiv = {key: np.eye(1, dtype=int) for key in keys}
+            self.fprojector = {
+                key: np.ones((1, 1, 1), dtype=float) for key in keys
+            }
+            self.bprojector = {
+                key: np.ones((1, 1, 1), dtype=float) for key in keys
+            }
 
     class FakeG:
         instances = []
@@ -86,6 +96,9 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
             self.kwargs = kwargs
             self.kf = np.asarray([len(FakeG.instances)], dtype=np.complex128)
             self.mu = 0.25
+            self.occ = np.asarray([1.0])
+            self.occr = np.asarray([2.0])
+            self.rt = np.asarray([3.0])
             self.saved = []
 
         def Save(self, name, *args, **kwargs):
@@ -99,9 +112,13 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
             self.args = args
             self.kwargs = kwargs
             self.key = kwargs["key"]
+            self.crystal = kwargs["crystal"]
+            self.dlr = kwargs["dlr"]
+            self.projector = kwargs["projector"]
             idx = len(FakeGLoc.instances)
             self.f = np.asarray([10.0 + idx], dtype=np.complex128)
             self.t = np.asarray([20.0 + idx], dtype=np.complex128)
+            self.occ = np.asarray([1.0])
             self.saved = []
 
         def Projection(self, matin, key):
@@ -131,6 +148,8 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
             self.args = args
             self.kwargs = kwargs
             self.f = np.mean(np.asarray(kwargs["wlat"], dtype=np.complex128), axis=4)
+            self.ct = np.asarray([7.0])
+            self.key = kwargs["key"]
             self.saved = []
 
         def Save(self, name, *args, **kwargs):
@@ -201,6 +220,7 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
             self.is_bare = kwargs.get("pol") is None
             value = 1.0 if self.is_bare else 2.0
             self.kf = np.ones((1, 1, 1, 1, 1, 2), dtype=np.complex128) * value
+            self.crt = np.asarray([4.0])
             self.saved = []
 
         def Save(self, name, *args, **kwargs):
@@ -217,8 +237,68 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
         def ImpEmbedding(self, value, projector, key):
             self.embedded.append((value, projector, key))
 
+        def GWContribution(self, value):
+            self.gw = value
+
+        def GWDoubleCounting(self, value, projector, key):
+            self.dc = (value, projector, key)
+
         def __call__(self):
             return self.kf
+
+    class FakeHF:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            FakeHF.instances.append(self)
+            self.kwargs = kwargs
+
+        def __call__(self):
+            return SimpleNamespace(
+                sigh=_SavedObject(k=np.asarray([10.0])),
+                sigf=_SavedObject(k=np.asarray([20.0])),
+            )
+
+    class FakeGW:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            FakeGW.instances.append(self)
+            self.kwargs = kwargs
+
+        def __call__(self):
+            return SimpleNamespace(
+                siggwc=_SavedObject(kf=np.asarray([30.0])),
+                pol=_SavedObject(kf=np.asarray([40.0])),
+            )
+
+    class FakeHFLoc:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            FakeHFLoc.instances.append(self)
+            self.kwargs = kwargs
+
+        def __call__(self):
+            return SimpleNamespace(
+                sigh=_SavedObject(hloc=np.asarray([50.0])),
+                sigf=_SavedObject(floc=np.asarray([5.0])),
+            )
+
+    class FakeGWLoc:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            FakeGWLoc.instances.append(self)
+            self.kwargs = kwargs
+
+        def __call__(self):
+            return SimpleNamespace(
+                siggwc=_SavedObject(f=np.asarray([6.0])),
+                pol=_SavedObject(
+                    f=np.ones((1, 1, 1, 1, 2), dtype=np.complex128) * 0.2
+                ),
+            )
 
     class FakeSigC:
         instances = []
@@ -282,6 +362,10 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
     monkeypatch.setattr(cf_mod, "W", FakeW)
     monkeypatch.setattr(cf_mod, "PolC", FakePolC)
     monkeypatch.setattr(cf_mod, "SigC", FakeSigC)
+    monkeypatch.setattr(cf_mod, "HF", FakeHF)
+    monkeypatch.setattr(cf_mod, "GW", FakeGW)
+    monkeypatch.setattr(cf_mod, "HFLoc", FakeHFLoc)
+    monkeypatch.setattr(cf_mod, "GWLoc", FakeGWLoc)
     monkeypatch.setattr(cf_mod, "ImpurityAction", FakeImpurityAction)
 
     return SimpleNamespace(
@@ -295,6 +379,10 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
         W=FakeW,
         PolC=FakePolC,
         SigC=FakeSigC,
+        HF=FakeHF,
+        GW=FakeGW,
+        HFLoc=FakeHFLoc,
+        GWLoc=FakeGWLoc,
         ImpurityAction=FakeImpurityAction,
     )
 
@@ -307,7 +395,8 @@ class _FakeVLoc:
     def BuildProjection(self, projector):
         self.projector = projector
         self.vproj = {
-            "1": np.ones((1, 1, 1, 1), dtype=np.complex128),
+            key: np.ones((1, 1, 1, 1), dtype=np.complex128)
+            for key in projector.bprojector
         }
         return self.vproj
 
@@ -582,6 +671,143 @@ def test_run_dispatch_calls_edmft(monkeypatch):
 
     runner = object.__new__(run_mod.Run)
     runner.control = {"run": {"method": "edmft"}}
+
+    runner.RunDiagE()
+
+    assert called == [runner.control]
+
+
+def test_gwedmft_composes_gw_dc_and_impurity_without_quantity_dicts(
+    monkeypatch,
+    tmp_path,
+):
+    stack = _install_fake_edmft_stack(monkeypatch)
+    corr = _edmft_correlation_object(stack.cf_mod, tmp_path, nscf=1)
+
+    corr.GWEDMFT()
+
+    sigc = stack.SigC.instances[0]
+    assert sigc.kwargs["sigh"] == pytest.approx(np.asarray([10.0]))
+    assert sigc.kwargs["sigf"] == pytest.approx(np.asarray([20.0]))
+    assert sigc.kwargs["siggwc"] == pytest.approx(np.asarray([30.0]))
+    assert len(sigc.embedded) == 2
+    np.testing.assert_allclose(sigc.embedded[0]["sigfimp"], -5.0)
+    np.testing.assert_allclose(sigc.embedded[0]["sigimp"], -6.0)
+    np.testing.assert_allclose(sigc.embedded[1]["sigfimp"], 3.0)
+    np.testing.assert_allclose(sigc.embedded[1]["sigimp"], 4.0)
+    assert "sighimp" not in sigc.embedded[0]
+
+    polc = stack.PolC.instances[0]
+    assert hasattr(polc.gw, "kf")
+    assert polc.dc[0] is not None
+    assert polc.embedded[0][0] is stack.ImpurityAction.results[0].pimp
+
+    assert not any(name.endswith("_by_key") for name in vars(corr))
+    assert not hasattr(corr, "impurity_state")
+    assert corr.green is stack.G.instances[-1]
+    assert corr.w is stack.W.instances[-1]
+    assert corr.pol is polc
+    assert corr.sigc is sigc
+
+
+def test_gwedmft_builds_weiss_fields_from_projected_lattice_gw(
+    monkeypatch,
+    tmp_path,
+):
+    stack = _install_fake_edmft_stack(monkeypatch)
+    corr = _edmft_correlation_object(
+        stack.cf_mod,
+        tmp_path,
+        nscf=2,
+        conv=_FakeConvergence(converge_after=2),
+    )
+
+    corr.GWEDMFT()
+
+    for bweiss in stack.BWeiss.instances:
+        np.testing.assert_allclose(bweiss.polarization.f, 0.2)
+    for hyb in stack.Hyb.instances:
+        np.testing.assert_allclose(hyb.kwargs["sigh"], 10.0)
+        np.testing.assert_allclose(hyb.kwargs["sigf"], 20.0)
+        np.testing.assert_allclose(hyb.kwargs["sigc"], 30.0)
+    assert stack.PolC.instances[0].embedded[0][0] is stack.ImpurityAction.results[0].pimp
+
+
+def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
+    monkeypatch,
+    tmp_path,
+):
+    stack = _install_fake_edmft_stack(monkeypatch)
+    corr = _edmft_correlation_object(
+        stack.cf_mod,
+        tmp_path,
+        nscf=2,
+        conv=_FakeConvergence(converge_after=2),
+    )
+    corr.control["impurity"] = {
+        "impdict": {"1": [[(0, 0)]], "2": [[(0, 0)]]},
+        "equiv": {
+            "1": np.eye(1, dtype=int),
+            "2": np.eye(1, dtype=int),
+        },
+    }
+
+    corr.GWEDMFT()
+
+    assert [item.kwargs["key"] for item in stack.GLoc.instances] == [
+        "1", "2", "1", "2"
+    ]
+    assert [item.kwargs["key"] for item in stack.HFLoc.instances] == [
+        "1", "2", "1", "2"
+    ]
+    assert [item.kwargs["key"] for item in stack.GWLoc.instances] == [
+        "1", "2", "1", "2"
+    ]
+    assert [item.kwargs["key"] for item in stack.ImpurityAction.instances] == [
+        "1", "2", "1", "2"
+    ]
+    np.testing.assert_allclose(stack.BWeiss.instances[2].polarization.f, 0.2)
+    np.testing.assert_allclose(stack.BWeiss.instances[3].polarization.f, 0.2)
+    np.testing.assert_allclose(
+        stack.Hyb.instances[2].kwargs["sigf"],
+        20.0,
+    )
+    np.testing.assert_allclose(
+        stack.Hyb.instances[3].kwargs["sigf"],
+        20.0,
+    )
+    assert len(stack.SigC.instances[0].embedded) == 4
+    assert len(stack.PolC.instances[0].embedded) == 2
+    assert not any(name.endswith("_by_key") for name in vars(corr))
+
+
+@pytest.mark.parametrize("missing_attr", ["pimp", "wimp", "sigimp"])
+def test_gwedmft_requires_complete_impurity_pipeline(
+    monkeypatch,
+    tmp_path,
+    missing_attr,
+):
+    stack = _install_fake_edmft_stack(monkeypatch, missing=(missing_attr,))
+    corr = _edmft_correlation_object(stack.cf_mod, tmp_path)
+
+    with pytest.raises(RuntimeError, match=f"no {missing_attr}"):
+        corr.GWEDMFT()
+
+
+def test_run_dispatch_calls_gwedmft(monkeypatch):
+    run_mod = importlib.import_module("QAssemble.Run")
+    called = []
+
+    class FakeCorrelationFunction:
+        def __init__(self, control):
+            self.control = control
+
+        def GWEDMFT(self):
+            called.append(self.control)
+
+    monkeypatch.setattr(run_mod, "CorrelationFunction", FakeCorrelationFunction)
+    runner = object.__new__(run_mod.Run)
+    runner.control = {"run": {"method": "gw+edmft"}}
 
     runner.RunDiagE()
 

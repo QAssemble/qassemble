@@ -22,9 +22,27 @@ class HFResult:
         yield self.sigf
 
 @dataclass
+class HFLocResult:
+    sigh: SigHLoc
+    sigf: SigFLoc
+
+    def __iter__(self):
+        yield self.sigh
+        yield self.sigf
+
+@dataclass
 class GWResult:
     siggwc: SigGWC
     pol: P
+
+    def __iter__(self):
+        yield self.siggwc
+        yield self.pol
+
+@dataclass
+class GWLocResult:
+    siggwc: SigGWCLoc
+    pol: PLoc
 
     def __iter__(self):
         yield self.siggwc
@@ -157,7 +175,7 @@ class HFLoc(object):
             sigh.Save('sighloc')
             sigf.Save('sigfloc')
 
-        return HFResult(sigh=sigh, sigf=sigf)
+        return HFLocResult(sigh=sigh, sigf=sigf)
 
 
 class GW(object):
@@ -281,7 +299,7 @@ class GWLoc(object):
             siggwc.Save('siggwcloc.f')
             p.Save('ploc.f')
 
-        return GWResult(siggwc=siggwc, pol=p)
+        return GWLocResult(siggwc=siggwc, pol=p)
 
 class ImpurityAction(object):
 

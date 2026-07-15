@@ -286,57 +286,57 @@ class EImp(FLocStc):
                 tempmat[...,js,ik] = hamtb[...,js,ik] - mu*np.eye(hamtb.shape[0], dtype=np.complex128)
 
         
-        self.sigh = self._resolve_static_self_energy("sigh", sigh)
-        self.sigf = self._resolve_static_self_energy("sigf", sigf)
-        self.sig = self.sigh[..., np.newaxis] + self.sigf[..., np.newaxis]
+        self.sigh = sigh if sigh is not None else np.zeros_like(hamtb, dtype=np.complex128, order='F')
+        self.sigf = sigf if sigf is not None else np.zeros_like(hamtb, dtype=np.complex128, order='F')
+        self.sig = self.sigh + self.sigf
         self.ham = tempmat + self.sig
         
         self.Cal()
 
         print("Exit the EImp class")
 
-    def _resolve_static_self_energy(self, name : str, sigma : np.ndarray) -> np.ndarray:
-        key = self.key
-        norbc = self.projector.fprojector[key].shape[1]
-        ns = self.crystal.ns
+    # def _resolve_static_self_energy(self, name : str, sigma : np.ndarray) -> np.ndarray:
+    #     key = self.key
+    #     norbc = self.projector.fprojector[key].shape[1]
+    #     ns = self.crystal.ns
 
-        if sigma is None:
-            return np.zeros((norbc, norbc, ns), dtype=np.complex128, order='F')
+    #     if sigma is None:
+    #         return np.zeros((norbc, norbc, ns), dtype=np.complex128, order='F')
 
-        sigma = np.asarray(sigma, dtype=np.complex128)
+    #     sigma = np.asarray(sigma, dtype=np.complex128)
 
-        if sigma.ndim == 3:
-            expected = (norbc, norbc, ns)
-            if sigma.shape != expected:
-                raise ValueError(
-                    f"{name} local static self-energy shape {sigma.shape} "
-                    f"is incompatible with expected {expected}"
-                )
-            return np.asfortranarray(sigma)
+    #     if sigma.ndim == 3:
+    #         expected = (norbc, norbc, ns)
+    #         if sigma.shape != expected:
+    #             raise ValueError(
+    #                 f"{name} local static self-energy shape {sigma.shape} "
+    #                 f"is incompatible with expected {expected}"
+    #             )
+    #         return np.asfortranarray(sigma)
 
-        if sigma.ndim == 4:
-            if sigma.shape[:2] != self.hamtb.shape[:2]:
-                raise ValueError(
-                    f"{name} lattice static self-energy orbital shape "
-                    f"{sigma.shape[:2]} is incompatible with hamtb shape "
-                    f"{self.hamtb.shape[:2]}"
-                )
-            if sigma.shape[2] != ns:
-                raise ValueError(
-                    f"{name} spin dimension {sigma.shape[2]} is incompatible "
-                    f"with crystal ns={ns}"
-                )
-            if sigma.shape[3] != self.hamtb.shape[3]:
-                raise ValueError(
-                    f"{name} k dimension {sigma.shape[3]} is incompatible "
-                    f"with hamtb k dimension {self.hamtb.shape[3]}"
-                )
-            return np.asfortranarray(self.Projection(sigma, key))
+    #     if sigma.ndim == 4:
+    #         if sigma.shape[:2] != self.hamtb.shape[:2]:
+    #             raise ValueError(
+    #                 f"{name} lattice static self-energy orbital shape "
+    #                 f"{sigma.shape[:2]} is incompatible with hamtb shape "
+    #                 f"{self.hamtb.shape[:2]}"
+    #             )
+    #         if sigma.shape[2] != ns:
+    #             raise ValueError(
+    #                 f"{name} spin dimension {sigma.shape[2]} is incompatible "
+    #                 f"with crystal ns={ns}"
+    #             )
+    #         if sigma.shape[3] != self.hamtb.shape[3]:
+    #             raise ValueError(
+    #                 f"{name} k dimension {sigma.shape[3]} is incompatible "
+    #                 f"with hamtb k dimension {self.hamtb.shape[3]}"
+    #             )
+    #         return np.asfortranarray(self.Projection(sigma, key))
 
-        raise ValueError(
-            f"{name} must be a 3D local or 4D lattice static self-energy, "
-            f"got {sigma.ndim}D"
-        )
+    #     raise ValueError(
+    #         f"{name} must be a 3D local or 4D lattice static self-energy, "
+    #         f"got {sigma.ndim}D"
+    #     )
 
     def Cal(self):
 

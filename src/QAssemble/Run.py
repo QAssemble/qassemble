@@ -407,6 +407,15 @@ class Run:
             delta = datetime.timedelta(seconds=(end - start))
             logger.info(f"EDMFT loop time = {delta}")
 
+        if method == "gw+edmft":
+            logger.info("GW+EDMFT calculation start")
+            start = time.time()
+            func.GWEDMFT()
+            end = time.time()
+            logger.info("GW+EDMFT calculation finish")
+            delta = datetime.timedelta(seconds=(end - start))
+            logger.info(f"GW+EDMFT loop time = {delta}")
+
         
 
         return None
