@@ -78,7 +78,7 @@ def test_blocdyn_projects_lattice_polarization_by_problem_key():
     np.testing.assert_allclose(bloc.Projection(lattice, "2"), 5.0)
 
 
-def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs():
+def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs(monkeypatch):
     projector = _FakeProjector()
     crystal = SimpleNamespace(ns=1)
     dlr = _FakeDLR(nfreq=2)
@@ -92,6 +92,17 @@ def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs():
     w[0, 0, 0, 0, :] = np.array([3.0, 4.0])
     p[0, 0, 0, 0, :] = np.array([0.1, -0.2])
 
+    # With p set, Cal causally projects cf before deriving the uniform/tau
+    # views.  Stub the projection to undo the fake uniform-grid offset so the
+    # wiring assertions below stay exact, and record the call.
+    projection_calls = []
+
+    def _fake_projection(self, matin, **kwargs):
+        projection_calls.append(kwargs)
+        return np.asfortranarray(np.asarray(matin, dtype=np.complex128) - 10.0)
+
+    monkeypatch.setattr(BWeiss, "CausalProjection", _fake_projection)
+
     bweiss = BWeiss(
         crystal=crystal,
         dlr=dlr,
@@ -104,6 +115,11 @@ def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs():
 
     expected_utilde = w / (1.0 + p * w)
     expected_ubar = expected_utilde - vproj[..., np.newaxis]
+    assert len(projection_calls) == 1
+    assert projection_calls[0]["grid"] == "uniform"
+    assert projection_calls[0]["coefficient_sign"] == -1
+    assert projection_calls[0]["oddzero"] is True
+    assert projection_calls[0]["highzero"] is True
     np.testing.assert_allclose(bweiss.f, expected_utilde)
     np.testing.assert_allclose(bweiss.cf, expected_ubar)
     np.testing.assert_allclose(bweiss.f_uniform, expected_utilde + 10.0)

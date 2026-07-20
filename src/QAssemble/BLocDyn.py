@@ -1113,6 +1113,13 @@ class BWeiss(BLocDyn):
             )
         vdyn = np.broadcast_to(v[..., np.newaxis], self.f.shape)
         self.cf = self.f - vdyn
+        if self.p is not None:
+            cf_uniform_raw = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
+            self.cf = self.CausalProjection(
+                cf_uniform_raw, grid="uniform",
+                coefficient_sign=-1, oddzero=True, highzero=True,
+            )
+            self.f = np.asfortranarray(self.cf + vdyn)
         self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
         self.cf_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
 

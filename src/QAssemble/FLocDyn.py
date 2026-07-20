@@ -3,6 +3,7 @@ import logging
 import sys
 import json
 import h5py
+import warnings
 from .Crystal import Crystal
 from .FLocStc import EImp
 from .Projector import Projector
@@ -1310,6 +1311,19 @@ class Hyb(FLocDyn):
             for js in range(g_inv.shape[2]):
                 tempmat[..., js, iomega] = omega[iomega]*I - e[..., js] - g_inv[..., js, iomega] - sig[..., js, iomega]
         self.f = tempmat
+        tempmat_uniform = self.UniformGrid(self.f)
+        try:
+            # "auto" acceptance tolerance: the uniform->DLR interpolation noise
+            # floor exceeds the strict 1e-8 default on clean data.
+            self.f = self.CausalProjection(
+                tempmat_uniform, grid="uniform", constraint_tol="auto"
+            )
+        except RuntimeError as err:
+            warnings.warn(
+                f"Hyb causal projection failed for key '{self.key}'; "
+                f"using unprojected hybridization: {err}",
+                RuntimeWarning,
+            )
         self.t = self.F2T(self.f)
         print(f"[Hyb.Cal] key={self.key}, f[0,0,0,0]={self.f[0,0,0,0]}, f[0,0,0,-1]={self.f[0,0,0,-1]}")
 
