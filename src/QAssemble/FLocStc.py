@@ -272,10 +272,10 @@ class EImp(FLocStc):
         self.subgroup = self.__class__.__name__
         self.iteration = iteration
 
-        print("Non Interacting Hamiltonian : ", self.hamtb[:, :, 0, 0])
+        print("Non Interacting Hamiltonian : \n", self.hamtb[:, :, 0, 0])
         print("Chemical Potential : ", self.mu)
-        print("Hartree Self Energy : ", sigh[:, :, 0, 0] if sigh is not None else None)
-        print("Fock Self Energy : ", sigf[:, :, 0, 0] if sigf is not None else None)
+        print("Hartree Self Energy : \n", sigh[:, :, 0, 0] if sigh is not None else None)
+        print("Fock Self Energy : \n", sigf[:, :, 0, 0] if sigf is not None else None)
         print("Double Counting Hartree : ", hloc[:, :, 0] if hloc is not None else None)
         print("Double Counting Fock : ", floc[:, :, 0] if floc is not None else None)
 
@@ -285,9 +285,15 @@ class EImp(FLocStc):
             for js in range(hamtb.shape[2]):
                 tempmat[...,js,ik] = hamtb[...,js,ik] - mu*np.eye(hamtb.shape[0], dtype=np.complex128)
 
-        
-        self.sigh = self.Projection(sigh, self.key) if sigh is not None else np.zeros_like(hamtb, dtype=np.complex128, order='F')
-        self.sigf = self.Projection(sigf, self.key) if sigf is not None else np.zeros_like(hamtb, dtype=np.complex128, order='F')
+        if sigh is not None:
+            if sigh.shape != hamtb.shape:
+                raise ValueError(f"sigh shape {sigh.shape} does not match hamtb shape {hamtb.shape}")
+        if sigf is not None:
+            if sigf.shape != hamtb.shape:
+                raise ValueError(f"sigf shape {sigf.shape} does not match hamtb shape {hamtb.shape}")
+            
+        self.sigh = sigh if sigh is not None else np.zeros_like(hamtb, dtype=np.complex128, order='F')
+        self.sigf = sigf if sigf is not None else np.zeros_like(hamtb, dtype=np.complex128, order='F')
         self.sig = self.sigh + self.sigf
         self.ham = tempmat + self.sig
         
