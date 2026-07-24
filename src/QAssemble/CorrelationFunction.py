@@ -593,19 +593,6 @@ class CorrelationFunction(object):
                     iteration=iter - 1,
                     scf=True,
                 )
-
-                eimp = EImp(
-                    crystal=self.crystal,
-                    projector=projector,
-                    key=key,
-                    hamtb=self.niham.k,
-                    mu=green.mu,
-                    hdf5file=hdf5file,
-                    group=group,
-                    iteration=iter,
-                )
-                eimp.Save('eimp')
-
                 sighloc = None
                 sigfloc = None
                 sigcloc = None
@@ -619,7 +606,20 @@ class CorrelationFunction(object):
                 print(
                     f"[EDMFT Hyb-build] key={key}, "
                     f"sighloc[0]={sigh_sample}"
+                )                
+                eimp = EImp(
+                    crystal=self.crystal,
+                    projector=projector,
+                    key=key,
+                    hamtb=self.niham.k,
+                    sigh = sigmah_current if sigmah_current is not None else None,
+                    sigf = sigmaf_current if sigmaf_current is not None else None,
+                    mu=green.mu,
+                    hdf5file=hdf5file,
+                    group=group,
+                    iteration=iter,
                 )
+                eimp.Save('eimp')
 
                 hyb = Hyb(
                     crystal=self.crystal,
