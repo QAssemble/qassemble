@@ -162,7 +162,7 @@ def _causal_tail_coeffs(verifier, coeff):
     return np.concatenate(([0.0], -(verifier.moment_rows @ np.asarray(coeff, float))))
 
 
-def _assert_projected_channel(verifier, values, moment_target, c0=0.0):
+def _assert_projected_channel(verifier, values, moment_target, c0=0.0, coeff_atol=1.0e-5):
     """Assert ``values`` is a causal, moment-preserving channel.
 
     ``values = kernel @ coeff + c0`` (the projector re-adds the constant
@@ -170,9 +170,11 @@ def _assert_projected_channel(verifier, values, moment_target, c0=0.0):
     subtracted before the (ill-conditioned) refit; otherwise the lstsq blows
     up trying to express it.  After subtraction the recovered pole weights are
     causal and their internal moments equal the negative of the preserved
-    physical data-tail moments."""
+    physical data-tail moments.  ``coeff_atol`` bounds the refit's own
+    conditioning noise (the recovered weights differ from the projector's by
+    ~cond(kernel)*eps even for an exactly causal channel)."""
     coeff = verifier.fit(np.asarray(values, dtype=np.complex128) - c0)
-    assert np.max(coeff) <= 1.0e-5
+    assert np.max(coeff) <= coeff_atol
     np.testing.assert_allclose(
         verifier.moment_rows @ coeff,
         -np.asarray(moment_target, dtype=float),
@@ -365,7 +367,7 @@ def test_causal_fermion_check_gate_rejects_nonhermitian_noise():
     assert np.isfinite(loose.check(noisy).node_residual)
 
 
-def test_causal_fermion_silent_failure_returns_refit_reference():
+def test_causal_fermion_total_solver_failure_returns_clipped_fallback():
     _, dlr, _ = _single_band_hubbard()
     verifier = _Verifier(dlr)
     bad = _bad_coefficients(verifier)
@@ -376,21 +378,22 @@ def test_causal_fermion_silent_failure_returns_refit_reference():
         raise_on_failure=False,
         solvers=("no_such_solver",),
     )
-    projected = fermion.project(target)
+    with pytest.warns(RuntimeWarning, match="clipped fallback"):
+        projected = fermion.project(target)
 
-    # every solver failed: the unprojected (still non-causal) reference is
-    # refit through the kernel, c0 is re-added, and validation flags the
-    # violation
-    assert fermion.last_validation["valid"] is False
+    # every solver crashed: the regularized-fit clipped fallback returns a
+    # guaranteed-causal channel — the raw non-causal reference is never
+    # passed through anymore.
+    assert fermion.last_status == "clipped_fallback"
+    assert fermion.last_validation["clipped"] is True
+    assert fermion.last_validation["valid"] is True
     assert fermion.last_validation["skipped"] is False
-    assert np.max(fermion.last_coefficients) > 1.0e-3
+    assert np.max(fermion.last_coefficients) <= 0.0
     np.testing.assert_allclose(
         projected,
         fermion.kernel @ fermion.last_coefficients + fermion.last_validation["c0"],
         atol=1.0e-12,
     )
-    # the refit reference reproduces the input (loosely; c0 + ill-conditioning)
-    np.testing.assert_allclose(projected, target, atol=1.0e-4)
 
 
 def test_causal_fermion_diagnostics_reset_between_calls():
@@ -488,6 +491,34 @@ def _noisy_uniform_g0(crystal, dlr, *, seed=7, amp=1.0e-4):
     return g0, noisy
 
 
+def test_flocdyn_elastic_projection_accepts_noisy_uniform_data():
+    # end-to-end local path: noisy uniform data goes through Moment's
+    # log-spaced sigma fit and the elastic moment penalties without any
+    # exception, and the output is causal on the DLR grid.  This is the
+    # production Hyb.Cal scenario that used to fail on every iteration.
+    crystal, _, _ = _single_band_hubbard()
+    dlr = DLR({"beta": 20.0, "cutoff": 50.0, "eps": 1.0e-12})
+    _, noisy = _noisy_uniform_g0(crystal, dlr)
+    loc = np.asfortranarray(np.mean(noisy, axis=3))
+
+    local = FLocDyn(crystal, dlr, None)
+    out = local.CausalProjection(loc, grid="uniform", constraint_tol="auto")
+
+    assert out.shape == (1, 1, 1, len(dlr.omega))
+    assert np.all(np.isfinite(out))
+    # output causality: subtract the c0 the projector re-added (same log fit
+    # as Moment) and refit — all recovered pole weights must be causal.
+    # (CausalityCheck on the coarse DLR grid cannot re-verify projector
+    # output; see test_causal_projection_uniform_grid_matches_dlr_grid.)
+    uniform_omega = dlr.MatsubaraFermionUniformFull()
+    tail = fermion_tail_coefficients(
+        uniform_omega, loc[0, 0, 0, :], 24, log_spaced=True
+    )
+    verifier = _Verifier(dlr)
+    coeff = verifier.fit(out[0, 0, 0, :] - tail[0])
+    assert np.max(coeff) <= 1.0e-5
+
+
 def test_causal_fermion_auto_tol_accepts_noisy_uniform_data():
     # noisy uniform G0 cannot satisfy a fixed 1e-8 tolerance through the
     # uniform->DLR pipeline; constraint_tol="auto" sets the acceptance
@@ -498,8 +529,10 @@ def test_causal_fermion_auto_tol_accepts_noisy_uniform_data():
     dlr = DLR({"beta": 20.0, "cutoff": 50.0, "eps": 1.0e-12})
     g0, noisy = _noisy_uniform_g0(crystal, dlr)
 
-    # a fixed strict tolerance rejects at least one noisy channel
-    with pytest.raises(RuntimeError):
+    # a fixed strict tolerance still rejects noisy channels whose best QP
+    # candidate violates it (all-solver crashes degrade to the clipped
+    # fallback instead, but a violating candidate keeps the hard raise)
+    with pytest.raises(RuntimeError, match="constraint-violating candidate"):
         g0.CausalProjection(noisy, grid="uniform", constraint_tol=1.0e-8)
 
     # auto accepts the whole grid and returns a finite result on the DLR grid
@@ -892,10 +925,17 @@ def test_causal_projection_uniform_grid_matches_dlr_grid():
         verifier_dlr, out_dlr[0, 0, 0, :], tail_dlr[1:], c0=tail_dlr[0]
     )
     # the uniform-grid output is now on the DLR grid, so verify it with the
-    # DLR-grid verifier; its tail / c0 were estimated on the uniform grid
-    tail_uniform = fermion_tail_coefficients(verifier_uniform.omega, g_uniform)
+    # DLR-grid verifier; its tail / c0 were estimated on the uniform grid with
+    # the log-spaced fit FLocDyn.Moment uses in uniform mode
+    tail_uniform_log = fermion_tail_coefficients(
+        verifier_uniform.omega, g_uniform, 24, log_spaced=True
+    )
     _assert_projected_channel(
-        verifier_dlr, out_uniform[0, 0, 0, :], tail_uniform[1:], c0=tail_uniform[0]
+        verifier_dlr,
+        out_uniform[0, 0, 0, :],
+        tail_uniform_log[1:],
+        c0=tail_uniform_log[0],
+        coeff_atol=2.0e-4,
     )
 
     # both outputs live on the DLR grid now; the two projections minimize a
@@ -917,6 +957,10 @@ def test_causal_projection_uniform_grid_matches_dlr_grid():
     )
 
     # --- FLatDyn: same channel replicated across k ---
+    # FLatDyn still estimates its tail with the historical largest-|omega|
+    # fit (log-spaced upgrade is Loc-only for now), so the expected c0 /
+    # moments use that fit here.
+    tail_uniform = fermion_tail_coefficients(verifier_uniform.omega, g_uniform)
     lat_uniform = np.zeros((1, 1, 1, crystal.nk, n_uniform), dtype=np.complex128, order="F")
     for ik in range(crystal.nk):
         lat_uniform[0, 0, 0, ik, :] = g_uniform

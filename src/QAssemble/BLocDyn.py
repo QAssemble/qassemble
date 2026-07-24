@@ -1,6 +1,7 @@
 import numpy as np
 import json
 import h5py
+import warnings
 from .Crystal import Crystal
 from .BLocStc import VLoc
 from .Projector import Projector
@@ -12,6 +13,9 @@ from .utility.Projection import Projection as PJ
 from .utility.Causal import CausalBosonProjector, ProjectBosonComponentWithFallback
 from .utility.HDF5 import IO
 from .utility.Mixing import Mixing as MixingKernel
+# log-spaced tail-fit point count for uniform-grid moment estimation; see the
+# rationale comment in FLocDyn
+from .FLocDyn import _LOG_TAIL_POINTS
 
 class BLocDyn(object):
     mixer = MixingKernel()
@@ -453,7 +457,7 @@ class BLocDyn(object):
         reflection_symmetry : bool = True,
         solvers = None,
         max_iter : int = 100000,
-        constraint_tol : float = 1.0e-8,
+        constraint_tol : float | str = 1.0e-8,
         fit_tol : float = 1.0e-6,
         tail_tol : float = 1.0e-1,
     ) -> np.ndarray:
@@ -509,8 +513,12 @@ class BLocDyn(object):
             raise ValueError("matin contains non-finite values")
 
         # Estimate physical moments on the input grid before any interpolation,
-        # then pass [high, moment...] explicitly to the projector.
-        moment, high = self.Moment(arr, grid=grid, oddzero=oddzero, highzero=highzero)
+        # then pass [high, moment...] explicitly to the projector.  The fit
+        # sigmas drive the elastic moment penalties so noisy moment estimates
+        # can never make the QP infeasible.
+        moment, high, sigma = self.Moment(
+            arr, grid=grid, oddzero=oddzero, highzero=highzero, return_sigma=True
+        )
 
         # For uniform input, interpolate the data onto the DLR basis.  The
         # projection grid is always the DLR grid; uniform output is returned on
@@ -548,6 +556,7 @@ class BLocDyn(object):
                         projector,
                         arr[iorb, jorb, is_, is_, :] - c0,
                         tail_coeffs,
+                        tail_sigma=sigma[iorb, jorb, is_, is_, :],
                     ) + c0
                     out[iorb, jorb, is_, is_, :] = projected
                     if iorb != jorb:
@@ -562,6 +571,7 @@ class BLocDyn(object):
         highzero: bool = False,
         tail_points: int = 5,
         grid: str = "dlr",
+        return_sigma: bool = False,
     ) -> tuple:
         """Physical high-frequency moments of a local bosonic function.
 
@@ -571,6 +581,15 @@ class BLocDyn(object):
         (``c0 = 0``); ``oddzero=True`` removes the odd columns (``c1 = c3 = 0``).
         With both set the fit is the single-column ``c2/(i nu)^2`` form used for
         response functions that decay to zero.
+
+        On the uniform grid the fit points are ``_LOG_TAIL_POINTS`` log-spaced
+        frequencies over the top decade (``tail_points`` applies to the DLR
+        grid only).  With ``return_sigma=True`` a third array of one-sigma fit
+        uncertainties, shape ``(norb, norb, ns, ns, 4)`` for ``[c0..c3]``, is
+        appended.  Sigmas are computed from the (possibly restricted) design
+        actually fit; inactive oddzero/highzero slots keep sigma = 0 — those
+        moments are pinned by convention, not fit, and must never be converted
+        into an elastic penalty ``mu = 1/sigma``.
         """
         arr = np.asarray(bf, dtype=np.complex128)
         if arr.ndim != 5:
@@ -590,7 +609,10 @@ class BLocDyn(object):
         ns = arr.shape[2]
         moment = np.zeros((norb, norb, ns, ns, 3), dtype=np.complex128, order="F")
         high = np.zeros((norb, norb, ns, ns), dtype=np.complex128, order="F")
-        idx = np.argsort(np.abs(nu))[-tail_points:]
+        sigma = np.zeros((norb, norb, ns, ns, 4), dtype=float, order="F")
+        log_spaced = grid == "uniform"
+        pts = _LOG_TAIL_POINTS if log_spaced else tail_points
+        idx = Fourier._tail_fit_indices(nu, pts, log_spaced)
         z = 1j * nu[idx]
         columns = [np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3]
         active = [
@@ -605,17 +627,31 @@ class BLocDyn(object):
                 for jorb in range(norb):
                     for iorb in range(norb):
                         if iorb == jorb and is_ == js and not restricted:
-                            tail = Fourier.BosonTailCoefficients(
-                                nu, arr[iorb, jorb, is_, js, :], tail_points
-                            ).astype(np.complex128)
-                        else:
-                            fit, *_ = np.linalg.lstsq(
-                                design, arr[iorb, jorb, is_, js, idx], rcond=None
+                            tail, sig = Fourier.BosonTailCoefficients(
+                                nu,
+                                arr[iorb, jorb, is_, js, :],
+                                pts,
+                                log_spaced=log_spaced,
+                                return_sigma=True,
                             )
+                            tail = tail.astype(np.complex128)
+                        else:
+                            b = arr[iorb, jorb, is_, js, idx]
+                            fit, *_ = np.linalg.lstsq(design, b, rcond=None)
                             tail = np.zeros(4, dtype=np.complex128)
                             tail[active] = fit
+                            residual = design @ fit - b
+                            dof = max(2 * idx.size - 2 * len(active), 1)
+                            cov = (
+                                float(np.sum(np.abs(residual) ** 2)) / dof
+                            ) * np.linalg.pinv((design.conj().T @ design).real)
+                            sig = np.zeros(4, dtype=float)
+                            sig[active] = np.sqrt(
+                                np.clip(np.diag(cov), 0.0, None)
+                            )
                         high[iorb, jorb, is_, js] = tail[0]
                         moment[iorb, jorb, is_, js, :] = tail[1:]
+                        sigma[iorb, jorb, is_, js, :] = sig
         high_orig = high.copy()
         high[...] = 0.5 * (
             high_orig + np.swapaxes(np.swapaxes(high_orig, 0, 1), 2, 3).conj()
@@ -626,6 +662,10 @@ class BLocDyn(object):
                 mom_orig + np.swapaxes(np.swapaxes(mom_orig, 0, 1), 2, 3).conj()
             )
 
+        if return_sigma:
+            # Hermitian symmetrization applies to moment/high only — each
+            # sigma stays with its own fit.
+            return moment, high, sigma
         return moment, high
 
 class Chi(BLocDyn):
@@ -1115,10 +1155,26 @@ class BWeiss(BLocDyn):
         self.cf = self.f - vdyn
         if self.p is not None:
             cf_uniform_raw = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
-            self.cf = self.CausalProjection(
-                cf_uniform_raw, grid="uniform",
-                coefficient_sign=-1, oddzero=True, highzero=True,
-            )
+            try:
+                # "auto" acceptance tolerance mirrors Hyb.Cal: the DLR<->
+                # uniform interpolation noise floor exceeds the strict 1e-8
+                # default on noisy CTQMC-derived data.
+                self.cf = self.CausalProjection(
+                    cf_uniform_raw, grid="uniform",
+                    coefficient_sign=-1, oddzero=True, highzero=True,
+                    constraint_tol="auto",
+                )
+            except RuntimeError as err:
+                # With elastic moments, the offset split, and the clipped
+                # fallback inside the projection this branch should be
+                # unreachable; it survives as a final safety net so an
+                # unexpected error cannot kill the whole run (previously
+                # BWeiss had no net at all and a solver crash was fatal).
+                warnings.warn(
+                    f"BWeiss causal projection failed for key '{self.key}'; "
+                    f"using unprojected correlated bath: {err}",
+                    RuntimeWarning,
+                )
             self.f = np.asfortranarray(self.cf + vdyn)
         self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
         self.cf_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)

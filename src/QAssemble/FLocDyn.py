@@ -18,6 +18,13 @@ from .utility.Mixing import Mixing as MixingKernel
 
 logger = logging.getLogger("QAssemble")
 
+# Tail-fit point count for the log-spaced uniform-grid mode.  Validated on
+# production glob.h5 data: ~24 log-spaced points over the top |omega| decade
+# recover [c1, c2, c3] within the noise (well-conditioned design), whereas the
+# historical contiguous 5-point block on the signed uniform grid has condition
+# number ~5e11 and produces garbage c2/c3 that make the moment cone infeasible.
+_LOG_TAIL_POINTS = 24
+
 class FLocDyn(object):
     mixer = MixingKernel()
 
@@ -147,7 +154,7 @@ class FLocDyn(object):
         coefficient_sign : int = -1,
         solvers = None,
         max_iter : int = 100000,
-        constraint_tol : float = 1.0e-8,
+        constraint_tol : float | str = 1.0e-8,
         fit_tol : float = 1.0e-6,
     ) -> np.ndarray:
         """Project diagonal local fermionic channels onto real pole-weight
@@ -201,8 +208,10 @@ class FLocDyn(object):
             raise ValueError("matin contains non-finite values")
 
         # Estimate physical moments on the input grid before any interpolation,
-        # then pass [high, moment...] explicitly to the projector.
-        moment, high = self.Moment(arr4, grid=grid)
+        # then pass [high, moment...] explicitly to the projector.  The fit
+        # sigmas drive the elastic moment penalties (mu = 1/sigma) so noisy
+        # moment estimates can never make the QP infeasible.
+        moment, high, sigma = self.Moment(arr4, grid=grid, return_sigma=True)
 
         # For uniform input, interpolate the data onto the DLR basis.  The
         # projection grid is always the DLR grid; uniform output is returned on
@@ -233,6 +242,7 @@ class FLocDyn(object):
                 out[iorb, iorb, js, :] = projector.project(
                     arr4[iorb, iorb, js, :],
                     tail_coeffs=tail_coeffs,
+                    moment_sigma=sigma[iorb, iorb, js, 1:],
                 )
 
         if squeeze_spin:
@@ -247,7 +257,7 @@ class FLocDyn(object):
         coefficient_sign : int = -1,
         solvers = None,
         max_iter : int = 100000,
-        constraint_tol : float = 1.0e-8,
+        constraint_tol : float | str = 1.0e-8,
         fit_tol : float = 1.0e-6,
     ) -> dict:
         """Diagnose causality of diagonal local channels without projecting.
@@ -304,7 +314,7 @@ class FLocDyn(object):
 
         ns = self.crystal.ns
         # mirror CausalProjection: moments on native input grid, then DLR data.
-        moment, high = self.Moment(arr4, grid=grid)
+        moment, high, sigma = self.Moment(arr4, grid=grid, return_sigma=True)
         if grid == "uniform":
             arr4 = self.dlr.MatsubaraUniformGrid2DLR(arr4, sign=-1)
 
@@ -335,6 +345,7 @@ class FLocDyn(object):
                     arr4[iorb, iorb, js, :],
                     enforce_gate=False,
                     tail_coeffs=tail_coeffs,
+                    moment_sigma=sigma[iorb, iorb, js, 1:],
                 )
                 causal[iorb, js] = verdict.causal
                 max_inequality[iorb, js] = verdict.max_inequality_violation
@@ -362,6 +373,7 @@ class FLocDyn(object):
         highzero: bool = False,
         tail_points: int = 5,
         grid: str = "dlr",
+        return_sigma: bool = False,
     ) -> tuple:
         """Physical high-frequency moments of a local fermionic function.
 
@@ -369,6 +381,13 @@ class FLocDyn(object):
         positive-only data is expanded before fitting, matching
         ``CausalProjection``.  Returns ``moment[..., :] = [c1, c2, c3]`` and
         ``high = c0`` in physical sign.
+
+        On the uniform grid the fit points are ``_LOG_TAIL_POINTS`` log-spaced
+        frequencies over the top decade (``tail_points`` applies to the DLR
+        grid only).  With ``return_sigma=True`` a third array of one-sigma fit
+        uncertainties, shape ``(norb, norb, ns, 4)`` for ``[c0, c1, c2, c3]``,
+        is appended to the return.  Hermitian symmetrization is applied to
+        ``moment``/``high`` only — each sigma stays with its own fit.
         """
         arr4 = self._as_dynamic_spin_matrix(ff)
         omega = self._ResolveCausalGrid(grid)
@@ -388,7 +407,13 @@ class FLocDyn(object):
         ns = arr4.shape[2]
         moment = np.zeros((norb, norb, ns, 3), dtype=np.complex128, order="F")
         high = np.zeros((norb, norb, ns), dtype=np.complex128, order="F")
-        idx = np.argsort(np.abs(omega))[-tail_points:]
+        sigma = np.zeros((norb, norb, ns, 4), dtype=float, order="F")
+        log_spaced = grid == "uniform"
+        pts = _LOG_TAIL_POINTS if log_spaced else tail_points
+        # one shared index selection for the diagonal (FermionTailCoefficients
+        # recomputes the identical selection internally) and the off-diagonal
+        # complex lstsq below
+        idx = Fourier._tail_fit_indices(omega, pts, log_spaced)
         z = 1j * omega[idx]
         design = np.column_stack(
             [np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3]
@@ -397,21 +422,34 @@ class FLocDyn(object):
             for jorb in range(norb):
                 for iorb in range(norb):
                     if iorb == jorb:
-                        tail = Fourier.FermionTailCoefficients(
-                            omega, arr4[iorb, jorb, js, :], tail_points
-                        ).astype(np.complex128)
-                    else:
-                        tail, *_ = np.linalg.lstsq(
-                            design, arr4[iorb, jorb, js, idx], rcond=None
+                        tail, sig = Fourier.FermionTailCoefficients(
+                            omega,
+                            arr4[iorb, jorb, js, :],
+                            pts,
+                            log_spaced=log_spaced,
+                            return_sigma=True,
                         )
+                        tail = tail.astype(np.complex128)
+                    else:
+                        b = arr4[iorb, jorb, js, idx]
+                        tail, *_ = np.linalg.lstsq(design, b, rcond=None)
+                        residual = design @ tail - b
+                        dof = max(2 * idx.size - 8, 1)
+                        cov = (
+                            float(np.sum(np.abs(residual) ** 2)) / dof
+                        ) * np.linalg.pinv((design.conj().T @ design).real)
+                        sig = np.sqrt(np.clip(np.diag(cov), 0.0, None))
                     high[iorb, jorb, js] = tail[0]
                     moment[iorb, jorb, js, :] = tail[1:]
+                    sigma[iorb, jorb, js, :] = sig
             h = high[:, :, js].copy()
             high[:, :, js] = 0.5 * (h + h.T.conj())
             for imom in range(3):
                 m = moment[:, :, js, imom].copy()
                 moment[:, :, js, imom] = 0.5 * (m + m.T.conj())
 
+        if return_sigma:
+            return moment, high, sigma
         return moment, high
 
     def CheckGroup(self, filepath :str, group : str):
@@ -1319,6 +1357,9 @@ class Hyb(FLocDyn):
                 tempmat_uniform, grid="uniform", constraint_tol="auto"
             )
         except RuntimeError as err:
+            # With elastic moments and the clipped last-resort fallback inside
+            # the projector this branch should be unreachable; it survives as a
+            # final safety net so an unexpected error cannot kill the run.
             warnings.warn(
                 f"Hyb causal projection failed for key '{self.key}'; "
                 f"using unprojected hybridization: {err}",

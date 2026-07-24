@@ -260,3 +260,134 @@ def test_weight_matrix_shape_is_validated():
     qp = CausalProjection(coefficient_sign=-1)
     with pytest.raises(ValueError, match="weight_matrix shape"):
         qp.project(np.array([-1.0, 1.0]), weight_matrix=np.eye(3))
+
+
+# ---------------------------------------------------------------------------
+# Elastic (slack) equality mode
+# ---------------------------------------------------------------------------
+
+
+def test_elastic_matches_hard_on_feasible_problem():
+    ref = np.array([-2.0, 1.0, -0.5])
+    eq_matrix = np.ones(3)
+    eq_target = np.array([-1.0])
+    qp = CausalProjection(coefficient_sign=-1)
+
+    hard = qp.project(ref, equality_matrix=eq_matrix, equality_target=eq_target)
+    elastic = qp.project(
+        ref,
+        equality_matrix=eq_matrix,
+        equality_target=eq_target,
+        equality_penalty=np.array([1.0e6]),
+    )
+
+    assert hard.success and elastic.success
+    assert elastic.elastic and not hard.elastic
+    np.testing.assert_allclose(elastic.coefficients, hard.coefficients, atol=1.0e-5)
+    assert elastic.equality_slack is not None
+    np.testing.assert_allclose(elastic.equality_slack, 0.0, atol=1.0e-5)
+
+
+def test_elastic_succeeds_where_hard_equality_is_infeasible():
+    # sum(x) = +1 with x <= 0 is impossible: hard mode fails, elastic mode
+    # returns the minimal-violation causal solution (sum -> 0, slack -> -1).
+    ref = np.array([-0.5, -0.25])
+    eq_matrix = np.ones(2)
+    eq_target = np.array([1.0])
+    qp = CausalProjection(coefficient_sign=-1)
+
+    hard = qp.project(ref, equality_matrix=eq_matrix, equality_target=eq_target)
+    assert not hard.success
+
+    elastic = qp.project(
+        ref,
+        equality_matrix=eq_matrix,
+        equality_target=eq_target,
+        equality_penalty=np.array([1.0e6]),
+    )
+    assert elastic.success
+    assert elastic.max_inequality_violation <= 1.0e-7
+    assert np.max(elastic.coefficients) <= 1.0e-6
+    # |slack| equals the distance from the target to the feasible cone.
+    np.testing.assert_allclose(elastic.equality_slack, [-1.0], atol=1.0e-4)
+    assert elastic.max_equality_residual == pytest.approx(1.0, abs=1.0e-4)
+
+
+def test_elastic_penalty_validation():
+    qp = CausalProjection(coefficient_sign=-1)
+    ref = np.array([-1.0, -2.0])
+
+    with pytest.raises(ValueError, match="equality_penalty requires"):
+        qp.project(ref, equality_penalty=np.array([1.0]))
+    with pytest.raises(ValueError, match="equality_penalty shape"):
+        qp.project(
+            ref,
+            equality_matrix=np.ones(2),
+            equality_target=np.array([-1.0]),
+            equality_penalty=np.array([1.0, 1.0]),
+        )
+    with pytest.raises(ValueError, match="positive and finite"):
+        qp.project(
+            ref,
+            equality_matrix=np.ones(2),
+            equality_target=np.array([-1.0]),
+            equality_penalty=np.array([0.0]),
+        )
+
+
+def test_elastic_extension_matrices_are_consistent():
+    from scipy.sparse import csc_matrix
+
+    rank = 3
+    p = csc_matrix(np.eye(rank))
+    q = np.zeros(rank)
+    g = csc_matrix(-np.eye(rank))
+    h = np.zeros(rank)
+    a = csc_matrix(np.arange(1.0, 1.0 + rank).reshape(1, -1))
+    b = np.array([-1.0])
+    mu = np.array([2.5])
+
+    p_e, q_e, g_e, h_e, a_e, b_e = CausalProjection._elastic_extend(
+        p, q, g, h, a, b, mu, rank
+    )
+
+    n_ext = rank + 2
+    assert p_e.shape == (n_ext, n_ext)
+    # PSD: the slack block is zero, the coefficient block is the original P.
+    eigenvalues = np.linalg.eigvalsh(p_e.toarray())
+    assert eigenvalues.min() >= -1.0e-12
+    np.testing.assert_allclose(q_e, np.concatenate([q, mu, mu]))
+    assert g_e.shape == (rank + 2, n_ext)
+    np.testing.assert_allclose(h_e, np.zeros(rank + 2))
+    # A_ext = [A, -I, +I] encodes A x - b = s+ - s-.
+    np.testing.assert_allclose(
+        a_e.toarray(), np.hstack([a.toarray(), [[-1.0]], [[1.0]]])
+    )
+    np.testing.assert_allclose(b_e, b)
+
+
+def _available_solvers() -> set:
+    try:
+        from qpsolvers import available_solvers
+    except ImportError:  # pragma: no cover
+        return set()
+    return set(available_solvers)
+
+
+@pytest.mark.parametrize("solver", CausalProjection.DEFAULT_SOLVERS)
+def test_elastic_solver_smoke(solver):
+    # Shape/plumbing smoke per solver: first-order solvers (osqp, scs) meet a
+    # looser accuracy on the badly scaled mu=1e6 problem, so judge with a
+    # relaxed per-call tol; precision is covered by the cascade tests above.
+    if solver not in _available_solvers():
+        pytest.skip(f"solver {solver!r} is not installed")
+    result = CausalProjection(coefficient_sign=-1, solvers=(solver,)).project(
+        np.array([-0.5, -0.25]),
+        equality_matrix=np.ones(2),
+        equality_target=np.array([1.0]),
+        equality_penalty=np.array([1.0e6]),
+        tol=1.0e-3,
+    )
+    assert result.success
+    assert result.max_inequality_violation <= 1.0e-3
+    np.testing.assert_allclose(result.equality_slack, [-1.0], atol=5.0e-3)

@@ -20,11 +20,62 @@ class Fourier:
     """
     
     @staticmethod
+    def _tail_fit_indices(
+        freq: np.ndarray,
+        tail_points: int,
+        log_spaced: bool = False,
+    ) -> np.ndarray:
+        """Select grid indices for a high-frequency tail fit.
+
+        ``log_spaced=False`` reproduces the historical selection: the
+        ``tail_points`` largest-``|freq|`` entries.  On a signed uniform grid
+        those are contiguous points (with +/- duplicates of the same
+        ``|freq|``), which makes the 4-column tail design matrix severely
+        ill-conditioned and the fitted ``c2``/``c3`` moments garbage.
+
+        ``log_spaced=True`` instead snaps ~``tail_points`` log-spaced targets
+        in ``[|freq|_max/10, |freq|_max]`` onto actual positive-branch grid
+        points (``np.unique`` collapses duplicate snaps).  Spreading the fit
+        over a decade keeps the design well conditioned; only real grid
+        frequencies are ever used.  Falls back to the largest-``|freq|``
+        selection when fewer than 4 distinct points survive.
+        """
+        freq = np.asarray(freq, dtype=np.float64)
+        if log_spaced:
+            pos = np.flatnonzero(freq > 0.0)
+            if pos.size >= 4:
+                fmax = float(np.max(freq[pos]))
+                targets = np.geomspace(fmax / 10.0, fmax, int(tail_points))
+                nearest = pos[
+                    np.argmin(np.abs(freq[pos][None, :] - targets[:, None]), axis=1)
+                ]
+                idx = np.unique(nearest)
+                if idx.size >= 4:
+                    return idx
+            tail_points = min(int(tail_points), freq.size)
+        return np.argsort(np.abs(freq))[-int(tail_points):]
+
+    @staticmethod
+    def _tail_fit_sigma(
+        design_ri: np.ndarray,
+        b_ri: np.ndarray,
+        c: np.ndarray,
+    ) -> np.ndarray:
+        """One-sigma lstsq uncertainties for the fitted tail coefficients."""
+        residual = b_ri - design_ri @ c
+        dof = max(b_ri.size - design_ri.shape[1], 1)
+        cov = (residual @ residual / dof) * np.linalg.pinv(design_ri.T @ design_ri)
+        return np.sqrt(np.clip(np.diag(cov), 0.0, None))
+
+    @staticmethod
     def FermionTailCoefficients(
         omega: np.ndarray,
         target: np.ndarray,
         tail_points: int = 5,
-    ) -> np.ndarray:
+        *,
+        log_spaced: bool = False,
+        return_sigma: bool = False,
+    ):
         """Robust fermionic high-frequency tail ``[c0, c1, c2, c3]``.
 
         Fits ``G(iw) ~ c0 + c1/(iw) + c2/(iw)^2 + c3/(iw)^3`` for a single
@@ -44,23 +95,31 @@ class Fourier:
         target : ndarray[nfreq], dtype=complex
             Scalar channel values G(i*omega) on that grid.
         tail_points : int
-            Number of largest-|omega| points used in the fit (>= 4).
+            Number of largest-|omega| points used in the fit (>= 4), or the
+            log-spaced target count when ``log_spaced=True``.
+        log_spaced : bool, keyword-only
+            Select fit points via :meth:`_tail_fit_indices` with log spacing
+            over the top decade instead of the largest-|omega| block.
+        return_sigma : bool, keyword-only
+            Also return the one-sigma lstsq uncertainties of the coefficients.
 
         Returns
         -------
         ndarray[4], dtype=float
             ``[c0, c1, c2, c3]`` in physical high-frequency expansion sign.
+            When ``return_sigma=True`` a ``(c, sigma)`` tuple is returned
+            instead, ``sigma`` being ndarray[4] of one-sigma uncertainties.
         """
         omega = np.asarray(omega, dtype=np.float64)
         target = np.asarray(target, dtype=np.complex128)
         if omega.ndim != 1 or target.ndim != 1 or omega.shape != target.shape:
             raise ValueError("omega and target must be 1D arrays of equal length")
-        if tail_points < 4 or tail_points > omega.size:
+        if tail_points < 4 or (not log_spaced and tail_points > omega.size):
             raise ValueError(
                 f"tail_points must be in [4, {omega.size}], got {tail_points}"
             )
 
-        idx = np.argsort(np.abs(omega))[-tail_points:]
+        idx = Fourier._tail_fit_indices(omega, tail_points, log_spaced)
         z = 1j * omega[idx]
         design = np.column_stack([np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3])
         b = target[idx]
@@ -70,6 +129,8 @@ class Fourier:
         c = np.asarray(c, dtype=float)
         if not np.all(np.isfinite(c)):
             raise ValueError("tail coefficient fit produced non-finite values")
+        if return_sigma:
+            return c, Fourier._tail_fit_sigma(design_ri, b_ri, c)
         return c
 
     @staticmethod
@@ -77,7 +138,10 @@ class Fourier:
         nu: np.ndarray,
         target: np.ndarray,
         tail_points: int = 5,
-    ) -> np.ndarray:
+        *,
+        log_spaced: bool = False,
+        return_sigma: bool = False,
+    ):
         """Robust bosonic high-frequency tail ``[c0, c1, c2, c3]``.
 
         Fits ``chi(inu) ~ c0 + c1/(inu) + c2/(inu)^2 + c3/(inu)^3`` for a single
@@ -99,23 +163,31 @@ class Fourier:
         target : ndarray[nfreq], dtype=complex
             Scalar channel values chi(i*nu) on that grid.
         tail_points : int
-            Number of largest-|nu| points used in the fit (>= 4).
+            Number of largest-|nu| points used in the fit (>= 4), or the
+            log-spaced target count when ``log_spaced=True``.
+        log_spaced : bool, keyword-only
+            Select fit points via :meth:`_tail_fit_indices` with log spacing
+            over the top decade instead of the largest-|nu| block.
+        return_sigma : bool, keyword-only
+            Also return the one-sigma lstsq uncertainties of the coefficients.
 
         Returns
         -------
         ndarray[4], dtype=float
             ``[c0, c1, c2, c3]`` in physical high-frequency expansion sign.
+            When ``return_sigma=True`` a ``(c, sigma)`` tuple is returned
+            instead, ``sigma`` being ndarray[4] of one-sigma uncertainties.
         """
         nu = np.asarray(nu, dtype=np.float64)
         target = np.asarray(target, dtype=np.complex128)
         if nu.ndim != 1 or target.ndim != 1 or nu.shape != target.shape:
             raise ValueError("nu and target must be 1D arrays of equal length")
-        if tail_points < 4 or tail_points > nu.size:
+        if tail_points < 4 or (not log_spaced and tail_points > nu.size):
             raise ValueError(
                 f"tail_points must be in [4, {nu.size}], got {tail_points}"
             )
 
-        idx = np.argsort(np.abs(nu))[-tail_points:]
+        idx = Fourier._tail_fit_indices(nu, tail_points, log_spaced)
         z = 1j * nu[idx]
         design = np.column_stack([np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3])
         b = target[idx]
@@ -125,6 +197,8 @@ class Fourier:
         c = np.asarray(c, dtype=float)
         if not np.all(np.isfinite(c)):
             raise ValueError("tail coefficient fit produced non-finite values")
+        if return_sigma:
+            return c, Fourier._tail_fit_sigma(design_ri, b_ri, c)
         return c
 
     @staticmethod
