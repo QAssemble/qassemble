@@ -987,7 +987,7 @@ class G(FLatDyn):
         self.c = np.float64(0.0)
         # tau_uniform = self.dlr.TauUniform()
         # self._tau_beta = tau_uniform[-1]
-        self._tau_beta = self.dlr.beta
+        self._tau_beta = self.dlr.tauF[-1]
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
