@@ -612,8 +612,6 @@ class CorrelationFunction(object):
                     projector=projector,
                     key=key,
                     hamtb=self.niham.k,
-                    sigh = sigmah_current if sigmah_current is not None else None,
-                    sigf = sigmaf_current if sigmaf_current is not None else None,
                     mu=green.mu,
                     hdf5file=hdf5file,
                     group=group,
