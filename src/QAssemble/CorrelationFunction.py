@@ -1,5 +1,6 @@
 import copy
 import logging
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import gc
@@ -28,6 +29,10 @@ class CorrelationFunction(object):
         self.control = control
         self.c = control["run"]["cw"]
 
+        # Resolve the HDF5 path once, against the launch directory, so every
+        # later consumer agrees on it (see the hdf5path property).
+        self.hdf5path = os.path.abspath(control["run"]["fn"] + '.h5')
+
         self.green = None
         self.niham = None
         self.greenbare = None
@@ -50,11 +55,11 @@ class CorrelationFunction(object):
         
         onebody = control["ham"].get("onebody")
 
-        self.niham = H0(crystal=self.crystal, onebody=onebody, hdf5file=control["run"]["fn"]+'.h5', group='init')
+        self.niham = H0(crystal=self.crystal, onebody=onebody, hdf5file=self.hdf5path, group='init')
 
-        self.vbare = V(crystal=self.crystal, twobody=control['ham'].get('twobody'), hdf5file=control["run"]["fn"]+'.h5', group='init')
+        self.vbare = V(crystal=self.crystal, twobody=control['ham'].get('twobody'), hdf5file=self.hdf5path, group='init')
 
-        self.greenbare = G0(crystal=self.crystal, dlr=self.dlr, hamtb=self.niham.k, hdf5file=control["run"]["fn"]+'.h5', group='init')
+        self.greenbare = G0(crystal=self.crystal, dlr=self.dlr, hamtb=self.niham.k, hdf5file=self.hdf5path, group='init')
 
         # Inject a method-appropriate default HDF5 group for the
         # Convergence mirror BEFORE constructing Convergence (Convergence
@@ -78,6 +83,29 @@ class CorrelationFunction(object):
         self.conv = Convergence(control)
 
 
+    @property
+    def hdf5path(self) -> str:
+        """Absolute path to the run's HDF5 file.
+
+        Must be absolute: CTQMC.PostProcessing calls the impurity objects'
+        .Mixing() while os.chdir'd into ctqmc/impurity_<iter>_<key>, and a bare
+        relative 'glob.h5' resolves to a brand-new file inside each of those
+        per-iteration directories.  IO.MixComponent then never finds a stored
+        history and returns its input unmixed on every iteration, disabling
+        mixing entirely no matter what Mix is set to.
+
+        Resolved lazily from ``control`` so the value is correct even when the
+        object was built without running __init__.
+        """
+        cached = self.__dict__.get("_hdf5path")
+        if cached is not None:
+            return cached
+        return os.path.abspath(self.control["run"]["fn"] + '.h5')
+
+    @hdf5path.setter
+    def hdf5path(self, value) -> None:
+        self.__dict__["_hdf5path"] = None if value is None else os.path.abspath(value)
+
     def TightBinding(self):
 
         # file = h5py.File(fn+'.h5','w')
@@ -85,7 +113,7 @@ class CorrelationFunction(object):
 
         group = 'tb'
         errmessage = "missing input for tight binding calculation"
-        hdf5file = self.control["run"]["fn"] + '.h5'
+        hdf5file = self.hdf5path
         # niham = NIHamiltonian(crystal=self.cry,hoppinglist=hoppinglist,onsitelist=onsitelist,hdf5file=tb)
         niham = self.niham
         # file.close()
@@ -98,7 +126,7 @@ class CorrelationFunction(object):
 
         itermax = self.control["run"]["nscf"]
         mix = self.control["run"]["mix"]
-        hdf5file = self.control["run"]["fn"] + '.h5'
+        hdf5file = self.hdf5path
         mode = self.control["run"]["mode"]
         group = 'hf'
         mixing_method = self.control["run"]["mixing_method"]
@@ -203,7 +231,7 @@ class CorrelationFunction(object):
     def GWApproximation(self):
         itermax = self.control["run"]["nscf"]
         mix = self.control["run"]["mix"]
-        hdf5file = self.control["run"]["fn"] + '.h5'
+        hdf5file = self.hdf5path
         group = 'gw'
         mixing_method = self.control["run"]["mixing_method"]
         npulay = int(self.control["run"]["npulay"])
@@ -299,7 +327,7 @@ class CorrelationFunction(object):
         errmessage = "missing input for DMFT calculation"
 
         itermax = self.control["run"]["nscf"]
-        hdf5file = self.control["run"]["fn"] + '.h5'
+        hdf5file = self.hdf5path
         group = 'dmft'
         # self.control["run"]["method"]
 
@@ -511,7 +539,7 @@ class CorrelationFunction(object):
         errmessage = "missing input for EDMFT calculation"
 
         itermax = self.control["run"]["nscf"]
-        hdf5file = self.control["run"]["fn"] + '.h5'
+        hdf5file = self.hdf5path
         group = 'edmft'
 
         config = self.control.get("impurity", self.control.get("edmft", {}))
@@ -849,7 +877,7 @@ class CorrelationFunction(object):
 
     def GWEDMFT(self):
         itermax = self.control["run"]["nscf"]
-        hdf5file = self.control["run"]["fn"] + '.h5'
+        hdf5file = self.hdf5path
         group = 'gwedmft'
 
         config = self.control.get("impurity", self.control.get("gwedmft", {}))

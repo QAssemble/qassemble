@@ -1,5 +1,10 @@
+import logging
+import os
+
 import h5py
 import numpy as np
+
+logger = logging.getLogger("QAssemble")
 
 
 class IO:
@@ -73,12 +78,35 @@ class IO:
         fnew = IO._as_mixing_array(component, value)
         shape = tuple(fnew.shape)
 
+        # After the first iteration the file must already hold the mixing
+        # history.  Mode "a" would otherwise create an empty one and every call
+        # would silently fall through to the reset branch below, returning the
+        # input unmixed -- which is exactly how a relative hdf5file combined
+        # with a per-iteration os.chdir used to disable mixing entirely.
+        if int(iter) > 1 and not os.path.exists(hdf5file):
+            raise ValueError(
+                f"MixComponent: hdf5file does not exist at iter={int(iter)}: "
+                f"{hdf5file!r} (cwd={os.getcwd()!r}). The mixing history would "
+                f"be lost; pass an absolute path."
+            )
+
         with h5py.File(hdf5file, "a") as handle:
             comp_group = IO.Group(handle, group, "Mixing", key, component)
             comp_group.attrs["method"] = method
             comp_group.attrs["npulay"] = npulay
 
             if int(iter) == 1 or "last" not in comp_group:
+                if int(iter) != 1:
+                    logger.warning(
+                        f"[mixing] {key}/{component} iter={int(iter)}: no stored "
+                        f"'last' in {hdf5file!r}; resetting history and passing "
+                        f"the input through UNMIXED"
+                    )
+                else:
+                    logger.info(
+                        f"[mixing] {key}/{component} iter=1: history reset "
+                        f"(first iteration is never mixed)"
+                    )
                 IO._reset_mixing_component(comp_group)
                 IO._write_mixing_dataset(comp_group, "last", fnew)
                 IO._write_mixing_attrs(
@@ -106,6 +134,10 @@ class IO:
                 mixed = mixer(method=method, mix=float(mix), fnew=fnew, fold=fold)
                 IO._write_mixing_dataset(comp_group, "last", mixed)
                 IO._write_mixing_attrs(comp_group, shape=shape, iter=int(iter))
+                logger.info(
+                    f"[mixing] {key}/{component} iter={int(iter)}: linear "
+                    f"mix={float(mix)} applied"
+                )
                 return mixed
 
             residual = np.asfortranarray(fnew - fold)
@@ -126,6 +158,11 @@ class IO:
             )
             IO._write_mixing_dataset(comp_group, "last", mixed)
             IO._write_mixing_attrs(comp_group, shape=shape, iter=int(iter))
+            logger.info(
+                f"[mixing] {key}/{component} iter={int(iter)}: pulay "
+                f"mix={float(mix)} applied with num_history="
+                f"{int(comp_group.attrs.get('num_history', 0))}/{npulay}"
+            )
             return mixed
 
     @staticmethod

@@ -1,4 +1,5 @@
 import importlib
+import os
 from types import SimpleNamespace
 
 import numpy as np
@@ -149,7 +150,8 @@ def test_gw_approximation_uses_current_hf_and_gw_results(monkeypatch):
     assert calls["HF"][0]["occ"] is occ
     assert calls["HF"][0]["occr"] is occr
     assert calls["HF"][0]["v"] is corr.vbare
-    assert calls["HF"][0]["hdf5file"] == "calc.h5"
+    # Absolute: mixing has to survive the CTQMC per-iteration os.chdir.
+    assert calls["HF"][0]["hdf5file"] == os.path.abspath("calc.h5")
     assert calls["HF"][0]["group"] == "gw"
     assert calls["HF"][0]["iteration"] == 1
     assert calls["HF"][0]["mix"] == 0.5
@@ -158,7 +160,7 @@ def test_gw_approximation_uses_current_hf_and_gw_results(monkeypatch):
     assert len(calls["GW"]) == 1
     assert calls["GW"][0]["g"] is FakeG.instances[0]
     assert calls["GW"][0]["w"] is FakeW.instances[0]
-    assert calls["GW"][0]["hdf5file"] == "calc.h5"
+    assert calls["GW"][0]["hdf5file"] == os.path.abspath("calc.h5")
     assert calls["GW"][0]["group"] == "gw"
     assert calls["GW"][0]["iteration"] == 1
     assert calls["GW"][0]["mix"] == 0.5

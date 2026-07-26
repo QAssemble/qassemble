@@ -16,10 +16,11 @@ def _mix_component(
     key="global",
     component="x",
     value=None,
+    group="calc",
 ):
     return IO.MixComponent(
         hdf5file=str(path),
-        group="calc",
+        group=group,
         key=key,
         component=component,
         value=np.asarray([0.0]) if value is None else value,
@@ -185,3 +186,80 @@ def test_hdf5_mixing_rejects_shape_mismatch(tmp_path):
             iter=2,
             value=np.asarray([[1.0], [2.0]]),
         )
+
+
+def test_absolute_hdf5file_mixes_across_per_iteration_workdirs(monkeypatch, tmp_path):
+    """Mixing must survive the per-iteration cwd change CTQMC performs.
+
+    CTQMC.PostProcessing chdir's into ctqmc/impurity_<iter>_<key> before calling
+    .Mixing(). With the bare relative 'glob.h5' this used to resolve to a fresh
+    file inside that directory, so every call hit the reset branch and returned
+    its input unmixed. An absolute path keeps one history across iterations.
+    """
+    path = str(tmp_path / "glob.h5")
+    monkeypatch.chdir(tmp_path)
+    _mix_component(
+        path,
+        method="linear",
+        iter=1,
+        mix=0.25,
+        key="1",
+        component="sighimp",
+        value=np.asarray([10.0]),
+        group="edmft",
+    )
+
+    workdir = tmp_path / "ctqmc" / "impurity_2_1"
+    workdir.mkdir(parents=True)
+    monkeypatch.chdir(workdir)
+
+    mixed = _mix_component(
+        path,
+        method="linear",
+        iter=2,
+        mix=0.25,
+        key="1",
+        component="sighimp",
+        value=np.asarray([14.0]),
+        group="edmft",
+    )
+
+    # 0.25*14 + 0.75*10 == 11.0; an unmixed pass-through would return 14.0.
+    np.testing.assert_allclose(mixed, [11.0])
+    # The scratch directory must stay free of a stray per-iteration glob.h5.
+    assert not (workdir / "glob.h5").exists()
+
+
+def test_relative_hdf5file_in_scratch_dir_is_rejected(monkeypatch, tmp_path):
+    """A relative hdf5file under a fresh cwd must fail loudly, not mix silently."""
+    monkeypatch.chdir(tmp_path)
+    _mix_component(
+        "glob.h5",
+        method="linear",
+        iter=1,
+        value=np.asarray([10.0]),
+        group="edmft",
+    )
+
+    workdir = tmp_path / "ctqmc" / "impurity_2_1"
+    workdir.mkdir(parents=True)
+    monkeypatch.chdir(workdir)
+
+    with pytest.raises(ValueError, match="does not exist"):
+        _mix_component(
+            "glob.h5",
+            method="linear",
+            iter=2,
+            value=np.asarray([14.0]),
+            group="edmft",
+        )
+
+
+def test_mix_component_rejects_missing_file_after_first_iteration(tmp_path):
+    """iter > 1 with no existing file means the history was lost — fail loudly."""
+    with pytest.raises(ValueError, match="does not exist"):
+        _mix_component(tmp_path / "absent.h5", method="linear", iter=2)
+
+    # iter == 1 legitimately creates the file.
+    _mix_component(tmp_path / "absent.h5", method="linear", iter=1)
+    assert (tmp_path / "absent.h5").exists()
