@@ -56,6 +56,104 @@ def test_ctqmc_keeps_run_control_for_impurity_objects(monkeypatch, tmp_path):
     assert os.getcwd() == str(tmp_path / "ctqmc")
 
 
+def test_preprocessing_mixes_inputs_before_writing_json(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    events = []
+    control = {"mix": 0.25, "mixing_method": "linear", "npulay": 3}
+
+    ctqmc = object.__new__(CTQMC)
+    ctqmc.key = "1"
+    ctqmc.control = control
+    ctqmc.crystal = SimpleNamespace(soc=False, ns=1)
+    ctqmc.projector = _fake_projector()
+    ctqmc.dlr = SimpleNamespace(
+        beta=10.0,
+        MatsubaraFermionUniform=lambda: np.asarray([1.0, 3.0]),
+        MatsubaraBosonUniform=lambda: np.asarray([0.0, 2.0]),
+    )
+    ctqmc.fweiss = SimpleNamespace(
+        e=np.zeros((2, 2, 1)),
+        eimp=SimpleNamespace(ToCTQMC=lambda key, Eimp: (np.zeros((2, 2)), 0.5)),
+        Mixing=lambda iter=None, control=None: events.append(
+            ("fweiss_mix", iter, control)
+        ),
+        _write_json_pair=lambda stem, iter, key, payload: events.append(
+            ("write", stem, iter, key)
+        ),
+        _as_hyb_dict=lambda key: {},
+    )
+    ctqmc.bweiss = SimpleNamespace(
+        cf=np.asarray([1.0]),
+        vloc=SimpleNamespace(GetUijklComCTQMC=lambda key: np.zeros((1, 1, 1, 1))),
+        Mixing=lambda control=None: events.append(("bweiss_mix", control)),
+        _write_json_pair=lambda stem, iter, key, payload: events.append(
+            ("write", stem, iter, key)
+        ),
+        _as_dyn_dict=lambda key: {},
+    )
+    ctqmc.work_dir = str(tmp_path)
+    ctqmc.root_dir = str(tmp_path)
+    ctqmc.ctqmc_dir = str(tmp_path)
+
+    ctqmc.PreProcessing(iter=2)
+
+    # Both inputs are mixed strictly before their json files are written, and
+    # each Mixing receives the run control (hyb additionally the iteration).
+    assert events == [
+        ("fweiss_mix", 2, control),
+        ("write", "hyb", 2, "1"),
+        ("bweiss_mix", control),
+        ("write", "dyn", 2, "1"),
+    ]
+
+
+def test_preprocessing_static_bath_skips_bweiss_mixing(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    events = []
+    control = {"mix": 0.25, "mixing_method": "linear", "npulay": 3}
+
+    ctqmc = object.__new__(CTQMC)
+    ctqmc.key = "1"
+    ctqmc.control = control
+    ctqmc.crystal = SimpleNamespace(soc=False, ns=1)
+    ctqmc.projector = _fake_projector()
+    ctqmc.dlr = SimpleNamespace(
+        beta=10.0,
+        MatsubaraFermionUniform=lambda: np.asarray([1.0, 3.0]),
+        MatsubaraBosonUniform=lambda: np.asarray([0.0, 2.0]),
+    )
+    ctqmc.fweiss = SimpleNamespace(
+        e=np.zeros((2, 2, 1)),
+        eimp=SimpleNamespace(ToCTQMC=lambda key, Eimp: (np.zeros((2, 2)), 0.5)),
+        Mixing=lambda iter=None, control=None: events.append(
+            ("fweiss_mix", iter, control)
+        ),
+        _write_json_pair=lambda stem, iter, key, payload: events.append(
+            ("write", stem, iter, key)
+        ),
+        _as_hyb_dict=lambda key: {},
+    )
+    ctqmc.bweiss = SimpleNamespace(
+        cf=None,
+        vloc=SimpleNamespace(GetUijklComCTQMC=lambda key: np.zeros((1, 1, 1, 1))),
+        Mixing=lambda control=None: events.append(("bweiss_mix", control)),
+        _write_json_pair=lambda stem, iter, key, payload: events.append(
+            ("write", stem, iter, key)
+        ),
+        _as_dyn_dict=lambda key: {},
+    )
+    ctqmc.work_dir = str(tmp_path)
+    ctqmc.root_dir = str(tmp_path)
+    ctqmc.ctqmc_dir = str(tmp_path)
+
+    ctqmc.PreProcessing(iter=1)
+
+    assert events == [
+        ("fweiss_mix", 1, control),
+        ("write", "hyb", 1, "1"),
+    ]
+
+
 def test_ctqmc_finalize_only_saves_outputs():
     events = []
     ctqmc = object.__new__(CTQMC)

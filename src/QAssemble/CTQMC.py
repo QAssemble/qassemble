@@ -77,6 +77,9 @@ class CTQMC(object):
             # ctqmc_mu = float(np.real(self.fweiss.mu))
 
             ###########################
+            logger.info('*** mix hybridization input ***')
+            self.fweiss.Mixing(iter=iter, control=self.control)
+
             logger.info('*** write hyb.json file ***')
 
             self.fweiss._write_json_pair('hyb', iter, key, self.fweiss._as_hyb_dict(key))
@@ -85,6 +88,9 @@ class CTQMC(object):
             ### Write dyn.json file ###
             ###########################
             if self._use_dyn():
+                logger.info('*** mix dynamic interaction input ***')
+                self.bweiss.Mixing(control=self.control)
+
                 logger.info('*** write dyn.json file ***')
                 self.bweiss._write_json_pair('dyn', iter, key, self.bweiss._as_dyn_dict(key))
 

@@ -6,10 +6,10 @@ import pytest
 
 from QAssemble.BLatDyn import BLatDyn, P
 from QAssemble.BLatStc import BLatStc
-from QAssemble.BLocDyn import PImp
+from QAssemble.BLocDyn import BWeiss, PImp
 from QAssemble.FLatDyn import FLatDyn, G, SigGWC
 from QAssemble.FLatStc import FLatStc, H, SigF, SigH
-from QAssemble.FLocDyn import GLoc, SigCImp
+from QAssemble.FLocDyn import FWeiss, GLoc, SigCImp
 from QAssemble.FLocStc import SigFImp, SigHImp
 
 
@@ -330,6 +330,128 @@ def test_pimp_mixing_overwrites_last_with_projected_value(monkeypatch, tmp_path)
     with h5py.File(path, "r") as handle:
         np.testing.assert_allclose(handle["calc/Mixing/1/pimp/last"][()], [5.5])
         np.testing.assert_allclose(handle["calc/PImp/pimp_brd_prev.1"][()], [5.5])
+
+
+def test_fweiss_mixing_mixes_hyb_reprojects_and_recomputes_h(monkeypatch, tmp_path):
+    path = tmp_path / "mix.h5"
+    obj = object.__new__(FWeiss)
+    _seed_common(obj, path)
+    obj.hyb = np.asarray([0.0], dtype=np.complex128)
+    obj.h = None
+
+    projection_calls = []
+
+    def fake_causal_projection(self, value, *, grid="dlr", **kwargs):
+        projection_calls.append((grid, kwargs))
+        return np.asfortranarray(np.asarray(value, dtype=np.complex128) + 1.0)
+
+    def fake_cal(self):
+        self.h = np.asarray(self.hyb, dtype=np.complex128) + 100.0
+
+    monkeypatch.setattr(FWeiss, "CausalProjection", fake_causal_projection)
+    monkeypatch.setattr(FWeiss, "Cal", fake_cal)
+
+    assert obj.Mixing(iter=1, control=obj.control) is None
+    # iter 1 passthrough [0.0] -> projected [1.0]; Cal rebuilds the averaged
+    # uniform hybridization hyb.json is written from (fake Cal adds 100).
+    np.testing.assert_allclose(obj.hyb, [1.0])
+    np.testing.assert_allclose(obj.h, [101.0])
+
+    obj.hyb = np.asarray([8.0], dtype=np.complex128)
+    assert obj.Mixing(iter=2, control=obj.control) is None
+
+    # iter 2 folds against the *projected* last: 0.5*8 + 0.5*1 = 4.5, then
+    # the projection (+1) gives 5.5, which again overwrites last.
+    np.testing.assert_allclose(obj.hyb, [5.5])
+    np.testing.assert_allclose(obj.h, [105.5])
+    assert projection_calls[-1][0] == "dlr"
+    with h5py.File(path, "r") as handle:
+        np.testing.assert_allclose(handle["calc/Mixing/1/hyb/last"][()], [5.5])
+
+
+def test_fweiss_mixing_survives_projection_failure(monkeypatch, tmp_path):
+    path = tmp_path / "mix.h5"
+    obj = object.__new__(FWeiss)
+    _seed_common(obj, path)
+    obj.hyb = np.asarray([3.0], dtype=np.complex128)
+
+    def broken_projection(self, value, **kwargs):
+        raise RuntimeError("infeasible")
+
+    monkeypatch.setattr(FWeiss, "CausalProjection", broken_projection)
+    monkeypatch.setattr(FWeiss, "Cal", lambda self: None)
+
+    with pytest.warns(RuntimeWarning, match="re-projection failed"):
+        assert obj.Mixing(iter=1, control=obj.control) is None
+    # The unprojected mixed value is kept and still becomes the stored last.
+    np.testing.assert_allclose(obj.hyb, [3.0])
+    with h5py.File(path, "r") as handle:
+        np.testing.assert_allclose(handle["calc/Mixing/1/hyb/last"][()], [3.0])
+
+
+def test_bweiss_mixing_mixes_reprojects_and_rebuilds_derived(monkeypatch, tmp_path):
+    path = tmp_path / "mix.h5"
+    obj = object.__new__(BWeiss)
+    _seed_common(obj, path)
+    obj.dlr = _FakeDLR()
+    obj.subgroup = "BWeiss"
+    obj.vloc = SimpleNamespace(vproj={"1": np.asarray(2.0)})
+    obj.cf = np.asarray([0.0], dtype=np.complex128)
+    obj.f = None
+    obj.f_uniform = None
+    obj.cf_uniform = None
+    obj.t = None
+    obj.ct = None
+    obj.F2T = lambda value: np.asfortranarray(
+        np.asarray(value, dtype=np.complex128) + 20.0
+    )
+
+    projection_calls = []
+
+    def fake_causal_projection(self, value, *, grid="dlr", **kwargs):
+        projection_calls.append((grid, kwargs))
+        return np.asfortranarray(np.asarray(value, dtype=np.complex128) + 1.0)
+
+    monkeypatch.setattr(BWeiss, "CausalProjection", fake_causal_projection)
+
+    assert obj.Mixing(obj.control) is None
+    # iter 1 passthrough [0.0] -> projected [1.0]; every derived quantity is
+    # rebuilt from the mixed bath (fake DLR->uniform adds 10, fake F2T adds 20).
+    np.testing.assert_allclose(obj.cf, [1.0])
+    np.testing.assert_allclose(obj.f, [3.0])
+    np.testing.assert_allclose(obj.f_uniform, [13.0])
+    np.testing.assert_allclose(obj.cf_uniform, [11.0])
+    np.testing.assert_allclose(obj.t, [23.0])
+    np.testing.assert_allclose(obj.ct, [21.0])
+
+    obj.cf = np.asarray([8.0], dtype=np.complex128)
+    obj.iteration = 2
+    assert obj.Mixing(obj.control) is None
+
+    # iter 2 folds against the *projected* last: 0.5*8 + 0.5*1 = 4.5, then the
+    # projection (+1) gives 5.5, which again overwrites last and the cache.
+    np.testing.assert_allclose(obj.cf, [5.5])
+    np.testing.assert_allclose(obj.f, [7.5])
+    grid, kwargs = projection_calls[-1]
+    assert grid == "dlr"
+    assert kwargs["coefficient_sign"] == -1
+    assert kwargs["oddzero"] is True
+    assert kwargs["highzero"] is True
+    # The previous iteration's projected bath arrived as the QP fallback.
+    np.testing.assert_allclose(kwargs["fallback_matrix"], [1.0])
+    with h5py.File(path, "r") as handle:
+        np.testing.assert_allclose(handle["calc/Mixing/1/bweiss/last"][()], [5.5])
+        np.testing.assert_allclose(handle["calc/BWeiss/bweiss_brd_prev.1"][()], [5.5])
+
+
+def test_bweiss_mixing_skips_static_bath(tmp_path):
+    path = tmp_path / "mix.h5"
+    obj = object.__new__(BWeiss)
+    _seed_common(obj, path)
+    obj.cf = None
+
+    assert obj.Mixing(obj.control) is None
+    assert not path.exists()
 
 
 def test_lattice_parent_mixing_uses_global_key(tmp_path):

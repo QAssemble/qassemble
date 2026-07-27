@@ -1177,6 +1177,7 @@ class BWeiss(BLocDyn):
     polarization used for lattice double counting must not be passed here.
     For a dynamic bath, ``Cal`` evaluates ``U = (W_loc^-1 + p)^-1``.
     """
+    component = "bweiss"
 
     def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key,
                  vloc : VLoc, w = None, p = None,
@@ -1297,6 +1298,47 @@ class BWeiss(BLocDyn):
         self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
         self.cf_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
 
+        self.t = self.F2T(self.f)
+        self.ct = self.F2T(self.cf)
+
+        return None
+
+    def Mixing(self, control : dict) -> None:
+        """Mix the correlated bath entering dyn.json against the previous
+        iteration (FullGWEDMFT Uweisstot_mix semantics).
+
+        The mixed bath is re-projected and the stored mixing "last" is
+        overwritten with the projected value so the next iteration's fold and
+        residuals are based on the bath the run actually consumes (same policy
+        as PImp.Mixing).  All derived quantities (``f``, uniform grids, tau
+        transforms) are rebuilt from the mixed bath so PImp/WImp in
+        PostProcessing see the same interaction CTQMC was given.
+        """
+        if self.cf is None:
+            return None
+        self.cf = super().Mixing(
+            iter=self.iteration,
+            mix=float(control["mix"]),
+            component=self.component,
+            value=self.cf,
+            method=control["mixing_method"],
+            npulay=int(control["npulay"]),
+            key=self.key,
+        )
+        self.cf = self.CausalProjection(
+            self.cf, grid="dlr", coefficient_sign=-1,
+            oddzero=True, highzero=True, constraint_tol="auto",
+            fallback_matrix=self.ReadBrdPrev("bweiss", self.cf.shape),
+        )
+        IO.OverwriteMixingLast(
+            self.hdf5file, self.group, self.key, self.component, self.cf
+        )
+        self.WriteBrdPrev("bweiss", self.cf)
+        v = np.asarray(self.vloc.vproj[self.key], dtype=np.complex128)
+        vdyn = np.broadcast_to(v[..., np.newaxis], self.cf.shape)
+        self.f = np.asfortranarray(self.cf + vdyn)
+        self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
+        self.cf_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
         self.t = self.F2T(self.f)
         self.ct = self.F2T(self.cf)
 

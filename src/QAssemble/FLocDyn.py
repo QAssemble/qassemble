@@ -1416,3 +1416,41 @@ class FWeiss(FLocDyn):
         self.h = self.UniformGrid(self.h_dlr)
 
         return None
+
+    def Mixing(self, iter : int, control : dict) -> None:
+        """Mix the hybridization entering hyb.json against the previous
+        iteration (FullGWEDMFT deltamix semantics).
+
+        The mixed hybridization is re-projected and the stored mixing "last"
+        is overwritten with the projected value so the next iteration's fold
+        and residuals are based on the bath the run actually consumes (same
+        policy as PImp.Mixing).  ``Cal`` then rebuilds the equivalence-averaged
+        uniform-grid hybridization that hyb.json is written from.
+        """
+        self.hyb = super().Mixing(
+            iter=iter,
+            mix=float(control["mix"]),
+            component="hyb",
+            value=self.hyb,
+            method=control["mixing_method"],
+            npulay=int(control["npulay"]),
+            key=self.key,
+        )
+        try:
+            # The fermion projector has no fallback_matrix; mirror Hyb.Cal's
+            # safety net so an unexpected error cannot kill the run.
+            self.hyb = self.CausalProjection(
+                self.hyb, grid="dlr", constraint_tol="auto"
+            )
+        except RuntimeError as err:
+            warnings.warn(
+                f"FWeiss hybridization re-projection failed for key "
+                f"'{self.key}'; using unprojected mixed hybridization: {err}",
+                RuntimeWarning,
+            )
+        IO.OverwriteMixingLast(
+            self.hdf5file, self.group, self.key, "hyb", self.hyb
+        )
+        self.Cal()
+
+        return None
