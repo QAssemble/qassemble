@@ -110,6 +110,8 @@ def test_chi_cal_projects_ctqmc_susceptibility_causally(monkeypatch):
     assert kwargs["coefficient_sign"] == 1
     assert kwargs["oddzero"] is True
     assert kwargs["highzero"] is True
+    # No hdf5 cache target: the previous-iteration fallback is absent.
+    assert kwargs["fallback_matrix"] is None
     np.testing.assert_allclose(value[0, 0, 0, 0, :], raw)
     # Raw solver data stays available for diagnostics.
     np.testing.assert_allclose(
@@ -142,6 +144,11 @@ def test_pimp_uses_uniform_chi_and_utilde_before_causal_projection(monkeypatch):
 
     def fake_causal_projection(self, value, *, grid="dlr", **kwargs):
         assert grid == "uniform"
+        # Cal uses the zero-static pimpbrd policy (Pimp decays to zero).
+        assert kwargs["coefficient_sign"] == -1
+        assert kwargs["oddzero"] is True
+        assert kwargs["highzero"] is True
+        assert kwargs["fallback_matrix"] is None
         projected_inputs.append(np.array(value, copy=True))
         return np.asfortranarray(value[..., : len(self.dlr.nu)] + 100.0)
 
@@ -164,3 +171,41 @@ def test_pimp_uses_uniform_chi_and_utilde_before_causal_projection(monkeypatch):
     np.testing.assert_allclose(projected_inputs[0], expected_uniform)
     np.testing.assert_allclose(pimp.f, expected_uniform[..., :2] + 100.0)
     np.testing.assert_allclose(pimp.t, pimp.f)
+
+
+def test_chi_cal_seeds_and_reuses_brd_prev_cache(monkeypatch, tmp_path):
+    crystal = SimpleNamespace(ns=1)
+    projector = _FakeProjector()
+    partition = {
+        "occupation-susceptibility-bulla": {
+            "0_0": [1.0, 2.0, 3.0],
+            "0_1": [1.0, 2.0, 3.0],
+            "1_0": [1.0, 2.0, 3.0],
+            "1_1": [1.0, 2.0, 3.0],
+        },
+    }
+    path = str(tmp_path / "glob.h5")
+
+    projection_calls = []
+
+    def fake_causal_projection(self, value, *, grid="dlr", **kwargs):
+        projection_calls.append(kwargs)
+        return np.asfortranarray(value[..., : len(self.dlr.nu)] + 100.0)
+
+    monkeypatch.setattr(Chi, "CausalProjection", fake_causal_projection)
+
+    first = Chi(
+        crystal=crystal, dlr=_FakeDLR(nfreq=2, nuniform=3),
+        projector=projector, key="1", partition=partition,
+        hdf5file=path, group="calc",
+    )
+    assert projection_calls[0]["fallback_matrix"] is None
+
+    second = Chi(
+        crystal=crystal, dlr=_FakeDLR(nfreq=2, nuniform=3),
+        projector=projector, key="1", partition=partition,
+        hdf5file=path, group="calc",
+    )
+    # The second iteration receives the first one's projected f as fallback.
+    np.testing.assert_allclose(projection_calls[1]["fallback_matrix"], first.f)
+    assert second.f.shape == first.f.shape

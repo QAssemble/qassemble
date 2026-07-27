@@ -1305,15 +1305,28 @@ def ProjectBosonComponentWithFallback(
     target: np.ndarray,
     tail_coeffs: np.ndarray,
     tail_sigma: np.ndarray | None = None,
+    *,
+    fallback_channel: np.ndarray | None = None,
+    zero_ratio: float = 1.0e-3,
 ) -> np.ndarray:
     """Project one bosonic channel through the single elastic path.
 
     ``tail_sigma`` (the 4-vector of tail fit sigmas ``[sigma_c0 .. sigma_c3]``)
     supplies the elastic moment penalties; with it the QP is never infeasible,
-    so the historical ``enforce_moments=False`` retry cascade is gone.  If the
-    projector still fails (every solver crashed and even its internal clipped
-    fallback raised), the regularized-fit clipping is applied here — the raw
-    non-causal channel is never returned.
+    so the historical ``enforce_moments=False`` retry cascade is gone.
+
+    If the projector still fails (every solver crashed and even its internal
+    clipped fallback raised), the failure priority is:
+
+    1. ``fallback_channel`` — the previous iteration's projected channel on
+       ``output_omega``, when the caller has one.
+    2. The regularized-fit clipped fallback, unless it is degenerate: when the
+       causal sign clipping removes (almost) all spectral weight the clipped
+       output collapses toward zero, and a zero channel (e.g. a vanishing
+       retarded interaction fed to CTQMC) is physically worse than an
+       unprojected one.  ``zero_ratio`` is that degeneracy threshold on
+       ``|clipped| / |target|``.
+    3. The raw unprojected channel, with a loud warning.
     """
     try:
         return projector.project(
@@ -1322,16 +1335,36 @@ def ProjectBosonComponentWithFallback(
             moment_sigma=tail_sigma[1:3] if tail_sigma is not None else None,
         )
     except RuntimeError as exc:
+        if fallback_channel is not None:
+            warnings.warn(
+                "bosonic causal projection failed; returning the previous "
+                f"iteration's projected channel: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return np.asarray(fallback_channel, dtype=np.complex128).copy()
+        target_arr = np.asarray(target, dtype=np.complex128)
+        coeff = projector._clipped_fallback_coefficients(target_arr)
+        clipped = projector.output_kernel @ coeff
+        target_norm = float(np.linalg.norm(target_arr))
+        if float(np.linalg.norm(clipped)) >= zero_ratio * target_norm:
+            warnings.warn(
+                "bosonic causal projection failed; returning the "
+                f"regularized-fit clipped fallback instead of the raw channel: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return clipped
+        # Degenerate clipping: the causal cone holds (almost) none of the
+        # channel's weight, so clipping would zero it out entirely.
         warnings.warn(
-            "bosonic causal projection failed; returning the regularized-fit "
-            f"clipped fallback instead of the raw channel: {exc}",
+            "bosonic causal projection failed and the clipped fallback is "
+            f"degenerate (|clipped|/|target| < {zero_ratio:.1e}); returning "
+            f"the UNPROJECTED channel to preserve the physics: {exc}",
             RuntimeWarning,
             stacklevel=2,
         )
-        coeff = projector._clipped_fallback_coefficients(
-            np.asarray(target, dtype=np.complex128)
-        )
-        return projector.output_kernel @ coeff
+        return target_arr.copy()
 
 
 BosonPoleQPProjector = CausalBosonProjector

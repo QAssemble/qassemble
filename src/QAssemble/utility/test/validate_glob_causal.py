@@ -7,9 +7,12 @@ Re-applies the new projection pipeline (log-spaced sigma tail fit + elastic
 moment penalties + offset split + clipped fallback) to every stored
 
     <...>/Hyb/hyb.<it>.<key>                              (fermion, DLR grid)
-    <...>/BWeiss/bweiss.<it>.<key>_correlated_uniform     (boson, uniform grid)
+    <...>/BWeiss/bweiss.<it>.<key>_correlated_uniform     (boson zero-static)
+    <...>/PImp/pimp.<it>.<key>                            (boson zero-static)
+    <...>/WLoc/wloc.<it>.<key>                            (boson static-fit)
 
-channel and prints a per-dataset summary table: projection success rate, skip
+channel (the bosonic sampling grid is detected from the frequency dimension)
+and prints a per-dataset summary table: projection success rate, skip
 (fast-path) / elastic / clipped counts, offset-drop frequency, maximum causal
 sign violation, maximum moment deviation in sigma units, and the relative
 change of each channel.  The h5 file is opened read-only and never written.
@@ -37,10 +40,19 @@ from QAssemble.utility.DLR import DLR
 
 _HYB_RE = re.compile(r"^hyb\.\d+\.[^.]+$")
 _BWEISS_RE = re.compile(r"^bweiss\.\d+\..+_correlated_uniform$")
+# The digit requirement after the stem dot keeps the *_brd_prev.<key> fallback
+# caches out of the scan.
+_PIMP_RE = re.compile(r"^pimp\.\d+\.[^.]+$")
+_WLOC_RE = re.compile(r"^wloc\.\d+\.[^.]+$")
 
 
 def _collect_datasets(h5file):
-    """All (path, kind) pairs for stored Hyb / BWeiss projection inputs."""
+    """All (path, kind) pairs for stored projection inputs.
+
+    Kinds: ``fermion`` (Hyb), ``boson_zero`` (BWeiss correlated bath and Pimp,
+    zero high-frequency limit), ``boson_fit`` (Wloc, static split off by a
+    tail fit before validation).
+    """
     found = []
 
     def visit(name, obj):
@@ -52,10 +64,54 @@ def _collect_datasets(h5file):
         if parent == "Hyb" and _HYB_RE.match(base):
             found.append((name, "fermion"))
         elif parent == "BWeiss" and _BWEISS_RE.match(base):
-            found.append((name, "boson"))
+            found.append((name, "boson_zero"))
+        elif parent == "PImp" and _PIMP_RE.match(base):
+            found.append((name, "boson_zero"))
+        elif parent == "WLoc" and _WLOC_RE.match(base):
+            found.append((name, "boson_fit"))
 
     h5file.visititems(visit)
     return sorted(found)
+
+
+def _scan_dyn_json_zeros(run_dir):
+    """Report all-zero channels in the run's dyn.json files.
+
+    A zero retarded interaction handed to CTQMC is the symptom this pipeline
+    exists to prevent; scanning the actual dyn.*.json files catches it at the
+    consumer.  Returns the number of all-zero channels found.
+    """
+    import json
+    import os
+
+    zero_channels = 0
+    dyn_files = []
+    for root, _dirs, files in os.walk(run_dir):
+        for fname in files:
+            if fname == "dyn.json" or (
+                fname.startswith("dyn.") and fname.endswith(".json")
+            ):
+                dyn_files.append(os.path.join(root, fname))
+    for path in sorted(dyn_files):
+        try:
+            with open(path) as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError) as exc:
+            print(f"dyn-scan {path}: ERROR {exc}")
+            continue
+        for channel, values in payload.items():
+            arr = np.asarray(values, dtype=float)
+            if arr.size and np.all(np.abs(arr) < 1.0e-14):
+                zero_channels += 1
+                print(
+                    f"dyn-scan WARNING: {path} channel '{channel}' is "
+                    f"ALL ZERO ({arr.size} points)"
+                )
+    print(
+        f"dyn-scan: {len(dyn_files)} file(s), "
+        f"{zero_channels} all-zero channel(s)"
+    )
+    return zero_channels
 
 
 class _Stats:
@@ -139,17 +195,30 @@ def _validate_fermion(data, dlr, stats):
             stats.record(projector.last_validation)
 
 
-def _validate_boson(data, dlr, stats):
+def _validate_boson(data, dlr, stats, mode="zero"):
+    """Validate one stored bosonic dataset.
+
+    ``mode="zero"``: zero high-frequency limit (BWeiss correlated bath, Pimp).
+    ``mode="fit"``:  the static part is estimated by the c0 tail fit and split
+    off before validation (Wloc, which stores the full W including v).
+    The sampling grid is detected from the frequency dimension: DLR-grid data
+    (Pimp/Wloc `Save` outputs) skips the uniform interpolation.
+    """
     arr = np.asarray(data, dtype=np.complex128)
     if arr.ndim != 5:
         raise ValueError(f"expected 5D bosonic data, got {arr.ndim}D")
-    norb, _, ns, _, _ = arr.shape
-    nu_uniform = np.asarray(dlr.MatsubaraBosonUniform(), dtype=float)
+    norb, _, ns, _, nfreq = arr.shape
     bl = BLocDyn(SimpleNamespace(ns=ns), dlr, None)
+    grid = "dlr" if nfreq == len(dlr.nu) else "uniform"
+    highzero = mode == "zero"
     moment, high, sigma = bl.Moment(
-        arr, grid="uniform", oddzero=True, highzero=True, return_sigma=True
+        arr, grid=grid, oddzero=highzero, highzero=highzero, return_sigma=True
     )
-    arr_dlr = dlr.MatsubaraUniformGrid2DLR(arr, omega=nu_uniform, sign=1)
+    if grid == "dlr":
+        arr_dlr = arr
+    else:
+        nu_uniform = np.asarray(dlr.MatsubaraBosonUniform(), dtype=float)
+        arr_dlr = dlr.MatsubaraUniformGrid2DLR(arr, omega=nu_uniform, sign=1)
 
     projector = CausalBosonProjector(
         d=dlr.dB,
@@ -183,7 +252,16 @@ def main(argv=None):
     parser.add_argument("--beta", type=float, required=True, help="inverse temperature")
     parser.add_argument("--cutoff", type=float, required=True, help="DLR cutoff Lambda/beta")
     parser.add_argument("--eps", type=float, default=1.0e-12, help="DLR accuracy")
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="optionally scan this run directory's dyn.*.json files for "
+        "all-zero retarded-interaction channels",
+    )
     args = parser.parse_args(argv)
+
+    if args.run_dir is not None:
+        _scan_dyn_json_zeros(args.run_dir)
 
     dlr = DLR({"beta": args.beta, "cutoff": args.cutoff, "eps": args.eps})
 
@@ -196,7 +274,10 @@ def main(argv=None):
     with h5py.File(args.h5file, "r") as h5:
         datasets = _collect_datasets(h5)
         if not datasets:
-            print("no hyb.<it>.<key> / bweiss.<it>.<key>_correlated_uniform datasets found")
+            print(
+                "no hyb.<it>.<key> / bweiss.<it>.<key>_correlated_uniform / "
+                "pimp.<it>.<key> / wloc.<it>.<key> datasets found"
+            )
             return 1
         print(header)
         print("-" * len(header))
@@ -206,12 +287,15 @@ def main(argv=None):
                 if kind == "fermion":
                     _validate_fermion(h5[name][...], dlr, stats)
                 else:
-                    _validate_boson(h5[name][...], dlr, stats)
+                    _validate_boson(
+                        h5[name][...], dlr, stats,
+                        mode="fit" if kind == "boson_fit" else "zero",
+                    )
             except Exception as exc:  # keep scanning the rest of the file
                 print(f"{name:<44s} ERROR: {exc}")
                 continue
             print(stats.row(name))
-            agg = total[kind]
+            agg = total["fermion" if kind == "fermion" else "boson"]
             agg.channels += stats.channels
             agg.success += stats.success
             agg.skipped += stats.skipped

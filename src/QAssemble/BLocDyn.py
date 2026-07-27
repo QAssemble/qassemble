@@ -17,6 +17,37 @@ from .utility.Mixing import Mixing as MixingKernel
 # rationale comment in FLocDyn
 from .FLocDyn import _LOG_TAIL_POINTS
 
+import logging
+
+logger = logging.getLogger("QAssemble")
+
+_solvers_logged = False
+
+
+def _log_available_solvers_once() -> None:
+    """Log the installed qpsolvers backends the first time a projection runs.
+
+    A run environment with no backends fails every QP and silently degrades to
+    the fallback chain; surfacing the roster once makes that diagnosable.
+    """
+    global _solvers_logged
+    if _solvers_logged:
+        return
+    _solvers_logged = True
+    try:
+        import qpsolvers
+        available = list(qpsolvers.available_solvers)
+    except Exception:
+        available = []
+    if available:
+        logger.info(f"[causal] qpsolvers backends available: {available}")
+    else:
+        logger.warning(
+            "[causal] NO qpsolvers backends are installed; every causal QP "
+            "will fail and fall back (previous iteration / clipped / raw)"
+        )
+
+
 class BLocDyn(object):
     mixer = MixingKernel()
 
@@ -71,6 +102,34 @@ class BLocDyn(object):
         mat_dlr = np.moveaxis(mat_dlr, 0, -1)
 
         return np.asfortranarray(mat_dlr)
+
+    def ReadBrdPrev(self, stem : str, expected_shape) -> np.ndarray | None:
+        """Previous iteration's projected cache for the causal fallback.
+
+        Returns ``None`` (never raises) when no cache target is configured,
+        the dataset is missing, or its shape mismatches ``expected_shape``.
+        """
+        if getattr(self, "key", None) is None:
+            return None
+        return IO.ReadProjectionCache(
+            getattr(self, "hdf5file", None),
+            getattr(self, "group", None),
+            getattr(self, "subgroup", type(self).__name__),
+            f"{stem}_brd_prev.{self.key}",
+            expected_shape=expected_shape,
+        )
+
+    def WriteBrdPrev(self, stem : str, value : np.ndarray) -> None:
+        """Store this iteration's projected result as the next fallback."""
+        if getattr(self, "key", None) is None:
+            return
+        IO.WriteProjectionCache(
+            getattr(self, "hdf5file", None),
+            getattr(self, "group", None),
+            getattr(self, "subgroup", type(self).__name__),
+            f"{stem}_brd_prev.{self.key}",
+            value,
+        )
 
     def _as_dyn_dict(self, key = None, dyn : dict = None) -> dict:
         if dyn is not None:
@@ -460,6 +519,7 @@ class BLocDyn(object):
         constraint_tol : float | str = 1.0e-8,
         fit_tol : float = 1.0e-6,
         tail_tol : float = 1.0e-1,
+        fallback_matrix : np.ndarray | None = None,
     ) -> np.ndarray:
         """Project local bosonic channels onto real pole-weight causal QP via
         CausalBosonProjector, component-wise over the orbital upper triangle.
@@ -482,6 +542,11 @@ class BLocDyn(object):
         is infeasible with the hard moment equality, it is retried with the
         equality relaxed and finally falls back to the unprojected channel with
         a warning (mirroring causal_boson.py).
+
+        ``fallback_matrix`` supplies the previous iteration's projected data on
+        the DLR output grid (shape ``(norb, norb, ns, ns, len(self.dlr.nu))``);
+        when a component's QP fails outright, its channel from this matrix is
+        returned instead of the clipped fallback.
 
         Known limitations carried over from causal_boson.py: the per-component
         sign constraint over-constrains off-diagonal spectra (no matrix-level
@@ -511,6 +576,17 @@ class BLocDyn(object):
             )
         if not np.all(np.isfinite(np.real(arr))) or not np.all(np.isfinite(np.imag(arr))):
             raise ValueError("matin contains non-finite values")
+
+        if fallback_matrix is not None:
+            fallback_matrix = np.asarray(fallback_matrix, dtype=np.complex128)
+            expected = (norb, norb, ns, ns, len(self.dlr.nu))
+            if fallback_matrix.shape != expected:
+                raise ValueError(
+                    f"fallback_matrix shape {fallback_matrix.shape} does not "
+                    f"match {expected}"
+                )
+
+        _log_available_solvers_once()
 
         # Estimate physical moments on the input grid before any interpolation,
         # then pass [high, moment...] explicitly to the projector.  The fit
@@ -552,11 +628,19 @@ class BLocDyn(object):
                     tail_coeffs = np.empty(4, dtype=float)
                     tail_coeffs[0] = 0.0
                     tail_coeffs[1:] = np.real(moment[iorb, jorb, is_, is_, :])
+                    # The fallback channel enters c0-subtracted (the caller's
+                    # cache holds full channels) and the current c0 is re-added
+                    # below; with highzero c0 is 0 and this is a no-op.
                     projected = ProjectBosonComponentWithFallback(
                         projector,
                         arr[iorb, jorb, is_, is_, :] - c0,
                         tail_coeffs,
                         tail_sigma=sigma[iorb, jorb, is_, is_, :],
+                        fallback_channel=(
+                            fallback_matrix[iorb, jorb, is_, is_, :] - c0
+                            if fallback_matrix is not None
+                            else None
+                        ),
                     ) + c0
                     out[iorb, jorb, is_, is_, :] = projected
                     if iorb != jorb:
@@ -872,13 +956,18 @@ class Chi(BLocDyn):
         # chi decays to zero and has non-negative diagonal spectral weight, so
         # the causal projection runs with positive pole weights and no
         # constant/odd tail terms.
+        fallback = self.ReadBrdPrev(
+            "chi", raw_uniform.shape[:4] + (len(self.dlr.nu),)
+        )
         self.f = self.CausalProjection(
             raw_uniform,
             grid="uniform",
             coefficient_sign=1,
             oddzero=True,
             highzero=True,
+            fallback_matrix=fallback,
         )
+        self.WriteBrdPrev("chi", self.f)
         self.f_uniform = np.asfortranarray(
             self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
         )
@@ -1021,7 +1110,16 @@ class PImp(BLocDyn):
         else:
             self.f_uniform = self.Dyson(self.chi_boson_uniform, -utilde)
 
-        self.f = self.CausalProjection(self.f_uniform, grid="uniform")
+        # Pimp is a response-like quantity that decays to zero at high
+        # frequency; the zero-static convention (pimpbrd's static_mode="zero")
+        # replaces the historical c0 tail-fit split.
+        self.f = self.CausalProjection(
+            self.f_uniform, grid="uniform", coefficient_sign=-1,
+            oddzero=True, highzero=True, constraint_tol="auto",
+            fallback_matrix=self.ReadBrdPrev(
+                "pimp", self.f_uniform.shape[:4] + (len(self.dlr.nu),)
+            ),
+        )
         self.t = self.F2T(self.f)
 
         return None
@@ -1035,6 +1133,22 @@ class PImp(BLocDyn):
             method=self.control["mixing_method"],
             npulay=int(self.control["npulay"]),
             key=self.key,
+        )
+        # Pulay mixing is an affine (not convex) combination and can leave the
+        # causal cone; re-project the mixed result and overwrite the stored
+        # "last" so the next iteration's fold/residuals are based on the value
+        # the run actually consumes (FullGWEDMFT *brd semantics).
+        self.f = self.CausalProjection(
+            self.f, grid="dlr", coefficient_sign=-1,
+            oddzero=True, highzero=True, constraint_tol="auto",
+            fallback_matrix=self.ReadBrdPrev("pimp", self.f.shape),
+        )
+        IO.OverwriteMixingLast(
+            self.hdf5file, self.group, self.key, self.component, self.f
+        )
+        self.WriteBrdPrev("pimp", self.f)
+        self.f_uniform = np.asfortranarray(
+            self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
         )
         self.t = self.F2T(self.f)
 
@@ -1153,29 +1267,33 @@ class BWeiss(BLocDyn):
             )
         vdyn = np.broadcast_to(v[..., np.newaxis], self.f.shape)
         self.cf = self.f - vdyn
-        if self.p is not None:
-            cf_uniform_raw = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
-            try:
-                # "auto" acceptance tolerance mirrors Hyb.Cal: the DLR<->
-                # uniform interpolation noise floor exceeds the strict 1e-8
-                # default on noisy CTQMC-derived data.
-                self.cf = self.CausalProjection(
-                    cf_uniform_raw, grid="uniform",
-                    coefficient_sign=-1, oddzero=True, highzero=True,
-                    constraint_tol="auto",
-                )
-            except RuntimeError as err:
-                # With elastic moments, the offset split, and the clipped
-                # fallback inside the projection this branch should be
-                # unreachable; it survives as a final safety net so an
-                # unexpected error cannot kill the whole run (previously
-                # BWeiss had no net at all and a solver crash was fatal).
-                warnings.warn(
-                    f"BWeiss causal projection failed for key '{self.key}'; "
-                    f"using unprojected correlated bath: {err}",
-                    RuntimeWarning,
-                )
-            self.f = np.asfortranarray(self.cf + vdyn)
+        # The correlated bath is always projected — including the bare/first
+        # iteration path (p is None), whose W_loc - v carries lattice
+        # interpolation noise and used to enter CTQMC's dyn.json unprojected.
+        cf_uniform_raw = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
+        try:
+            # "auto" acceptance tolerance mirrors Hyb.Cal: the DLR<->
+            # uniform interpolation noise floor exceeds the strict 1e-8
+            # default on noisy CTQMC-derived data.
+            self.cf = self.CausalProjection(
+                cf_uniform_raw, grid="uniform",
+                coefficient_sign=-1, oddzero=True, highzero=True,
+                constraint_tol="auto",
+                fallback_matrix=self.ReadBrdPrev("bweiss", self.cf.shape),
+            )
+            self.WriteBrdPrev("bweiss", self.cf)
+        except RuntimeError as err:
+            # With elastic moments, the offset split, and the clipped
+            # fallback inside the projection this branch should be
+            # unreachable; it survives as a final safety net so an
+            # unexpected error cannot kill the whole run (previously
+            # BWeiss had no net at all and a solver crash was fatal).
+            warnings.warn(
+                f"BWeiss causal projection failed for key '{self.key}'; "
+                f"using unprojected correlated bath: {err}",
+                RuntimeWarning,
+            )
+        self.f = np.asfortranarray(self.cf + vdyn)
         self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
         self.cf_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
 
@@ -1403,14 +1521,32 @@ class WLoc(BLocDyn):
         if wlat.ndim != 6:
             raise ValueError(f"WLoc expects 6D lattice W, got {wlat.ndim}D")
         self.f = PJ.BLatDyn(wlat, self.projector.bprojector[self.key])
+        # The local screened interaction inherits the (mixed, Pulay-affine)
+        # lattice polarization and is not causal by construction; project it
+        # like BWeiss projects the correlated bath (wlocbrd analog).  With
+        # vloc the exact static is split off and the decaying dynamic part is
+        # projected; without vloc the projection falls back to the c0
+        # tail-fit split on the full f.
+        fallback = self.ReadBrdPrev("wloc", self.f.shape)
         if self.vloc is None:
+            self.f = self.CausalProjection(
+                self.f, grid="dlr", coefficient_sign=-1,
+                constraint_tol="auto", fallback_matrix=fallback,
+            )
             self.cf = None
+            self.WriteBrdPrev("wloc", self.f)
         else:
             vdyn = np.broadcast_to(
                 np.asarray(self.vloc, dtype=np.complex128)[..., np.newaxis],
                 self.f.shape,
             )
-            self.cf = self.f - vdyn
+            self.cf = self.CausalProjection(
+                self.f - vdyn, grid="dlr", coefficient_sign=-1,
+                oddzero=True, highzero=True, constraint_tol="auto",
+                fallback_matrix=fallback,
+            )
+            self.f = np.asfortranarray(self.cf + vdyn)
+            self.WriteBrdPrev("wloc", self.cf)
 
         self.t = self.F2T(self.f)
         self.ct = None if self.cf is None else self.F2T(self.cf)

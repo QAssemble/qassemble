@@ -139,7 +139,10 @@ def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs(monkeypa
         assert not hasattr(bweiss, attr)
 
 
-def test_bweiss_without_p_copies_w():
+def test_bweiss_without_p_copies_w_and_projects_bare_bath(monkeypatch):
+    # The bare path (p is None, first iteration) used to skip the causal
+    # projection entirely, feeding an unprojected W_loc - v into dyn.json.
+    # It now projects cf like the correlated path does.
     projector = _FakeProjector()
     crystal = SimpleNamespace(ns=1)
     dlr = _FakeDLR(nfreq=2)
@@ -147,6 +150,14 @@ def test_bweiss_without_p_copies_w():
     vproj = np.zeros((1, 1, 1, 1), dtype=np.complex128, order="F")
     vloc = SimpleNamespace(vloc=np.zeros((2, 2, 1, 1)), vproj={"1": vproj})
     w = np.ones((1, 1, 1, 1, 2), dtype=np.complex128, order="F") * 3.0
+
+    projection_calls = []
+
+    def _fake_projection(self, matin, **kwargs):
+        projection_calls.append(kwargs)
+        return np.asfortranarray(np.asarray(matin, dtype=np.complex128) - 10.0)
+
+    monkeypatch.setattr(BWeiss, "CausalProjection", _fake_projection)
 
     bweiss = BWeiss(
         crystal=crystal,
@@ -158,6 +169,53 @@ def test_bweiss_without_p_copies_w():
         p=None,
     )
 
+    assert len(projection_calls) == 1
+    assert projection_calls[0]["grid"] == "uniform"
+    assert projection_calls[0]["coefficient_sign"] == -1
+    assert projection_calls[0]["oddzero"] is True
+    assert projection_calls[0]["highzero"] is True
     np.testing.assert_allclose(bweiss.f, w)
     assert bweiss.f is not w
     assert bweiss.is_bare
+
+
+def test_bweiss_seeds_and_reuses_brd_prev_cache(monkeypatch, tmp_path):
+    projector = _FakeProjector()
+    crystal = SimpleNamespace(ns=1)
+    path = str(tmp_path / "glob.h5")
+
+    vproj = np.zeros((1, 1, 1, 1), dtype=np.complex128, order="F")
+    vproj[0, 0, 0, 0] = 2.0
+    vloc = SimpleNamespace(vloc=np.zeros((2, 2, 1, 1)), vproj={"1": vproj})
+    w = np.zeros((1, 1, 1, 1, 2), dtype=np.complex128, order="F")
+    p = np.zeros_like(w)
+    w[0, 0, 0, 0, :] = np.array([3.0, 4.0])
+    p[0, 0, 0, 0, :] = np.array([0.1, -0.2])
+
+    projection_calls = []
+
+    def _fake_projection(self, matin, **kwargs):
+        projection_calls.append(kwargs)
+        return np.asfortranarray(np.asarray(matin, dtype=np.complex128) - 10.0)
+
+    monkeypatch.setattr(BWeiss, "CausalProjection", _fake_projection)
+
+    def _build():
+        return BWeiss(
+            crystal=crystal,
+            dlr=_FakeDLR(nfreq=2),
+            projector=projector,
+            key="1",
+            vloc=vloc,
+            w=SimpleNamespace(f=w),
+            p=SimpleNamespace(f=p),
+            hdf5file=path,
+            group="calc",
+        )
+
+    first = _build()
+    assert projection_calls[0]["fallback_matrix"] is None
+
+    _build()
+    # The second iteration receives the first one's projected cf as fallback.
+    np.testing.assert_allclose(projection_calls[1]["fallback_matrix"], first.cf)

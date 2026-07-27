@@ -860,3 +860,111 @@ def test_boson_loc_positive_chi_offdiag_infeasible_falls_back():
     np.testing.assert_allclose(
         out[1, 1, 0, 0, :], local_values[1, 1, 0, 0, :], atol=2.0e-2
     )
+
+
+def _raise_runtime(*args, **kwargs):
+    raise RuntimeError("forced QP failure")
+
+
+def test_component_fallback_prefers_previous_iteration_channel(monkeypatch):
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    projector = _boson(dlr, raise_on_failure=True)
+    monkeypatch.setattr(projector, "project", _raise_runtime)
+
+    target = verifier.reconstruct(_causal_coefficients(verifier))
+    previous = verifier.reconstruct(0.5 * _causal_coefficients(verifier))
+
+    with pytest.warns(RuntimeWarning, match="previous iteration"):
+        out = ProjectBosonComponentWithFallback(
+            projector,
+            target,
+            np.zeros(4),
+            fallback_channel=previous,
+        )
+    np.testing.assert_allclose(out, previous)
+    assert out is not previous
+
+
+def test_component_fallback_clipped_when_no_previous(monkeypatch):
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    projector = _boson(dlr, raise_on_failure=True)
+    monkeypatch.setattr(projector, "project", _raise_runtime)
+
+    # Causal (negative-weight) target: the clipped regularized fit keeps most
+    # of the weight, so the clipped fallback is the right answer.
+    target = verifier.reconstruct(_causal_coefficients(verifier))
+    with pytest.warns(RuntimeWarning, match="clipped fallback"):
+        out = ProjectBosonComponentWithFallback(projector, target, np.zeros(4))
+    assert np.linalg.norm(out) > 1.0e-3 * np.linalg.norm(target)
+    assert not np.allclose(out, target)
+
+
+def test_component_fallback_degenerate_clipping_returns_unprojected(monkeypatch):
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    projector = _boson(dlr, raise_on_failure=True)
+    monkeypatch.setattr(projector, "project", _raise_runtime)
+
+    # Positive-weight target under the A_l <= 0 constraint: clipping removes
+    # every coefficient and the clipped output collapses to ~0.  The guard
+    # must return the unprojected channel instead of zeros (the dyn.json
+    # zero-output regression).
+    target = verifier.reconstruct(-_causal_coefficients(verifier))
+    with pytest.warns(RuntimeWarning, match="UNPROJECTED"):
+        out = ProjectBosonComponentWithFallback(projector, target, np.zeros(4))
+    np.testing.assert_allclose(out, target)
+
+
+def test_causal_projection_uses_fallback_matrix_on_component_failure(monkeypatch):
+    crystal = _single_band_crystal()
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    nfreq = len(dlr.nu)
+
+    values = np.zeros((1, 1, 1, 1, nfreq), dtype=np.complex128, order="F")
+    values[0, 0, 0, 0, :] = verifier.reconstruct(_causal_coefficients(verifier))
+    fallback = np.zeros_like(values)
+    fallback[0, 0, 0, 0, :] = verifier.reconstruct(
+        0.3 * _causal_coefficients(verifier)
+    ) + 0.7
+
+    monkeypatch.setattr(CausalBosonProjector, "project", _raise_runtime)
+    local = BLocDyn(crystal, dlr, projector=None)
+    with pytest.warns(RuntimeWarning, match="previous iteration"):
+        out = local.CausalProjection(values, fallback_matrix=fallback)
+
+    # The c0 subtracted from the fallback channel is re-added afterwards, so
+    # the full previous-iteration channel round-trips exactly.
+    np.testing.assert_allclose(out, fallback)
+
+
+def test_causal_projection_ignores_fallback_matrix_on_success():
+    crystal = _single_band_crystal()
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    nfreq = len(dlr.nu)
+
+    values = np.zeros((1, 1, 1, 1, nfreq), dtype=np.complex128, order="F")
+    values[0, 0, 0, 0, :] = verifier.reconstruct(_causal_coefficients(verifier))
+    fallback = np.full_like(values, 123.0)
+
+    local = BLocDyn(crystal, dlr, projector=None)
+    out = local.CausalProjection(values, fallback_matrix=fallback)
+
+    assert not np.allclose(out, fallback)
+    np.testing.assert_allclose(out, values, atol=2.0e-2)
+
+
+def test_causal_projection_rejects_fallback_matrix_shape_mismatch():
+    crystal = _single_band_crystal()
+    dlr = _boson_dlr()
+    nfreq = len(dlr.nu)
+
+    values = np.zeros((1, 1, 1, 1, nfreq), dtype=np.complex128, order="F")
+    bad = np.zeros((1, 1, 1, 1, nfreq + 1), dtype=np.complex128, order="F")
+
+    local = BLocDyn(crystal, dlr, projector=None)
+    with pytest.raises(ValueError, match="fallback_matrix shape"):
+        local.CausalProjection(values, fallback_matrix=bad)

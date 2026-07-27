@@ -166,6 +166,63 @@ class IO:
             return mixed
 
     @staticmethod
+    def ReadProjectionCache(hdf5file, group, subgroup, name, expected_shape=None):
+        """Read a causal-projection cache dataset; never raises.
+
+        Returns ``None`` when the file, group, or dataset is missing, or when
+        the stored shape does not match ``expected_shape`` (a restart with a
+        different orbital count or DLR rank leaves stale caches behind; those
+        are ignored with a warning, mirroring FullGWEDMFT's optional reads).
+        """
+        if hdf5file is None or group is None or subgroup is None or name is None:
+            return None
+        if not os.path.exists(hdf5file):
+            return None
+        try:
+            with h5py.File(hdf5file, "r") as handle:
+                path = f"{group}/{subgroup}/{name}"
+                if path not in handle:
+                    return None
+                arr = np.asarray(handle[path][()], dtype=np.complex128)
+        except OSError:
+            return None
+        if expected_shape is not None and arr.shape != tuple(expected_shape):
+            logger.warning(
+                f"[causal-cache] {group}/{subgroup}/{name} shape={arr.shape} "
+                f"expected={tuple(expected_shape)}: ignored_shape_mismatch"
+            )
+            return None
+        return np.asfortranarray(arr)
+
+    @staticmethod
+    def WriteProjectionCache(hdf5file, group, subgroup, name, value) -> None:
+        """Write a causal-projection cache dataset; no-op without a target."""
+        if hdf5file is None or group is None or subgroup is None or name is None:
+            return
+        with h5py.File(hdf5file, "a") as handle:
+            cache_group = IO.Group(handle, group, subgroup)
+            IO.CreateDataset(
+                cache_group, name, np.asarray(value, dtype=np.complex128)
+            )
+
+    @staticmethod
+    def OverwriteMixingLast(hdf5file, group, key, component, value) -> None:
+        """Replace only the mixing history's ``last`` dataset.
+
+        Used after a post-mixing causal projection so the next iteration's
+        ``fold`` (and the residuals derived from it) are based on the value the
+        run actually consumed.  ``input_history``/``residual_history`` and the
+        component attrs are left untouched.
+        """
+        if hdf5file is None or group is None or key is None or component is None:
+            return
+        with h5py.File(hdf5file, "a") as handle:
+            comp_group = IO.Group(handle, group, "Mixing", key, component)
+            IO._write_mixing_dataset(
+                comp_group, "last", IO._as_mixing_array(component, value)
+            )
+
+    @staticmethod
     def _as_mixing_array(component: str, value) -> np.ndarray:
         arr = np.asarray(value, dtype=np.complex128)
         if arr.size == 0:
