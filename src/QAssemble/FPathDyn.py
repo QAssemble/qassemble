@@ -14,7 +14,7 @@ from scipy.ndimage import gaussian_filter1d
 # import QAFort
 import subprocess
 from .Crystal import Crystal
-from .FLatDyn import FLatDyn
+from .FLatDyn import FLatDyn, G, G0, SigGWC
 # from .FTGrid import FTGrid
 from .utility.DLR import DLR
 from .utility.Fourier import Fourier
@@ -86,11 +86,11 @@ class FPathDyn(object):
         self.hdf5file = hdf5file
 
         if obj is not None:
-            if obj.__class__.__name__ == "GreenInt":
+            if isinstance(obj, G):
                 self.k = self.KArb(obj.rf, kpoint=self.kpath)
-            elif obj.__class__.__name__ == "GreenBare":
-                self.k = self.KArb(obj.g0rf, kpoint=self.kpath)
-            elif obj.__class__.__name__ == "SigmaGWC":
+            elif isinstance(obj, G0):
+                self.k = self.KArb(obj.rf, kpoint=self.kpath)
+            elif isinstance(obj, SigGWC):
                 self.k = self.R2K(matr=obj.rf, kpoint=self.kpath)
 
     def CheckKeyinString(self, key: str, dictionary: dict):
@@ -443,11 +443,11 @@ class FPathDyn(object):
         glob = h5py.File(self.hdf5file, "r")
         gw = glob["gw"]
         if gauxmode == "asisit":
-            kf = gw["GreenInt"]["gkf"][:]
+            kf = gw["G"]["gkf"][:]
         if gauxmode == "auxg":
-            sigmah = gw["SigmaHartree"]["sigmah"][:]
-            sigmaf = gw["SigmaFock"]["sigmaf"][:]
-            kf = gw["SigmaGWC"]["sigmagwckf"][:]
+            sigh = gw["SigH"]["sigmah"][:]
+            sigf = gw["SigF"]["sigmaf"][:]
+            kf = gw["SigGWC"]["sigmagwckf"][:]
             # kf = np.zeros_like(tempmat3,dtype=np.complex128,order='F')
             # for iomega in range(kf.shape[4]):
             #     kf[...,iomega] += tempmat+tempmat2+tempmat3[...,iomega]

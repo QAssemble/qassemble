@@ -327,7 +327,7 @@ class BLatStc(object):
             return group in file
 
 
-class VBare(BLatStc):
+class V(BLatStc):
 
     def __init__(
         self,
@@ -456,21 +456,21 @@ class VBare(BLatStc):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
 
-        vbare = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
+        v_data = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
         # if (self.nonlock == None):
         #     for ik in range(nrk):
-        #         vbare[...,ik] = vloc
+        #         v_data[...,ik] = vloc
         # else:
         #     for ik in range(nrk):
-        #         vbare[...,ik] = vloc + vnlk[...,ik]
+        #         v_data[...,ik] = vloc + vnlk[...,ik]
         # for ik in range(nrk):
-        #     vbare[...,ik] = vloc + vnlk[...,ik]
-        vbare = copy.deepcopy(self.nonlocr)
-        vbare[..., 0] += vloc
-        #       self.k = vbare
-        #       self.r = self.K2R(vbare)
-        self.r = vbare
-        self.k = self.R2K(vbare)
+        #     v_data[...,ik] = vloc + vnlk[...,ik]
+        v_data = copy.deepcopy(self.nonlocr)
+        v_data[..., 0] += vloc
+        #       self.k = v_data
+        #       self.r = self.K2R(v_data)
+        self.r = v_data
+        self.k = self.R2K(v_data)
 
         return None
 
@@ -480,13 +480,13 @@ class VBare(BLatStc):
             if self.CheckGroup(self.hdf5file, self.group):
                 group = file[self.group]
                 if self.subgroup in group:
-                    vbare = group[self.subgroup]
+                    v_data = group[self.subgroup]
                 else:
-                    vbare = group.create_group(self.subgroup)
+                    v_data = group.create_group(self.subgroup)
             else:
                 group = file.create_group(self.group)
-                vbare = group.create_group(self.subgroup)
-            vbare.create_dataset("vk", dtype=complex, data=self.k)
+                v_data = group.create_group(self.subgroup)
+            v_data.create_dataset("vk", dtype=complex, data=self.k)
 
         return None
 

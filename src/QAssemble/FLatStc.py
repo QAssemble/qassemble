@@ -14,7 +14,7 @@ from .utility.Dyson import Dyson
 from .utility.Fourier import Fourier
 from .utility.Mixing import Mixing
 
-# from .FLatDyn import SigmaGWC
+# from .FLatDyn import SigGWC
 # qapath = os.environ.get("QAssemble", "")
 # sys.path.append(qapath + "/src/QAssemble/modules")
 # import QAFort
@@ -501,7 +501,7 @@ class FLatStc(object):
         return (kplus, kminus)
 
 
-class NIHamiltonian(FLatStc):
+class H0(FLatStc):
 
     def __init__(
         self, crystal: Crystal = None, hopping: dict = None, onsite: dict = None, spin : bool = False, 
@@ -554,7 +554,7 @@ class NIHamiltonian(FLatStc):
         nk = len(self.crystal.kpoint)
         kvec = self.crystal.kpoint
 
-        hamtb = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order="F")
+        h0k = np.zeros((norb, norb, ns, nk), dtype=np.complex128, order="F")
         tempmat = np.zeros(
             (norb, norb, ns, self.crystal.rkgrid[0], self.crystal.rkgrid[1], self.crystal.rkgrid[2]),
             dtype=np.complex128,
@@ -630,24 +630,24 @@ class NIHamiltonian(FLatStc):
         # Hermitian check
         tempmat = tempmat.reshape((norb, norb, ns, nk), order="F")
         self.r = tempmat
-        hamtb = self.R2K(tempmat)
-        self.HermitianCheck(hamtb)
+        h0k = self.R2K(tempmat)
+        self.HermitianCheck(h0k)
 
-        self.k = hamtb
+        self.k = h0k
 
         return None
 
     def Save(self):
 
-        # if os.path.exists('niham'):
+        # if os.path.exists('h0_group'):
         #     pass
         # else:
-        #     os.mkdir('niham')
-        # os.chdir('niham')
+        #     os.mkdir('h0_group')
+        # os.chdir('h0_group')
         # os.chdir('work')
 
         # filepath = 'flatstc.h5'
-        # groupname = 'niham'
+        # groupname = 'h0_group'
         # with h5py.File(filepath,'a') as file:
         #     if self.CheckGroup(filepath,groupname):
         #         group = file[groupname]
@@ -660,13 +660,13 @@ class NIHamiltonian(FLatStc):
             if self.CheckGroup(self.hdf5file, self.group):
                 tb = file[self.group]
                 if self.subgroup in tb:
-                    niham = tb[self.subgroup]
+                    h0_group = tb[self.subgroup]
                 else:
-                    niham = tb.create_group(self.subgroup)
+                    h0_group = tb.create_group(self.subgroup)
             else:
                 tb = file.create_group(self.group)
-                niham = tb.create_group(self.subgroup)
-            niham.create_dataset("h0k", dtype=complex, data=self.k)
+                h0_group = tb.create_group(self.subgroup)
+            h0_group.create_dataset("h0k", dtype=complex, data=self.k)
         # self.hdf5file.create_dataset('h0k',dtype=float,data=self.k)
 
         return None
@@ -757,20 +757,20 @@ class NIHamiltonian(FLatStc):
     #     pass
 
 
-class SigmaHartree(FLatStc):
+class SigH(FLatStc):
 
     def __init__(
         self,
         crystal: Crystal,
         occ=None,
-        vbare: np.ndarray = None,
+        v: np.ndarray = None,
         hdf5file: str = "glob.h5",
         group: str = None,
     ):  # green -> occ
         super().__init__(crystal)
         self.r = None
         self.k = None
-        self.vbare = vbare
+        self.v = v
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
@@ -782,20 +782,20 @@ class SigmaHartree(FLatStc):
         print("Hartree Self-energy Calculation Finish")
 
     def Cal(self):
-        # vbare = self.vbare.k
+        # v = self.v.k
         occ = self.occ
-        # vk = self.vbare.Double2Quad(self.vbare.k)
+        # vk = self.v.Double2Quad(self.v.k)
         norbc = len(self.crystal.find)  # occk.shape[0]
         ns = self.crystal.ns  # occk.shape[2]
         nk = len(self.crystal.kpoint)  # occk.shape[3]
-        norb = len(self.crystal.bind)  # vbare.shape[0]
+        norb = len(self.crystal.bind)  # v.shape[0]
 
         # onsite = self.R2K(self.onsiter)
         h = np.zeros((norbc, norbc, ns, nk), dtype=np.complex128, order="F")
 
         if self.crystal.ns != 1:
             #     for ik in range(nk):
-            #         tempmat[...,ik] = self.crystal.OrbSpin2Composite(vbare[...,ik])
+            #         tempmat[...,ik] = self.crystal.OrbSpin2Composite(v[...,ik])
 
             # for ik in range(nk):
             #     for ind1 in range(norb*ns):
@@ -829,7 +829,7 @@ class SigmaHartree(FLatStc):
                         iorbc4 = self.crystal.FIndex([b, m4])
                         # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]
                         h[iorbc1, iorbc2, js, ik] += (
-                            self.vbare[iorb, jorb, js, ks, 0] * occ[iorbc4, iorbc3, ks]
+                            self.v[iorb, jorb, js, ks, 0] * occ[iorbc4, iorbc3, ks]
                         )
 
         else:
@@ -843,7 +843,7 @@ class SigmaHartree(FLatStc):
                 #             # gtemp = np.zeros((norbc,norbc,1),dtype=np.complex64)
                 #             # for jk in range(nk):
                 #             #     gtemp[iorbc4,iorbc3,0] += g0kt[iorbc4,iorbc3,0,0,-1]
-                #             h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0]*C #1/nk*gtemp[iorbc4,iorbc3,0]*C
+                #             h[iorbc1,iorbc2,0,ik] += v[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0]*C #1/nk*gtemp[iorbc4,iorbc3,0]*C
                 for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
@@ -862,7 +862,7 @@ class SigmaHartree(FLatStc):
                             iorbc3 = self.crystal.FIndex([b, m3])
                             iorbc4 = self.crystal.FIndex([b, m4])
                             h[iorbc1, iorbc2, js, ik] = (
-                                self.vbare[iorb, jorb, js, ks, 0]
+                                self.v[iorb, jorb, js, ks, 0]
                                 * occ[iorbc4, iorbc3, ks]
                                 * C
                             )
@@ -874,9 +874,9 @@ class SigmaHartree(FLatStc):
                 #         iorbc1,iorbc2 = self.crystal.b2f[iorb]
                 #         for jorb in range(norb):
                 #             iorbc3, iorbc4 = self.crystal.b2f[jorb]
-                #             h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0]*C
+                #             h[iorbc1,iorbc2,0,ik] += v[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0]*C
                 #             # for jk in range(nk):
-                #             #     h[iorbc1,iorbc2,0,ik] += vbare[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0,jk]/nk*C
+                #             #     h[iorbc1,iorbc2,0,ik] += v[iorb,jorb,0,0,0]*occ[iorbc4,iorbc3,0,jk]/nk*C
                 for ik in range(nk):
                     for ind1 in range(norb * ns):
                         nn1 = [0] * 2
@@ -896,7 +896,7 @@ class SigmaHartree(FLatStc):
                             iorbc4 = self.crystal.FIndex([b, m4])
                             # h[iorbc1,iorbc2,js,ik] += vk[iorbc1,iorbc3,iorbc4,iorbc2,js,ks,0]*occ[iorbc4,iorbc3,ks]*C
                             h[iorbc1, iorbc2, js, ik] += (
-                                self.vbare[iorb, jorb, js, ks, 0]
+                                self.v[iorb, jorb, js, ks, 0]
                                 * occ[iorbc4, iorbc3, ks]
                                 * C
                             )
@@ -911,7 +911,7 @@ class SigmaHartree(FLatStc):
         # os.chdir('work')
 
         # filepath = 'flatstc.h5'
-        # groupname = 'sigmah'
+        # groupname = 'sigh'
         # with h5py.File(filepath,'a') as file:
         #     if self.CheckGroup(filepath,groupname):
         #         group = file[groupname]
@@ -924,24 +924,24 @@ class SigmaHartree(FLatStc):
             if self.CheckGroup(self.hdf5file, self.group):
                 group = file[self.group]
                 if self.subgroup in group:
-                    sigmah = group[self.subgroup]
+                    sigh = group[self.subgroup]
                 else:
-                    sigmah = group.create_group(self.subgroup)
+                    sigh = group.create_group(self.subgroup)
             else:
                 group = file.create_group(self.group)
-                sigmah = group.create_group(self.subgroup)
-            sigmah.create_dataset(fn, dtype=complex, data=self.k)
+                sigh = group.create_group(self.subgroup)
+            sigh.create_dataset(fn, dtype=complex, data=self.k)
 
         return None
 
 
-class SigmaFock(FLatStc):
+class SigF(FLatStc):
 
     def __init__(
         self,
         crystal: Crystal,
         occr=None,
-        vbare: np.ndarray = None,
+        v: np.ndarray = None,
         hdf5file: str = "glob.h5",
         group: str = None,
     ):  # green -> occ
@@ -953,7 +953,7 @@ class SigmaFock(FLatStc):
         self.subgroup = self.__class__.__name__
         # self.green = green
         self.occr = occr
-        self.vbare = vbare
+        self.v = v
 
         print("Fock Self-energy Calculation Start")
         self.Cal()
@@ -964,7 +964,7 @@ class SigmaFock(FLatStc):
 
         # g0rt = self.green.glatrt
         occr = self.occr
-        # vr = self.vbare.Double2Quad(self.vbare.r)
+        # vr = self.v.Double2Quad(self.v.r)
 
         norbc = len(self.crystal.find)
         ns = occr.shape[2]
@@ -1001,7 +1001,7 @@ class SigmaFock(FLatStc):
                         # fr[iorbc1,iorbc2,js,ir] += -occr[iorbc4,iorbc3,js,ir]*vr[iorbc1,iorbc3,iorbc2,iorbc4,js,ks,ir]
                         fr[iorbc1, iorbc2, js, ir] += (
                             -occr[iorbc4, iorbc3, js, ir]
-                            * self.vbare[iorb, jorb, js, ks, ir]
+                            * self.v[iorb, jorb, js, ks, ir]
                         )
 
                         # fr[iorbc1,iorbc2,js,ir] += -occr[iorbc3,iorbc4,js,ir]*vr[iorbc1,iorbc3,iorbc2,iorbc4,js,ks,ir]
@@ -1018,7 +1018,7 @@ class SigmaFock(FLatStc):
         # os.chdir('work')
 
         # filepath = 'flatstc.h5'
-        # groupname = 'sigmaf'
+        # groupname = 'sigf'
         # with h5py.File(filepath,'a') as file:
         #     if self.CheckGroup(filepath,groupname):
         #         group = file[groupname]
@@ -1031,26 +1031,26 @@ class SigmaFock(FLatStc):
             if self.CheckGroup(self.hdf5file, self.group):
                 group = file[self.group]
                 if self.subgroup in group:
-                    sigmaf = group[self.subgroup]
+                    sigf = group[self.subgroup]
                 else:
-                    sigmaf = group.create_group(self.subgroup)
+                    sigf = group.create_group(self.subgroup)
             else:
                 group = file.create_group(self.group)
-                sigmaf = group.create_group(self.subgroup)
-            sigmaf.create_dataset(fn, dtype=complex, data=self.k)
+                sigf = group.create_group(self.subgroup)
+            sigf.create_dataset(fn, dtype=complex, data=self.k)
 
         return None
 
 
-class Hamiltonian(FLatStc):
+class H(FLatStc):
 
     def __init__(
         self,
         crystal: Crystal,
-        ham: np.ndarray = None,
+        h0: np.ndarray = None,
         beta: float = None,
-        sigmah: np.ndarray = None,
-        sigmaf: np.ndarray = None,
+        sigh: np.ndarray = None,
+        sigf: np.ndarray = None,
         sigmac: np.ndarray = None,
         z : np.ndarray = None,
         hdf5file: str = "glob.h5",
@@ -1061,9 +1061,9 @@ class Hamiltonian(FLatStc):
         self.occ = None
         self.occk = None
         self.occr = None
-        self.ham = np.array(ham, dtype=np.complex128, order="F", copy=True)
-        self.sigmah = sigmah
-        self.sigmaf = sigmaf
+        self.h0 = np.array(h0, dtype=np.complex128, order="F", copy=True)
+        self.sigh = sigh
+        self.sigf = sigf
         self.sigmac = sigmac
         self.z = z
         self.beta = beta
@@ -1086,13 +1086,13 @@ class Hamiltonian(FLatStc):
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
 
-        tempmat = np.array(self.ham, dtype=np.complex128, order="F", copy=True)
+        tempmat = np.array(self.h0, dtype=np.complex128, order="F", copy=True)
 
-        if self.sigmah is not None:
-            tempmat += self.sigmah
+        if self.sigh is not None:
+            tempmat += self.sigh
 
-        if self.sigmaf is not None:
-            tempmat += self.sigmaf
+        if self.sigf is not None:
+            tempmat += self.sigf
 
         if self.sigmac is not None:
             if self.z is None:
@@ -1215,7 +1215,7 @@ class Hamiltonian(FLatStc):
         # os.chdir('work')
 
         # filepath = 'flatstc.h5'
-        # groupname = 'sigmah'
+        # groupname = 'sigh'
         # with h5py.File(filepath,'a') as file:
         #     if self.CheckGroup(filepath,groupname):
         #         group = file[groupname]

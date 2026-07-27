@@ -75,8 +75,8 @@ where $\tau_p$, $\tau_q$ are basis vectors. These transforms apply equally to Gr
 
 | Class | Description |
 |---|---|
-| `GreenBare` | Non-interacting $G_0$ from $H_0$: $G_0(i\omega_n) = (i\omega_n - H_0)^{-1}$ |
-| `GreenInt` | Interacting $G$ via Dyson equation; manages $\mu$ and density $n = -G(\tau = \beta^-)$ |
+| `G0` | Non-interacting $G_0$ from $H_0$: $G_0(i\omega_n) = (i\omega_n - H_0)^{-1}$ |
+| `G` | Interacting $G$ via Dyson equation; manages $\mu$ and density $n = -G(\tau = \beta^-)$ |
 | `FLatDyn` | Base class for dynamic (frequency-dependent) fermionic lattice quantities |
 | `BLatDyn` | Base class for dynamic bosonic lattice quantities |
 

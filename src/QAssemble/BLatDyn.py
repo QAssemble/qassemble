@@ -4,7 +4,7 @@ import itertools
 import copy, gc, time, datetime
 import h5py
 from .Crystal import Crystal
-from .BLatStc import VBare
+from .BLatStc import V
 from .utility.DLR import DLR
 from .utility.Fourier import Fourier
 from .utility.Dyson import Dyson
@@ -444,8 +444,8 @@ class BLatDyn(object):
         return fout
 
 
-class PolLat(BLatDyn):
-    def __init__(self,crystal: Crystal,dlr: DLR,green: np.ndarray = None,hdf5file: str = "glob.h5",group: str = None,):
+class P(BLatDyn):
+    def __init__(self,crystal: Crystal,dlr: DLR,g: np.ndarray = None,hdf5file: str = "glob.h5",group: str = None,):
         super().__init__(crystal, dlr)
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -467,10 +467,10 @@ class PolLat(BLatDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
-        if green is None:
+        if g is None:
             print("Error, There is no Green's function.")
             sys.exit()
-        self.green = green
+        self.g = g
 
         print("Polarizability Calculation Start")
         start = time.time()
@@ -490,7 +490,7 @@ class PolLat(BLatDyn):
         
         ntau = len(self.dlr.tauB)
         
-        grt = self.TauF2TauB(self.green)
+        grt = self.TauF2TauB(self.g)
     
         norb = len(self.crystal.bind)
 
@@ -543,19 +543,19 @@ class PolLat(BLatDyn):
             if self.CheckGroup(self.hdf5file, self.group):
                 group = file[self.group]
                 if self.subgroup in group:
-                    pol = group[self.subgroup]
+                    p = group[self.subgroup]
                 else:
-                    pol = group.create_group(self.subgroup)
+                    p = group.create_group(self.subgroup)
             else:
                 group = file.create_group(self.group)
-                pol = group.create_group(self.subgroup)
-            pol.create_dataset(fn, dtype=complex, data=self.kf)
+                p = group.create_group(self.subgroup)
+            p.create_dataset(fn, dtype=complex, data=self.kf)
 
         return None
 
 
-class WLat(BLatDyn):
-    def __init__(self,crystal: Crystal,dlr: DLR,pol: np.ndarray = None,vbare: VBare = None,c: float = 1.0,hdf5file: str = "glob.h5", group: str = None,):
+class W(BLatDyn):
+    def __init__(self,crystal: Crystal,dlr: DLR,p: np.ndarray = None,v: V = None,c: float = 1.0,hdf5file: str = "glob.h5", group: str = None,):
         super().__init__(crystal, dlr)
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
@@ -595,14 +595,14 @@ class WLat(BLatDyn):
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
-        if pol is None:
+        if p is None:
             print("Error, polarizability doesn't exist")
             sys.exit()
-        if vbare is None:
+        if v is None:
             print("Error, bare coulomb interaction doesn't exist")
             sys.exit()
-        self.pol = pol
-        self.vbare = vbare
+        self.p = p
+        self.v = v
 
         print("Screened Coulomb Interaction Calculation Start")
         start = time.time()
@@ -638,9 +638,9 @@ class WLat(BLatDyn):
         vdyn = np.zeros((norb, norb, ns, ns, nk, nfreq), dtype=np.complex128, order="F")
 
         # for ifreq in range(nfreq):
-        #     vdyn[...,ifreq] = self.vbare.k
+        #     vdyn[...,ifreq] = self.v.k
         print("Make dynamic bare Coulomb interaction start")
-        vdyn = self.StcEmbedding(self.vbare.k)
+        vdyn = self.StcEmbedding(self.v.k)
         print("Make dynamic bare Coulomb interaction finish")
         polcomp = np.zeros(
             (norbc * norbc, norbc * norbc, ns, ns, nk, nfreq),
@@ -653,8 +653,8 @@ class WLat(BLatDyn):
             order="F",
         )
         ####### Initialization #######
-        polcomp = self.Double2Full(self.pol) * self.c
-        # del self.pol
+        polcomp = self.Double2Full(self.p) * self.c
+        # del self.p
         vcomp = self.Double2Full(vdyn)
 
         print("Dyson equation solving start")
@@ -689,5 +689,3 @@ class WLat(BLatDyn):
             w.create_dataset(fn, dtype=complex, data=self.kf)
 
         return None
-
-

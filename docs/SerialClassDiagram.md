@@ -96,11 +96,11 @@ classDiagram
         +Diagonalize()
         +KValley()
     }
-    class GreenBare {
+    class G0 {
         +Cal()
         +Save()
     }
-    class GreenInt {
+    class G {
         +CalMu0()
         +Occ()
         +SearchMu()
@@ -108,19 +108,19 @@ classDiagram
         +NumOfE()
         +Save()
     }
-    class SigmaGWC {
+    class SigGWC {
         +Cal()
         +SigmaStc()
         +Zfactor()
         +Save()
     }
-    class NIHamiltonian {
+    class H0 {
         +Cal()
         +Save()
         +Valley()
         +AntiValley()
     }
-    class Hamiltonian {
+    class H {
         +CalMu0()
         +NumOfE()
         +SearchMu()
@@ -129,11 +129,11 @@ classDiagram
         +OccMixing()
         +Save()
     }
-    class SigmaHartree {
+    class SigH {
         +Cal()
         +Save()
     }
-    class SigmaFock {
+    class SigF {
         +Cal()
         +Save()
     }
@@ -182,31 +182,31 @@ classDiagram
     FPathDyn --> Crystal
     FPathDyn ..> DLR
     FPathStc --> Crystal
-    CorrelationFunction --> GreenBare
-    CorrelationFunction --> GreenInt
-    CorrelationFunction --> SigmaGWC
-    CorrelationFunction --> NIHamiltonian
-    CorrelationFunction --> Hamiltonian
-    CorrelationFunction --> SigmaHartree
-    CorrelationFunction --> SigmaFock
-    GreenBare --|> FLatDyn
-    GreenInt --|> FLatDyn
-    SigmaGWC --|> FLatDyn
+    CorrelationFunction --> G0
+    CorrelationFunction --> G
+    CorrelationFunction --> SigGWC
+    CorrelationFunction --> H0
+    CorrelationFunction --> H
+    CorrelationFunction --> SigH
+    CorrelationFunction --> SigF
+    G0 --|> FLatDyn
+    G --|> FLatDyn
+    SigGWC --|> FLatDyn
     GreenAB --|> FLatDyn
-    NIHamiltonian --|> FLatStc
-    Hamiltonian --|> FLatStc
-    SigmaHartree --|> FLatStc
-    SigmaFock --|> FLatStc
+    H0 --|> FLatStc
+    H --|> FLatStc
+    SigH --|> FLatStc
+    SigF --|> FLatStc
     HamiltonianAB --|> FLatStc
     ZFactor --|> FLatStc
     SigmaStc --|> FLatStc
-    GreenBare --> FLatDyn : writes
-    GreenInt --> FLatDyn : consumes
-    SigmaGWC --> FLatDyn : consumes
-    NIHamiltonian --> FLatStc : builds
-    Hamiltonian --> FLatStc : builds
-    SigmaHartree --> FLatStc : uses
-    SigmaFock --> FLatStc : uses
+    G0 --> FLatDyn : writes
+    G --> FLatDyn : consumes
+    SigGWC --> FLatDyn : consumes
+    H0 --> FLatStc : builds
+    H --> FLatStc : builds
+    SigH --> FLatStc : uses
+    SigF --> FLatStc : uses
 ```
 
 ## Bosonic Stack
@@ -242,7 +242,7 @@ classDiagram
         +R2KArb()
         +HermitianCheck()
     }
-    class VBare {
+    class V {
         +Cal()
         +LocPlusNonLoc()
         +OhnoYukawa()
@@ -250,11 +250,11 @@ classDiagram
         +JTHPotential()
         +Save()
     }
-    class PolLat {
+    class P {
         +Cal()
         +Save()
     }
-    class WLat {
+    class W {
         +Cal()
         +Save()
     }
@@ -291,14 +291,14 @@ classDiagram
     CorrelationFunction --> BPathDyn
     CorrelationFunction --> BPathStc
     CorrelationFunction --> BLocStc
-    CorrelationFunction --> VBare
+    CorrelationFunction --> V
     BLatDyn --> Crystal
     BLatDyn --> DLR
-    PolLat --|> BLatDyn
-    WLat --|> BLatDyn
+    P --|> BLatDyn
+    W --|> BLatDyn
     BLatStc --> Crystal
-    VBare --|> BLatStc
-    VBare --> Crystal
+    V --|> BLatStc
+    V --> Crystal
     BPathDyn --> Crystal
     BPathStc --> Crystal
     BLocStc --> Crystal

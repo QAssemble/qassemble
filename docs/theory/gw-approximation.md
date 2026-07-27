@@ -4,7 +4,7 @@
 
 The *GW* approximation goes beyond Hartree-Fock by including frequency-dependent (dynamical) screening of the Coulomb interaction. The name "GW" reflects that the self-energy is constructed as a convolution of the Green's function $G$ and the dynamically screened interaction $W$. While HF treats the Coulomb interaction as static, the *GW* approximation replaces $V$ with a frequency-dependent screened interaction $W$ that accounts for the polarization response of the electron gas.
 
-The *GW* self-consistent workflow extends the Hartree-Fock calculation by incorporating three additional classes -- `PolLat`, `WLat`, and `SigmaGWC` -- that work together with the existing `GreenInt`, `SigmaHartree`, and `SigmaFock` classes.
+The *GW* self-consistent workflow extends the Hartree-Fock calculation by incorporating three additional classes -- `P`, `W`, and `SigGWC` -- that work together with the existing `G`, `SigH`, and `SigF` classes.
 
 ## Non-Interacting Green's Function
 
@@ -20,7 +20,7 @@ $$
 G^{pq}_{0\,ij\sigma}(\mathbf{k}, i\omega_n) = \frac{1}{N_\mathbf{k}} \int_0^\beta d(\tau - \tau') \sum_{\mathbf{R},\mathbf{R}'} G^{pq}_{0\,ij\sigma}(\mathbf{R}-\mathbf{R}', \tau-\tau') e^{i(\mathbf{k}\cdot(\mathbf{R}-\mathbf{R}') - \omega_n \tau)}
 $$
 
-QAssemble uses the discrete Lehmann representation (DLR) for compact and accurate representation of both imaginary-time and Matsubara-frequency Green's functions. The `GreenBare` class constructs $G_0$ from $H_0$ produced by the `NIHamiltonian` class.
+QAssemble uses the discrete Lehmann representation (DLR) for compact and accurate representation of both imaginary-time and Matsubara-frequency Green's functions. The `G0` class constructs $G_0$ from $H_0$ produced by the `H0` class.
 
 ## Dyson Equation
 
@@ -36,7 +36,7 @@ $$
 \Sigma = \Sigma^H + \Sigma^F + \Sigma^{C,GW}
 $$
 
-The `GreenInt` class solves the Dyson equation at each iteration, receiving $G_0$ from `GreenBare` along with $\Sigma^H$ from `SigmaHartree`, $\Sigma^F$ from `SigmaFock`, and $\Sigma^{C,GW}$ from `SigmaGWC`.
+The `G` class solves the Dyson equation at each iteration, receiving $G_0$ from `G0` along with $\Sigma^H$ from `SigH`, $\Sigma^F$ from `SigF`, and $\Sigma^{C,GW}$ from `SigGWC`.
 
 ## Irreducible Polarizability
 
@@ -48,7 +48,7 @@ $$
 
 where $i\nu_n = 2n\pi/\beta$ are bosonic Matsubara frequencies, and the integration over imaginary time $\tau$ performs the convolution of two fermionic Green's functions. The Kronecker delta $\delta_{\sigma\sigma'}$ indicates that the electron and hole must have the same spin in the non-interacting bubble.
 
-The `PolLat` class (child of `BLatDyn`) computes this quantity. It accepts the interacting Green's function $G$ and produces the bosonic response function that describes how the electron density responds to screened perturbations.
+The `P` class (child of `BLatDyn`) computes this quantity. It accepts the interacting Green's function $G$ and produces the bosonic response function that describes how the electron density responds to screened perturbations.
 
 ## Screened Coulomb Interaction
 
@@ -60,7 +60,7 @@ $$
 
 Formally, this represents an infinite resummation of bubble diagrams where the interaction line is repeatedly dressed by polarization insertions. The matrix equation must be solved for each momentum $\mathbf{k}$ and bosonic frequency $i\nu_n$.
 
-The `WLat` class (child of `BLatDyn`) constructs $W$ from $P$ and $V$.
+The `W` class (child of `BLatDyn`) constructs $W$ from $P$ and $V$.
 
 ## GW Correlation Self-Energy
 
@@ -72,25 +72,25 @@ $$
 
 where $W^C = W - V$ is the dynamical part of the screened interaction. The subtraction isolates the dynamical screening contribution, avoiding double-counting since static Coulomb interaction effects are already incorporated through $\Sigma^F$.
 
-The `SigmaGWC` class (child of `FLatDyn`) computes this self-energy by convolving the Green's function $G$ with the correlation part of the screened interaction $W^C$.
+The `SigGWC` class (child of `FLatDyn`) computes this self-energy by convolving the Green's function $G$ with the correlation part of the screened interaction $W^C$.
 
 ## Self-Consistent GW Loop
 
 The full *GW* self-consistent cycle proceeds as:
 
-1. **Non-interacting setup**: Construct $H_0$ (`NIHamiltonian`) and $V$ (`VBare`). Build $G_0$ (`GreenBare`).
+1. **Non-interacting setup**: Construct $H_0$ (`H0`) and $V$ (`V`). Build $G_0$ (`G0`).
 
 2. **Initialize Green's function**: Set $G = G_0$ for the first iteration, or use the previous iteration's $G$.
 
-3. **Polarizability**: Compute $P = GG$ (`PolLat`).
+3. **Polarizability**: Compute $P = GG$ (`P`).
 
-4. **Screened interaction**: Solve the bosonic Dyson equation $W = V + VPW$ (`WLat`).
+4. **Screened interaction**: Solve the bosonic Dyson equation $W = V + VPW$ (`W`).
 
-5. **Correlation self-energy**: Compute $\Sigma^{C,GW} = -GW^C$ (`SigmaGWC`).
+5. **Correlation self-energy**: Compute $\Sigma^{C,GW} = -GW^C$ (`SigGWC`).
 
-6. **Static self-energies**: Compute $\Sigma^H$ (`SigmaHartree`) and $\Sigma^F$ (`SigmaFock`) from the updated density.
+6. **Static self-energies**: Compute $\Sigma^H$ (`SigH`) and $\Sigma^F$ (`SigF`) from the updated density.
 
-7. **Dyson equation**: Combine all self-energy contributions via the Dyson equation to obtain the updated $G$ (`GreenInt`): $\Sigma = \Sigma^H + \Sigma^F + \Sigma^{GW}$, then $G = G_0 + G_0 \Sigma G$.
+7. **Dyson equation**: Combine all self-energy contributions via the Dyson equation to obtain the updated $G$ (`G`): $\Sigma = \Sigma^H + \Sigma^F + \Sigma^{GW}$, then $G = G_0 + G_0 \Sigma G$.
 
 8. **Density and chemical potential**: Extract $n = -G(\tau = \beta^-)$ and adjust $\mu$ to maintain the target filling.
 

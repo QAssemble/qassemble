@@ -19,7 +19,7 @@
 # import copy
 # from .Crystal import Crystal
 # from .FTGrid import FTGrid
-# from .FLatDyn import GreenInt
+# from .FLatDyn import G
 # qapath = os.environ.get('QAssemble','')
 # sys.path.append(qapath+'/src/QAssemble/modules')
 # import QAFort
@@ -249,7 +249,7 @@
     
 # class GreenLoc(FLocDyn):
 
-#     def __init__(self, crystal: Crystal, ft: FTGrid, green : GreenInt):
+#     def __init__(self, crystal: Crystal, ft: FTGrid, green : G):
         
 #         super().__init__(crystal, ft)
 #         self.green = green

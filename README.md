@@ -60,6 +60,49 @@ pip install -e .
 
 After installation, the `qassemble` command will be available in your terminal.
 
+## Public Class API
+
+The public many-body class hierarchy follows the names used in the QAssemble
+manuscript:
+
+| Base class | Physical classes |
+|---|---|
+| `FLatDyn` | `G0`, `G`, `SigGWC` |
+| `FLatStc` | `H0`, `H`, `SigH`, `SigF` |
+| `BLatDyn` | `P`, `W` |
+| `BLatStc` | `V` |
+
+The foundational classes are `CorrelationFunction`, `Crystal`, and `DLR`.
+All of these names can be imported directly from `QAssemble`.
+
+### Migrating from 0.1
+
+Version 0.2 adopts the manuscript names as the only supported class names:
+
+| QAssemble 0.1 | QAssemble 0.2 |
+|---|---|
+| `NIHamiltonian` | `H0` |
+| `Hamiltonian` | `H` |
+| `SigmaHartree` | `SigH` |
+| `SigmaFock` | `SigF` |
+| `GreenBare` | `G0` |
+| `GreenInt` | `G` |
+| `SigmaGWC` | `SigGWC` |
+| `PolLat` | `P` |
+| `WLat` | `W` |
+| `VBare` | `V` |
+
+Existing result files must be migrated before restart or post-processing:
+
+```bash
+qassemble-migrate-hdf5 --dry-run result.h5
+qassemble-migrate-hdf5 result.h5
+```
+
+The migration command creates `result.h5.pre-class-rename.bak` before replacing
+the original file. The input configuration section named `Hamiltonian` is not
+renamed.
+
 ## Usage
 
 ### 1. Prepare Input

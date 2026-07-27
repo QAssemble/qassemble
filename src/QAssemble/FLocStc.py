@@ -18,7 +18,7 @@
 # import subprocess
 # import copy
 # from .Crystal import Crystal
-# from .FLatStc import NIHamiltonian
+# from .FLatStc import H0
 # from .FLocDyn import GreenLoc
 # qapath = os.environ.get('QAssemble','')
 # sys.path.append(qapath+'/src/QAssemble/modules')
@@ -177,7 +177,7 @@
     
 # class ImpurityLevel(FLocStc):
 
-#     def __init__(self, crystal: Crystal, niham : NIHamiltonian, mu : float):
+#     def __init__(self, crystal: Crystal, niham : H0, mu : float):
 #         super().__init__(crystal)
         
 #         self.niham = niham

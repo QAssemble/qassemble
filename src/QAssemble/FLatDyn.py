@@ -412,13 +412,13 @@ class FLatDyn(object):
         return eigval, eigvec
 
     
-class GreenBare(FLatDyn):
+class G0(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, hamtb : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
+    def __init__(self, crystal: Crystal, dlr : DLR, h0 : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
         
         super().__init__(crystal, dlr)
-        # print(self.niham.hamtb[...,0,0])
-        self.hamtb = hamtb
+        # print(self.h0.h0[...,0,0])
+        self.h0 = h0
         self.kt = None
         self.kf = None
         self.rt = None
@@ -440,16 +440,16 @@ class GreenBare(FLatDyn):
     def Cal(self): # freq, tau combine
         
         from .utility.Bare import Bare
-        # print(self.hamtb[:,:,0,0])
-        # gnotkf = QAFort.bare.flatfreq(self.hamtb,self.dlr.omega)
-        gnotkf = Bare.FLatFreq(self.dlr.omega, self.hamtb)
+        # print(self.h0[:,:,0,0])
+        # gnotkf = QAFort.bare.flatfreq(self.h0,self.dlr.omega)
+        gnotkf = Bare.FLatFreq(self.dlr.omega, self.h0)
         gnotrf = self.K2R(gnotkf)#######
         
         self.kf = gnotkf
         self.rf = gnotrf
 
-        # gnotkt = QAFort.bare.flattau(self.hamtb,self.dlr.tau)
-        gnotkt = Bare.FLatTau(tau=self.dlr.tauF, beta=self.dlr.beta, hlatt=self.hamtb)
+        # gnotkt = QAFort.bare.flattau(self.h0,self.dlr.tau)
+        gnotkt = Bare.FLatTau(tau=self.dlr.tauF, beta=self.dlr.beta, hlatt=self.h0)
         gnotrt = self.K2R(gnotkt)
 
         self.kt = gnotkt
@@ -459,35 +459,35 @@ class GreenBare(FLatDyn):
     
     def Save(self):
 
-        # if os.path.exists('gbare'):
+        # if os.path.exists('g0'):
         #     pass
         # else:
-        #     os.mkdir('gbare')
+        #     os.mkdir('g0')
 
         with h5py.File(self.hdf5file,'a') as file:
             if self.CheckGroup(self.hdf5file,self.group):
                 group = file[self.group]
                 if self.subgroup in group:
-                    gbare = group[self.subgroup]
+                    g0 = group[self.subgroup]
                 else:
-                    gbare = group.create_group(self.subgroup)
+                    g0 = group.create_group(self.subgroup)
             else:
                 group = file.create_group(self.group)
-                gbare = group.create_group(self.subgroup)
-            gbare.create_dataset('g0kf',dtype=complex,data=self.kf)
+                g0 = group.create_group(self.subgroup)
+            g0.create_dataset('g0kf',dtype=complex,data=self.kf)
 
         return None
     
-class GreenInt(FLatDyn):
+class G(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, greenbare : np.ndarray = None, sigmah : np.ndarray = None, sigmaf : np.ndarray = None, sigmagwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
+    def __init__(self, crystal: Crystal, dlr : DLR, g0 : np.ndarray = None, sigh : np.ndarray = None, sigf : np.ndarray = None, siggwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
         
-        if greenbare is None:
+        if g0 is None:
             print("Bare Green's function doesn't exist")
             sys.exit()
         super().__init__(crystal, dlr)
         self.flatstc = FLatStc(crystal=crystal)
-        norb, _, ns, nk, nfreq = greenbare.shape
+        norb, _, ns, nk, nfreq = g0.shape
         ntau = len(self.dlr.tauF)
         self.kf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
         self.kt = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
@@ -497,10 +497,10 @@ class GreenInt(FLatDyn):
         self.gktmu0 = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
         self.grfmu0 = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
         self.grtmu0 = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
-        self.gbare = greenbare
-        self.sigmah = sigmah
-        self.sigmaf = sigmaf
-        self.sigmac = sigmagwc
+        self.g0 = g0
+        self.sigh = sigh
+        self.sigf = sigf
+        self.sigmac = siggwc
         self.occ = None
         self.occk = None
         self.occr = None
@@ -530,22 +530,22 @@ class GreenInt(FLatDyn):
         nomega = len(self.dlr.omega)
         sigma = np.zeros((norb,norb,ns,nrk,nomega),dtype=np.complex128,order='F')
         print("Initialization start")
-        if (self.sigmah is None)and(self.sigmaf is None)and(self.sigmac is None):
-            self.gkfmu0 = self.gbare
+        if (self.sigh is None)and(self.sigf is None)and(self.sigmac is None):
+            self.gkfmu0 = self.g0
         else:
-            if (self.sigmah is not None):
+            if (self.sigh is not None):
                 # print(sigma[:,:,0,0,0])
-                diag = np.diagonal(self.sigmah[:,:,0,0])
+                diag = np.diagonal(self.sigh[:,:,0,0])
                 const = np.mean(diag)
                 self.c = np.real(const)
                 # print(const)
-                sigma += self.StcEmbedding(self.sigmah)
+                sigma += self.StcEmbedding(self.sigh)
                 sigma += self.ChemEmbedding(-const)
                 print('Hartree')
                 print(sigma[:,:,0,0,0])
-            if (self.sigmaf is not None):
+            if (self.sigf is not None):
                 # print(sigma[:,:,0,0,0])
-                sigma += self.StcEmbedding(self.sigmaf)
+                sigma += self.StcEmbedding(self.sigf)
                 print('Fock')
                 print(sigma[:,:,0,0,0])
             if (self.sigmac is not None):
@@ -553,7 +553,7 @@ class GreenInt(FLatDyn):
                 sigma += self.sigmac
                 print('GWC')
                 print(sigma[:,:,0,0,0])
-            self.gkfmu0 = self.Dyson(self.gbare,sigma) 
+            self.gkfmu0 = self.Dyson(self.g0,sigma)
         
 
         self.gktmu0 = self.F2T(self.gkfmu0)
@@ -718,12 +718,12 @@ class GreenInt(FLatDyn):
         return None
 
     
-class SigmaGWC(FLatDyn):
+class SigGWC(FLatDyn):
 
-    def __init__(self, crystal: Crystal, dlr : DLR, green : np.ndarray = None, wlat : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None) -> object:
+    def __init__(self, crystal: Crystal, dlr : DLR, g : np.ndarray = None, w : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None) -> object:
         super().__init__(crystal, dlr)
         self.flatstc = FLatStc(crystal=crystal)
-        norb, _, ns, nk, nfreq = green.shape
+        norb, _, ns, nk, nfreq = g.shape
         ntau = len(self.dlr.tauF)
         self.rt = np.zeros((norb, norb, ns, nk, ntau), dtype=np.complex128, order='F')
         self.rf = np.zeros((norb, norb, ns, nk, nfreq), dtype=np.complex128, order='F')
@@ -735,15 +735,15 @@ class SigmaGWC(FLatDyn):
         self.group = group
         self.subgroup = self.__class__.__name__
 
-        if green is None:
-            print("Error, green doesn't exist")
+        if g is None:
+            print("Error, G doesn't exist")
             sys.exit()
 
-        if wlat is None:
-            print("Error, wlat doesn't exist")
+        if w is None:
+            print("Error, W doesn't exist")
             sys.exit()
-        self.green = green
-        self.wlat = wlat
+        self.g = g
+        self.w = w
 
         print("GWC self-energy Calculation Start")
         start = time.time()
@@ -752,7 +752,7 @@ class SigmaGWC(FLatDyn):
         print("GWC self-energy Calculation Finish")
         print(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
 
-    def Cal(self)->np.ndarray: #SigmaGWC
+    def Cal(self)->np.ndarray: # SigGWC
         '''
         Generate correlated self-energy
         input : Wc(R,t), G(R,t)
@@ -760,14 +760,14 @@ class SigmaGWC(FLatDyn):
         return : crtau, crfreq, cktau, ckfreq
         '''
 
-        norbc = self.green.shape[0]
-        ns = self.green.shape[2]
-        nr = self.green.shape[3]
+        norbc = self.g.shape[0]
+        ns = self.g.shape[2]
+        nr = self.g.shape[3]
         ntau = len(self.dlr.tauF)
-        norb = self.wlat.shape[0]
+        norb = self.w.shape[0]
 
-        G = self.green
-        Wc = self.TauB2TauF(self.wlat)
+        G = self.g
+        Wc = self.TauB2TauF(self.w)
 
         bbasis = self.crystal.bbasis
         s_idx = np.arange(ns)

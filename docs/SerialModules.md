@@ -25,15 +25,15 @@ This guide summarises the serial implementation that lives under `src/QAssemble/
 ## Fermionic Lattice Modules
 - `src/QAssemble/FLatDyn.py`
   `FLatDyn` handles momentum-frequency (k, omega) Green's functions for fermions using a discrete Lehmann representation (`DLR`). Core methods include `F2T`/`T2F` transforms, `Moment` for high-frequency tails, and `K2R`/`R2K` for Fourier hopping between reciprocal and real space. Additional methods provide `Inverse`, `Mixing`, `Dyson`, `ChemEmbedding`, `StcEmbedding`, `Spectral`, `R2KArb`, `KArb`, `Diagonalize`, and symmetry operations `R2mR`/`T2mT`/`TauB2TauF`. Helper classes manage common workflows:
-  - `GreenBare` builds non-interacting propagators (`Cal`) and writes them to disk (`Save`).
-  - `GreenInt` iteratively adjusts the chemical potential with `CalMu0`, `Occ` (property), `SearchMu`, `UpdateMu`, and `NumOfE`.
-  - `SigmaGWC` evaluates GW self-energies (`Cal`), computes the static part (`SigmaStc`), and renormalisation factors via `Zfactor`.
+  - `G0` builds non-interacting propagators (`Cal`) and writes them to disk (`Save`).
+  - `G` iteratively adjusts the chemical potential with `CalMu0`, `Occ` (property), `SearchMu`, `UpdateMu`, and `NumOfE`.
+  - `SigGWC` evaluates GW self-energies (`Cal`), computes the static part (`SigmaStc`), and renormalisation factors via `Zfactor`.
   - `GreenAB` converts interpolated data between k-indexed layouts (`KI2KF`).
 - `src/QAssemble/FLatStc.py`
   Provides band-structure and static self-energy routines. `FLatStc` exposes `Inverse`, `K2R`/`R2K`, `Band`, `DOS`, `Visualization`, `Mixing`, `Dyson`, `ChemEmbedding`, `R2KArb`, `Diagonalize`, `HermitianCheck`, `SortKpoint`, and `KValley`. Subcomponents:
-  - `NIHamiltonian` constructs k-space Hamiltonians (`Cal`, `Save`) and optional valley-resolved blocks (`Valley`, `AntiValley`).
-  - `SigmaHartree` and `SigmaFock` create mean-field corrections (`Cal`, `Save`).
-  - `Hamiltonian` controls charge self-consistency: `CalMu0`, `NumOfE`, `SearchMu`, `Occ` (property), `UpdateMu`, `OccMixing`, `Save`.
+  - `H0` constructs k-space Hamiltonians (`Cal`, `Save`) and optional valley-resolved blocks (`Valley`, `AntiValley`).
+  - `SigH` and `SigF` create mean-field corrections (`Cal`, `Save`).
+  - `H` controls charge self-consistency: `CalMu0`, `NumOfE`, `SearchMu`, `Occ` (property), `UpdateMu`, `OccMixing`, `Save`.
   - `HamiltonianAB` offers k-path interpolation helpers for A/B sublattice presentations (`KI2KF`).
   - `ZFactor` computes quasiparticle renormalisation from the frequency-dependent self-energy (`Cal`, `Save`).
   - `SigmaStc` extracts the static component of the GW self-energy (`Cal`, `Save`).
@@ -45,11 +45,11 @@ This guide summarises the serial implementation that lives under `src/QAssemble/
 ## Bosonic Lattice Modules
 - `src/QAssemble/BLatDyn.py`
   Controls bosonic lattice dynamics. `Inverse` builds composite orbital-spin blocks, `Moment`/`F2T`/`T2F` share the DLR pipeline with fermions, and `K2R`/`R2K` adapt the phase factors to bosonic indexing. Additional methods include `Mixing`, `Dyson`, `StcEmbedding`, `RT2mRmT`, `TauF2TauB`, `R2KArb`, `Save`, and index-space conversions (`Quad2Double`, `Double2Quad`, `Double2Full`, `Full2Double`, `Quad2Full`, `Full2Quad`). High-level classes:
-  - `PolLat` computes polarisation tensors (`Cal`, `Save`).
-  - `WLat` computes screened-interaction tensors (`Cal`, `Save`).
+  - `P` computes polarisation tensors (`Cal`, `Save`).
+  - `W` computes screened-interaction tensors (`Cal`, `Save`).
 - `src/QAssemble/BLatStc.py`
   Provides static (`omega=0`) bosonic response support. Core methods: `Inverse`, `K2R`/`R2K`, `Mixing`, `Dyson`, `Save`, `R2KArb`, `HermitianCheck`, plus the same index-space conversions as `BLatDyn`. Subcomponent:
-  - `VBare` evaluates bare Coulomb kernels (`Cal`, `LocPlusNonLoc`, `OhnoYukawa`, `OhnoParameter`, `JTHPotential`) and writes parameter tables with `Save`.
+  - `V` evaluates bare Coulomb kernels (`Cal`, `LocPlusNonLoc`, `OhnoYukawa`, `OhnoParameter`, `JTHPotential`) and writes parameter tables with `Save`.
 - `src/QAssemble/BPathDyn.py` / `BPathStc.py`
   Minimal wrappers that expose `R2K` transforms for k-path extraction from real-space datasets.
 
