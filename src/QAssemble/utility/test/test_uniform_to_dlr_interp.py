@@ -516,3 +516,215 @@ def test_positive_only_edge_guards_raise_clear_errors():
     scalar_boson = np.ones((1, 1, 1, 1, 1), dtype=np.complex128)
     with pytest.raises(ValueError, match="1D"):
         bloc.BosonUniform2DLR(scalar_boson, omega=np.array(0.0))
+
+
+# ---------------------------------------------------------------------------
+# DLR -> uniform (fermion).  The legacy coefficient round trip loses the signal
+# at production parameters, so the default is now direct interpolation of the
+# node values.  These tests pin the new path; `method="dlr"` keeps the old one
+# reachable for comparison.
+# ---------------------------------------------------------------------------
+
+
+def _hyb_nodes(dlr, poles, weights, beta):
+    """Multi-pole hybridization sampled on the DLR Matsubara nodes."""
+    z = 1j * dlr.omega
+    return np.sum(
+        np.asarray(weights)[None, :] / (z[:, None] - np.asarray(poles)[None, :]), axis=1
+    )
+
+
+def _hyb_exact(freqs, poles, weights):
+    z = 1j * np.asarray(freqs, dtype=np.float64)
+    return np.sum(
+        np.asarray(weights)[None, :] / (z[:, None] - np.asarray(poles)[None, :]), axis=1
+    )
+
+
+def test_fold_restores_uniform_grid_coverage():
+    """The positive branch alone does not span the uniform grid.
+
+    ``MatsubaraFermionUniform`` sizes itself from the *signed* extreme, which is
+    frequently the negative node, so a positive-only implementation would clamp
+    (``np.interp``) or raise (``interp1d``) over the top of the grid.
+    """
+    for beta, cutoff in [(100.0, 300.0), (20.0, 8.0), (10.0, 10.0), (200.0, 400.0)]:
+        dlr = DLR({"beta": beta, "cutoff": cutoff, "eps": 1.0e-12})
+        uniform_max = dlr.MatsubaraFermionUniform().max()
+
+        folded, _ = dlr._fold_to_nonnegative(
+            dlr.omega, np.zeros((len(dlr.omega), 1), dtype=np.complex128)
+        )
+
+        assert folded.max() >= uniform_max - 1.0e-9, (
+            f"folded grid does not cover the uniform grid at beta={beta}, cutoff={cutoff}"
+        )
+        assert np.all(folded >= 0.0)
+        assert np.all(np.diff(folded) > 0.0)
+
+
+def test_hermitian_fold_relation_is_exact():
+    """f(-w) = conj(f(w)) holds exactly, so folding loses no accuracy."""
+    dlr = _dlr()
+    poles = np.array([-1.7, -0.4, 0.9, 2.3])
+    weights = np.array([0.3, 0.5, 0.4, 0.2])
+
+    probe = np.array([1.0, 3.5, 7.2, 11.15])
+    assert np.allclose(
+        _hyb_exact(-probe, poles, weights),
+        np.conjugate(_hyb_exact(probe, poles, weights)),
+        rtol=0.0,
+        atol=1.0e-15,
+    )
+
+
+def test_fermion_dlr_to_uniform_matches_analytic_reference():
+    """Analytic multi-pole reference on the uniform grid (was uncovered)."""
+    dlr = _dlr()
+    beta = 20.0
+    poles = np.array([-2.1, -0.6, 0.8, 1.9, 3.4])
+    weights = np.array([0.25, 0.4, 0.35, 0.3, 0.15])
+
+    node = _hyb_nodes(dlr, poles, weights, beta)
+    uniform = dlr.MatsubaraFermionUniform()
+    exact = _hyb_exact(uniform, poles, weights)
+
+    arr = np.zeros((1, 1, 1, len(dlr.omega)), dtype=np.complex128)
+    arr[0, 0, 0, :] = node
+
+    out = dlr.MatsubaraDLR2UniformGrid(arr, sign=-1)[0, 0, 0, :]
+
+    # Interpolation error, not round-off: the worst point sits mid-range where
+    # this coarse fixture's DLR nodes are sparsest (low frequencies come back
+    # exact to ~1e-16).  The legacy path is off by O(1) relative on the same
+    # data at production parameters.
+    rel = np.abs(out - exact).max() / np.abs(exact).max()
+    assert rel < 1.0e-4, f"relative error {rel:.3e} exceeds interpolation budget"
+
+
+def test_fermion_dlr_to_uniform_passes_through_nodes():
+    """Output reproduces the input at frequencies that are DLR nodes.
+
+    The legacy path fails this badly at production parameters (error 5.9e-2
+    against node values of order 2.8e-4, with a sign flip at w=138.89).
+    """
+    dlr = DLR({"beta": 100.0, "cutoff": 300.0, "eps": 1.0e-15})
+    poles = np.array([-1.3, 0.7, 2.2])
+    weights = np.array([0.4, 0.35, 0.25])
+
+    node = _hyb_nodes(dlr, poles, weights, 100.0)
+    uniform = dlr.MatsubaraFermionUniform()
+
+    arr = np.zeros((1, 1, 1, len(dlr.omega)), dtype=np.complex128)
+    arr[0, 0, 0, :] = node
+    out = dlr.MatsubaraDLR2UniformGrid(arr, sign=-1)[0, 0, 0, :]
+
+    positive = dlr.omega > 0
+    idx = np.abs(uniform[:, None] - dlr.omega[positive][None, :]).argmin(axis=0)
+    err = np.abs(out[idx] - node[positive]).max()
+
+    assert err < 1.0e-10, f"node passthrough error {err:.3e}"
+
+
+def test_fermion_dlr_to_uniform_keeps_tail_constant():
+    """Re(Delta)*w**2 is a constant; the legacy path swings to +10475."""
+    dlr = DLR({"beta": 100.0, "cutoff": 300.0, "eps": 1.0e-15})
+    poles = np.array([-1.3, 0.7, 2.2])
+    weights = np.array([0.4, 0.35, 0.25])
+
+    node = _hyb_nodes(dlr, poles, weights, 100.0)
+    uniform = dlr.MatsubaraFermionUniform()
+    exact_tail = (_hyb_exact(uniform, poles, weights).real * uniform**2)
+
+    arr = np.zeros((1, 1, 1, len(dlr.omega)), dtype=np.complex128)
+    arr[0, 0, 0, :] = node
+    out = dlr.MatsubaraDLR2UniformGrid(arr, sign=-1)[0, 0, 0, :]
+
+    window = (uniform >= uniform.max() / 10.0) & (uniform <= uniform.max())
+    got = out.real[window] * uniform[window] ** 2
+    ref = exact_tail[window]
+
+    assert np.abs(got - ref).max() < 0.05 * np.abs(ref).mean()
+    assert np.all(got < 0.0), "tail must not change sign"
+
+
+def test_fermion_dlr_to_uniform_offdiagonal_uses_hermitian_transpose():
+    """Matrix-valued folding is G(-iw) = G(iw)^dagger, not element-wise conj.
+
+    This is why the fold lives in the wrapper: the flattened core has no
+    orbital axes to transpose.
+    """
+    dlr = _dlr()
+    rng = np.random.default_rng(11)
+    rank = len(dlr.omega)
+
+    arr = np.zeros((2, 2, 1, rank), dtype=np.complex128)
+    for i in range(2):
+        for j in range(2):
+            arr[i, j, 0, :] = rng.standard_normal(rank) + 1j * rng.standard_normal(rank)
+
+    out = dlr.MatsubaraDLR2UniformGrid(arr, sign=-1)
+
+    # Rebuild the expected fold by hand, transposing the orbital axes.  The DLR
+    # grid contains symmetric +-w pairs, so folding produces exact duplicate
+    # frequencies that must be collapsed the same way the implementation does.
+    mirrored = np.swapaxes(np.conjugate(arr), 0, 1)
+    x_all = np.concatenate([dlr.omega, -dlr.omega])
+    f_all = np.concatenate([arr, mirrored], axis=-1)
+    keep = x_all >= 0.0
+    x_all, f_all = x_all[keep], f_all[..., keep]
+    order = np.argsort(x_all)
+    x_all, f_all = x_all[order], f_all[..., order]
+    _, unique_idx = np.unique(np.round(x_all, 12), return_index=True)
+    unique_idx = np.sort(unique_idx)
+    x_all, f_all = x_all[unique_idx], f_all[..., unique_idx]
+
+    # Compare only where a folded node coincides with a uniform point, so the
+    # assertion tests the fold rather than the interpolation in between.
+    uniform = dlr.MatsubaraFermionUniform()
+    idx = np.abs(uniform[:, None] - x_all[None, :]).argmin(axis=0)
+    hit = np.abs(uniform[idx] - x_all) < 1.0e-9
+    assert hit.sum() >= 4, "expected several folded nodes to land on the uniform grid"
+
+    np.testing.assert_allclose(
+        out[0, 1, 0, idx[hit]], f_all[0, 1, 0, hit], rtol=1.0e-9, atol=1.0e-9
+    )
+
+
+def test_fermion_method_dlr_still_available():
+    """The legacy path stays reachable and stays exact where it is exact.
+
+    At the well-conditioned fixture parameters the coefficient round trip is
+    machine-exact; it is only at production parameters that it collapses.
+    """
+    dlr = _dlr()
+    rng = np.random.default_rng(3)
+    rank = len(dlr.omega)
+    coeff = -np.abs(rng.standard_normal(rank))
+
+    node = _eval(dlr.dF, coeff, dlr.omega, xi=-1)
+    exact = _eval(dlr.dF, coeff, dlr.MatsubaraFermionUniform(), xi=-1)
+
+    arr = np.zeros((1, 1, 1, rank), dtype=np.complex128)
+    arr[0, 0, 0, :] = node
+
+    out = dlr.MatsubaraDLR2UniformGrid(arr, sign=-1, method="dlr")[0, 0, 0, :]
+    assert np.abs(out - exact).max() / np.abs(exact).max() < 1.0e-12
+
+
+def test_boson_dlr_to_uniform_is_unchanged_by_method():
+    """Bosons keep the legacy path; nu=0 needs its own treatment (follow-up)."""
+    dlr = _dlr()
+    rng = np.random.default_rng(7)
+    rank = len(dlr.nu)
+
+    arr = np.zeros((2, 2, 1, 1, rank), dtype=np.complex128)
+    for i in range(2):
+        for j in range(2):
+            arr[i, j, 0, 0, :] = rng.standard_normal(rank) + 1j * rng.standard_normal(rank)
+
+    baseline = dlr.MatsubaraDLR2UniformGrid(arr, sign=1)
+    for method in ("interp", "dlr"):
+        np.testing.assert_array_equal(
+            dlr.MatsubaraDLR2UniformGrid(arr, sign=1, method=method), baseline
+        )

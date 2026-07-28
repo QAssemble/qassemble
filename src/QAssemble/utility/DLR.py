@@ -108,8 +108,26 @@ class DLR(object):
 
         return matout
 
-    def MatsubaraDLR2UniformGrid(self, ff : np.ndarray, sign : int = -1) -> np.ndarray:
-        """Evaluate DLR Matsubara data on the corresponding uniform grid."""
+    def MatsubaraDLR2UniformGrid(
+        self,
+        ff : np.ndarray,
+        sign : int = -1,
+        *,
+        method : str = "interp",
+    ) -> np.ndarray:
+        """Evaluate DLR Matsubara data on the corresponding uniform grid.
+
+        ``method="interp"`` (default) interpolates the DLR node values directly
+        onto the uniform grid, never forming DLR coefficients.  ``method="dlr"``
+        keeps the legacy coefficient round trip; see ``MatsubaraDLR2Uniform``
+        for why it is no longer the default.
+
+        For fermions the Hermitian fold happens *here* rather than in the
+        flattened core, because the matrix-valued relation is
+        ``G(-iw) = G(iw)^dagger`` — conjugate *and* transpose — and only this
+        level still has the orbital axes.  This mirrors
+        ``MatsubaraAddNegativeFrequency``.
+        """
         ff = self._as_dynamic_spin_matrix(ff) if sign == -1 else self._as_bosonic_dynamic_matrix(ff)
         omega_dlr = self.omega if sign == -1 else self.nu
         nfreq = ff.shape[-1]
@@ -118,11 +136,14 @@ class DLR(object):
                 f"frequency dimension {nfreq} does not match DLR omega size {len(omega_dlr)}"
             )
 
+        if method == "interp" and sign == -1:
+            return self._MatsubaraDLR2UniformInterpGrid(ff, omega_dlr)
+
         ff_t = np.moveaxis(ff, -1, 0)
         batch = int(np.prod(ff.shape[:-1]))
         ff_2d = np.ascontiguousarray(ff_t).reshape(nfreq, batch)
 
-        out_2d = self.MatsubaraDLR2Uniform(ff_2d, sign=sign)
+        out_2d = self.MatsubaraDLR2Uniform(ff_2d, sign=sign, method=method)
         out_2d = np.asarray(out_2d).reshape(out_2d.shape[0], batch)
 
         nfreq_uniform = out_2d.shape[0]
@@ -130,6 +151,51 @@ class DLR(object):
         out = np.moveaxis(out, 0, -1)
 
         return np.asfortranarray(out)
+
+    def _MatsubaraDLR2UniformInterpGrid(
+        self,
+        ff : np.ndarray,
+        omega_dlr : np.ndarray,
+    ) -> np.ndarray:
+        """Fermionic DLR->uniform interpolation with a Hermitian fold.
+
+        ``ff`` is the 4D ``(norb, norb, ns, nfreq)` fermionic array.  The
+        negative DLR nodes are mirrored with ``G(-iw) = G(iw)^dagger`` (the
+        orbital transpose is why this cannot live in the flattened core), and
+        the folded data is then interpolated onto the uniform grid with real and
+        imaginary parts treated independently.
+        """
+        omega_dlr = np.asarray(omega_dlr, dtype=np.float64)
+
+        # Hermitian mirror: conjugate-transpose on the orbital axes.
+        mirrored = np.swapaxes(np.conjugate(ff), 0, 1)
+
+        x_all = np.concatenate([omega_dlr, -omega_dlr])
+        f_all = np.concatenate([ff, mirrored], axis=-1)
+
+        keep = x_all >= 0.0
+        x_all, f_all = x_all[keep], f_all[..., keep]
+
+        order = np.argsort(x_all)
+        x_all, f_all = x_all[order], f_all[..., order]
+
+        _, unique_idx = np.unique(np.round(x_all, 12), return_index=True)
+        unique_idx = np.sort(unique_idx)
+        x_all, f_all = x_all[unique_idx], f_all[..., unique_idx]
+
+        self.omega_uniform = self.MatsubaraFermionUniform()
+
+        batch = int(np.prod(f_all.shape[:-1]))
+        f_2d = np.ascontiguousarray(np.moveaxis(f_all, -1, 0)).reshape(
+            x_all.size, batch, 1
+        )
+
+        out = self._interp_to_grid(
+            f_2d, x_all, self.omega_uniform, variable="inverse", kind="cubic"
+        )
+
+        out = out.reshape(self.omega_uniform.size, *f_all.shape[:-1])
+        return np.asfortranarray(np.moveaxis(out, 0, -1))
 
     def MatsubaraUniformGrid2DLR(
         self,
@@ -312,8 +378,47 @@ class DLR(object):
 
         return fout
 
-    def MatsubaraDLR2Uniform(self, ff: np.ndarray, sign: int = -1):
+    def MatsubaraDLR2Uniform(self, ff: np.ndarray, sign: int = -1, *, method: str = "interp"):
+        """Evaluate flattened DLR Matsubara data on the uniform grid.
+
+        ``method="dlr"`` solves for DLR coefficients and evaluates the
+        expansion.  That path is exact in exact arithmetic but loses the signal
+        entirely at production parameters: at ``beta=100``, ``cutoff=300``,
+        ``eps=1e-15`` the coefficient recovery has relative error ~1 (recovered
+        ``sum|c|`` 19725 against a true 75), and a clean hybridization whose
+        ``Re(Delta)*w**2`` is a constant -7.64 comes back swinging between +344
+        and +10475.
+
+        ``method="interp"`` (default) interpolates the node values directly and
+        never forms coefficients.  Prefer ``MatsubaraDLR2UniformGrid``, which
+        applies the Hermitian fold with the correct orbital transpose; this
+        flattened core can only mirror element-wise, so it is exact for diagonal
+        channels only.
+
+        Bosons keep the legacy path for now regardless of ``method``; ``nu=0``
+        makes the ``1/w`` interpolation variable singular and needs its own
+        treatment.
+        """
         from scipy.linalg import lu_solve
+
+        if method not in ("interp", "dlr"):
+            raise ValueError("method must be 'interp' or 'dlr'")
+
+        if method == "interp" and sign == -1:
+            ff2 = np.asarray(ff, dtype=np.complex128)
+            squeeze = ff2.ndim == 1
+            if squeeze:
+                ff2 = ff2[:, None]
+            x_all, f_all = self._fold_to_nonnegative(self.omega, ff2)
+            out = self._interp_to_grid(
+                f_all[:, :, None],
+                x_all,
+                self.MatsubaraFermionUniform(),
+                variable="inverse",
+                kind="cubic",
+            )[:, :, 0]
+            return out[:, 0] if squeeze else out
+
         if sign == -1:
             fxx = self.dF.dlr_from_matsubara(ff, beta=self.beta, xi=sign)
             z = self.MatsubaraFermionUniform() * 1j
