@@ -420,32 +420,123 @@ class DLR(object):
         ff: np.ndarray,
         x_src: np.ndarray,
         x_target: np.ndarray,
+        *,
+        variable: str = "linear",
+        kind: str = "linear",
     ) -> np.ndarray:
-        """Linearly interpolate Matsubara data onto a target frequency grid.
+        """Interpolate Matsubara data onto a target frequency grid.
 
-        Step 1 of the uniform->DLR pipeline.  ``ff`` has shape
-        ``(nfreq_src, bi, bj)`` on the ascending source grid ``x_src``; real and
-        imaginary parts are interpolated independently onto ``x_target`` and the
-        result is returned **element-wise with no matrix-axis transpose** — the
-        downstream pydlr transforms (``dlr_from_matsubara`` / ``matsubara_from_dlr``)
-        apply the single ``(a, b)`` transpose.
+        Step 1 of the uniform->DLR pipeline, and also the core of the
+        DLR->uniform direction.  ``ff`` has shape ``(nfreq_src, bi, bj)`` on the
+        ascending source grid ``x_src``; real and imaginary parts are
+        interpolated independently onto ``x_target`` and the result is returned
+        **element-wise with no matrix-axis transpose** — the downstream pydlr
+        transforms (``dlr_from_matsubara`` / ``matsubara_from_dlr``) apply the
+        single ``(a, b)`` transpose.
 
-        The caller guarantees coverage; ``np.interp`` still clamps to the
+        ``variable="inverse"`` interpolates in ``u = 1/w`` instead of ``w``.  A
+        Matsubara tail ``c1/(iw) + c2/(iw)**2`` is a low-order polynomial in
+        ``1/w``, so this removes the systematic bias linear interpolation would
+        otherwise accumulate across the sparse log-spaced DLR nodes.  It
+        requires a strictly positive ``x_src``/``x_target`` (true for fermions,
+        whose smallest Matsubara frequency is ``pi/beta``).
+
+        ``kind="cubic"`` upgrades to a cubic spline, which in the ``1/w``
+        variable is near-exact for a decaying tail.  It needs at least four
+        source points and falls back to linear below that.
+
+        The default arguments reproduce the original plain-linear-in-``w``
+        behaviour exactly, which ``MatsubaraUniform2DLR`` depends on.
+
+        The caller guarantees coverage; interpolation still clamps to the
         endpoint value for any node marginally outside ``x_src`` (e.g. the
         bosonic outermost-|nu| node from floor/ceil grid rounding), which for a
         decaying boundary value is acceptable.
         """
+        x_src = np.asarray(x_src, dtype=np.float64)
         x_target = np.asarray(x_target, dtype=np.float64)
         _, bi, bj = ff.shape
+
+        if variable not in ("linear", "inverse"):
+            raise ValueError("variable must be 'linear' or 'inverse'")
+        if kind not in ("linear", "cubic"):
+            raise ValueError("kind must be 'linear' or 'cubic'")
+
+        # Clamp the target into the source span before any change of variable:
+        # np.interp clamps on its own, but scipy's interp1d raises instead, and
+        # the folded DLR grid can start marginally above the first uniform node.
+        x_eval = np.clip(x_target, x_src.min(), x_src.max())
+
+        if variable == "inverse":
+            if x_src.min() <= 0.0 or x_eval.min() <= 0.0:
+                raise ValueError("variable='inverse' requires positive frequencies")
+            u_src, u_eval = 1.0 / x_src, 1.0 / x_eval
+        else:
+            u_src, u_eval = x_src, x_eval
+
+        # The change of variable can reverse the ordering (1/w descends).
+        order = np.argsort(u_src)
+        u_src = u_src[order]
+        ff = ff[order]
+
+        use_cubic = kind == "cubic" and u_src.size >= 4
 
         out = np.empty((x_target.size, bi, bj), dtype=np.complex128)
         for ai in range(bi):
             for aj in range(bj):
                 col = ff[:, ai, aj]
-                out[:, ai, aj] = np.interp(x_target, x_src, col.real) + 1j * np.interp(
-                    x_target, x_src, col.imag
-                )
+                if use_cubic:
+                    from scipy.interpolate import interp1d
+
+                    re = interp1d(u_src, col.real, kind="cubic", assume_sorted=True)(u_eval)
+                    im = interp1d(u_src, col.imag, kind="cubic", assume_sorted=True)(u_eval)
+                else:
+                    re = np.interp(u_eval, u_src, col.real)
+                    im = np.interp(u_eval, u_src, col.imag)
+                out[:, ai, aj] = re + 1j * im
         return out
+
+    @staticmethod
+    def _fold_to_nonnegative(
+        x_nodes: np.ndarray,
+        ff: np.ndarray,
+    ) -> tuple:
+        """Mirror negative Matsubara nodes onto the non-negative axis.
+
+        The DLR Matsubara grid straddles zero while the uniform target grids
+        (``MatsubaraFermionUniform`` / ``MatsubaraBosonUniform``) are
+        non-negative.  Keeping only the positive branch is not enough: the
+        uniform grid is sized from the *signed* extreme (see
+        ``MatsubaraFermionUniform``), which is frequently the negative node, so
+        it can extend past the largest positive node and the interpolation would
+        silently clamp there.
+
+        Folding uses ``f(-w) = conj(f(w))``, which holds exactly for a
+        Matsubara function of real data.  Callers that own the orbital axes are
+        responsible for the matrix-valued form ``G(-iw) = G(iw)^dagger`` (the
+        extra transpose); this helper only applies the conjugate, so it is
+        correct as-is for data whose matrix axes have already been handled.
+
+        Returns the ascending folded grid and the matching data.
+        """
+        x_nodes = np.asarray(x_nodes, dtype=np.float64)
+        ff = np.asarray(ff, dtype=np.complex128)
+
+        x_all = np.concatenate([x_nodes, -x_nodes])
+        f_all = np.concatenate([ff, np.conjugate(ff)], axis=0)
+
+        keep = x_all >= 0.0
+        x_all, f_all = x_all[keep], f_all[keep]
+
+        order = np.argsort(x_all)
+        x_all, f_all = x_all[order], f_all[order]
+
+        # A node at exactly w=0 (bosonic) appears twice after folding; so can a
+        # symmetric pair.  Keep the first occurrence of each distinct frequency.
+        _, unique_idx = np.unique(np.round(x_all, 12), return_index=True)
+        unique_idx = np.sort(unique_idx)
+
+        return x_all[unique_idx], f_all[unique_idx]
 
     def T2mT(self, ftau: np.ndarray, tau: np.ndarray = None) -> np.ndarray:
         if tau is None:
