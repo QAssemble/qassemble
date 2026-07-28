@@ -1,3 +1,4 @@
+"""Static local fermionic tensors and HDF5 serialization helpers."""
 # import string as string
 # from typing import Any
 # import matplotlib as mat

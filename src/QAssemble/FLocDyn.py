@@ -1,3 +1,4 @@
+"""Dynamic local fermionic data structures and impurity mappings."""
 # import string as string
 # from typing import Any
 # import matplotlib as mat

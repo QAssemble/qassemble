@@ -1,3 +1,4 @@
+"""Static bosonic lattice quantities and Coulomb interaction builders."""
 import copy
 import gc
 import itertools
@@ -14,12 +15,15 @@ from .utility.Dyson import Dyson
 
 
 class BLatStc(object):
+    """Base operations for static bosonic lattice tensors."""
 
     def __init__(self, crystal: Crystal):
+        """Initialize the object and prepare derived state."""
         self.crystal = crystal
         self._phase_cache = None
 
     def _get_phase(self) -> np.ndarray:
+        """Build the reciprocal-to-real-space phase matrix."""
         if self._phase_cache is not None:
             return self._phase_cache
 
@@ -39,6 +43,7 @@ class BLatStc(object):
         return phase
 
     def Inverse(self, matin: np.ndarray) -> np.ndarray:
+        """Return block-wise matrix inverses for the input tensor."""
 
         norb = matin.shape[0]
         ns = matin.shape[2]
@@ -56,6 +61,7 @@ class BLatStc(object):
         return matout
 
     def K2R(self, matk: np.ndarray) -> np.ndarray:
+        """Transform lattice data from reciprocal space to real space."""
 
         rkgrid = self.crystal.rkgrid
         norb = matk.shape[0]
@@ -74,6 +80,7 @@ class BLatStc(object):
         return matr
 
     def R2K(self, matr: np.ndarray) -> np.ndarray:
+        """Transform lattice data from real space to reciprocal space."""
 
         rkgrid = self.crystal.rkgrid
         norb = matr.shape[0]
@@ -94,6 +101,7 @@ class BLatStc(object):
     def Mixing(
         self, iter: int, mix: float, Bb: np.ndarray, Bold: np.ndarray
     ) -> np.ndarray:
+        """Mix a new iterate with history from previous iterations."""
 
         norb = Bb.shape[0]
         ns = Bb.shape[2]
@@ -109,6 +117,7 @@ class BLatStc(object):
         return Bnew
 
     def Dyson(self, mat1: np.ndarray, mat2: np.ndarray):
+        """Solve the Dyson equation for the supplied objects."""
         # matout = QAFort.dyson.blatstc(mat1, mat2)
         return Dyson.BLatDyn(mat1, mat2)
 
@@ -130,6 +139,7 @@ class BLatStc(object):
     #     return matout
 
     def Quad2Double(self, matin: np.ndarray) -> np.ndarray:
+        """Convert a four-index tensor to paired two-index layout."""
 
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
@@ -147,6 +157,7 @@ class BLatStc(object):
         return matout
 
     def Double2Quad(self, matin: np.ndarray) -> np.ndarray:
+        """Convert a paired two-index tensor to four-index layout."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -166,6 +177,7 @@ class BLatStc(object):
         return matout
 
     def Double2Full(self, matin: np.ndarray) -> np.ndarray:
+        """Embed a paired two-index tensor into the full basis layout."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -185,6 +197,7 @@ class BLatStc(object):
         return matout
 
     def Full2Double(self, matin: np.ndarray) -> np.ndarray:
+        """Project a full-basis tensor into paired two-index layout."""
 
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
@@ -202,6 +215,7 @@ class BLatStc(object):
         return matout
 
     def Quad2Full(self, matin: np.ndarray) -> np.ndarray:
+        """Embed a four-index tensor into the full basis layout."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -221,6 +235,7 @@ class BLatStc(object):
         return matout
 
     def Full2Quad(self, matin: np.ndarray) -> np.ndarray:
+        """Project a full-basis tensor into four-index layout."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -240,6 +255,7 @@ class BLatStc(object):
         return matout
 
     def Save(self, matin: np.ndarray, fn: str):
+        """Persist calculated arrays to the configured HDF5 output group."""
 
         norb = matin.shape[0]
         ns = matin.shape[2]
@@ -267,6 +283,7 @@ class BLatStc(object):
         return None
 
     def HermitianCheck(self, matin: np.ndarray):
+        """Report whether each matrix block is Hermitian."""
 
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
@@ -287,6 +304,7 @@ class BLatStc(object):
         return None
 
     def R2KArb(self, matr: np.ndarray = None, kpoint: np.ndarray = None):  # R2KAny
+        """Transform real-space data to arbitrary k-points."""
 
         # if self.crystal.kpath == None:
         #     print("Error, kpath doesn't generate")
@@ -322,12 +340,14 @@ class BLatStc(object):
         return matk
 
     def CheckGroup(self, filepath: str, group: str):
+        """Ensure that the requested HDF5 group exists before writing."""
 
         with h5py.File(filepath, "r") as file:
             return group in file
 
 
 class V(BLatStc):
+    """Static Coulomb interaction builder on the bosonic lattice."""
 
     def __init__(
         self,
@@ -341,6 +361,7 @@ class V(BLatStc):
         hdf5file: str = None,
         group: str = None,
     ):
+        """Initialize the static interaction builder."""
         super().__init__(crystal)
         self.k = None
         self.r = None
@@ -397,6 +418,7 @@ class V(BLatStc):
         print("Bare Coulomb Interaction Calculation Finish")
 
     def Cal(self):
+        """Compute the primary array represented by this object."""
 
         errmessage = "Wrong value entered, please check the input.ini file"
         rkgrid = self.crystal.rkgrid
@@ -447,6 +469,7 @@ class V(BLatStc):
     #     pass
 
     def LocPlusNonLoc(self):
+        """Combine local and non-local interaction contributions."""
 
         vloc = self.vloc.vloc
         # print(vloc[:, :, 0, 0])
@@ -475,6 +498,7 @@ class V(BLatStc):
         return None
 
     def Save(self):
+        """Persist calculated arrays to the configured HDF5 output group."""
 
         with h5py.File(self.hdf5file, "a") as file:
             if self.CheckGroup(self.hdf5file, self.group):
@@ -491,6 +515,7 @@ class V(BLatStc):
         return None
 
     def OhnoParameter(self):
+        """Construct Ohno interaction parameters."""
 
         ns = self.crystal.ns
         norb = len(self.crystal.bind)
@@ -633,6 +658,7 @@ class V(BLatStc):
         return None
 
     def JTHPotential(self):
+        """Construct the JTH screened interaction potential."""
 
         ns = self.crystal.ns
         norb = len(self.crystal.bind)
@@ -720,6 +746,7 @@ class V(BLatStc):
         return None
 
     def OhnoYukawa(self):
+        """Construct the Ohno-Yukawa interaction potential."""
 
         ns = self.crystal.ns
         norb = len(self.crystal.bind)
@@ -895,6 +922,7 @@ class V(BLatStc):
     #       return R
 
     def RMin2(self, d: np.ndarray):
+        """Return the minimum squared periodic distance for a displacement."""
         from .utility.Common import Common
         svec = self.crystal.svec
 

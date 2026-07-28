@@ -1,3 +1,4 @@
+"""High-level orchestration of tight-binding, Hartree-Fock, and GW calculations."""
 import numpy as np
 import matplotlib.pyplot as plt
 import sys, os, time
@@ -16,8 +17,10 @@ from .BLocDyn import *
 from .BLocStc import *
 
 class CorrelationFunction(object):
+    """Facade for constructing and running many-body calculation stages."""
 
     def __init__(self, cry : dict = None, ft : dict = None, c = 1.0):
+        """Initialize crystal and DLR state for correlation-function workflows."""
 
         self.c = c
         self.h0 = None
@@ -47,6 +50,7 @@ class CorrelationFunction(object):
         #     os.mkdir('work')
 
     def SCFCheck(self, mat1 : np.ndarray, mat2 : np.ndarray):
+        """Return the maximum absolute difference between two SCF matrices."""
 
         check = 0
         tempmat = abs(mat1-mat2)
@@ -54,6 +58,7 @@ class CorrelationFunction(object):
         return check
 
     def TightBinding(self, hopping : dict = None, onsite : dict = None, spin : bool = False, site : bool = False, valley : bool = False, hdf5file : str = 'glob.h5'):
+        """Build and save the tight-binding Hamiltonian stage."""
 
         # file = h5py.File(fn+'.h5','w')
         # tb = file.create_group('tb')
@@ -70,6 +75,7 @@ class CorrelationFunction(object):
         return None
 
     def HartreeFock(self, itermax : int, mix : float, hopping : dict = None,mode : str = "FromScratch", onsite : dict = None, spin : bool = False, valley : bool = False, avalley : bool = False, site : bool = False, asite : bool = False, aferro : bool = False, loccoulomb : dict = None, nonloccoulomb : list = None, ohno : bool = False, jth : bool = False, ohnoyuka : bool = False, hdf5file : str = 'glob.h5', group : str = 'hf'):
+        """Run the self-consistent Hartree-Fock workflow."""
 
         errmessage = "missing input for HF calculation"
         if (hopping==None):
@@ -175,6 +181,7 @@ class CorrelationFunction(object):
 
 
     def GWApproximation(self, itermax : int, mix : float, hoppinglist : list = None, onsitelist : list = None, spin : bool = False, valley : bool = False, site : bool = False, aferro : bool = False, loccoulomb : dict = None, nonloccoulomb : list = None,ohno : bool = False, jth : bool = False, ohnoyuka : bool = False, hdf5file : str = 'glob.h5', group : str = 'gw'):
+        """Run the self-consistent GW approximation workflow."""
 
         errmessage = "missing input for GW calculation"
         if (hoppinglist==None):

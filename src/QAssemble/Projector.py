@@ -1,3 +1,4 @@
+"""Projection matrix helpers for impurity and orbital subspaces."""
 # import numpy as np
 # from .MPIManager import MPIManager, FLatDynMPI
 # import h5py

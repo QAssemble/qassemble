@@ -1,3 +1,4 @@
+"""Dynamic bosonic lattice quantities, polarization, and screened interactions."""
 import numpy as np
 import sys, os
 import itertools
@@ -12,7 +13,9 @@ from .utility.Mixing import Mixing
 
 
 class BLatDyn(object):
+    """Base operations for dynamic bosonic lattice tensors."""
     def __init__(self, crystal: Crystal, dlr: DLR, mixing_method: str = "pulay", npulay: int = 5):
+        """Initialize the object and prepare derived state."""
         self.crystal = crystal
         self.dlr = dlr
         self.mixer = Mixing(method=mixing_method, npulay=npulay)
@@ -21,6 +24,7 @@ class BLatDyn(object):
         self._boson_phase_cache_r2k = self._get_boson_phaseR2K()
 
     def _get_boson_phaseK2R(self) -> np.ndarray:
+        """Build the phase matrix for bosonic k-to-real-space transforms."""
         
 
         nrk = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
@@ -36,6 +40,7 @@ class BLatDyn(object):
         return phases_T
     
     def _get_boson_phaseR2K(self) -> np.ndarray:
+        """Build the phase matrix for bosonic real-to-k-space transforms."""
 
         nrk = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
 
@@ -50,6 +55,7 @@ class BLatDyn(object):
         return phases_T
 
     def Inverse(self, matin: np.ndarray) -> np.ndarray:
+        """Return block-wise matrix inverses for the input tensor."""
         norb = matin.shape[0]
         ns = matin.shape[2]
         nrk = matin.shape[4]
@@ -69,6 +75,7 @@ class BLatDyn(object):
         return matout
 
     def Moment(self, bf: np.ndarray, oddzero: bool, highzero: bool) -> tuple:
+        """Compute moment corrections for imaginary-frequency transforms."""
         norb = bf.shape[0]
         ns = bf.shape[2]
         nrk = bf.shape[4]
@@ -82,6 +89,7 @@ class BLatDyn(object):
         return moment, high
 
     def F2T(self, bf: np.ndarray) -> np.ndarray:
+        """Transform data from Matsubara frequency to imaginary time."""
         norb = bf.shape[0]
         ns = bf.shape[2]
         nrk = bf.shape[4]
@@ -106,6 +114,7 @@ class BLatDyn(object):
         return btau
 
     def T2F(self, btau: np.ndarray) -> np.ndarray:
+        """Transform data from imaginary time to Matsubara frequency."""
         norb = btau.shape[0]
         ns = btau.shape[2]
         nrk = btau.shape[4]
@@ -128,6 +137,7 @@ class BLatDyn(object):
         return bf
 
     def K2R(self, matk: np.ndarray) -> np.ndarray:
+        """Transform lattice data from reciprocal space to real space."""
         
         norb = matk.shape[0]
         ns = matk.shape[2]
@@ -144,6 +154,7 @@ class BLatDyn(object):
         return matr
 
     def R2K(self, matr: np.ndarray) -> np.ndarray:
+        """Transform lattice data from real space to reciprocal space."""
         norb = matr.shape[0]
         ns = matr.shape[2]
         nrk = matr.shape[4]
@@ -161,6 +172,7 @@ class BLatDyn(object):
         return matk
 
     def GaussianLinearBroad(self, x, y, w1, temperature, cutoff):
+        """Apply Gaussian broadening with temperature-dependent widths."""
         norb = y.shape[0]
         ns = y.shape[2]
         nrk = y.shape[3]
@@ -199,11 +211,13 @@ class BLatDyn(object):
         return ynew
 
     def Mixing(self, iter: int, mix: float, Bb: np.ndarray, Bold: np.ndarray) -> np.ndarray:
+        """Mix a new iterate with history from previous iterations."""
         if iter == 1:
             Bold = np.zeros_like(Bb)
         return self.mixer(iter=iter, mix=mix, Fnew=Bb, Fold=Bold)
 
     def Dyson(self, mat1: np.ndarray, mat2: np.ndarray) -> np.ndarray:
+        """Solve the Dyson equation for the supplied objects."""
         # matout = QAFort.dyson.blatdyn(mat1, mat2)
         return Dyson.BLatDyn(mat1, mat2)
 
@@ -225,6 +239,7 @@ class BLatDyn(object):
     #     return matout
 
     def Quad2Double(self, matin: np.ndarray) -> np.ndarray:
+        """Convert a four-index tensor to paired two-index layout."""
         # norb = len(self.crystal.bind)
         # ns = self.crystal.ns
         # nrk = len(self.crystal.kpoint)
@@ -247,6 +262,7 @@ class BLatDyn(object):
         return matout
 
     def Double2Quad(self, matin: np.ndarray) -> np.ndarray:
+        """Convert a paired two-index tensor to four-index layout."""
         norb = len(self.crystal.find)
         # ns = self.crystal.ns
         # nrk = len(self.crystal.kpoint)
@@ -267,6 +283,7 @@ class BLatDyn(object):
         return matout
 
     def Double2Full(self, matin: np.ndarray) -> np.ndarray:
+        """Embed a paired two-index tensor into the full basis layout."""
         norb = len(self.crystal.find)
         _, _, ns, _, nrk, nft = matin.shape
         nind = norb * norb
@@ -282,6 +299,7 @@ class BLatDyn(object):
         return matout
 
     def Full2Double(self, matin: np.ndarray) -> np.ndarray:
+        """Project a full-basis tensor into paired two-index layout."""
         c2b = np.asarray(self.crystal.c2b, dtype=np.int64)
 
         matout = np.asarray(matin[np.ix_(c2b, c2b)], dtype=np.complex128, order="F")
@@ -289,6 +307,7 @@ class BLatDyn(object):
         return matout
 
     def Quad2Full(self, matin: np.ndarray) -> np.ndarray:
+        """Embed a four-index tensor into the full basis layout."""
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
@@ -308,6 +327,7 @@ class BLatDyn(object):
         return matout
 
     def Full2Quad(self, matin: np.ndarray) -> np.ndarray:
+        """Project a full-basis tensor into four-index layout."""
         norb = len(self.crystal.find)
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
@@ -327,6 +347,7 @@ class BLatDyn(object):
         return matout
 
     def StcEmbedding(self, matin: np.ndarray) -> np.ndarray:
+        """Embed a static tensor into a dynamic tensor layout."""
         norb = matin.shape[0]
         ns = matin.shape[2]
         nrk = matin.shape[4]
@@ -343,6 +364,7 @@ class BLatDyn(object):
         return matout
 
     def Save(self, matin: np.ndarray, fn: str):
+        """Persist calculated arrays to the configured HDF5 output group."""
         norb = matin.shape[0]
         ns = matin.shape[2]
         nrk = matin.shape[4]
@@ -369,6 +391,7 @@ class BLatDyn(object):
         return None
 
     def R2KArb(self, matr: np.ndarray = None, kpoint: np.ndarray = None):  # R2KAny
+        """Transform real-space data to arbitrary k-points."""
         # if self.crystal.kpath == None:
         #     print("Error, kpath doesn't generate")
         #     sys.exit()
@@ -410,10 +433,12 @@ class BLatDyn(object):
         return matk
 
     def CheckGroup(self, filepath: str, group: str):
+        """Ensure that the requested HDF5 group exists before writing."""
         with h5py.File(filepath, "r") as file:
             return group in file
 
     def RT2mRmT(self, ftau: np.ndarray):
+        """Reorder real-space and time axes into mirrored conventions."""
         ftau_mr = self.crystal.R2mR(ftau)
         norb, _, ns, nr, ntau = ftau_mr.shape
         fmtau_mr = np.zeros((norb, norb, ns, nr, ntau), dtype=np.complex128, order="F")
@@ -430,6 +455,7 @@ class BLatDyn(object):
         return fmtau_mr
     
     def TauF2TauB(self, ftau : np.ndarray) -> np.ndarray:
+        """Convert fermionic imaginary-time samples to bosonic time ordering."""
 
         norb, _, ns, nk, _ = ftau.shape
         ntau = len(self.dlr.tauB)
@@ -445,7 +471,9 @@ class BLatDyn(object):
 
 
 class P(BLatDyn):
+    """Bosonic polarization calculator built from fermionic Green functions."""
     def __init__(self,crystal: Crystal,dlr: DLR,g: np.ndarray = None,hdf5file: str = "glob.h5",group: str = None,):
+        """Initialize the polarization calculator from Green-function data."""
         super().__init__(crystal, dlr)
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -484,6 +512,7 @@ class P(BLatDyn):
         print(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
         
     def Cal(self):
+        """Compute the primary array represented by this object."""
         
         ns = self.crystal.ns
         nrk = len(self.crystal.kpoint)
@@ -539,6 +568,7 @@ class P(BLatDyn):
         return None
 
     def Save(self, fn: str):
+        """Persist calculated arrays to the configured HDF5 output group."""
         with h5py.File(self.hdf5file, "a") as file:
             if self.CheckGroup(self.hdf5file, self.group):
                 group = file[self.group]
@@ -555,7 +585,9 @@ class P(BLatDyn):
 
 
 class W(BLatDyn):
+    """Screened interaction calculator for GW workflows."""
     def __init__(self,crystal: Crystal,dlr: DLR,p: np.ndarray = None,v: V = None,c: float = 1.0,hdf5file: str = "glob.h5", group: str = None,):
+        """Initialize the screened-interaction calculator."""
         super().__init__(crystal, dlr)
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
@@ -622,6 +654,7 @@ class W(BLatDyn):
         print(f"Screened Coulomb interaction use time : {datetime.timedelta(seconds=end - start)} s")
 
     def Cal(self):  # calculate W and Wc
+        """Compute the primary array represented by this object."""
         norb = len(self.crystal.bind)
         norbc = len(self.crystal.find)
         ns = self.crystal.ns
@@ -675,6 +708,7 @@ class W(BLatDyn):
         return None
 
     def Save(self, fn: str):
+        """Persist calculated arrays to the configured HDF5 output group."""
         with h5py.File(self.hdf5file, "a") as file:
             if self.CheckGroup(self.hdf5file, self.group):
                 group = file[self.group]

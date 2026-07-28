@@ -1,3 +1,4 @@
+"""Static local bosonic tensors and local interaction parameterizations."""
 import string as string
 from typing import Any
 import matplotlib as mat
@@ -21,12 +22,15 @@ from .utility.Common import Common
 from .utility.Dyson import Dyson
 
 class BLocStc(object):
+    """Base operations for static local bosonic tensors."""
 
     def __init__(self,crystal : Crystal):
+        """Initialize the object and prepare derived state."""
 
         self.crystal = crystal
 
     def Inverse(self, matin : np.ndarray)-> np.ndarray:
+        """Return block-wise matrix inverses for the input tensor."""
 
         norb = matin.shape[0]
         ns = matin.shape[2]
@@ -43,6 +47,7 @@ class BLocStc(object):
         return matout
     
     def Mixing(self, iter : int, mix : float, Bb : np.ndarray, Bold : np.ndarray)-> np.ndarray:
+        """Mix a new iterate with history from previous iterations."""
 
         norb = Bb.shape[0]
         ns = Bb.shape[2]
@@ -58,6 +63,7 @@ class BLocStc(object):
         return Bnew
 
     def Imp2Loc(self,matimp : np.ndarray)-> np.ndarray:
+        """Expand impurity-space tensors into local orbital layout."""
 
         norb = matimp.shape[0]
         ns = matimp.shape[2]
@@ -77,6 +83,7 @@ class BLocStc(object):
         return matloc
         
     def Loc2Imp(self,matimp : np.ndarray)-> np.ndarray:
+        """Project local orbital tensors into impurity-space layout."""
 
         norb = matimp.shape[0]
         ns = matimp.shape[2]
@@ -96,6 +103,7 @@ class BLocStc(object):
         return matloc
     
     def Arr2Dict(self, equiv : np.ndarray, matin : np.ndarray) -> dict:
+        """Convert an array representation into an equivalent-site dictionary."""
 
         ns = matin.shape[2]
         nind = np.amax(equiv)
@@ -116,6 +124,7 @@ class BLocStc(object):
         return matdict
     
     def Dict2Arr(self, equiv : np.ndarray, matdict : dict) -> np.ndarray:
+        """Convert an equivalent-site dictionary into an array representation."""
 
         norb = len(equiv)
         ns = self.crystal.ns
@@ -132,6 +141,7 @@ class BLocStc(object):
         return matout
 
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
+        """Solve the Dyson equation for the supplied objects."""
 
         norb = mat1.shape[0]
         ns = mat1.shape[2]
@@ -157,6 +167,7 @@ class BLocStc(object):
     #     return matout
     
     def Double2Quad(self, matin):
+        """Convert a paired two-index tensor to four-index layout."""
 
         norb = len(self.crystal.bind)
         norbc = len(self.crystal.find)
@@ -171,6 +182,7 @@ class BLocStc(object):
         return matout
     
     def Quad2Double(self,matin):
+        """Convert a four-index tensor to paired two-index layout."""
 
         norb = len(self.crystal.bind)
         norbc = len(self.crystal.find)
@@ -185,6 +197,7 @@ class BLocStc(object):
         return matout
     
     def Double2Full(self,matin):
+        """Embed a paired two-index tensor into the full basis layout."""
 
         norb = len(self.crystal.bind)
         norbc = len(self.crystal.find)
@@ -199,6 +212,7 @@ class BLocStc(object):
         return matin
     
     def Full2Double(self,matin):
+        """Project a full-basis tensor into paired two-index layout."""
 
         norb = len(self.crystal.bind)
         norbc = len(self.crystal.find)
@@ -213,6 +227,7 @@ class BLocStc(object):
         return matout
     
     def Quad2Full(self,matin):
+        """Embed a four-index tensor into the full basis layout."""
 
         norb = len(self.crystal.bind)
         norbc = len(self.crystal.find)
@@ -227,6 +242,7 @@ class BLocStc(object):
         return matout
     
     def Full2Quad(self,matin):
+        """Project a full-basis tensor into four-index layout."""
 
         norb = len(self.crystal.bind)
         norbc = len(self.crystal.find)
@@ -241,6 +257,7 @@ class BLocStc(object):
         return matout
     
     def Save(self,matin : np.ndarray, fn : str):
+        """Persist calculated arrays to the configured HDF5 output group."""
 
         norb = matin.shape[0]
         ns = matin.shape[2]
@@ -263,8 +280,10 @@ class BLocStc(object):
         return None
 
 class VLoc(BLocStc):
+    """Local interaction tensor builder for impurity models."""
 
     def __init__(self, crystal: Crystal,voption : dict = None):
+        """Initialize local interaction tensors from crystal data and options."""
         super().__init__(crystal)
         norb = len(self.crystal.bind)
         ns = self.crystal.ns
@@ -277,6 +296,7 @@ class VLoc(BLocStc):
         # self.GenOnsite()
 
     def SetLocalInteracting(self,voption : dict):
+        """Populate local interaction tensors from user options."""
         
         ns = self.crystal.ns
 
@@ -381,6 +401,7 @@ class VLoc(BLocStc):
         return None
     
     def GenOnsite(self):
+        """Generate onsite interaction entries from local tensors."""
         
         norbc = len(self.crystal.find)
         ns = self.crystal.ns
@@ -402,6 +423,7 @@ class VLoc(BLocStc):
 
     
     def KanamoriParameter(self, norb : int, val : list) -> np.ndarray:
+        """Build a Kanamori interaction tensor."""
 
         # print("Warning : In kanamori interaction, self interaction term has been added")
         ns = self.crystal.ns
@@ -431,6 +453,7 @@ class VLoc(BLocStc):
 
 
     def SlaterParameter(self, l : int = None,norbc : int=None, val : list=None, sc : str = 'c') -> np.ndarray:
+        """Build a Slater-parameter interaction tensor."""
         
         # error message
         # print("Only calculate the odd number of orbitals")    
@@ -478,6 +501,7 @@ class VLoc(BLocStc):
     
     
     def SlaterKanamori(self,l : int,norb : int, val : list) -> np.ndarray :
+        """Convert Slater parameters to a Kanamori-style tensor."""
 
         U = val[0]
         Up = val[1]
@@ -512,6 +536,7 @@ class VLoc(BLocStc):
             return v
         
     def AngularIntegral(self,l,k,m1,m2,m3,m4):
+        """Evaluate angular integrals for Slater interactions."""
 
         ang_int = 0
         pi = np.pi
@@ -524,6 +549,7 @@ class VLoc(BLocStc):
         return ang_int
 
     def RotationMatrix(self,l : int):
+        """Return the spherical-to-cubic harmonic rotation matrix."""
 
         mrange = int(2*l+1)
         R = np.zeros((mrange,mrange),dtype=np.complex128)
@@ -589,6 +615,7 @@ class VLoc(BLocStc):
         return R
     
     def Spherical2Cubic(self,v : np.ndarray,l : int):
+        """Rotate an interaction tensor from spherical to cubic harmonics."""
         
         
         R = self.RotationMatrix(l)
@@ -603,6 +630,7 @@ class VLoc(BLocStc):
 
 
     def GetUijklComCTQMC(self, key):
+        """Return CTQMC-formatted local interaction entries."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns

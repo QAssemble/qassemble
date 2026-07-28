@@ -1,3 +1,4 @@
+"""Dynamic fermionic lattice Green functions and self-energy utilities."""
 import numpy as np
 import sys
 import scipy.optimize
@@ -17,7 +18,9 @@ from .utility.Mixing import Mixing
 # import QAFort
 
 class FLatDyn(object):
+    """Base operations for dynamic fermionic lattice tensors."""
     def __init__(self,crystal : Crystal, dlr : DLR, mixing_method: str = "pulay", npulay: int = 5) -> object:
+        """Initialize the object and prepare derived state."""
         self.crystal = crystal
         self.dlr = dlr
         self._mixer = Mixing(method=mixing_method, npulay=npulay)
@@ -26,6 +29,7 @@ class FLatDyn(object):
         self._fermion_phase_cache_r2k = self._get_fermion_phaseR2K()
 
     def _get_fermion_phaseK2R(self) -> np.ndarray:
+        """Build the phase matrix for fermionic k-to-real-space transforms."""
         
         nrk = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
 
@@ -41,6 +45,7 @@ class FLatDyn(object):
         return phases_T
     
     def _get_fermion_phaseR2K(self) -> np.ndarray:
+        """Build the phase matrix for fermionic real-to-k-space transforms."""
         
         nrk = self.crystal.rkgrid[0]*self.crystal.rkgrid[1]*self.crystal.rkgrid[2]
 
@@ -56,6 +61,7 @@ class FLatDyn(object):
         return phases_T
         
     def Inverse(self, mat : np.ndarray) -> np.ndarray:
+        """Return block-wise matrix inverses for the input tensor."""
 
         norb = mat.shape[0]
         ns = mat.shape[2]
@@ -75,6 +81,7 @@ class FLatDyn(object):
 
     
     def T2F(self,ftau : np.ndarray) -> np.ndarray:
+        """Transform data from imaginary time to Matsubara frequency."""
 
         norb = ftau.shape[0]
         ns = ftau.shape[2]
@@ -95,6 +102,7 @@ class FLatDyn(object):
         return ff
 
     def F2T(self,ff : np.ndarray) -> np.ndarray:
+        """Transform data from Matsubara frequency to imaginary time."""
 
         norb = ff.shape[0]
         ns = ff.shape[2]
@@ -116,6 +124,7 @@ class FLatDyn(object):
 
     
     def Moment(self,ff : np.ndarray, isgreen : bool, highzero : bool) -> tuple:
+        """Compute moment corrections for imaginary-frequency transforms."""
 
         norb = ff.shape[0]
         ns = ff.shape[2]
@@ -137,6 +146,7 @@ class FLatDyn(object):
     
     
     def K2R(self,matk : np.ndarray, rkgrid : list = None) -> np.ndarray:
+        """Transform lattice data from reciprocal space to real space."""
 
         rkvec = self.crystal.kpoint
         if rkgrid == None:
@@ -170,6 +180,7 @@ class FLatDyn(object):
         return matr
     
     def R2K(self, matr : np.ndarray) -> np.ndarray:
+        """Transform lattice data from real space to reciprocal space."""
 
         rkgrid = self.crystal.rkgrid
 
@@ -191,6 +202,7 @@ class FLatDyn(object):
     
     
     def GaussianLinearBroad(self,x, y, w1, temperature, cutoff):
+        """Apply Gaussian broadening with temperature-dependent widths."""
 
         norb = y.shape[0]
         ns = y.shape[2]
@@ -220,16 +232,19 @@ class FLatDyn(object):
         return ynew
     
     def Mixing(self, iter : int, mix : float, Fb : np.ndarray, Fm : np.ndarray) -> np.ndarray:
+        """Mix a new iterate with history from previous iterations."""
         if iter == 1:
             Fm = np.zeros_like(Fb)
         return self._mixer(iter=iter, mix=mix, Fnew=Fb, Fold=Fm)
     
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
+        """Solve the Dyson equation for the supplied objects."""
 
         # matout = QAFort.dyson.flatdyn(mat1,mat2)
         return Dyson.FLatDyn(mat1, mat2)
     
     def ChemEmbedding(self,mu : np.float64) -> np.ndarray:
+        """Build the chemical-potential shift in the current basis."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -247,6 +262,7 @@ class FLatDyn(object):
         return chem
     
     def StcEmbedding(self, matin : np.ndarray) -> np.ndarray:
+        """Embed a static tensor into a dynamic tensor layout."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -262,12 +278,14 @@ class FLatDyn(object):
     
     
     def CheckGroup(self, filepath :str, group : str):
+        """Ensure that the requested HDF5 group exists before writing."""
         
         with h5py.File(filepath,'r') as file:
             return group in file
         
     
     def Spectral(self, green : np.ndarray):
+        """Compute a spectral function from Green-function data."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -281,6 +299,7 @@ class FLatDyn(object):
         return akf
     
     def R2KArb(self,matr : np.ndarray = None,kpoint : np.ndarray = None): # R2KAny
+        """Transform real-space data to arbitrary k-points."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -309,6 +328,7 @@ class FLatDyn(object):
         return matk
 
     def KArb(self, matr : np.ndarray = None, kpoint : np.ndarray = None):
+        """Evaluate k-space data on arbitrary frequencies or paths."""
 
         norb = matr.shape[0]
         ns = matr.shape[2]
@@ -349,6 +369,7 @@ class FLatDyn(object):
         return matk
     
     def R2mR(self, matin : np.ndarray) -> np.ndarray:
+        """Map real-space indexed tensors to negative real-space indices."""
 
         self.crystal.R2mR()
 
@@ -360,6 +381,7 @@ class FLatDyn(object):
         return matout
     
     def T2mT(self, ftau : np.ndarray) -> np.ndarray:
+        """Map imaginary-time indexed tensors to negative time indices."""
 
         taum = self.dlr.beta - self.dlr.tauF
 
@@ -380,6 +402,7 @@ class FLatDyn(object):
         return fout
 
     def TauB2TauF(self, ftau : np.ndarray) -> np.ndarray:
+        """Convert bosonic imaginary-time samples to fermionic time ordering."""
 
         norb, _, ns, ns2, nk, ntauB = ftau.shape
         ftau_t = np.moveaxis(ftau, -1, 0)  # (ntauB, norb, norb, ns, ns2, nk)
@@ -396,6 +419,7 @@ class FLatDyn(object):
         return fout
     
     def Diagonalize(self, matk : np.ndarray):
+        """Diagonalize each matrix block in the supplied tensor."""
 
         norb, _, ns, nk, nfreq = matk.shape
 
@@ -413,8 +437,10 @@ class FLatDyn(object):
 
     
 class G0(FLatDyn):
+    """Bare fermionic lattice Green-function calculator."""
 
     def __init__(self, crystal: Crystal, dlr : DLR, h0 : np.ndarray = None, hdf5file : str = None, group : str = None) -> object:
+        """Initialize the bare Green-function calculator."""
         
         super().__init__(crystal, dlr)
         # print(self.h0.h0[...,0,0])
@@ -438,6 +464,7 @@ class G0(FLatDyn):
         
 
     def Cal(self): # freq, tau combine
+        """Compute the primary array represented by this object."""
         
         from .utility.Bare import Bare
         # print(self.h0[:,:,0,0])
@@ -458,6 +485,7 @@ class G0(FLatDyn):
         return None
     
     def Save(self):
+        """Persist calculated arrays to the configured HDF5 output group."""
 
         # if os.path.exists('g0'):
         #     pass
@@ -479,8 +507,10 @@ class G0(FLatDyn):
         return None
     
 class G(FLatDyn):
+    """Interacting fermionic lattice Green-function calculator."""
 
     def __init__(self, crystal: Crystal, dlr : DLR, g0 : np.ndarray = None, sigh : np.ndarray = None, sigf : np.ndarray = None, siggwc : np.ndarray = None, hdf5file : str = 'glob.h5', group : str = None) -> object:
+        """Initialize the interacting Green-function calculator."""
         
         if g0 is None:
             print("Bare Green's function doesn't exist")
@@ -523,6 +553,7 @@ class G(FLatDyn):
         print(f"Calculation Time : {str(datetime.timedelta(seconds=end-start))}")
 
     def CalMu0(self):
+        """Compute the chemical potential for the non-interacting reference."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -563,6 +594,7 @@ class G(FLatDyn):
         return None
     
     def Occ(self):
+        """Compute occupation matrices from eigenvalues and eigenvectors."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -601,6 +633,7 @@ class G(FLatDyn):
         return None
     
     def UpdateMu(self) -> np.ndarray:
+        """Recompute Green-function data after updating the chemical potential."""
 
         print("Chemical potential shift start")
         norb = len(self.crystal.find)
@@ -627,6 +660,7 @@ class G(FLatDyn):
         return None
     
     def NumOfE(self, mu : np.float64):
+        """Evaluate the electron count at a trial chemical potential."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -662,6 +696,7 @@ class G(FLatDyn):
         return (self.crystal.nume - Ne)
 
     def SearchMu(self):
+        """Find the chemical potential matching the target electron count."""
 
         print("Finding chemical potential start")
         mumin = self.dlr.omega[0]
@@ -697,6 +732,7 @@ class G(FLatDyn):
         return None
     
     def Save(self, fn: str, chem : bool = False):
+        """Persist calculated arrays to the configured HDF5 output group."""
 
         
         with h5py.File(self.hdf5file,'a') as file:
@@ -719,8 +755,10 @@ class G(FLatDyn):
 
     
 class SigGWC(FLatDyn):
+    """Correlation self-energy calculator for GW workflows."""
 
     def __init__(self, crystal: Crystal, dlr : DLR, g : np.ndarray = None, w : np.ndarray = None, hdf5file : str = 'glob.h5',group : str = None) -> object:
+        """Initialize the GW correlation self-energy calculator."""
         super().__init__(crystal, dlr)
         self.flatstc = FLatStc(crystal=crystal)
         norb, _, ns, nk, nfreq = g.shape
@@ -841,6 +879,7 @@ class SigGWC(FLatDyn):
         return None
     
     def SigmaStc(self):
+        """Extract the static self-energy component."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -857,6 +896,7 @@ class SigGWC(FLatDyn):
         return None
     
     def Zfactor(self):
+        """Compute quasiparticle renormalization factors from self-energy data."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -879,6 +919,7 @@ class SigGWC(FLatDyn):
         return None
     
     def Save(self, fn: str, obj : np.ndarray = None):
+        """Persist calculated arrays to the configured HDF5 output group."""
 
         with h5py.File(self.hdf5file,'a') as file:
             if self.CheckGroup(self.hdf5file,self.group):
@@ -900,8 +941,10 @@ class SigGWC(FLatDyn):
         return None
 
 class GreenAB(FLatDyn):
+    """Adapter for mapping Green functions between indexed k-space formats."""
 
     def __init__(self, crystal: Crystal, dlr : DLR) -> object:
+        """Initialize the object and prepare derived state."""
         super().__init__(crystal, dlr)
 
         glob = h5py.File('../../glob_dat/global.dat', 'r')
@@ -913,6 +956,7 @@ class GreenAB(FLatDyn):
         glob.close()
 
     def KI2KF(self):
+        """Handle k i2 k f operations."""
 
         tempmat = np.zeros((self.nbndf[0], self.nbndf[0], self.n3[0], len(self.kpt_latt), self.crystal.ns), dtype=np.complex128, order='F')
 

@@ -1,3 +1,4 @@
+"""Dynamic fermionic path-space spectral analysis utilities."""
 import copy
 import os
 import re as re
@@ -21,6 +22,7 @@ from .utility.Fourier import Fourier
 
 
 class FPathDyn(object):
+    """Dynamic fermionic path-space analysis container."""
 
     def __init__(
         self,
@@ -31,6 +33,7 @@ class FPathDyn(object):
         nk: int = None,
         hdf5file: str = "glob.h5",
     ):
+        """Initialize the object and prepare derived state."""
 
         if (crystal is not None) and (dlr is not None) and (obj is not None):
             pass
@@ -94,6 +97,7 @@ class FPathDyn(object):
                 self.k = self.R2K(matr=obj.rf, kpoint=self.kpath)
 
     def CheckKeyinString(self, key: str, dictionary: dict):
+        """Validate that a required key is present in an input dictionary."""
 
         if key not in dictionary:
             print("missing '" + key + "' in input", flush=True)
@@ -101,6 +105,7 @@ class FPathDyn(object):
         return None
 
     def Inverse(self, mat: np.ndarray) -> np.ndarray:
+        """Return block-wise matrix inverses for the input tensor."""
 
         norb = mat.shape[0]
         ns = mat.shape[2]
@@ -119,6 +124,7 @@ class FPathDyn(object):
         return matinv
 
     def R2K(self, matr: np.ndarray = None, kpoint: np.ndarray = None):  # R2KAny
+        """Transform lattice data from real space to reciprocal space."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -152,6 +158,7 @@ class FPathDyn(object):
         return matk
 
     def KArb(self, matk: np.ndarray = None, kpoint: np.ndarray = None, omega : np.ndarray = None):  ## naming
+        """Evaluate k-space data on arbitrary frequencies or paths."""
 
         norb = matk.shape[0]
         ns = matk.shape[2]
@@ -437,6 +444,7 @@ class FPathDyn(object):
         return xnew, sig_real
 
     def Spectral(self, option: dict = None):
+        """Compute a spectral function from Green-function data."""
 
         print("Spectral calculation start")
         gauxmode = option["gauxmode"]
@@ -484,6 +492,7 @@ class FPathDyn(object):
         return None
 
     def MQEMPrepare(self, gmat : np.ndarray = None, omega : np.ndarray = None):
+        """Prepare Green-function data for maximum-entropy input."""
 
         norb, _, ns, nk, nomega = gmat.shape
 

@@ -1,10 +1,13 @@
+"""Discrete Lehmann representation grids and transform wrappers."""
 import numpy as np
 from pydlr import dlr
 from .Common import Common
 
 
 class DLR(object):
+    """Wrapper around DLR grids and imaginary-time/frequency transforms."""
     def __init__(self, ft: dict = None) -> object:
+        """Initialize DLR grids, nodes, and transform matrices."""
         # self.T = ft.get('T',300) #ft['T']
         # self.beta = ft['beta']
         if "T" not in ft:
@@ -34,6 +37,7 @@ class DLR(object):
         self.nu = dB.get_matsubara_frequencies(self.beta).imag
 
     def TauUniform(self) -> np.ndarray:
+        """Return a uniform imaginary-time grid."""
         ntau = int((self.beta / np.pi * self.cutoff - 1) / 2) * 2
         tau = np.zeros((ntau), dtype=float, order="F")
         for itau in range(ntau):
@@ -46,6 +50,7 @@ class DLR(object):
         return tau
 
     def MatsubaraFermionUniform(self, Emax : np.float64 = None, beta : np.float64 = None) -> np.ndarray:
+        """Return a uniform fermionic Matsubara-frequency grid."""
         Emax = self.omega[-1]
         Emin = self.omega[0]
         # nomega = int((self.beta/np.pi*Emax - 1)/2)
@@ -65,6 +70,7 @@ class DLR(object):
         return omega
 
     def MatsubaraBosonUniform(self) -> np.ndarray:
+        """Return a uniform bosonic Matsubara-frequency grid."""
         Emax = self.nu[-1]
         Emin = self.nu[0]
 
@@ -109,6 +115,7 @@ class DLR(object):
         return btau
 
     def TauDLR2Uniform(self, ftau: np.ndarray):
+        """Interpolate DLR imaginary-time data onto a uniform grid."""
         ntau = len(ftau)
         ftau = ftau.reshape(ntau, 1, 1)
 
@@ -137,6 +144,7 @@ class DLR(object):
         return fout[:, 0, 0]
 
     def TauDLR2Uniform_v2(self, ftau: np.ndarray):
+        """Interpolate DLR imaginary-time data using the stored tau grid."""
         fxx = self.dF.dlr_from_tau(ftau.T)
 
         tau = np.linspace(self.beta - 1, self.beta, num=1000)
@@ -146,6 +154,7 @@ class DLR(object):
         return fout
 
     def TauUniform2DLR(self, ftau: np.ndarray):
+        """Sample uniform imaginary-time data on DLR nodes."""
         # shape = ftau.shape
         tau = self.TauUniform()
         fxx = self.dF.lstsq_dlr_from_tau(tau_i=tau, G_iaa=ftau.T, beta=self.beta)
@@ -155,6 +164,7 @@ class DLR(object):
         return fout
 
     def MatsubaraDLR2Uniform(self, ff: np.ndarray, sign: int = -1):
+        """Interpolate DLR Matsubara data onto a uniform frequency grid."""
         from scipy.linalg import lu_solve
         if sign == -1:
             fxx = self.dF.dlr_from_matsubara(ff, beta=self.beta, xi=sign)
@@ -169,6 +179,7 @@ class DLR(object):
         return fout
 
     def T2mT(self, ftau: np.ndarray, tau: np.ndarray = None) -> np.ndarray:
+        """Map imaginary-time indexed tensors to negative time indices."""
         if tau is None:
             tau = self.tauB
         taum = self.beta - tau
@@ -180,11 +191,13 @@ class DLR(object):
         return fout
     
     def TauF2TauB(self, ftau : np.ndarray) -> np.ndarray:
+        """Convert fermionic imaginary-time samples to bosonic time ordering."""
         fxx = self.dF.dlr_from_tau(ftau)
         tempmat = self.dF.eval_dlr_tau(fxx[:, None, None], self.tauB, self.beta)
         return tempmat[:, 0, 0]
 
     def TauB2TauF(self, ftau : np.ndarray) -> np.ndarray:
+        """Convert bosonic imaginary-time samples to fermionic time ordering."""
         fxx = self.dB.dlr_from_tau(ftau)
         tempmat = self.dB.eval_dlr_tau(fxx[:, None, None], self.tauF, self.beta)
         return tempmat[:, 0, 0]

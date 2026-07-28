@@ -1,3 +1,4 @@
+"""Dynamic bosonic path-space utilities for HDF5-backed workflows."""
 # import string as string
 # from typing import Any
 # import matplotlib as mat

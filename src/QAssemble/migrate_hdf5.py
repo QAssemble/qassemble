@@ -59,6 +59,7 @@ def _migration_targets(path: Path) -> list[tuple[str, str, str]]:
 
 
 def _apply_targets(path: Path, targets: list[tuple[str, str, str]]) -> None:
+    """Apply the selected HDF5 migration targets in place."""
     with h5py.File(path, "r+") as h5file:
         for parent_path, old_name, new_name in targets:
             parent = h5file[parent_path]
@@ -73,6 +74,7 @@ def _apply_targets(path: Path, targets: list[tuple[str, str, str]]) -> None:
 
 
 def _verify_targets(path: Path, targets: list[tuple[str, str, str]]) -> None:
+    """Verify that migrated HDF5 targets exist and old groups were removed."""
     with h5py.File(path, "r") as h5file:
         for parent_path, old_name, new_name in targets:
             parent = h5file[parent_path]
@@ -134,6 +136,7 @@ def migrate_file(
 
 
 def _parser() -> argparse.ArgumentParser:
+    """Construct the command-line parser for the migration tool."""
     parser = argparse.ArgumentParser(
         description="Migrate QAssemble HDF5 class groups to the manuscript names."
     )
@@ -146,6 +149,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the command-line entry point."""
     parser = _parser()
     args = parser.parse_args(argv)
     try:

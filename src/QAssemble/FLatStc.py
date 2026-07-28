@@ -1,3 +1,4 @@
+"""Static fermionic lattice Hamiltonians, self-energies, and analysis tools."""
 import copy
 import itertools
 import sys
@@ -21,13 +22,16 @@ from .utility.Mixing import Mixing
 
 
 class FLatStc(object):
+    """Base operations for static fermionic lattice tensors."""
 
     def __init__(self, crystal: Crystal, mixing_method: str = "pulay", npulay: int = 5):
+        """Initialize the object and prepare derived state."""
 
         self.crystal = crystal
         self._mixer = Mixing(method=mixing_method, npulay=npulay)
 
     def Inverse(self, mat: np.ndarray):
+        """Return block-wise matrix inverses for the input tensor."""
 
         norb = mat.shape[0]
         ns = mat.shape[2]
@@ -42,6 +46,7 @@ class FLatStc(object):
         return matinv
 
     def K2R(self, matk: np.ndarray = None, rkgrid: list = None) -> np.ndarray:
+        """Transform lattice data from reciprocal space to real space."""
 
         if rkgrid == None:
             rkgrid = self.crystal.rkgrid
@@ -73,6 +78,7 @@ class FLatStc(object):
         return matr
 
     def R2K(self, matr: np.ndarray = None, rkgrid: list = None) -> np.ndarray:
+        """Transform lattice data from real space to reciprocal space."""
 
         if rkgrid == None:
             rkgrid = self.crystal.rkgrid
@@ -108,6 +114,7 @@ class FLatStc(object):
         plotoption: bool = False,
         label: list = None,
     ):
+        """Compute band energies along the configured k-point path."""
 
         norb = energy.shape[0]
         ns = energy.shape[2]
@@ -166,6 +173,7 @@ class FLatStc(object):
         return None
 
     def Diagonalize(self, matk: np.ndarray, eigvec: bool = False):
+        """Diagonalize each matrix block in the supplied tensor."""
 
         nk = matk.shape[3]
         norb = matk.shape[0]
@@ -204,6 +212,7 @@ class FLatStc(object):
             return energy, evec
 
     def Gaussian(self, x, mu, sigma=0.1):
+        """Evaluate a Gaussian broadening kernel."""
 
         return np.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
 
@@ -216,6 +225,7 @@ class FLatStc(object):
         emax: float = 10,
         emin: float = -10,
     ):
+        """Compute the density of states on an energy grid."""
 
         print("***** DOS Calculation Start *****")
         norb = len(self.crystal.find)
@@ -300,6 +310,7 @@ class FLatStc(object):
         return None
 
     def Visualization(self, energy: np.ndarray, grid : list = None, fn: str = None):
+        """Write visualization output for energy data on a regular grid."""
 
         if grid is None:
             grid = self.crystal.rkgrid
@@ -352,11 +363,13 @@ class FLatStc(object):
     def Mixing(
         self, iter: int, mix: float, Fb: np.ndarray, Fm: np.ndarray
     ) -> np.ndarray:
+        """Mix a new iterate with history from previous iterations."""
         if iter == 1:
             Fm = np.zeros_like(Fb)
         return self._mixer(iter=iter, mix=mix, Fnew=Fb, Fold=Fm)
 
     def ChemEmbedding(self, mu: float) -> np.ndarray:
+        """Build the chemical-potential shift in the current basis."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -372,6 +385,7 @@ class FLatStc(object):
         return chem
 
     def Dyson(self, mat1: np.ndarray, mat2: np.ndarray):
+        """Solve the Dyson equation for the supplied objects."""
 
         # matout = QAFort.dyson.flatstc(mat1, mat2)
         return Dyson.FLatStc(mat1, mat2)
@@ -416,6 +430,7 @@ class FLatStc(object):
     #     return None
 
     def R2KArb(self, matr: np.ndarray = None, kpoint: np.ndarray = None):  # R2KAny
+        """Transform real-space data to arbitrary k-points."""
 
         # if self.crystal.kpath == None:
         #     print("Error, kpath doesn't generate")
@@ -448,6 +463,7 @@ class FLatStc(object):
         return matk
 
     def HermitianCheck(self, matin: np.ndarray):
+        """Report whether each matrix block is Hermitian."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -467,11 +483,13 @@ class FLatStc(object):
         return None
 
     def CheckGroup(self, filepath: str, group: str):
+        """Ensure that the requested HDF5 group exists before writing."""
 
         with h5py.File(filepath, "r") as file:
             return group in file
         
     def SortKpoint(self, kp : np.ndarray, p1, p2):
+        """Sort k-points along a selected reciprocal-space direction."""
 
         kx, ky = kp
         kx1, ky1 = p1
@@ -480,6 +498,7 @@ class FLatStc(object):
         return (ky-ky1)*(kx2-kx1) - (kx-kx1)*(ky2-ky1) >= 0
     
     def KValley(self, kgrid : list = None):
+        """Return valley-resolved k-point selections."""
 
         # grid = self.crystal.rkgrid
         if (kgrid is None):
@@ -502,12 +521,14 @@ class FLatStc(object):
 
 
 class H0(FLatStc):
+    """Tight-binding Hamiltonian builder."""
 
     def __init__(
         self, crystal: Crystal = None, hopping: dict = None, onsite: dict = None, spin : bool = False, 
         ferro : bool = False, aferro : bool = False, valley: bool = False, avalley : bool = False, site : bool = False, 
         asite : bool = False, hdf5file: h5py.File = None, group: str = None,
     ):
+        """Initialize the tight-binding Hamiltonian builder."""
 
         super().__init__(crystal)
 
@@ -548,6 +569,7 @@ class H0(FLatStc):
         print("Non-interacting Hamiltonian Calculation Finish")
 
     def Cal(self):  # GenHam
+        """Compute the primary array represented by this object."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -638,6 +660,7 @@ class H0(FLatStc):
         return None
 
     def Save(self):
+        """Persist calculated arrays to the configured HDF5 output group."""
 
         # if os.path.exists('h0_group'):
         #     pass
@@ -672,6 +695,7 @@ class H0(FLatStc):
         return None
 
     def Valley(self):
+        """Apply valley ordering to the Hamiltonian data."""
 
         # kpoint = self.crystal.kpoint
 
@@ -710,6 +734,7 @@ class H0(FLatStc):
         return None
     
     def AntiValley(self):
+        """Apply anti-valley ordering to the Hamiltonian data."""
 
         # kpoint = self.crystal.kpoint
 
@@ -758,6 +783,7 @@ class H0(FLatStc):
 
 
 class SigH(FLatStc):
+    """Hartree self-energy calculator."""
 
     def __init__(
         self,
@@ -767,6 +793,7 @@ class SigH(FLatStc):
         hdf5file: str = "glob.h5",
         group: str = None,
     ):  # green -> occ
+        """Initialize the Hartree self-energy calculator."""
         super().__init__(crystal)
         self.r = None
         self.k = None
@@ -782,6 +809,7 @@ class SigH(FLatStc):
         print("Hartree Self-energy Calculation Finish")
 
     def Cal(self):
+        """Compute the primary array represented by this object."""
         # v = self.v.k
         occ = self.occ
         # vk = self.v.Double2Quad(self.v.k)
@@ -907,6 +935,7 @@ class SigH(FLatStc):
         return None
 
     def Save(self, fn: str):
+        """Persist calculated arrays to the configured HDF5 output group."""
 
         # os.chdir('work')
 
@@ -936,6 +965,7 @@ class SigH(FLatStc):
 
 
 class SigF(FLatStc):
+    """Fock self-energy calculator."""
 
     def __init__(
         self,
@@ -945,6 +975,7 @@ class SigF(FLatStc):
         hdf5file: str = "glob.h5",
         group: str = None,
     ):  # green -> occ
+        """Initialize the Fock self-energy calculator."""
         super().__init__(crystal)
         self.r = None
         self.k = None
@@ -961,6 +992,7 @@ class SigF(FLatStc):
         # self.MakeDyn()
 
     def Cal(self):
+        """Compute the primary array represented by this object."""
 
         # g0rt = self.green.glatrt
         occr = self.occr
@@ -1014,6 +1046,7 @@ class SigF(FLatStc):
         return None
 
     def Save(self, fn: str):
+        """Persist calculated arrays to the configured HDF5 output group."""
 
         # os.chdir('work')
 
@@ -1043,6 +1076,7 @@ class SigF(FLatStc):
 
 
 class H(FLatStc):
+    """Interacting Hamiltonian and occupation calculator."""
 
     def __init__(
         self,
@@ -1056,6 +1090,7 @@ class H(FLatStc):
         hdf5file: str = "glob.h5",
         group: str = None,
     ):
+        """Initialize the interacting Hamiltonian calculator."""
         super().__init__(crystal)
 
         self.occ = None
@@ -1081,6 +1116,7 @@ class H(FLatStc):
         print("Hamiltonian with Self-energy Calculation Finish")
 
     def CalMu0(self) -> np.ndarray:
+        """Compute the chemical potential for the non-interacting reference."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -1121,6 +1157,7 @@ class H(FLatStc):
         return None
 
     def NumOfE(self, mu: float) -> np.ndarray:
+        """Evaluate the electron count at a trial chemical potential."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -1143,6 +1180,7 @@ class H(FLatStc):
         return N - Ne
 
     def SearchMu(self):
+        """Find the chemical potential matching the target electron count."""
 
         energy = self.Diagonalize(self.hkmu0)
         norb = energy.shape[0]
@@ -1165,6 +1203,7 @@ class H(FLatStc):
         return None
 
     def Occ(self) -> np.ndarray:
+        """Compute occupation matrices from eigenvalues and eigenvectors."""
 
         norb = len(self.crystal.find)
         ns = self.crystal.ns
@@ -1200,6 +1239,7 @@ class H(FLatStc):
         return None
 
     def UpdateMu(self) -> np.ndarray:
+        """Recompute Green-function data after updating the chemical potential."""
 
         chem = self.ChemEmbedding(self.mu)
 
@@ -1212,6 +1252,7 @@ class H(FLatStc):
         return None
 
     def Save(self, fn: str, chem: bool = False):
+        """Persist calculated arrays to the configured HDF5 output group."""
         # os.chdir('work')
 
         # filepath = 'flatstc.h5'
@@ -1241,6 +1282,7 @@ class H(FLatStc):
         return None
     
     def OccMixing(self, iter : int = None, mix : float = None, occkb : np.ndarray = None, occkm : np.ndarray = None) -> np.ndarray:
+        """Mix occupation matrices across self-consistency iterations."""
 
         norb = occkb.shape[0]
         ns = occkb.shape[2]
@@ -1262,8 +1304,10 @@ class H(FLatStc):
         return None
 
 class HamiltonianAB(FLatStc):
+    """Adapter for mapping Hamiltonians between indexed k-space formats."""
 
     def __init__(self, crystal: Crystal):
+        """Initialize the object and prepare derived state."""
         super().__init__(crystal)
 
         glob = h5py.File('../../glob_dat/global.dat', 'r')
@@ -1275,6 +1319,7 @@ class HamiltonianAB(FLatStc):
         glob.close()
 
     def KI2KF(self):
+        """Handle k i2 k f operations."""
         
         tempmat = np.zeros((self.nbndf[0], self.nbndf[0], self.n3[0], len(self.kpt_latt), self.crystal.ns), dtype=np.complex128, order='F')
 
@@ -1294,8 +1339,10 @@ class HamiltonianAB(FLatStc):
         return None
     
 class ZFactor(FLatStc):
+    """Static quasiparticle renormalization calculator."""
 
     def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
+        """Initialize the object and prepare derived state."""
 
         super().__init__(crystal)
 
@@ -1312,6 +1359,7 @@ class ZFactor(FLatStc):
         print("Z-factor Calculation Finish")
 
     def Cal(self):
+        """Compute the primary array represented by this object."""
 
         norb, _, ns, nk, nomega = self.sigmac.shape
 
@@ -1340,6 +1388,7 @@ class ZFactor(FLatStc):
         return None
     
     def Save(self, fn: str, obj : np.ndarray = None):
+        """Persist calculated arrays to the configured HDF5 output group."""
 
         with h5py.File(self.hdf5file,'a') as file:
             if self.CheckGroup(self.hdf5file,self.group):
@@ -1362,8 +1411,10 @@ class ZFactor(FLatStc):
 
 
 class SigmaStc(FLatStc):
+    """Static self-energy extractor."""
 
     def __init__(self, crystal : Crystal, sigmac : np.ndarray = None, beta : np.float64 = None, hdf5file : str = 'glob.h5',group : str = None):
+        """Initialize the object and prepare derived state."""
 
         super().__init__(crystal)
 
@@ -1380,6 +1431,7 @@ class SigmaStc(FLatStc):
         print("Static Self-energy Calculation Finish")
     
     def Cal(self):
+        """Compute the primary array represented by this object."""
 
         norb, _, ns, nk, nomega = self.sigmac.shape
 
@@ -1400,6 +1452,7 @@ class SigmaStc(FLatStc):
         return None
     
     def Save(self, fn: str, obj : np.ndarray = None):
+        """Persist calculated arrays to the configured HDF5 output group."""
 
         with h5py.File(self.hdf5file,'a') as file:
             if self.CheckGroup(self.hdf5file,self.group):

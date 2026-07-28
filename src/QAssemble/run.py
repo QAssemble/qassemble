@@ -1,3 +1,4 @@
+"""Input parsing and execution driver for QAssemble workflows."""
 import copy
 import datetime
 import os
@@ -10,7 +11,9 @@ from .CorrelationFunction import CorrelationFunction
 
 
 class Run:
+    """Input-file runner for QAssemble command-line calculations."""
     def __init__(self, test=False) -> None:
+        """Initialize the runner and optionally execute the configured workflow."""
 
         self.control = None
         self.func = None
@@ -40,6 +43,7 @@ class Run:
                 self.RunDiagE()
 
     def CheckKeyinString(self, key: str, dictionary: dict):
+        """Validate that a required key is present in an input dictionary."""
 
         if key not in dictionary:
             print("missing '" + key + "' in " + dictionary["name"], flush=True)
@@ -47,6 +51,7 @@ class Run:
         return None
 
     def ReadInput(self):
+        """Read and parse the QAssemble input file."""
 
         loc = {}
         glob = {}
@@ -269,6 +274,7 @@ class Run:
         return None
 
     def Dict2Hdf5(self, d: dict, h5file: h5py.File):
+        """Serialize a nested dictionary into an HDF5 file."""
         for key, value in d.items():
             if isinstance(value, dict):
                 group = h5file.create_group(str(key))
@@ -282,7 +288,9 @@ class Run:
         return None
 
     def Hdf52Dict(self, h5file: h5py.File):
+        """Load a nested dictionary from an HDF5 file."""
         def LoadDict(group: h5py.File):
+            """Recursively load an HDF5 group into a dictionary."""
             d = {}
             for key, item in group.items():
                 if isinstance(item, h5py.Group):
@@ -330,6 +338,7 @@ class Run:
                             return False
 
     def ChangeInput(self, d: dict):
+        """Normalize loaded input values for runtime use."""
 
         dtemp = {}
         for key, val in d.items():
@@ -344,6 +353,7 @@ class Run:
         return dtemp
 
     def CompareDict(self, d1: dict, d2: dict):
+        """Compare input dictionaries while tolerating array values."""
 
         check = []
 
@@ -358,6 +368,7 @@ class Run:
         return check
 
     def CheckInput(self, d1: dict, d2: dict):
+        """Validate that restart input matches the saved input."""
 
         checklist = self.CompareDict(d1, d2)
         check = True
@@ -367,6 +378,7 @@ class Run:
         return check
 
     def RunDiagE(self):
+        """Run the diagonalization-only workflow."""
 
         control = self.control
         cry = control["crystal"]

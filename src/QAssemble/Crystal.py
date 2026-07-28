@@ -1,3 +1,4 @@
+"""Crystal geometry, basis indexing, and lattice mapping utilities."""
 import numpy as np
 import sys
 import itertools
@@ -252,6 +253,7 @@ class Crystal(object):
         return None
 
     def Boson2Full(self):
+        """Build the map from bosonic basis indices to full basis indices."""
 
         norb = len(self.bind)
         c2b = np.zeros((norb),dtype=int)
@@ -266,6 +268,7 @@ class Crystal(object):
         self.c2b = c2b
 
     def SetFullBasis(self):
+        """Populate the full spin-orbital basis lookup tables."""
 
         norbc = len(self.find)
         full = {}
@@ -810,6 +813,7 @@ class Crystal(object):
         return None
     
     def R2mR(self, matin : np.ndarray) -> np.ndarray:
+        """Map real-space indexed tensors to negative real-space indices."""
 
         self.R2mRMapping()
 
@@ -886,6 +890,7 @@ class Crystal(object):
         return (r, rind)
     
     def T2mT(self, G : np.ndarray) -> np.ndarray:
+        """Map imaginary-time indexed tensors to negative time indices."""
 
         norb = G.shape[0]
         ns = G.shape[2]
@@ -903,6 +908,7 @@ class Crystal(object):
         return tempmat
     
     def K2K3D(self, grid : list = None):
+        """Build k-point lookup indices for the three-dimensional grid."""
 
         if grid is None:
             grid = self.rkgrid
@@ -951,6 +957,7 @@ class Crystal(object):
             #     raise ValueError(f"Invalid k-point components: {klist}")
 
     def MappingKpoint(self, kpoint : np.ndarray) -> list:
+        """Map arbitrary k-points onto the stored k-point grid."""
 
         kpoint_temp = np.zeros_like(kpoint, dtype=np.float64)
         for ik in range(kpoint.shape[0]):
@@ -981,6 +988,7 @@ class Crystal(object):
         return None
 
     def KPoint(self, grid : list) -> np.ndarray:
+        """Generate a uniform fractional k-point grid."""
 
         kpoint_temp=np.array(list(itertools.product(np.linspace(0,1,num=grid[2],endpoint=False),np.linspace(0,1,num=grid[1],endpoint=False),np.linspace(0,1,num=grid[0],endpoint=False))))
         kpoint=np.fliplr(kpoint_temp)
@@ -988,6 +996,7 @@ class Crystal(object):
         return kpoint
     
     def MappingRVec(self, rvec : np.ndarray) -> dict:
+        """Map arbitrary real-space vectors onto stored lattice vectors."""
 
         mapping = {}
 
@@ -1001,6 +1010,7 @@ class Crystal(object):
         return None
     
     def MappingBosonFermion(self, iorb):
+        """Return fermion-orbital indices associated with a bosonic orbital."""
 
         [a, [m1, m4]] = self.BAtomOrb(iorb)
 

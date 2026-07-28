@@ -1,3 +1,4 @@
+"""Static fermionic path-space band, DOS, and slab analysis utilities."""
 import copy
 import itertools
 import json
@@ -29,10 +30,12 @@ from .utility.Fourier import Fourier
 
 
 class FPathStc(object):
+    """Static fermionic path-space analysis container."""
 
     def __init__(
         self, crystal: Crystal = None, obj: object = None, hdf5file: str = "glob.h5"
     ):
+        """Initialize the object and prepare derived state."""
 
         if (crystal is not None) and (obj is not None):
             pass
@@ -69,11 +72,13 @@ class FPathStc(object):
         self.hdf5file = hdf5file
 
     def CheckGroup(self, filepath: str, group: str):
+        """Ensure that the requested HDF5 group exists before writing."""
 
         with h5py.File(filepath, "r") as file:
             return group in file
 
     def Inverse(self, mat: np.ndarray):
+        """Return block-wise matrix inverses for the input tensor."""
 
         norb = mat.shape[0]
         ns = mat.shape[2]
@@ -88,6 +93,7 @@ class FPathStc(object):
         return matinv
 
     def R2K(self, matr: np.ndarray = None, rvec : np.ndarray = None, kpoint: np.ndarray = None):  # R2KAny
+        """Transform lattice data from real space to reciprocal space."""
 
         # if self.crystal.kpath == None:
         #     print("Error, kpath doesn't generate")
@@ -131,6 +137,7 @@ class FPathStc(object):
         return matk
     
     def K2R(self, matk : np.ndarray = None, rvec : np.ndarray = None, kpoint : np.ndarray = None):
+        """Transform lattice data from reciprocal space to real space."""
 
         (norb, norb, ns, nk) = matk.shape
 
@@ -159,6 +166,7 @@ class FPathStc(object):
         return matr
     
     def Slab(self, matk : np.ndarray = None):
+        """Construct slab Hamiltonian data from bulk k-space data."""
 
         (norb, norb, ns, nk) = matk.shape
         kgrid = self.crystal.rkgrid
@@ -202,6 +210,7 @@ class FPathStc(object):
         return matslab
     
     def RVec(self, grid : list = None):
+        """Generate real-space lattice vectors for a supercell grid."""
 
         r = np.zeros((grid[0]*grid[1]*grid[2],3), dtype=np.float64)
         nr = grid[0]*grid[1]*grid[2]
@@ -229,6 +238,7 @@ class FPathStc(object):
         return r
 
     def Gaussian(self, x, mu, sigma=0.1):
+        """Evaluate a Gaussian broadening kernel."""
 
         return np.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
 
@@ -240,6 +250,7 @@ class FPathStc(object):
         plotoption: bool = False,
         energyrange: list = None,
     ):
+        """Compute the density of states on an energy grid."""
 
         print("***** DOS Calculation Start *****")
         norb = matr.shape[0]
@@ -333,6 +344,7 @@ class FPathStc(object):
         plotoption: bool = False,
         label: list = None,
     ):
+        """Compute band energies along the configured k-point path."""
         if (self.crystal.kpath == None).all():
             print("Error: K-path not created, please check your K-path options")
             sys.exit()
@@ -437,6 +449,7 @@ class FPathStc(object):
         return None
     
     def FermiSurface(self, hmat : np.ndarray = None, num : int = 101):
+        """Evaluate the Fermi surface on a regular momentum grid."""
 
         kp = np.linspace(-1,1,num=num)
 
@@ -462,6 +475,7 @@ class FPathStc(object):
         return None
     
     def Occ(self, hmat : np.ndarray = None, beta : float = None):
+        """Compute occupation matrices from eigenvalues and eigenvectors."""
 
         (norb, norb, ns, nk) = hmat.shape
 
@@ -479,6 +493,7 @@ class FPathStc(object):
         return occk
     
     def SlabKpoint(self):
+        """Generate the k-point path used for slab calculations."""
 
         kgrid = self.crystal.rkgrid
 
@@ -492,6 +507,7 @@ class FPathStc(object):
         return kpoint
     
     def Reshape(self, matk : np.ndarray = None, kpoint : np.ndarray = None):
+        """Reshape k-space data into path and orbital dimensions."""
 
         kgrid = self.crystal.rkgrid
 
@@ -509,6 +525,7 @@ class FPathStc(object):
         return matkret
 
     def SlabZmat(self):
+        """Build the layer-resolved slab coordinate matrix."""
 
         Zslab = np.arange(self.crystal.rkgrid[2])
         # row1 = [Zslab[0]] + list(Zslab[1:])[::-1]
@@ -523,6 +540,7 @@ class FPathStc(object):
         return Z
     
     def Moments(self, matk : np.ndarray = None, beta : np.float64 = None, kgrid : list = None):
+        """Compute spectral moments for the supplied k-space matrix."""
 
         (kplus, kminus) = self.flatstc.KValley(kgrid)
         

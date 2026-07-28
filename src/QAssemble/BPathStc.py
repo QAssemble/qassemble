@@ -1,3 +1,4 @@
+"""Static bosonic path-space transforms for arbitrary momentum paths."""
 import string as string
 from typing import Any
 import matplotlib as mat
@@ -18,8 +19,10 @@ from .Crystal import Crystal
 from .BLatStc import BLatStc
 
 class BPathStc(object):
+    """Bosonic path-space container for momentum-path transforms."""
 
     def __init__(self, crystal : Crystal = None, obj : object = None, hdf5file : str = 'glob.h5') -> object:
+        """Initialize the object and prepare derived state."""
               
         if (crystal is not None) and (obj is not None):
             pass
@@ -55,6 +58,7 @@ class BPathStc(object):
         self.blatstc = BLatStc(crystal=self.crystal)
 
     def R2K(self, matr : np.ndarray = None, kpoint = None) -> np.ndarray:
+        """Transform lattice data from real space to reciprocal space."""
 
         norb = matr.shape[0]
         ns = matr.shape[2]

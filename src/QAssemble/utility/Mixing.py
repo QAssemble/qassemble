@@ -1,3 +1,4 @@
+"""Linear and Pulay mixing helpers for self-consistent iterations."""
 import numpy as np
 
 
@@ -61,6 +62,7 @@ class Mixing:
 
     @staticmethod
     def _linear(mix: float, Fnew: np.ndarray, Fold: np.ndarray) -> np.ndarray:
+        """Apply simple linear mixing between current and previous iterates."""
         return mix * Fnew + (1.0 - mix) * Fold
 
     def _pulay(

@@ -1,3 +1,4 @@
+"""Ad hoc Fourier transform smoke checks for the utility package."""
 import numpy as np
 import os, sys
 qapath = os.environ.get("QAssemble")

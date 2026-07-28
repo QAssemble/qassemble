@@ -314,6 +314,7 @@ class Fourier:
     
     @staticmethod
     def _validate_kgrid(kgrid: Tuple[int, int, int], size: int) -> Tuple[int, int, int]:
+        """Internal helper for validate kgrid."""
         if len(kgrid) != 3:
             raise ValueError(f"kgrid must have three entries (nx, ny, nz), got {kgrid}.")
         nx, ny, nz = (int(val) for val in kgrid)
@@ -605,5 +606,6 @@ class Fourier:
         return fout
 
 class FourierMPI:
+    """MPI-enabled Fourier transform helper namespace."""
 
     pass
