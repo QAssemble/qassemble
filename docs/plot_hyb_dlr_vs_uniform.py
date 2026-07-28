@@ -6,11 +6,11 @@ DLR-grid hybridization onto the uniform Matsubara grid with the current
 implementation (``method="interp"``) and with the legacy path
 (``method="dlr"``), overlaying the DLR nodes that both are built from.
 
-Real and imaginary parts are both plotted, in two forms:
-
-* raw ``Re/Im Delta`` on a log frequency axis;
-* the tail-compensated products ``Re Delta * w**2`` and ``Im Delta * w``, which
-  are constants for a decaying hybridization, so any structure is error.
+Real and imaginary parts are both plotted twice: over the full frequency range,
+and zoomed into the tail (``--zoom``, default w >= 10).  The zoomed axes are
+scaled to the corrected curve, so the legacy excursions leave the panel rather
+than compressing the signal into a flat line -- past w ~ 20 the legacy error
+(Re 2.7e-2) is larger than Re(Delta) itself (1.8e-2).
 
 ``edmft/Hyb`` stores **no** ``_uniform`` datasets, so the honest reference is
 the DLR nodes themselves -- the input both paths must reproduce. Where a stored
@@ -68,6 +68,8 @@ def main():
     ap.add_argument("--spin", type=int, default=0)
     ap.add_argument("--with-sigma", action="store_true",
                     help="also compare against stored sigimp *_uniform data")
+    ap.add_argument("--zoom", type=float, default=10.0,
+                    help="lower frequency bound for the zoomed Re/Im panels")
     ap.add_argument("--out", default=os.path.join(_REPO, "docs", "hyb_dlr_vs_uniform.png"))
     ap.add_argument("--out-sigma",
                     default=os.path.join(_REPO, "docs", "sigma_stored_vs_current.png"))
@@ -112,16 +114,17 @@ def main():
         n = len(rows)
         fig, axes = plt.subplots(n, 4, figsize=(21, 3.0 * n), squeeze=False)
 
+        # Columns 1-2 are the full range; 3-4 zoom the same Re/Im into the high
+        # frequency region.  Beyond w~20 the legacy error (Re 2.7e-2) exceeds the
+        # signal itself (Re 1.8e-2), which the full-range axes cannot show.
         for r, (it, node, new, old) in enumerate(rows):
             panels = [
                 ("Re $\\Delta$", new.real, old.real, node.real, None),
                 ("Im $\\Delta$", new.imag, old.imag, node.imag, None),
-                ("Re $\\Delta\\cdot\\omega^2$",
-                 new.real * w_uni**2, old.real * w_uni**2,
-                 node.real * w_node**2, "const"),
-                ("Im $\\Delta\\cdot\\omega$",
-                 new.imag * w_uni, old.imag * w_uni,
-                 node.imag * w_node, "const"),
+                (f"Re $\\Delta$  ($\\omega_n \\geq {args.zoom:g}$)",
+                 new.real, old.real, node.real, "zoom"),
+                (f"Im $\\Delta$  ($\\omega_n \\geq {args.zoom:g}$)",
+                 new.imag, old.imag, node.imag, "zoom"),
             ]
             for c, (title, yn, yo, ynode, mode) in enumerate(panels):
                 ax = axes[r][c]
@@ -136,10 +139,17 @@ def main():
                     ax.set_title(title)
                 if c == 0:
                     ax.set_ylabel(f"iter {it}")
-                if mode == "const":
-                    ref = float(np.median(ynode[pos][-8:]))
-                    ax.axhline(ref, color="k", ls="--", lw=0.9)
-                    ax.set_ylim(ref - 4 * abs(ref), ref + 4 * abs(ref))
+                if mode == "zoom":
+                    ax.set_xlim(args.zoom, w_uni.max() * 1.05)
+                    # Scale to the *correct* curve plus its nodes, so the legacy
+                    # excursions run off-panel instead of flattening the signal.
+                    m = w_uni >= args.zoom
+                    mn = (w_node >= args.zoom) & pos
+                    ref = np.concatenate([yn[m], ynode[mn]])
+                    lo, hi = float(ref.min()), float(ref.max())
+                    pad = 0.35 * max(hi - lo, 1.0e-12)
+                    ax.set_ylim(lo - pad, hi + pad)
+                    ax.axhline(0.0, color="k", ls=":", lw=0.7)
                 if r == n - 1:
                     ax.set_xlabel(r"$\omega_n$")
                 if r == 0 and c == 0:
@@ -148,8 +158,9 @@ def main():
         fig.suptitle(
             "Hybridization DLR -> uniform: current vs legacy conversion "
             f"(orbital {io}, spin {so})\n"
-            "flat dashed line = exact; edmft/Hyb stores no uniform copy, so the "
-            "DLR nodes are the reference",
+            "right two columns zoom the same Re/Im into the tail, scaled to the "
+            "correct curve; edmft/Hyb stores no uniform copy, so the DLR nodes "
+            "are the reference",
             fontsize=11,
         )
         fig.tight_layout(rect=(0, 0, 1, 0.97))
