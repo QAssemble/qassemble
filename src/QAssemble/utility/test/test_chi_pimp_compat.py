@@ -163,7 +163,10 @@ def test_pimp_uses_uniform_chi_and_utilde_before_causal_projection(monkeypatch):
         utilde=utilde_uniform,
     )
 
-    expected_uniform = chi_uniform / (1.0 + utilde_uniform * chi_uniform)
+    # P = -chi (1 - U chi)^-1 (negative for a positive susceptibility).  The
+    # last frequency point is deliberately near-resonant (U*chi = 0.9), so the
+    # expected value there is amplified to -3.0; that is the formula, not a bug.
+    expected_uniform = -chi_uniform / (1.0 - utilde_uniform * chi_uniform)
     np.testing.assert_allclose(pimp.chi_boson_uniform, chi_uniform)
     np.testing.assert_allclose(pimp.chi_boson, chi_uniform)
     np.testing.assert_allclose(pimp.utilde_uniform, utilde_uniform)

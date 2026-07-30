@@ -1108,7 +1108,15 @@ class PImp(BLocDyn):
         if utilde is None:
             self.f_uniform = self.chi_boson_uniform
         else:
-            self.f_uniform = self.Dyson(self.chi_boson_uniform, -utilde)
+            # P = -(1 - chi*U)^-1 chi, per FullGWEDMFT qft_comlocal.F:406-413
+            # (and gw_edmft_v208 edmft.py:2676).  Dyson returns the
+            # right-multiplied form chi (1 - U*chi)^-1, which equals
+            # (1 - chi*U)^-1 chi by the push-through identity, so the operand
+            # order here is correct for non-commuting multi-orbital blocks.
+            # P is negative for a positive susceptibility, which is what the
+            # coefficient_sign=-1 projection below and the negative-P
+            # convention in WImp/BWeiss/PolC/W all expect.
+            self.f_uniform = -self.Dyson(self.chi_boson_uniform, utilde)
 
         # Pimp is a response-like quantity that decays to zero at high
         # frequency; the zero-static convention (pimpbrd's static_mode="zero")

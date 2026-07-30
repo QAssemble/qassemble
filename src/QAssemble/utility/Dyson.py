@@ -54,7 +54,13 @@ class Dyson:
 
     @staticmethod
     def _solve_bosonic(g0, sigma, out):
-        """Solve Dyson blocks for bosonic objects in-place on *out*."""
+        """Solve Dyson blocks for bosonic objects in-place on *out*.
+
+        Computes the right-multiplied form ``g0 (1 - sigma g0)^-1``, which by
+        the push-through identity equals ``(1 - g0 sigma)^-1 g0``.  Note the
+        operand order: this is *not* ``(1 - sigma g0)^-1 g0``, which differs
+        whenever ``g0`` and ``sigma`` do not commute.
+        """
 
         norb = g0.shape[0]
         ns = g0.shape[2]
