@@ -870,7 +870,10 @@ class GLoc(FLocDyn):
 
     def Occ(self, mat : np.ndarray):
 
-        tau_beta = np.array([self.dlr.beta], dtype=np.float64)
+        # Evaluate at the last DLR tau node rather than at beta, matching the
+        # lattice path (FLatDyn.G, _tau_beta = dlr.tauF[-1]) so every
+        # occupation in the code is taken at the same grid endpoint.
+        tau_beta = np.array([self.dlr.tauF[-1]], dtype=np.float64)
         occ = np.zeros_like(mat[...,0], dtype=np.complex128)
         for js in range(mat.shape[2]):
             block = mat[:, :, js, :].T
@@ -960,7 +963,10 @@ class GImp(FLocDyn):
 
     def Occ(self, mat : np.ndarray):
 
-        tau_beta = np.array([self.dlr.beta], dtype=np.float64)
+        # Evaluate at the last DLR tau node rather than at beta, matching the
+        # lattice path (FLatDyn.G, _tau_beta = dlr.tauF[-1]) so every
+        # occupation in the code is taken at the same grid endpoint.
+        tau_beta = np.array([self.dlr.tauF[-1]], dtype=np.float64)
         occ = np.zeros_like(mat[..., 0], dtype=np.complex128)
         for js in range(mat.shape[2]):
             block = mat[:, :, js, :].T
