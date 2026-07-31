@@ -205,21 +205,46 @@ def test_sighimp_mixing_assigns_h_and_s(tmp_path):
         np.testing.assert_allclose(handle["calc/Mixing/1/sighimp/last"][()], [1.0])
 
 
-def test_sigfimp_mixing_assigns_s(tmp_path):
+def test_sigfimp_mixing_rederives_instead_of_mixing(tmp_path):
+    """SigF carries no mixing history of its own.
+
+    ``SigFImp.Mixing`` re-runs ``Cal`` so that ``s = hf - sigh`` is recomputed
+    from the already-mixed SigH.  Mixing it independently would break
+    ``SigH + SigF == hf`` by one iteration of lag; see the method docstring and
+    test_sighimp_sigfimp_hf_identity.py.
+    """
     path = tmp_path / "mix.h5"
     obj = object.__new__(SigFImp)
     _seed_common(obj, path)
+    obj.projector = SimpleNamespace(equiv={"1": np.asarray([[1]], dtype=int)})
+    obj.crystal = SimpleNamespace(ns=1)
+    obj.sigma_in = np.asarray([4.0], dtype=np.complex128)
+    obj.sigh = np.asarray([1.0], dtype=np.complex128)
+    obj.hf = None
+    # Seeded so an independent mix would have a finite value to blend and would
+    # therefore succeed; the assertions below are what must reject it.
     obj.s = np.asarray([0.0], dtype=np.complex128)
 
     assert obj.Mixing() is None
-    obj.s = np.asarray([4.0], dtype=np.complex128)
-    obj.control["mix"] = 0.25
+    # s is the algebraic complement of sigh, not a blend with any history.
+    np.testing.assert_allclose(obj.s, [3.0])
+
+    # At iter > 1 an independent mix would blend against stored history.  The
+    # control dict and hdf5file are fully populated, so that path would succeed
+    # if it were still taken -- these assertions are what reject it.
     obj.iteration = 2
     assert obj.Mixing() is None
+    np.testing.assert_allclose(obj.s, [3.0])
 
-    np.testing.assert_allclose(obj.s, [1.0])
-    with h5py.File(path, "r") as handle:
-        np.testing.assert_allclose(handle["calc/Mixing/1/sigfimp/last"][()], [1.0])
+    # Changing the mixed sigh propagates in full: under the 0.5 linear mix
+    # seeded above only half of it would land.
+    obj.sigh = np.asarray([2.5], dtype=np.complex128)
+    assert obj.Mixing() is None
+    np.testing.assert_allclose(obj.s, [1.5])
+
+    # No sigfimp mixing history was ever created -- the re-derivation never
+    # touches HDF5, so the file itself is never even opened for writing.
+    assert not path.exists()
 
 
 def test_sigcimp_mixing_assigns_f_and_uniform_grid(tmp_path):

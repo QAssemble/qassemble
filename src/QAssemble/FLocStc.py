@@ -529,7 +529,14 @@ class SigHImp(FLocStc):
 
                     h[iorbc1, iorbc2, js] += v[iorb, jorb, js, ks] * occ[iorbc4, iorbc3, ks] * C
 
+        # The Hartree potential is real: v is real by construction and occ is a
+        # density matrix.  With a Coulomb tensor carrying its physical exchange
+        # symmetry the contraction is Hermitian and the imaginary part vanishes
+        # identically, so this discards only the CTQMC noise that leaks in when
+        # G(-iw) = G(iw)* is violated.  Matches FullGWEDMFT
+        # bin/classes/old.py:980 (complex(mom1, 0.0)) and cimpurity.py:322,408.
         self.occ = occ
+        h = np.asfortranarray(h.real, dtype=np.complex128)
         self.h = h
         self.s = h
 
@@ -677,11 +684,14 @@ class SigFImp(FLocStc):
 
         matdict = {}
         for sigma_key, val in sigma.items():
+            # The static/HF moment is real; see FullGWEDMFT
+            # bin/classes/old.py:980 (complex(mom1, 0.0)) and
+            # cimpurity.py:322,408 (.real).
             if isinstance(val, dict) and "moments" in val:
-                matdict[sigma_key] = complex(val["moments"][0])
+                matdict[sigma_key] = complex(np.real(val["moments"][0]), 0.0)
             else:
                 arr = np.asarray(val, dtype=np.complex128)
-                matdict[sigma_key] = complex(arr.flat[0])
+                matdict[sigma_key] = complex(arr.flat[0].real, 0.0)
 
         return matdict
 
@@ -703,15 +713,23 @@ class SigFImp(FLocStc):
         return None
 
     def Mixing(self) -> None:
-        self.s = super().Mixing(
-            iter=self.iteration,
-            mix=float(self.control["mix"]),
-            component=self.component,
-            value=self.s,
-            method=self.control["mixing_method"],
-            npulay=int(self.control["npulay"]),
-            key=self.key,
-        )
+        """Re-derive s = hf - sigh instead of mixing independently.
+
+        SigF is not an independent quantity: Cal defines it as the complement
+        of SigH with respect to the solver's static moment hf.  Mixing it with
+        its own history breaks SigH + SigF = hf by one iteration of lag, in
+        both the real and imaginary parts.  That identity is required because
+        SigCImp subtracts the *unmixed* hf from the dynamic self-energy
+        (FLocDyn.py:1212) and the embedding re-adds SigH + SigF, so the
+        reconstruction of the solver self-energy is correct only while it
+        holds.
+
+        The reference implementation never splits the pair: it carries a single
+        combined Shf (FullGWEDMFT bin/classes/cimpurity.py:322,408) and mixes
+        only the dynamic self-energy (bin/comfull.py:1451).  Damping still acts
+        on this channel through the mixed SigH that Cal subtracts.
+        """
+        self.Cal()
 
     def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
         if fn is None:

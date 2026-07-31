@@ -291,6 +291,9 @@ class CTQMC(object):
                 group=self.group,
                 iteration=iter,
             )
+            # SigH is mixed first; SigF is then constructed from the *mixed*
+            # SigH so that SigH + SigF == hf holds exactly.  SigFImp.Mixing()
+            # is a re-derivation, not an independent mix -- see its docstring.
             self.sighimp.Mixing()
             self.sigfimp = SigFImp(
                 crystal=self.crystal,
