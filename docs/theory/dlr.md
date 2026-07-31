@@ -5,10 +5,10 @@
 Any imaginary-time Green's function admits a spectral (Lehmann) representation:
 
 $$
-G(\tau) = -\int_{-\infty}^{\infty} K(\tau, \omega)\,\rho(\omega)\,d\omega, \qquad K(\tau, \omega) = \frac{e^{-\omega\tau}}{1 + \xi\, e^{-\beta\omega}}
+G(\tau) = -\int_{-\infty}^{\infty} K(\tau, \omega)\,A(\omega)\,d\omega, \qquad K(\tau, \omega) = \frac{e^{-\omega\tau}}{1 + \xi\, e^{-\beta\omega}}
 $$
 
-where $\rho(\omega)$ is the spectral density and $\xi = -1$ (fermion) or $+1$ (boson). When $\rho$ is supported within $[-\omega_\mathrm{max}, \omega_\mathrm{max}]$, we define the dimensionless cutoff $\Lambda \equiv \beta\omega_\mathrm{max}$.
+where $A(\omega)$ is the spectral density and $\xi = -1$ (fermion) or $+1$ (boson). When $A$ is supported within $[-\omega_\mathrm{max}, \omega_\mathrm{max}]$, we define the dimensionless cutoff $\Lambda \equiv \beta\omega_\mathrm{max}$.
 
 ## DLR Approximation
 

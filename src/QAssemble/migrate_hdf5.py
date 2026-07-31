@@ -23,6 +23,8 @@ LEGACY_CLASS_GROUPS = {
     "PolLat": "P",
     "WLat": "W",
     "VBare": "V",
+    "ZFactor": "Z",
+    "SigmaStc": "SigStc",
 }
 
 

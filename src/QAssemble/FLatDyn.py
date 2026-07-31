@@ -878,7 +878,7 @@ class SigGWC(FLatDyn):
 
         return None
     
-    def SigmaStc(self):
+    def SigStc(self):
         """Extract the static self-energy component."""
 
         norb = len(self.crystal.find)

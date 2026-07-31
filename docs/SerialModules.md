@@ -27,7 +27,7 @@ This guide summarises the serial implementation that lives under `src/QAssemble/
   `FLatDyn` handles momentum-frequency (k, omega) Green's functions for fermions using a discrete Lehmann representation (`DLR`). Core methods include `F2T`/`T2F` transforms, `Moment` for high-frequency tails, and `K2R`/`R2K` for Fourier hopping between reciprocal and real space. Additional methods provide `Inverse`, `Mixing`, `Dyson`, `ChemEmbedding`, `StcEmbedding`, `Spectral`, `R2KArb`, `KArb`, `Diagonalize`, and symmetry operations `R2mR`/`T2mT`/`TauB2TauF`. Helper classes manage common workflows:
   - `G0` builds non-interacting propagators (`Cal`) and writes them to disk (`Save`).
   - `G` iteratively adjusts the chemical potential with `CalMu0`, `Occ` (property), `SearchMu`, `UpdateMu`, and `NumOfE`.
-  - `SigGWC` evaluates GW self-energies (`Cal`), computes the static part (`SigmaStc`), and renormalisation factors via `Zfactor`.
+  - `SigGWC` evaluates GW self-energies (`Cal`), computes the static part (`SigStc`), and renormalisation factors via `Zfactor`.
   - `GreenAB` converts interpolated data between k-indexed layouts (`KI2KF`).
 - `src/QAssemble/FLatStc.py`
   Provides band-structure and static self-energy routines. `FLatStc` exposes `Inverse`, `K2R`/`R2K`, `Band`, `DOS`, `Visualization`, `Mixing`, `Dyson`, `ChemEmbedding`, `R2KArb`, `Diagonalize`, `HermitianCheck`, `SortKpoint`, and `KValley`. Subcomponents:
@@ -35,8 +35,8 @@ This guide summarises the serial implementation that lives under `src/QAssemble/
   - `SigH` and `SigF` create mean-field corrections (`Cal`, `Save`).
   - `H` controls charge self-consistency: `CalMu0`, `NumOfE`, `SearchMu`, `Occ` (property), `UpdateMu`, `OccMixing`, `Save`.
   - `HamiltonianAB` offers k-path interpolation helpers for A/B sublattice presentations (`KI2KF`).
-  - `ZFactor` computes quasiparticle renormalisation from the frequency-dependent self-energy (`Cal`, `Save`).
-  - `SigmaStc` extracts the static component of the GW self-energy (`Cal`, `Save`).
+  - `Z` computes quasiparticle renormalisation from the frequency-dependent self-energy (`Cal`, `Save`).
+  - `SigStc` extracts the static component of the GW self-energy (`Cal`, `Save`).
 - `src/QAssemble/FPathDyn.py`
   Evaluates dynamic quantities along high-symmetry paths. The constructor can rebuild `Crystal` and `DLR` from an HDF5 checkpoint when invoked with only a file name. `Inverse`, `R2K`, and `KArb` provide on-the-fly interpolation. `MQEMWrapper` and `MQEMPrepare` bridge to the Julia-based `MQEM` experiments. `Spectral` computes spectral functions along paths.
 - `src/QAssemble/FPathStc.py`

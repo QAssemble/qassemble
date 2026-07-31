@@ -25,7 +25,10 @@ This boundary condition restricts the Matsubara frequencies to odd (fermionic) o
 The Fourier transform to Matsubara frequency is:
 
 $$
-G^{pq}_{ij\sigma}(\mathbf{k}, i\omega_n) = \frac{1}{N_\mathbf{k}} \int_0^\beta d(\tau-\tau') \sum_{\mathbf{R},\mathbf{R}'} G^{pq}_{ij\sigma}(\mathbf{R}-\mathbf{R}', \tau-\tau')\, e^{i(\mathbf{k}\cdot(\mathbf{R}-\mathbf{R}') - \omega_n \tau)}
+G^{pq}_{ij\sigma}(\mathbf{k}, i\omega_n) =
+\frac{1}{N_\mathbf{k}} \int_0^\beta d(\tau-\tau') \sum_{\mathbf{R},\mathbf{R}'}
+G^{pq}_{ij\sigma}(\mathbf{R}-\mathbf{R}', \tau-\tau')\,
+e^{-i[\mathbf{k}\cdot(\mathbf{R}-\mathbf{R}'+\tau_p-\tau_q) + \omega_n(\tau-\tau')]}
 $$
 
 with Matsubara frequencies:
@@ -39,16 +42,16 @@ $$
 The Green's function admits a spectral representation:
 
 $$
-G(\tau) = -\int_{-\infty}^{\infty} \frac{e^{-\omega\tau}}{1 + \xi\, e^{-\beta\omega}}\,\rho(\omega)\,d\omega
+G(\tau) = -\int_{-\infty}^{\infty} \frac{e^{-\omega\tau}}{1 + \xi\, e^{-\beta\omega}}\,A(\omega)\,d\omega
 $$
 
-where $\rho(\omega)$ is the spectral function. In Matsubara frequency this becomes:
+where $A(\omega)$ is the spectral function. In Matsubara frequency this becomes:
 
 $$
-G(i\omega_n) = \int_{-\infty}^{\infty} \frac{\rho(\omega)}{i\omega_n - \omega}\,d\omega
+G(i\omega_n) = \int_{-\infty}^{\infty} \frac{A(\omega)}{i\omega_n - \omega}\,d\omega
 $$
 
-The spectral function connects directly to experiment: $A(\omega) = -\frac{1}{\pi}\mathrm{Im}\,G^R(\omega)$, where $G^R$ is the retarded Green's function obtained by analytic continuation $i\omega_n \to \omega + i0^+$.
+It connects directly to experiment through $A(\omega) = -\frac{1}{\pi}\mathrm{Im}\,G^R(\omega)$, where $G^R$ is the retarded Green's function obtained by analytic continuation $i\omega_n \to \omega + i0^+$.
 
 ## Dyson Equation
 

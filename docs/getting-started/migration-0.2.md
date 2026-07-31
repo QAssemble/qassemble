@@ -15,6 +15,8 @@ public API. Update Python code using the following mapping.
 | `PolLat` | `P` |
 | `WLat` | `W` |
 | `VBare` | `V` |
+| `ZFactor` | `Z` |
+| `SigmaStc` | `SigStc` |
 
 ## Migrating HDF5 results
 

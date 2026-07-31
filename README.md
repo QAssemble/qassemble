@@ -68,7 +68,7 @@ manuscript:
 | Base class | Physical classes |
 |---|---|
 | `FLatDyn` | `G0`, `G`, `SigGWC` |
-| `FLatStc` | `H0`, `H`, `SigH`, `SigF` |
+| `FLatStc` | `H0`, `H`, `SigH`, `SigF`, `Z`, `SigStc` |
 | `BLatDyn` | `P`, `W` |
 | `BLatStc` | `V` |
 

@@ -290,7 +290,7 @@ class CorrelationFunction(object):
                 siggwc.Save('sigmagwckf')
                 p.Save('pkf')
                 w.Save('wkf')
-                # self.siggwc.SigmaStc()
+                # self.siggwc.SigStc()
                 # self.siggwc.Zfactor()
                 del h0, v, g0, gnew, gold, sigf, sigh, siggwc, p, w
                 gc.collect()
@@ -309,7 +309,7 @@ class CorrelationFunction(object):
                 siggwc.Save('sigmagwckf')
                 p.Save('pkf')
                 w.Save('wkf')
-                # self.siggwc.SigmaStc()
+                # self.siggwc.SigStc()
                 # self.siggwc.Zfactor()
                 del h0, v, g0, gnew, gold, sigf, sigh, siggwc, p, w
                 gc.collect()

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The *GW* approximation goes beyond Hartree-Fock by including frequency-dependent (dynamical) screening of the Coulomb interaction. The name "GW" reflects that the self-energy is constructed as a convolution of the Green's function $G$ and the dynamically screened interaction $W$. While HF treats the Coulomb interaction as static, the *GW* approximation replaces $V$ with a frequency-dependent screened interaction $W$ that accounts for the polarization response of the electron gas.
+The *GW* approximation goes beyond Hartree-Fock by including frequency-dependent (dynamical) screening of the Coulomb interaction. The name "GW" reflects that the self-energy is constructed from the product of the Green's function $G$ and the dynamically screened interaction $W$ in imaginary time, which corresponds to a convolution over Matsubara frequencies. While HF treats the Coulomb interaction as static, the *GW* approximation replaces $V$ with a frequency-dependent screened interaction $W$ that accounts for the polarization response of the electron gas.
 
 The *GW* self-consistent workflow extends the Hartree-Fock calculation by incorporating three additional classes -- `P`, `W`, and `SigGWC` -- that work together with the existing `G`, `SigH`, and `SigF` classes.
 
@@ -17,7 +17,10 @@ $$
 where $T_\tau$ is the imaginary-time ordering operator and $\langle \cdots \rangle_0$ is the expectation value in the grand-canonical ensemble of $H_0$. The Matsubara-frequency representation is obtained via Fourier transform:
 
 $$
-G^{pq}_{0\,ij\sigma}(\mathbf{k}, i\omega_n) = \frac{1}{N_\mathbf{k}} \int_0^\beta d(\tau - \tau') \sum_{\mathbf{R},\mathbf{R}'} G^{pq}_{0\,ij\sigma}(\mathbf{R}-\mathbf{R}', \tau-\tau') e^{i(\mathbf{k}\cdot(\mathbf{R}-\mathbf{R}') - \omega_n \tau)}
+G^{pq}_{0\,ij\sigma}(\mathbf{k}, i\omega_n) =
+\frac{1}{N_\mathbf{k}} \int_0^\beta d(\tau - \tau') \sum_{\mathbf{R},\mathbf{R}'}
+G^{pq}_{0\,ij\sigma}(\mathbf{R}-\mathbf{R}', \tau-\tau')
+e^{-i[\mathbf{k}\cdot(\mathbf{R}-\mathbf{R}'+\tau_p-\tau_q) + \omega_n(\tau-\tau')]}
 $$
 
 QAssemble uses the discrete Lehmann representation (DLR) for compact and accurate representation of both imaginary-time and Matsubara-frequency Green's functions. The `G0` class constructs $G_0$ from $H_0$ produced by the `H0` class.
@@ -43,16 +46,21 @@ The `G` class solves the Dyson equation at each iteration, receiving $G_0$ from 
 The irreducible polarizability $P$ is computed from the current Green's function by evaluating the two-particle correlation function (particle-hole bubble). In the Matsubara frequency domain:
 
 $$
-P^{p\sigma;q\sigma'}_{ijkl}(\mathbf{k}, i\nu_n) = \int_0^\beta d\tau \sum_{\mathbf{R}} G^{qp}_{ki\sigma'}(-\mathbf{R}, -\tau) \times G^{pq}_{lj\sigma}(\mathbf{R}, \tau) \delta_{\sigma\sigma'} e^{i(\mathbf{k}\cdot\mathbf{R} - \nu_n \tau)}
+P^{p\sigma;q\sigma'}_{ijkl}(\mathbf{k}, i\nu_n) =
+\int_0^\beta d\tau \sum_{\mathbf{R}}
+G^{qp}_{ki\sigma'}(-\mathbf{R}, -\tau) \times
+G^{pq}_{lj\sigma}(\mathbf{R}, \tau)\,
+\delta_{\sigma\sigma'}
+e^{i[\mathbf{k}\cdot(\mathbf{R}+\tau_p-\tau_q) - \nu_n \tau]}
 $$
 
-where $i\nu_n = 2n\pi/\beta$ are bosonic Matsubara frequencies, and the integration over imaginary time $\tau$ performs the convolution of two fermionic Green's functions. The Kronecker delta $\delta_{\sigma\sigma'}$ indicates that the electron and hole must have the same spin in the non-interacting bubble.
+where $i\nu_n = 2n\pi/\beta$ are bosonic Matsubara frequencies. The bubble is evaluated as a pointwise product of two fermionic Green's functions in imaginary time; the subsequent $\tau$-integral transforms this product to the bosonic Matsubara axis, where it is equivalent to a convolution over fermionic Matsubara frequencies. The Kronecker delta $\delta_{\sigma\sigma'}$ indicates that the electron and hole must have the same spin in the non-interacting bubble.
 
 The `P` class (child of `BLatDyn`) computes this quantity. It accepts the interacting Green's function $G$ and produces the bosonic response function that describes how the electron density responds to screened perturbations.
 
 ## Screened Coulomb Interaction
 
-The screened interaction $W$ accounts for how the bare Coulomb potential $V$ is reduced (screened) by the polarization of the surrounding electron gas. It is obtained by the Dyson equation:
+The screened interaction $W$ accounts for how the bare Coulomb potential $V$ is reduced (screened) by the polarization of the surrounding electron gas. It is obtained from the Bethe-Salpeter equation for the screened interaction at the random-phase approximation level, equivalently written in the Dyson-like matrix form:
 
 $$
 W^{p\sigma;q\sigma'}_{ijkl}(\mathbf{k}, i\nu_n) = V^{p\sigma;q\sigma'}_{ijkl}(\mathbf{k}) + \sum_{rs} \sum_{i'j'k'l'} V^{p\sigma;r\sigma'}_{ii'j'l}(\mathbf{k})\, P^{r\sigma;s\sigma'}_{i'k'l'j'}(\mathbf{k}, i\nu_n)\, W^{s\sigma;q\sigma'}_{k'jkl'}(\mathbf{k}, i\nu_n)
@@ -67,12 +75,17 @@ The `W` class (child of `BLatDyn`) constructs $W$ from $P$ and $V$.
 The *GW* correlation self-energy captures dynamical correlations through the frequency-dependent screened interaction. The correlation part is given by:
 
 $$
-\Sigma^{C,GW\, pq}_{ij\sigma}(\mathbf{k}, i\omega_n) = -\int_0^\beta d\tau \sum_{\mathbf{R}} \sum_{kl} G^{qp}_{lk\sigma}(\mathbf{R}, \tau) \times W^{C\, p\sigma q\sigma'}_{ijkl}(\mathbf{R}, \tau) \delta_{\sigma\sigma'} e^{i(\mathbf{k}\cdot\mathbf{R} - \omega_n \tau)}
+\Sigma^{C,GW\, pq}_{ij\sigma}(\mathbf{k}, i\omega_n) =
+-\int_0^\beta d\tau \sum_{\mathbf{R}} \sum_{kl}
+G^{qp}_{lk\sigma}(\mathbf{R}, \tau) \times
+W^{C\, p\sigma q\sigma'}_{ijkl}(\mathbf{R}, \tau)
+\delta_{\sigma\sigma'}
+e^{i[\mathbf{k}\cdot(\mathbf{R}+\tau_p-\tau_q) - \omega_n \tau]}
 $$
 
 where $W^C = W - V$ is the dynamical part of the screened interaction. The subtraction isolates the dynamical screening contribution, avoiding double-counting since static Coulomb interaction effects are already incorporated through $\Sigma^F$.
 
-The `SigGWC` class (child of `FLatDyn`) computes this self-energy by convolving the Green's function $G$ with the correlation part of the screened interaction $W^C$.
+The `SigGWC` class (child of `FLatDyn`) computes this self-energy by multiplying the Green's function $G$ with the correlation part of the screened interaction $W^C$ in imaginary time before transforming to Matsubara frequency.
 
 ## Self-Consistent GW Loop
 
@@ -84,7 +97,7 @@ The full *GW* self-consistent cycle proceeds as:
 
 3. **Polarizability**: Compute $P = GG$ (`P`).
 
-4. **Screened interaction**: Solve the bosonic Dyson equation $W = V + VPW$ (`W`).
+4. **Screened interaction**: Solve the RPA-level screened-interaction equation $W = V + VPW$ (`W`).
 
 5. **Correlation self-energy**: Compute $\Sigma^{C,GW} = -GW^C$ (`SigGWC`).
 
@@ -100,9 +113,9 @@ The full *GW* self-consistent cycle proceeds as:
 
 After the *GW* loop converges, two additional classes extract quasiparticle properties from the frequency-dependent self-energy:
 
-### Renormalization Factor (ZFactor)
+### Renormalization Factor (Z)
 
-The `ZFactor` class extracts the quasiparticle renormalization factor from the converged *GW* self-energy. It receives $\Sigma(\mathbf{k}, i\omega_n)$ stored in DLR representation and computes the inverse renormalization factor:
+The `Z` class extracts the quasiparticle renormalization factor from the converged *GW* self-energy. It receives $\Sigma(\mathbf{k}, i\omega_n)$ stored in DLR representation and computes the inverse renormalization factor:
 
 $$
 Z(\mathbf{k})^{-1} = 1 - \frac{\partial \Sigma(\mathbf{k}, i\omega_n)}{\partial i\omega_n} \bigg|_{\omega=0}
@@ -110,9 +123,9 @@ $$
 
 The $\mathbf{k}$-resolved renormalization factor $Z(\mathbf{k})$ encodes the dynamical mass enhancement and spectral weight transfer from coherent quasiparticle peaks to incoherent satellite structures.
 
-### Static Self-Energy (SigmaStc)
+### Static Self-Energy (SigStc)
 
-The `SigmaStc` class computes the static limit of the self-energy $\Sigma(\mathbf{k}, \omega=0)$ from the full frequency-dependent *GW* result. It receives $\Sigma(\mathbf{k}, i\omega_n)$ in DLR representation and evaluates its zero-frequency limit. This static self-energy captures the shifts in quasiparticle energies.
+The `SigStc` class computes the static limit of the self-energy $\Sigma(\mathbf{k}, \omega=0)$ from the full frequency-dependent *GW* result. It receives $\Sigma(\mathbf{k}, i\omega_n)$ in DLR representation and evaluates its zero-frequency limit. This static self-energy captures the shifts in quasiparticle energies.
 
 ### Quasiparticle Hamiltonian
 
@@ -122,7 +135,7 @@ $$
 H_{QP}(\mathbf{k}) = \sqrt{Z(\mathbf{k})} \left( H_0(\mathbf{k}) + \Sigma(\mathbf{k}, \omega=0) \right) \sqrt{Z(\mathbf{k})}
 $$
 
-where $H_0(\mathbf{k})$ is the non-interacting Hamiltonian, $\Sigma(\mathbf{k}, \omega=0)$ is the static self-energy from `SigmaStc`, and $Z(\mathbf{k})$ is the renormalization factor from `ZFactor`. The symmetric placement of $\sqrt{Z}$ ensures Hermiticity when $Z(\mathbf{k})$ is a matrix in orbital space. Diagonalizing $H_{QP}(\mathbf{k})$ yields the renormalized quasiparticle band structure, incorporating both the static self-energy shift and the dynamical mass enhancement.
+where $H_0(\mathbf{k})$ is the non-interacting Hamiltonian, $\Sigma(\mathbf{k}, \omega=0)$ is the static self-energy from `SigStc`, and $Z(\mathbf{k})$ is the renormalization factor from `Z`. The symmetric placement of $\sqrt{Z}$ ensures Hermiticity when $Z(\mathbf{k})$ is a matrix in orbital space. Diagonalizing $H_{QP}(\mathbf{k})$ yields the renormalized quasiparticle band structure, incorporating both the static self-energy shift and the dynamical mass enhancement.
 
 ## References
 

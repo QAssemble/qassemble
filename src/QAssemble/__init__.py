@@ -9,7 +9,7 @@ from .BPathStc import BPathStc
 from .CorrelationFunction import CorrelationFunction
 from .Crystal import Crystal
 from .FLatDyn import FLatDyn, G, G0, GreenAB, SigGWC
-from .FLatStc import FLatStc, H, H0, HamiltonianAB, SigF, SigH, SigmaStc, ZFactor
+from .FLatStc import FLatStc, H, H0, HamiltonianAB, SigF, SigH, SigStc, Z
 from .FPathDyn import FPathDyn
 from .FPathStc import FPathStc
 from .run import Run
@@ -46,8 +46,8 @@ __all__ = [
     "BPathStc",
     "GreenAB",
     "HamiltonianAB",
-    "ZFactor",
-    "SigmaStc",
+    "Z",
+    "SigStc",
     "BLocStc",
     "VLoc",
     "Bare",

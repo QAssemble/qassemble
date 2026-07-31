@@ -110,7 +110,7 @@ classDiagram
     }
     class SigGWC {
         +Cal()
-        +SigmaStc()
+        +SigStc()
         +Zfactor()
         +Save()
     }
@@ -137,11 +137,11 @@ classDiagram
         +Cal()
         +Save()
     }
-    class ZFactor {
+    class Z {
         +Cal()
         +Save()
     }
-    class SigmaStc {
+    class SigStc {
         +Cal()
         +Save()
     }
@@ -198,8 +198,8 @@ classDiagram
     SigH --|> FLatStc
     SigF --|> FLatStc
     HamiltonianAB --|> FLatStc
-    ZFactor --|> FLatStc
-    SigmaStc --|> FLatStc
+    Z --|> FLatStc
+    SigStc --|> FLatStc
     G0 --> FLatDyn : writes
     G --> FLatDyn : consumes
     SigGWC --> FLatDyn : consumes
