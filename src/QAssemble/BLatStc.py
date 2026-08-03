@@ -425,7 +425,7 @@ class V(BLatStc):
     def Cal(self):
         """Compute the primary array represented by this object."""
 
-        errmessage = "Wrong value entered, please check the input.ini file"
+        errmessage = "Wrong value entered, please check the input file"
         rkgrid = self.crystal.rkgrid
         rkvec = self.crystal.kpoint
 

@@ -1,36 +1,157 @@
 """Input parsing and execution driver for QAssemble workflows."""
+from __future__ import annotations
+
+import ast
 import copy
 import datetime
 import os
+from pathlib import Path
 import sys
 import time
+import warnings
 
 import h5py
 
 from .CorrelationFunction import CorrelationFunction
 
 
+DEFAULT_INPUT_FILE = "qassemble.in"
+LEGACY_INPUT_FILE = "input.ini"
+REQUIRED_INPUT_SECTIONS = ("Crystal", "Hamiltonian", "Control")
+
+
+class InputFormatError(ValueError):
+    """Raised when a QAssemble input file is not valid structured input."""
+
+
+def resolve_input_file(input_file: str | Path | None = None) -> Path:
+    """Return the input file to read, applying the default/legacy search order."""
+
+    if input_file is not None:
+        path = Path(input_file)
+        if not path.exists():
+            raise FileNotFoundError(f"QAssemble input file not found: {path}")
+        return path.resolve()
+
+    default_path = Path(DEFAULT_INPUT_FILE)
+    if default_path.exists():
+        return default_path.resolve()
+
+    legacy_path = Path(LEGACY_INPUT_FILE)
+    if legacy_path.exists():
+        return legacy_path.resolve()
+
+    raise FileNotFoundError(
+        f"QAssemble input file not found. Expected {DEFAULT_INPUT_FILE}"
+        f" or deprecated {LEGACY_INPUT_FILE} in the current directory."
+    )
+
+
+def load_input_file(path: str | Path) -> dict:
+    """Load a QAssemble input file without executing arbitrary Python code."""
+
+    path = Path(path)
+    text = path.read_text(encoding="utf-8")
+
+    if path.name == LEGACY_INPUT_FILE:
+        warnings.warn(
+            f"{LEGACY_INPUT_FILE} is deprecated; use {DEFAULT_INPUT_FILE}.",
+            FutureWarning,
+            stacklevel=2,
+        )
+        data = _load_legacy_assignments(text, path)
+    else:
+        data = _load_top_level_dict(text, path)
+
+    _validate_input_sections(data, path)
+    return data
+
+
+def _load_top_level_dict(text: str, path: Path) -> dict:
+    """Parse the current input format: a single top-level dictionary literal."""
+
+    try:
+        tree = ast.parse(text, filename=str(path), mode="eval")
+        data = ast.literal_eval(tree.body)
+    except (SyntaxError, ValueError, TypeError) as exc:
+        raise InputFormatError(
+            f"{path}: expected a single top-level dictionary literal."
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise InputFormatError(f"{path}: top-level input must be a dictionary.")
+    return data
+
+
+def _load_legacy_assignments(text: str, path: Path) -> dict:
+    """Parse deprecated input.ini files containing only section assignments."""
+
+    try:
+        tree = ast.parse(text, filename=str(path), mode="exec")
+    except SyntaxError as exc:
+        raise InputFormatError(f"{path}: invalid legacy input syntax.") from exc
+
+    data = {}
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            raise InputFormatError(
+                f"{path}: legacy input.ini may only contain Crystal,"
+                " Hamiltonian, and Control assignments."
+            )
+        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            raise InputFormatError(
+                f"{path}: legacy input assignments must use simple names."
+            )
+
+        name = node.targets[0].id
+        if name not in REQUIRED_INPUT_SECTIONS:
+            raise InputFormatError(
+                f"{path}: unsupported legacy assignment {name!r}; expected only"
+                " Crystal, Hamiltonian, and Control."
+            )
+        if name in data:
+            raise InputFormatError(f"{path}: duplicate {name} section.")
+
+        try:
+            data[name] = ast.literal_eval(node.value)
+        except (ValueError, SyntaxError, TypeError) as exc:
+            raise InputFormatError(
+                f"{path}: {name} must be a Python literal value."
+            ) from exc
+
+    return data
+
+
+def _validate_input_sections(data: dict, path: Path) -> None:
+    """Validate top-level QAssemble input sections."""
+
+    sections = set(data.keys())
+    required = set(REQUIRED_INPUT_SECTIONS)
+    missing = required - sections
+    extra = sections - required
+
+    if missing:
+        names = ", ".join(sorted(missing))
+        raise InputFormatError(f"{path}: missing required section(s): {names}.")
+    if extra:
+        names = ", ".join(sorted(str(key) for key in extra))
+        raise InputFormatError(f"{path}: unsupported top-level section(s): {names}.")
+
+
 class Run:
     """Input-file runner for QAssemble command-line calculations."""
-    def __init__(self, test=False) -> None:
+    def __init__(self, test=False, input_file=None) -> None:
         """Initialize the runner and optionally execute the configured workflow."""
 
         self.control = None
         self.func = None
-        self.ReadInput()
+        self.input_file = resolve_input_file(input_file)
+        self.ReadInput(self.input_file)
         if test:
             control = self.control
             func = CorrelationFunction(
-                latt=control["crystal"]["lattice"],
-                basisposition=control["crystal"]["basispos"],
-                ns=control["crystal"]["ns"],
-                soc=control["crystal"]["soc"],
-                rkgrid=control["crystal"]["rkgrid"],
-                orboption=control["crystal"]["orbital"],
-                N=control["crystal"]["nume"],
-                T=control["ft"]["T"],
-                beta=control["ft"]["beta"],
-                size=control["ft"]["size"],
+                cry=control["crystal"],
+                ft=control["ft"],
                 c=control["run"]["cw"],
             )
             self.func = func
@@ -50,12 +171,12 @@ class Run:
             sys.exit()
         return None
 
-    def ReadInput(self):
+    def ReadInput(self, input_file=None):
         """Read and parse the QAssemble input file."""
 
-        loc = {}
-        glob = {}
-        exec(open("input.ini").read(), glob, loc)
+        if input_file is None:
+            input_file = self.input_file
+        loc = load_input_file(input_file)
 
         control = {}
         control["name"] = "control"
@@ -212,9 +333,14 @@ class Run:
 
         vnonlocparameter = None
         NonLoc = ham["TwoBody"]["NonLocal"]
-        ohno = NonLoc.get("Ohno", False)
-        jth = NonLoc.get("JTH", False)
-        oy = NonLoc.get('OhnoYukawa', False)
+        if isinstance(NonLoc, dict):
+            ohno = NonLoc.get("Ohno", False)
+            jth = NonLoc.get("JTH", False)
+            oy = NonLoc.get('OhnoYukawa', False)
+        else:
+            ohno = False
+            jth = False
+            oy = False
         # print(jth)
         if ham["TwoBody"]["NonLocal"] == "None":
             control["ham"]["coulomb"]["nonlocal"] = vnonlocparameter

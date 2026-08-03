@@ -42,7 +42,7 @@ hide:
   <div class="feature-card">
     <div class="card-icon">🚀</div>
     <h3>Quick Start</h3>
-    <p>Set up <code>input.ini</code> and run your first TB, HF, or GW calculation in minutes.</p>
+    <p>Set up <code>qassemble.in</code> and run your first TB, HF, or GW calculation in minutes.</p>
     <a href="getting-started/quickstart/" class="card-link">Try it →</a>
   </div>
 

@@ -597,7 +597,7 @@ class H0(FLatStc):
 
                 # tempmat[iorb,jorb,js,R[0],R[1],R[2]] += -tij
                 if (iorb == jorb) and (R == [0, 0, 0]):
-                    print("Wrong value entered, please check the input.ini file")
+                    print("Wrong value entered, please check the input file")
                     sys.exit()
                 else:
                     tempmat[iorb, jorb, js, R[0], R[1], R[2]] += -tij

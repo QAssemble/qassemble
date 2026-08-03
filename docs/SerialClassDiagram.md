@@ -10,7 +10,8 @@ classDiagram
     class Run {
         +control: dict
         +func: CorrelationFunction
-        +ReadInput()
+        +input_file: Path
+        +ReadInput(input_file)
         +CheckKeyinString()
         +RunDiagE()
         +Dict2Hdf5()

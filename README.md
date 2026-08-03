@@ -107,55 +107,57 @@ renamed.
 
 ### 1. Prepare Input
 
-Create an `input.ini` file in your working directory. It defines the crystal structure, Hamiltonian parameters, and run settings:
+Create a `qassemble.in` file in your working directory. It defines the crystal structure, Hamiltonian parameters, and run settings as a restricted declarative QAssemble input file:
 
 ```python
-Crystal = {
-    'RVec': [[1,0,0],[0.5,0.866,0],[0,0,1]],
-    'SOC': False,
-    'CorF': 'F',                          # 'F' = Fractional, 'C' = Cartesian
-    'Basis': [[[0.33333,0.33333,0],1],
-              [[0.66667,0.66667,0],1]],
-    'NSpin': 1,
-    'NElec': 2,                           # Total number of electrons per spin
-    'KGrid': [25,25,1]
-}
-
-Hamiltonian = {
-    'OneBody': {
-        'Hopping': {
-            ((0,0),(1,0)): {
-                1.0: [[0,0,0],[-1,0,0],[0,-1,0]],
-            },
-        },
-        'Onsite': {
-            0: {(0,0): 0.0, (1,0): 0.0}
-        }
+{
+    "Crystal": {
+        "RVec": [[1, 0, 0], [0.5, 0.866, 0], [0, 0, 1]],
+        "SOC": False,
+        "CorF": "F",
+        "Basis": [
+            [[0.33333, 0.33333, 0], 1],
+            [[0.66667, 0.66667, 0], 1],
+        ],
+        "NSpin": 1,
+        "NElec": 2,
+        "KGrid": [25, 25, 1],
     },
-    'TwoBody': {
-        'Local': {
-            'Parameter': 'SlaterKanamori',  # 'Slater', 'Kanamori', or 'SlaterKanamori'
-            'option': {
-                (0,(0)): {'l': 0, 'U': 2.0, 'Up': 0.0},
-                (1,(0)): {'l': 0, 'U': 2.0, 'Up': 0.0}
-            }
-        },
-        'NonLocal': {
-            ((0,0),(1,0)): {
-                0.20: [[0,0,0],[-1,0,0],[0,-1,0]],
+    "Hamiltonian": {
+        "OneBody": {
+            "Hopping": {
+                ((0, 0), (1, 0)): {
+                    1.0: [[0, 0, 0], [-1, 0, 0], [0, -1, 0]],
+                },
             },
-        }
-    }
-}
-
-Control = {
-    'Method': 'gw',           # 'tb', 'hf', or 'gw'
-    'Prefix': 'my_calc',
-    'NSCF': 20000,
-    'Mix': 0.1,
-    'T': 2000,
-    'MatsubaraCutOff': 100,
-    'ConstantW': 1.0
+            "Onsite": {
+                0: {(0, 0): 0.0, (1, 0): 0.0},
+            },
+        },
+        "TwoBody": {
+            "Local": {
+                "Parameter": "SlaterKanamori",
+                "option": {
+                    (0, (0,)): {"l": 0, "U": 2.0, "Up": 0.0},
+                    (1, (0,)): {"l": 0, "U": 2.0, "Up": 0.0},
+                },
+            },
+            "NonLocal": {
+                ((0, 0), (1, 0)): {
+                    0.20: [[0, 0, 0], [-1, 0, 0], [0, -1, 0]],
+                },
+            },
+        },
+    },
+    "Control": {
+        "Method": "gw",
+        "Prefix": "my_calc",
+        "NSCF": 20000,
+        "Mix": 0.1,
+        "T": 2000,
+        "MatsubaraCutOff": 100,
+        "ConstantW": 1.0,
+    },
 }
 ```
 
@@ -167,10 +169,17 @@ Using the installed CLI command:
 qassemble
 ```
 
+You can also pass an explicit input file:
+
+```bash
+qassemble graphene_gw.in
+```
+
 Using Python module execution:
 
 ```bash
 python -m QAssemble
+python -m QAssemble graphene_gw.in
 ```
 
 <!-- Parallel execution with MPI:
@@ -191,8 +200,8 @@ QAssemble/
     └── QAssemble/
         ├── __init__.py         # Package exports and version
         ├── __main__.py         # python -m QAssemble support
-        ├── cli.py              # CLI entry point (qassemble command)
-        ├── run.py              # Run class (input parsing and execution)
+        ├── CLI.py              # CLI entry point (qassemble command)
+        ├── Run.py              # Run class (input parsing and execution)
         ├── Crystal.py          # Lattice geometry, k-point grids, index mappings
         ├── CorrelationFunction.py  # Top-level workflow coordinator (TB / HF / GW)
         ├── FLatStc.py          # Static fermionic lattice (Hamiltonian, HF self-energy)

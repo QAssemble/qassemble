@@ -12,7 +12,7 @@ from .FLatDyn import FLatDyn, G, G0, GreenAB, SigGWC
 from .FLatStc import FLatStc, H, H0, HamiltonianAB, SigF, SigH, SigStc, Z
 from .FPathDyn import FPathDyn
 from .FPathStc import FPathStc
-from .run import Run
+from .Run import Run
 from .utility.Bare import Bare
 from .utility.Common import Common
 from .utility.DLR import DLR

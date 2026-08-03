@@ -1,4 +1,4 @@
 """Module entry point for running QAssemble as a package."""
-from .cli import main
+from .CLI import main
 
 main()

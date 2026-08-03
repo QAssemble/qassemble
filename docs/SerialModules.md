@@ -2,17 +2,17 @@
 
 This guide summarises the serial implementation that lives under `src/QAssemble/`. Use it as a map when extending the solver, plumbing new data into the HDF5 workflow, or coordinating work between modules.
 
-## Top-Level Driver (`src/QAssemble/run.py`)
+## Top-Level Driver (`src/QAssemble/Run.py`)
 - **Entry points**
-  The `Run` class is the main driver. It can be invoked via the CLI command `qassemble` (defined in `src/QAssemble/cli.py`) or via `python -m QAssemble` (defined in `src/QAssemble/__main__.py`). The legacy script `src/QAssemble.py` is retained for backward compatibility.
+  The `Run` class is the main driver. It can be invoked via the CLI command `qassemble` (defined in `src/QAssemble/CLI.py`) or via `python -m QAssemble` (defined in `src/QAssemble/__main__.py`). The legacy script `src/QAssemble.py` is retained for backward compatibility.
 - **Run lifecycle**
-  Instantiating `Run(test=False)` calls `ReadInput`, stores the parsed control dictionary, and dispatches to `RunDiagE` for methods `tb`, `hf`, or `gw`. Passing `test=True` builds a lightweight `CorrelationFunction` instance without launching a full run.
+  Instantiating `Run(test=False, input_file=None)` calls `ReadInput`, stores the parsed control dictionary, and dispatches to `RunDiagE` for methods `tb`, `hf`, or `gw`. Passing `test=True` builds a lightweight `CorrelationFunction` instance without launching a full run.
 - **Input discovery**
-  `ReadInput` executes `input.ini`, expecting `Crystal`, `Hamiltonian`, and `Control` sections. It writes a canonicalised copy to `<prefix>.h5` under `/input` (creating the file on first run) and compares subsequent executions to guard against stale prefixes.
+  `ReadInput` loads a restricted declarative QAssemble input file, expecting `Crystal`, `Hamiltonian`, and `Control` sections. The default file is `qassemble.in`; deprecated `input.ini` files are read only as legacy structured assignments. The parsed input is written to `<prefix>.h5` under `/input` (creating the file on first run) and compared on subsequent executions to guard against stale prefixes.
 - **Derived dictionaries**
   The routine populates nested dictionaries for `crystal`, `ft`, `ham`, and `run`, filling defaults such as `Mode=FromScratch`. Helper `CheckKeyinString` raises early errors if required configuration keys are missing.
 - **HDF5 bookkeeping**
-  When an existing `<prefix>.h5` is present, `ReadInput` mirrors the new settings against the stored `/input` group. It aborts if values diverge, forcing the user to pick a new prefix. Fresh runs dump the executed Python objects into the HDF5 tree through `Dict2Hdf5`. Additional helpers `Hdf52Dict`, `CheckInput`, `ChangeInput`, and `CompareDict` manage round-trip serialisation and input validation.
+  When an existing `<prefix>.h5` is present, `ReadInput` mirrors the new settings against the stored `/input` group. It aborts if values diverge, forcing the user to pick a new prefix. Fresh runs dump the parsed input objects into the HDF5 tree through `Dict2Hdf5`. Additional helpers `Hdf52Dict`, `CheckInput`, `ChangeInput`, and `CompareDict` manage round-trip serialisation and input validation.
 - **Environment expectations**
   Ensure dependencies such as `h5py`, `numpy`, and `mpi4py` are available; MPI-specific packages are no-ops in serial mode but must still import cleanly.
 

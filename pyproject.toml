@@ -23,7 +23,7 @@ dependencies = [
 test = ["pytest"]
 
 [project.scripts]
-qassemble = "QAssemble.cli:main"
+qassemble = "QAssemble.CLI:main"
 qassemble-migrate-hdf5 = "QAssemble.migrate_hdf5:main"
 
 [tool.setuptools.packages.find]
