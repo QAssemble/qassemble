@@ -72,7 +72,6 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
-    - Migrating to 0.2: getting-started/migration-0.2.md
   - Basic Theory:
     - Green's Function Formalism: theory/greens-function.md
     - Hamiltonian: theory/hamiltonian.md
