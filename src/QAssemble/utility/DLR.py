@@ -122,11 +122,12 @@ class DLR(object):
         keeps the legacy coefficient round trip; see ``MatsubaraDLR2Uniform``
         for why it is no longer the default.
 
-        For fermions the Hermitian fold happens *here* rather than in the
-        flattened core, because the matrix-valued relation is
-        ``G(-iw) = G(iw)^dagger`` — conjugate *and* transpose — and only this
-        level still has the orbital axes.  This mirrors
-        ``MatsubaraAddNegativeFrequency``.
+        The Hermitian fold happens *here* rather than in the flattened core,
+        because the matrix-valued relation carries a transpose and only this
+        level still has the orbital axes: ``G(-iw) = G(iw)^dagger`` for fermions
+        (mirroring ``MatsubaraAddNegativeFrequency``) and
+        ``F_ij(-nu) = conj(F_ji(+nu))`` over orbital *and* spin axes for bosons
+        (mirroring the reverse direction in ``MatsubaraUniformGrid2DLR``).
         """
         ff = self._as_dynamic_spin_matrix(ff) if sign == -1 else self._as_bosonic_dynamic_matrix(ff)
         omega_dlr = self.omega if sign == -1 else self.nu
@@ -136,8 +137,10 @@ class DLR(object):
                 f"frequency dimension {nfreq} does not match DLR omega size {len(omega_dlr)}"
             )
 
-        if method == "interp" and sign == -1:
-            return self._MatsubaraDLR2UniformInterpGrid(ff, omega_dlr)
+        if method == "interp":
+            if sign == -1:
+                return self._MatsubaraDLR2UniformInterpGrid(ff, omega_dlr)
+            return self._MatsubaraDLR2UniformInterpGridBoson(ff, omega_dlr)
 
         ff_t = np.moveaxis(ff, -1, 0)
         batch = int(np.prod(ff.shape[:-1]))
@@ -195,6 +198,64 @@ class DLR(object):
         )
 
         out = out.reshape(self.omega_uniform.size, *f_all.shape[:-1])
+        return np.asfortranarray(np.moveaxis(out, 0, -1))
+
+    def _MatsubaraDLR2UniformInterpGridBoson(
+        self,
+        ff : np.ndarray,
+        nu_dlr : np.ndarray,
+    ) -> np.ndarray:
+        """Bosonic DLR->uniform interpolation with a Hermitian fold.
+
+        The bosonic analogue of ``_MatsubaraDLR2UniformInterpGrid``.  Two things
+        differ from the fermionic case:
+
+        * the mirror is ``F_ij(-nu) = conj(F_ji(+nu))`` on the 5D
+          ``(norb, norb, ns, ns, nfreq)`` array — the transpose covers the spin
+          axes as well as the orbital ones, matching the reverse direction in
+          ``MatsubaraUniformGrid2DLR``;
+        * ``nu=0`` is a real node of both the DLR and the uniform grid, so the
+          ``1/nu`` interpolation variable is shifted by ``2*pi/beta`` (one
+          bosonic Matsubara spacing).  The shift only has to clear the
+          singularity: the result is flat to within a factor 1.5 over a 1000x
+          range of offsets, so this is not a tuning knob.
+        """
+        nu_dlr = np.asarray(nu_dlr, dtype=np.float64)
+
+        # Hermitian mirror: conjugate-transpose on the orbital AND spin axes.
+        mirrored = np.conjugate(np.swapaxes(np.swapaxes(ff, 0, 1), 2, 3))
+
+        x_all = np.concatenate([nu_dlr, -nu_dlr])
+        f_all = np.concatenate([ff, mirrored], axis=-1)
+
+        keep = x_all >= 0.0
+        # np.abs normalises the -0.0 that mirroring the zero node produces.
+        x_all, f_all = np.abs(x_all[keep]), f_all[..., keep]
+
+        order = np.argsort(x_all)
+        x_all, f_all = x_all[order], f_all[..., order]
+
+        _, unique_idx = np.unique(np.round(x_all, 12), return_index=True)
+        unique_idx = np.sort(unique_idx)
+        x_all, f_all = x_all[unique_idx], f_all[..., unique_idx]
+
+        nu_uniform = self.MatsubaraBosonUniform()
+
+        batch = int(np.prod(f_all.shape[:-1]))
+        f_2d = np.ascontiguousarray(np.moveaxis(f_all, -1, 0)).reshape(
+            x_all.size, batch, 1
+        )
+
+        out = self._interp_to_grid(
+            f_2d,
+            x_all,
+            nu_uniform,
+            variable="inverse",
+            kind="cubic",
+            offset=2.0 * np.pi / self.beta,
+        )
+
+        out = out.reshape(nu_uniform.size, *f_all.shape[:-1])
         return np.asfortranarray(np.moveaxis(out, 0, -1))
 
     def MatsubaraUniformGrid2DLR(
@@ -395,27 +456,34 @@ class DLR(object):
         flattened core can only mirror element-wise, so it is exact for diagonal
         channels only.
 
-        Bosons keep the legacy path for now regardless of ``method``; ``nu=0``
-        makes the ``1/w`` interpolation variable singular and needs its own
-        treatment.
+        Bosons interpolate too; ``nu=0`` sits on both grids, so the ``1/nu``
+        variable is shifted by one Matsubara spacing (see
+        ``_MatsubaraDLR2UniformInterpGridBoson``).
         """
         from scipy.linalg import lu_solve
 
         if method not in ("interp", "dlr"):
             raise ValueError("method must be 'interp' or 'dlr'")
 
-        if method == "interp" and sign == -1:
+        if method == "interp":
             ff2 = np.asarray(ff, dtype=np.complex128)
             squeeze = ff2.ndim == 1
             if squeeze:
                 ff2 = ff2[:, None]
-            x_all, f_all = self._fold_to_nonnegative(self.omega, ff2)
+            if sign == -1:
+                nodes, target, offset = self.omega, self.MatsubaraFermionUniform(), 0.0
+            else:
+                nodes = self.nu
+                target = self.MatsubaraBosonUniform()
+                offset = 2.0 * np.pi / self.beta
+            x_all, f_all = self._fold_to_nonnegative(nodes, ff2)
             out = self._interp_to_grid(
                 f_all[:, :, None],
-                x_all,
-                self.MatsubaraFermionUniform(),
+                np.abs(x_all),
+                target,
                 variable="inverse",
                 kind="cubic",
+                offset=offset,
             )[:, :, 0]
             return out[:, 0] if squeeze else out
 
@@ -528,6 +596,7 @@ class DLR(object):
         *,
         variable: str = "linear",
         kind: str = "linear",
+        offset: float = 0.0,
     ) -> np.ndarray:
         """Interpolate Matsubara data onto a target frequency grid.
 
@@ -539,12 +608,14 @@ class DLR(object):
         transforms (``dlr_from_matsubara`` / ``matsubara_from_dlr``) apply the
         single ``(a, b)`` transpose.
 
-        ``variable="inverse"`` interpolates in ``u = 1/w`` instead of ``w``.  A
-        Matsubara tail ``c1/(iw) + c2/(iw)**2`` is a low-order polynomial in
-        ``1/w``, so this removes the systematic bias linear interpolation would
-        otherwise accumulate across the sparse log-spaced DLR nodes.  It
-        requires a strictly positive ``x_src``/``x_target`` (true for fermions,
-        whose smallest Matsubara frequency is ``pi/beta``).
+        ``variable="inverse"`` interpolates in ``u = 1/(w + offset)`` instead of
+        ``w``.  A Matsubara tail ``c1/(iw) + c2/(iw)**2`` is a low-order
+        polynomial in ``1/w``, so this removes the systematic bias linear
+        interpolation would otherwise accumulate across the sparse log-spaced
+        DLR nodes.  It requires ``w + offset`` to be strictly positive.
+        ``offset=0`` (the default) is right for fermions, whose smallest
+        Matsubara frequency is ``pi/beta``; bosons pass ``offset=2*pi/beta`` to
+        shift the ``nu=0`` node off the singularity.
 
         ``kind="cubic"`` upgrades to a cubic spline, which in the ``1/w``
         variable is near-exact for a decaying tail.  It needs at least four
@@ -573,9 +644,14 @@ class DLR(object):
         x_eval = np.clip(x_target, x_src.min(), x_src.max())
 
         if variable == "inverse":
-            if x_src.min() <= 0.0 or x_eval.min() <= 0.0:
-                raise ValueError("variable='inverse' requires positive frequencies")
-            u_src, u_eval = 1.0 / x_src, 1.0 / x_eval
+            # A folded bosonic grid carries a -0.0 at the zero node; adding 0.0
+            # normalises the sign so the shifted value is strictly positive.
+            s_src, s_eval = x_src + offset + 0.0, x_eval + offset + 0.0
+            if s_src.min() <= 0.0 or s_eval.min() <= 0.0:
+                raise ValueError(
+                    "variable='inverse' requires positive frequencies after the offset"
+                )
+            u_src, u_eval = 1.0 / s_src, 1.0 / s_eval
         else:
             u_src, u_eval = x_src, x_eval
 

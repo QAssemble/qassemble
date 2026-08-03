@@ -176,7 +176,10 @@ def test_boson_5d_dlr_to_uniform_grid_batches_corr_axis():
             arr[i, j, 0, 0, :] = _eval(dlr.dB, coeff, dlr.nu, xi=1)
             expected[i, j, 0, 0, :] = _eval(dlr.dB, coeff, nu_u, xi=1)
 
-    out = dlr.MatsubaraDLR2UniformGrid(arr, sign=1)
+    # method="dlr" is the coefficient path this reference is built from, so the
+    # check stays exact; the interp default is held to an analytic model in
+    # test_boson_dlr_to_uniform_analytic_accuracy instead.
+    out = dlr.MatsubaraDLR2UniformGrid(arr, sign=1, method="dlr")
     assert out.shape == expected.shape
     np.testing.assert_allclose(out, expected, rtol=1.0e-12, atol=1.0e-12)
 
@@ -712,19 +715,176 @@ def test_fermion_method_dlr_still_available():
     assert np.abs(out - exact).max() / np.abs(exact).max() < 1.0e-12
 
 
-def test_boson_dlr_to_uniform_is_unchanged_by_method():
-    """Bosons keep the legacy path; nu=0 needs its own treatment (follow-up)."""
+def test_boson_dlr_to_uniform_methods_differ_but_agree_on_clean_data():
+    """``interp`` is the bosonic default now; ``dlr`` stays as a rollback.
+
+    The two paths are numerically distinct (that is the point of the change),
+    but on clean analytic input both reproduce the true function, so neither is
+    silently wrong.  On clean data the coefficient path is in fact the more
+    accurate of the two; interpolation wins on noisy input, which is what
+    ``test_boson_dlr_to_uniform_passes_through_dlr_nodes`` pins.  The tolerance
+    here is set by this fixture's sparse DLR grid (rank ~28); at production
+    parameters interpolation reaches ~3e-6.
+    """
     dlr = _dlr()
-    rng = np.random.default_rng(7)
-    rank = len(dlr.nu)
+    nu_u = dlr.MatsubaraBosonUniform()
+    arr = _boson_hermitian_5d(dlr, dlr.nu)
+    exact = _boson_hermitian_5d(dlr, nu_u)
 
-    arr = np.zeros((2, 2, 1, 1, rank), dtype=np.complex128)
-    for i in range(2):
-        for j in range(2):
-            arr[i, j, 0, 0, :] = rng.standard_normal(rank) + 1j * rng.standard_normal(rank)
+    out_interp = dlr.MatsubaraDLR2UniformGrid(arr, sign=1, method="interp")
+    out_dlr = dlr.MatsubaraDLR2UniformGrid(arr, sign=1, method="dlr")
 
-    baseline = dlr.MatsubaraDLR2UniformGrid(arr, sign=1)
-    for method in ("interp", "dlr"):
-        np.testing.assert_array_equal(
-            dlr.MatsubaraDLR2UniformGrid(arr, sign=1, method=method), baseline
+    assert not np.allclose(out_interp, out_dlr, rtol=0.0, atol=0.0)
+    np.testing.assert_array_equal(
+        dlr.MatsubaraDLR2UniformGrid(arr, sign=1), out_interp
+    )
+
+    scale = np.maximum(np.abs(exact), 1.0e-12)
+    assert np.max(np.abs(out_interp - exact) / scale) < 1.0e-2
+    assert np.max(np.abs(out_dlr - exact) / scale) < 1.0e-2
+
+
+# ---------------------------------------------------------------------------
+# 5. Bosonic DLR->uniform interpolation (nu=0 handled by an offset variable)
+# ---------------------------------------------------------------------------
+
+
+def _boson_production_dlr():
+    """Production parameters, where the legacy conditioning actually bites."""
+    return DLR({"beta": 100.0, "cutoff": 300.0, "eps": 1.0e-15})
+
+
+def _boson_even_model(x):
+    """Two-pole even bosonic model with a pure ``c2/(i*nu)**2`` tail."""
+    x = np.asarray(x, dtype=np.float64)
+    w0, w1 = 1.7, 5.3
+    return (-2.0 * w0 / (x**2 + w0**2) - 1.4 * w1 / (x**2 + w1**2)).astype(
+        np.complex128
+    )
+
+
+def _boson_hermitian_5d(dlr, freqs, norb=2):
+    """5D bosonic array obeying ``F_ij(-nu) = conj(F_ji(+nu))``.
+
+    Built from a real-valued even model with a symmetric orbital/spin weight,
+    so the Hermitian relation holds by construction.  A fixture that violates
+    it manufactures large round-trip errors that say nothing about the code.
+    """
+    base = _boson_even_model(freqs)
+    weight = np.array([[1.0, 0.35], [0.35, 0.8]])[:norb, :norb]
+    return np.asfortranarray(
+        weight[:, :, None, None, None] * base[None, None, None, None, :]
+    )
+
+
+def _positive_node_to_uniform_index(dlr):
+    """Map each non-negative DLR node onto its exact uniform-grid index."""
+    nu_u = dlr.MatsubaraBosonUniform()
+    pairs = []
+    for k, v in enumerate(np.asarray(dlr.nu)):
+        if v < 0.0:
+            continue
+        j = int(np.argmin(np.abs(nu_u - v)))
+        if abs(nu_u[j] - v) < 1.0e-8:
+            pairs.append((k, j))
+    return pairs
+
+
+def test_boson_dlr_to_uniform_passes_through_dlr_nodes():
+    """The uniform grid contains the DLR nodes, so they must survive untouched.
+
+    This is the regression this change exists for: the legacy coefficient path
+    is conditioned at ``cond(dlrmf2cf) ~ 2e8``, so on noisy input it returns a
+    value at a DLR node that differs from the input there by ~100x the noise.
+    Interpolation reproduces node values by construction.
+    """
+    dlr = _boson_production_dlr()
+    pairs = _positive_node_to_uniform_index(dlr)
+    assert len(pairs) > 10, "expected the DLR nodes to land on the uniform grid"
+
+    arr = _boson_hermitian_5d(dlr, dlr.nu)
+    out = dlr.MatsubaraDLR2UniformGrid(arr, sign=1)
+    for k, j in pairs:
+        np.testing.assert_allclose(out[..., j], arr[..., k], atol=1.0e-12)
+
+    # Same, with CTQMC-scale noise: the legacy path fails this by ~1e-2.
+    rng = np.random.default_rng(11)
+    noisy = arr + 1.0e-4 * rng.standard_normal(arr.shape)
+    out_noisy = dlr.MatsubaraDLR2UniformGrid(noisy, sign=1)
+    err = max(
+        float(np.max(np.abs(out_noisy[..., j] - noisy[..., k]))) for k, j in pairs
+    )
+    assert err < 1.0e-3, f"node passthrough error {err:.3e} exceeds the noise scale"
+
+
+def test_boson_dlr_to_uniform_handles_zero_frequency():
+    """nu=0 is a real grid point in both the DLR and the uniform grid."""
+    dlr = _boson_production_dlr()
+    nu_u = dlr.MatsubaraBosonUniform()
+    assert nu_u[0] == 0.0
+    assert np.sum(np.asarray(dlr.nu) == 0.0) == 1
+
+    arr = _boson_hermitian_5d(dlr, dlr.nu)
+    out = dlr.MatsubaraDLR2UniformGrid(arr, sign=1)
+    assert np.all(np.isfinite(out.real)) and np.all(np.isfinite(out.imag))
+
+    exact = _boson_hermitian_5d(dlr, nu_u)
+    np.testing.assert_allclose(out[..., 0], exact[..., 0], rtol=1.0e-6)
+
+
+def test_boson_dlr_to_uniform_analytic_accuracy():
+    """Accuracy against an analytic model, independent of the DLR expansion."""
+    dlr = _boson_production_dlr()
+    nu_u = dlr.MatsubaraBosonUniform()
+
+    out = dlr.MatsubaraDLR2UniformGrid(_boson_hermitian_5d(dlr, dlr.nu), sign=1)
+    exact = _boson_hermitian_5d(dlr, nu_u)
+
+    rel = np.max(np.abs(out - exact) / np.maximum(np.abs(exact), 1.0e-12))
+    assert rel < 1.0e-4, f"max relative error {rel:.3e}"
+
+
+def test_boson_uniform_dlr_uniform_roundtrip():
+    """uniform -> DLR -> uniform closes; no such test existed before."""
+    dlr = _boson_production_dlr()
+    nu_u = dlr.MatsubaraBosonUniform()
+
+    start = _boson_hermitian_5d(dlr, nu_u)
+    on_dlr = dlr.MatsubaraUniformGrid2DLR(start, omega=nu_u, sign=1)
+    back = dlr.MatsubaraDLR2UniformGrid(on_dlr, sign=1)
+
+    rel = np.linalg.norm(back - start) / np.linalg.norm(start)
+    assert rel < 1.0e-4, f"round-trip relative error {rel:.3e}"
+
+
+def test_interp_to_grid_offset_preserves_default():
+    """offset=0.0 must be bit-identical to omitting it (fermion regression)."""
+    dlr = _dlr()
+    rng = np.random.default_rng(3)
+    x_src = np.unique(np.round(np.abs(np.asarray(dlr.omega)), 12))
+    ff = (rng.standard_normal((x_src.size, 1, 1))
+          + 1j * rng.standard_normal((x_src.size, 1, 1)))
+    x_target = dlr.MatsubaraFermionUniform()
+
+    for variable, kind in (("linear", "linear"), ("inverse", "cubic")):
+        base = dlr._interp_to_grid(ff, x_src, x_target, variable=variable, kind=kind)
+        with_zero = dlr._interp_to_grid(
+            ff, x_src, x_target, variable=variable, kind=kind, offset=0.0
         )
+        np.testing.assert_array_equal(with_zero, base)
+
+
+def test_boson_flattened_core_interp_matches_grid_wrapper_diagonal():
+    """The flattened core mirrors element-wise, so it is exact on diagonals.
+
+    Same contract as the fermionic core: ``MatsubaraDLR2Uniform`` folds with a
+    plain conjugate (no transpose), which agrees with the wrapper's Hermitian
+    fold for channels that are diagonal in orbital and spin.
+    """
+    dlr = _boson_production_dlr()
+    arr = _boson_hermitian_5d(dlr, dlr.nu, norb=1)
+
+    via_grid = dlr.MatsubaraDLR2UniformGrid(arr, sign=1)
+    via_core = dlr.MatsubaraDLR2Uniform(arr[0, 0, 0, 0, :], sign=1)
+
+    np.testing.assert_allclose(via_core, via_grid[0, 0, 0, 0, :], atol=1.0e-12)
