@@ -28,3 +28,7 @@ qassemble-migrate-hdf5 = "QAssemble.migrate_hdf5:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

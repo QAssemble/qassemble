@@ -66,7 +66,12 @@ class BLatStc(object):
         rkgrid = self.crystal.rkgrid
         norb = matk.shape[0]
         ns = self.crystal.ns
-        nrk = len(rkvec)
+        nrk = matk.shape[4]
+        expected_nrk = len(self.crystal.kpoint)
+        if nrk != expected_nrk:
+            raise ValueError(
+                f"Incompatible k-space axis: got {nrk}, expected {expected_nrk}."
+            )
 
         phases = self._get_phase()
         matr = np.zeros((norb, norb, ns, ns, nrk), dtype=np.complex128, order="F")
