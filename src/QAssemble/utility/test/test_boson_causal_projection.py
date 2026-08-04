@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pytest
 
@@ -496,7 +498,7 @@ def test_boson_loc_projects_offdiagonal_lat_preserves_offdiagonal():
     np.testing.assert_allclose(lat_out[1, 0, 0, 0, :, :], lat_values[1, 0, 0, 0, :, :])
 
 
-def test_boson_loc_offdiagonal_roundtrips_and_preserves_complex_c0():
+def test_boson_loc_offdiagonal_roundtrips_real_drops_imaginary_static():
     crystal = _two_orbital_crystal()
     dlr = _boson_dlr()
     verifier = _BosonVerifier(dlr)
@@ -523,16 +525,87 @@ def test_boson_loc_offdiagonal_roundtrips_and_preserves_complex_c0():
         np.conj(local_out[0, 1, 0, 0, :]),
         atol=1.0e-13,
     )
-    # The complex static part of the off-diagonal survives (imaginary part of
-    # c0 is carried through the projection, dynamic output is purely real).
+    # The X-combination path treats off-diagonals as real-symmetric channels:
+    # Im c0 and any dynamic imaginary part are dropped.
     np.testing.assert_allclose(
-        np.imag(local_out[0, 1, 0, 0, :]),
-        np.imag(c0_offdiag),
-        atol=1.0e-3,
+        np.imag(local_out[0, 1, 0, 0, :]), 0.0, atol=1.0e-10
     )
-    # Already-causal input roundtrips on every component up to the accuracy of
+    # The real part of an already-causal input roundtrips up to the accuracy of
     # the 5-point tail fit on the sparse DLR grid.
-    np.testing.assert_allclose(local_out, local_values, atol=2.0e-2)
+    np.testing.assert_allclose(
+        np.real(local_out[0, 1, 0, 0, :]),
+        offdiag_dyn + np.real(c0_offdiag),
+        atol=2.0e-2,
+    )
+
+
+def test_boson_loc_offdiagonal_x_identity_on_uniform_grid():
+    crystal = _two_orbital_crystal()
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    norb = len(crystal.bind)
+    nu_uniform = np.asarray(dlr.MatsubaraBosonUniform(), dtype=float)
+    nfreq = len(nu_uniform)
+    base = _causal_coefficients(verifier)
+    kernel_uniform = 0.5 * (
+        verifier.basis(1j * nu_uniform) + verifier.basis(-1j * nu_uniform)
+    )
+    dyn0 = kernel_uniform @ base
+    dyn1 = kernel_uniform @ (0.8 * base)
+    dyn01 = kernel_uniform @ (0.3 * base)
+
+    local_values = np.zeros((norb, norb, 1, 1, nfreq), dtype=np.complex128, order="F")
+    local_values[0, 0, 0, 0, :] = dyn0 + 0.3
+    local_values[1, 1, 0, 0, :] = dyn1 + 0.1
+    local_values[0, 1, 0, 0, :] = dyn01 + 0.05
+    local_values[1, 0, 0, 0, :] = np.conj(local_values[0, 1, 0, 0, :])
+
+    local = BLocDyn(crystal, dlr, projector=None)
+    out = local.CausalProjection(local_values, grid="uniform")
+
+    xarr = np.zeros_like(local_values, dtype=np.complex128, order="F")
+    xarr[0, 1, 0, 0, :] = (
+        local_values[0, 0, 0, 0, :]
+        + local_values[0, 1, 0, 0, :]
+        + local_values[1, 0, 0, 0, :]
+        + local_values[1, 1, 0, 0, :]
+    )
+    xarr[1, 0, 0, 0, :] = xarr[0, 1, 0, 0, :]
+    xmoment, xhigh, xsigma = local.Moment(
+        xarr, grid="uniform", return_sigma=True
+    )
+    x_dlr = dlr.MatsubaraUniformGrid2DLR(xarr, omega=nu_uniform, sign=1)
+    c0x = complex(xhigh[0, 1, 0, 0])
+    tail = np.empty(4, dtype=float)
+    tail[0] = 0.0
+    tail[1:] = np.real(xmoment[0, 1, 0, 0, :])
+    projector = CausalBosonProjector(
+        d=dlr.dB,
+        beta=dlr.beta,
+        fit_omega=dlr.nu,
+        coefficient_sign=-1,
+        reflection_symmetry=True,
+        max_iter=100000,
+        constraint_tol=1.0e-8,
+        fit_tol=1.0e-6,
+        tail_tol=1.0e-1,
+        raise_on_failure=True,
+    )
+    x_projected = ProjectBosonComponentWithFallback(
+        projector,
+        x_dlr[0, 1, 0, 0, :] - c0x,
+        tail,
+        tail_sigma=xsigma[0, 1, 0, 0, :],
+    ) + c0x
+
+    np.testing.assert_allclose(
+        2.0 * out[0, 1, 0, 0, :] + out[0, 0, 0, 0, :] + out[1, 1, 0, 0, :],
+        x_projected,
+        atol=2.0e-6,
+    )
+    np.testing.assert_allclose(
+        out[1, 0, 0, 0, :], np.conj(out[0, 1, 0, 0, :]), atol=1.0e-13
+    )
 
 
 def test_boson_uniform_expansion_uses_transposed_conjugate():
@@ -827,10 +900,9 @@ def test_bweiss_like_projection_handles_nondecaying_contamination():
     assert relative < 0.6 * unprojected
 
 
-def test_boson_loc_positive_chi_offdiag_infeasible_falls_back():
-    # Off-diagonal chi components can carry the "wrong" c2 sign for A_l >= 0
-    # (mirror of the -1 case): the hard moment equality is infeasible and the
-    # fallback cascade must complete without raising.
+def test_boson_loc_positive_chi_offdiag_x_path_preserves_input():
+    # The off-diagonal component alone has the wrong sign for A_l >= 0, but
+    # the X combination has non-negative weight and can be projected directly.
     crystal = _two_orbital_crystal()
     dlr = _boson_dlr()
     verifier = _BosonVerifier(dlr)
@@ -846,10 +918,16 @@ def test_boson_loc_positive_chi_offdiag_infeasible_falls_back():
     local_values[1, 0, 0, 0, :] = np.conj(local_values[0, 1, 0, 0, :])
 
     local = BLocDyn(crystal, dlr, projector=None)
-    out = local.CausalProjection(
-        local_values, coefficient_sign=1, oddzero=True, highzero=True
-    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        out = local.CausalProjection(
+            local_values, coefficient_sign=1, oddzero=True, highzero=True
+        )
 
+    runtime_warnings = [
+        warn for warn in caught if issubclass(warn.category, RuntimeWarning)
+    ]
+    assert runtime_warnings == []
     assert np.all(np.isfinite(out))
     np.testing.assert_allclose(
         out[1, 0, 0, 0, :], np.conj(out[0, 1, 0, 0, :]), atol=1.0e-13
@@ -860,6 +938,48 @@ def test_boson_loc_positive_chi_offdiag_infeasible_falls_back():
     np.testing.assert_allclose(
         out[1, 1, 0, 0, :], local_values[1, 1, 0, 0, :], atol=2.0e-2
     )
+    np.testing.assert_allclose(
+        out[0, 1, 0, 0, :], local_values[0, 1, 0, 0, :], atol=2.0e-2
+    )
+
+
+def test_boson_loc_offdiagonal_fallback_uses_x_combination(monkeypatch):
+    crystal = _two_orbital_crystal()
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    norb = len(crystal.bind)
+    nfreq = len(dlr.nu)
+    base = _causal_coefficients(verifier)
+
+    values = np.zeros((norb, norb, 1, 1, nfreq), dtype=np.complex128, order="F")
+    values[0, 0, 0, 0, :] = verifier.reconstruct(base) + 0.2
+    values[1, 1, 0, 0, :] = verifier.reconstruct(0.8 * base) + 0.1
+    values[0, 1, 0, 0, :] = verifier.reconstruct(0.2 * base) + 0.05
+    values[1, 0, 0, 0, :] = np.conj(values[0, 1, 0, 0, :])
+
+    fallback = np.zeros_like(values)
+    fallback[0, 0, 0, 0, :] = verifier.reconstruct(0.4 * base) + 0.7
+    fallback[1, 1, 0, 0, :] = verifier.reconstruct(0.6 * base) + 0.4
+    fallback[0, 1, 0, 0, :] = verifier.reconstruct(0.1 * base) + (0.25 - 0.3j)
+    fallback[1, 0, 0, 0, :] = np.conj(fallback[0, 1, 0, 0, :])
+
+    monkeypatch.setattr(CausalBosonProjector, "project", _raise_runtime)
+    local = BLocDyn(crystal, dlr, projector=None)
+    with pytest.warns(RuntimeWarning, match="previous iteration"):
+        out = local.CausalProjection(values, fallback_matrix=fallback)
+
+    expected_offdiag = 0.5 * (
+        fallback[0, 0, 0, 0, :]
+        + fallback[0, 1, 0, 0, :]
+        + fallback[1, 0, 0, 0, :]
+        + fallback[1, 1, 0, 0, :]
+        - fallback[0, 0, 0, 0, :]
+        - fallback[1, 1, 0, 0, :]
+    )
+    np.testing.assert_allclose(out[0, 0, 0, 0, :], fallback[0, 0, 0, 0, :])
+    np.testing.assert_allclose(out[1, 1, 0, 0, :], fallback[1, 1, 0, 0, :])
+    np.testing.assert_allclose(out[0, 1, 0, 0, :], np.real(expected_offdiag))
+    np.testing.assert_allclose(out[1, 0, 0, 0, :], np.conj(out[0, 1, 0, 0, :]))
 
 
 def _raise_runtime(*args, **kwargs):

@@ -522,36 +522,43 @@ class BLocDyn(object):
         fallback_matrix : np.ndarray | None = None,
     ) -> np.ndarray:
         """Project local bosonic channels onto real pole-weight causal QP via
-        CausalBosonProjector, component-wise over the orbital upper triangle.
+        CausalBosonProjector.
 
         ``grid`` selects the Matsubara sampling grid the input data lives on:
         ``"dlr"`` (sparse DLR grid, default) or ``"uniform"`` (uniform
         non-negative-frequency grid). The DLR pole basis is unchanged either way;
         uniform output is returned on the DLR grid.
 
-        Each spin-diagonal component ``[iorb, jorb, is_, is_, :]`` with
-        ``iorb <= jorb`` is projected as a scalar channel; the lower triangle is
-        filled with the complex conjugate so the orbital matrix stays Hermitian.
-        The (possibly complex) frequency-independent ``c0`` is estimated from
-        the Hermitian-symmetrized input tail, removed before the decaying pole
-        projection, and re-added to the returned channel.  ``oddzero``/
-        ``highzero`` are forwarded to :meth:`Moment`; with ``highzero=True``
-        the constant is excluded from the tail fit and the ``c0`` split is
-        skipped, so the projected output strictly decays (response functions
-        such as chi).  If a component's QP
-        is infeasible with the hard moment equality, it is retried with the
-        equality relaxed and finally falls back to the unprojected channel with
-        a warning (mirroring causal_boson.py).
+        Spin-diagonal orbital diagonals ``[iorb, iorb, is_, is_, :]`` are
+        projected as scalar channels.  Orbital off-diagonals use the
+        FullGWEDMFT-style X combination: project
+        ``X_ij = f_ii + f_ij + f_ji + f_jj`` as the autocorrelation of
+        ``O_i + O_j``, then recover
+        ``f_ij = (X_ij - f_ii - f_jj) / 2`` using the projected diagonals.
+        The off-diagonal imaginary part, including any imaginary static
+        ``c0``, is dropped; the returned off-diagonal is real-symmetric and the
+        lower triangle is filled by conjugation.  The frequency-independent
+        ``c0`` is estimated from the Hermitian-symmetrized input tail, removed
+        before the decaying pole projection, and re-added to the returned
+        channel.  ``oddzero``/``highzero`` are forwarded to :meth:`Moment`; with
+        ``highzero=True`` the constant is excluded from the tail fit and the
+        ``c0`` split is skipped, so the projected output strictly decays
+        (response functions such as chi).  If a component's QP is infeasible
+        with the hard moment equality, it is retried with the equality relaxed
+        and finally falls back to the unprojected channel with a warning
+        (mirroring causal_boson.py).
 
         ``fallback_matrix`` supplies the previous iteration's projected data on
         the DLR output grid (shape ``(norb, norb, ns, ns, len(self.dlr.nu))``);
         when a component's QP fails outright, its channel from this matrix is
         returned instead of the clipped fallback.
 
-        Known limitations carried over from causal_boson.py: the per-component
-        sign constraint over-constrains off-diagonal spectra (no matrix-level
-        PSD enforcement), the dynamic part of the output is purely real, and
-        spin off-diagonal blocks are copied unchanged.
+        Known limitations carried over from causal_boson.py: there is no
+        matrix-level PSD enforcement.  The X trick only constrains the
+        ``O_i + O_j`` direction; the complementary
+        ``f_ii - f_ij - f_ji + f_jj`` direction is still unconstrained.  The
+        dynamic part of the output is purely real, and spin off-diagonal blocks
+        are copied unchanged.
         """
 
         nu = self._ResolveCausalGrid(grid)
@@ -595,6 +602,25 @@ class BLocDyn(object):
         moment, high, sigma = self.Moment(
             arr, grid=grid, oddzero=oddzero, highzero=highzero, return_sigma=True
         )
+        xmoment = xhigh = xsigma = None
+        if norb > 1:
+            xarr = np.zeros_like(arr, dtype=np.complex128, order="F")
+            for is_ in range(ns):
+                for iorb in range(norb):
+                    for jorb in range(norb):
+                        xarr[iorb, jorb, is_, is_, :] = (
+                            arr[iorb, iorb, is_, is_, :]
+                            + arr[iorb, jorb, is_, is_, :]
+                            + arr[jorb, iorb, is_, is_, :]
+                            + arr[jorb, jorb, is_, is_, :]
+                        )
+            xmoment, xhigh, xsigma = self.Moment(
+                xarr,
+                grid=grid,
+                oddzero=oddzero,
+                highzero=highzero,
+                return_sigma=True,
+            )
 
         # For uniform input, interpolate the data onto the DLR basis.  The
         # projection grid is always the DLR grid; uniform output is returned on
@@ -619,32 +645,67 @@ class BLocDyn(object):
         out = np.array(arr, dtype=np.complex128, copy=True, order='F')
         for is_ in range(ns):
             for iorb in range(norb):
-                for jorb in range(iorb, norb):
-                    # Moment() Hermitian-symmetrizes, so c0 is real on the
-                    # diagonal and conj-consistent across (iorb, jorb) pairs.
-                    # With highzero the constant is excluded from the fit, so
-                    # high is identically zero and the split is a no-op.
-                    c0 = complex(high[iorb, jorb, is_, is_])
+                # Moment() Hermitian-symmetrizes, so c0 is real on the
+                # diagonal.  With highzero the constant is excluded from the
+                # fit, so high is identically zero and the split is a no-op.
+                c0 = complex(high[iorb, iorb, is_, is_])
+                tail_coeffs = np.empty(4, dtype=float)
+                tail_coeffs[0] = 0.0
+                tail_coeffs[1:] = np.real(moment[iorb, iorb, is_, is_, :])
+                # The fallback channel enters c0-subtracted (the caller's
+                # cache holds full channels) and the current c0 is re-added
+                # below; with highzero c0 is 0 and this is a no-op.
+                projected = ProjectBosonComponentWithFallback(
+                    projector,
+                    arr[iorb, iorb, is_, is_, :] - c0,
+                    tail_coeffs,
+                    tail_sigma=sigma[iorb, iorb, is_, is_, :],
+                    fallback_channel=(
+                        fallback_matrix[iorb, iorb, is_, is_, :] - c0
+                        if fallback_matrix is not None
+                        else None
+                    ),
+                ) + c0
+                out[iorb, iorb, is_, is_, :] = projected
+            for iorb in range(norb):
+                for jorb in range(iorb + 1, norb):
+                    c0x = complex(xhigh[iorb, jorb, is_, is_])
                     tail_coeffs = np.empty(4, dtype=float)
                     tail_coeffs[0] = 0.0
-                    tail_coeffs[1:] = np.real(moment[iorb, jorb, is_, is_, :])
-                    # The fallback channel enters c0-subtracted (the caller's
-                    # cache holds full channels) and the current c0 is re-added
-                    # below; with highzero c0 is 0 and this is a no-op.
-                    projected = ProjectBosonComponentWithFallback(
+                    tail_coeffs[1:] = np.real(xmoment[iorb, jorb, is_, is_, :])
+                    x_target = (
+                        arr[iorb, iorb, is_, is_, :]
+                        + arr[iorb, jorb, is_, is_, :]
+                        + arr[jorb, iorb, is_, is_, :]
+                        + arr[jorb, jorb, is_, is_, :]
+                    )
+                    if fallback_matrix is not None:
+                        x_fallback = (
+                            fallback_matrix[iorb, iorb, is_, is_, :]
+                            + fallback_matrix[iorb, jorb, is_, is_, :]
+                            + fallback_matrix[jorb, iorb, is_, is_, :]
+                            + fallback_matrix[jorb, jorb, is_, is_, :]
+                        ) - c0x
+                    else:
+                        x_fallback = None
+                    # If X falls back after diagonal successes, the recovered
+                    # off-diagonal mixes previous-iteration X with current
+                    # projected diagonals; this is intentional.
+                    x_projected = ProjectBosonComponentWithFallback(
                         projector,
-                        arr[iorb, jorb, is_, is_, :] - c0,
+                        x_target - c0x,
                         tail_coeffs,
-                        tail_sigma=sigma[iorb, jorb, is_, is_, :],
-                        fallback_channel=(
-                            fallback_matrix[iorb, jorb, is_, is_, :] - c0
-                            if fallback_matrix is not None
-                            else None
-                        ),
-                    ) + c0
+                        tail_sigma=xsigma[iorb, jorb, is_, is_, :],
+                        fallback_channel=x_fallback,
+                    ) + c0x
+                    projected = 0.5 * (
+                        x_projected
+                        - out[iorb, iorb, is_, is_, :]
+                        - out[jorb, jorb, is_, is_, :]
+                    )
+                    projected = np.real(projected).astype(np.complex128)
                     out[iorb, jorb, is_, is_, :] = projected
-                    if iorb != jorb:
-                        out[jorb, iorb, is_, is_, :] = np.conj(projected)
+                    out[jorb, iorb, is_, is_, :] = np.conj(projected)
 
         return np.asfortranarray(out)
 
