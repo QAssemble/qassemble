@@ -6,3 +6,4 @@ CLAUDE.md
 __pycache__/
 .DS_STORE
 reviewer_response_checklist.md
+*.egg-info/

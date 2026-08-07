@@ -1,3 +1,0 @@
-[console_scripts]
-qassemble = QAssemble.CLI:main
-qassemble-migrate-hdf5 = QAssemble.migrate_hdf5:main
