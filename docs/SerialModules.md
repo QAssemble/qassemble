@@ -71,11 +71,13 @@ This guide summarises the serial implementation that lives under `src/QAssemble/
   General numerical helpers: `MatInv` (matrix inversion), `HermitianEigenCmplx` (Hermitian diagonalisation), `SplineCmplx` / `FderivCmplx` (complex spline interpolation and derivatives), `BernoulliPolynomial`, `EulerPolynomial`, `FactorialInt`, `Ttind` (Chebyshev-node index mapping for tau grids), `Gcoeff` (high-frequency expansion coefficients), and `MinDistance`.
 - `src/QAssemble/utility/Mixing.py`
   `Mixing` class supporting linear and Pulay (DIIS) mixing for self-consistent field iterations. Callable interface with automatic history management. Maintains input and residual vectors for DIIS extrapolation with configurable history depth (`npulay`). Methods: `reset`, `_linear`, `_pulay`.
+- `src/QAssemble/utility/Embedding.py`
+  Static embedding kernels translated from `modules/Embedding.f90`. Each method embeds a correlated-subspace quantity into the full orbital space with spin-resolved projectors, `out = P A P^dagger`, where `projector` has shape `[norb, norbc, ns]`. Lattice variants broadcast the embedded local block onto all k-points. Methods cover fermionic/bosonic x local/lattice x static/dynamic combinations: `FLocStc`, `FLatStc`, `FLocDyn`, `FLatDyn`, `BLocStc`, `BLatStc`, `BLocDyn`, `BLatDyn`.
+- `src/QAssemble/utility/Projection.py`
+  Static projection kernels translated from `modules/Projection.f90`. Each method projects a full-space quantity onto the correlated subspace with spin-resolved projectors, `out = P^dagger A P`, using the same `[norb, norbc, ns]` projector convention as `Embedding`. Lattice variants average over k-points. Methods: `FLocStc`, `FLatStc`, `FLocDyn`, `FLatDyn`, `BLocStc`, `BLatStc`, `BLocDyn`, `BLatDyn`.
 
 ## Stub / Placeholder Modules
 The following modules exist but contain only placeholder or fully commented-out code:
-- `src/QAssemble/utility/Embedding.py` — empty `Embedding` class for future bath-embedding support.
-- `src/QAssemble/utility/Projection.py` — empty `Projection` class for future basis-projection support.
 - `src/QAssemble/Projector.py` — fully commented-out MPI projector code.
 - `src/QAssemble/FLocStc.py`, `FLocDyn.py`, `BLocDyn.py` — entirely commented out.
 
