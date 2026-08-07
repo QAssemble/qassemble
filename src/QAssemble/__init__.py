@@ -1,6 +1,6 @@
 """Public QAssemble API defined by the manuscript class hierarchy."""
 
-__version__ = "0.2.0"
+__version__ = "1.0.0"
 
 from .BLatDyn import BLatDyn, P, W
 from .BLatStc import BLatStc, V
