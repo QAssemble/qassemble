@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.linalg
 import scipy.optimize
+from scipy.integrate import trapezoid
 
 from .Crystal import Crystal
 from .utility.Dyson import Dyson
@@ -282,12 +283,12 @@ class FLatStc(object):
                 #         dos[iorb,js,ik] = eigvec[jorb,iorb,js,ik]*tempmat[jorb,js,ik]*tempmat2[jorb,iorb]
 
         print(
-            f"Integration gaussian : {np.trapz(self.Gaussian(energyrange,0),energyrange)}"
+            f"Integration gaussian : {trapezoid(self.Gaussian(energyrange,0),energyrange)}"
         )
         temp = 0
         for js in range(ns):
             for iorb in range(norb):
-                temp += np.trapz(dos[iorb, js], energyrange)
+                temp += trapezoid(dos[iorb, js], energyrange)
 
         print(f"Integration dos : {temp}")
         if plotoption:

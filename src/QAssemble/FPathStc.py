@@ -18,6 +18,7 @@ import numpy as np
 import scipy.linalg
 import scipy.optimize
 from matplotlib import cm
+from scipy.integrate import trapezoid
 from sympy.physics.wigner import gaunt, wigner_3j
 
 # qapath = os.environ.get("QAssemble", "")
@@ -305,12 +306,12 @@ class FPathStc(object):
                 for iorb in range(norb):
                     dos[iorb, js, ik] = tempmat2[iorb, iorb]
 
-        print(f"Integration gaussian : {np.trapz(self.Gaussian(E,0),E)}")
+        print(f"Integration gaussian : {trapezoid(self.Gaussian(E,0),E)}")
 
         temp = 0
         for js in range(ns):
             for iorb in range(norb):
-                temp += np.trapz(dos[iorb, js], E)
+                temp += trapezoid(dos[iorb, js], E)
 
         print(f"Integration dos : {temp}")
 
