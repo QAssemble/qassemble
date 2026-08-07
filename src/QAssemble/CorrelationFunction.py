@@ -106,6 +106,17 @@ class CorrelationFunction(object):
     def hdf5path(self, value) -> None:
         self.__dict__["_hdf5path"] = None if value is None else os.path.abspath(value)
 
+    def _mu_search_kwargs(self, mu_reference=None):
+        run = self.control["run"]
+        return {
+            "mu_reference": mu_reference,
+            "mu_search_mode": run.get("mu_search_mode", "reference_nearest"),
+            "mu_search_ecut": run.get("mu_search_ecut", 10.0),
+            "mu_search_scan_points": run.get("mu_search_scan_points", 41),
+            "mu_search_max_iter": run.get("mu_search_max_iter", 1000),
+            "mu_search_density_tol": run.get("mu_search_density_tol", 1.0e-7),
+        }
+
     def TightBinding(self):
 
         # file = h5py.File(fn+'.h5','w')
@@ -241,7 +252,14 @@ class CorrelationFunction(object):
 
         self.conv.Start()
 
-        g = G(crystal=self.crystal, dlr=self.dlr, greenbare=gbare.kf, hdf5file=hdf5file, group=group)
+        g = G(
+            crystal=self.crystal,
+            dlr=self.dlr,
+            greenbare=gbare.kf,
+            hdf5file=hdf5file,
+            group=group,
+            **self._mu_search_kwargs(),
+        )
         self.conv.seed_prev("F", g.kf, kind="array")
         self.conv.seed_prev("mu", float(g.mu), kind="scalar")
         g.Save('gkf_ini', False)
@@ -287,7 +305,18 @@ class CorrelationFunction(object):
 
             siggwc.Save('siggwckf')
 
-            gnew = G(self.crystal, self.dlr, gbare.kf, sigh.k, sigf.k, siggwc.kf, hdf5file=hdf5file, group=group, iteration=iter)
+            gnew = G(
+                self.crystal,
+                self.dlr,
+                gbare.kf,
+                sigh.k,
+                sigf.k,
+                siggwc.kf,
+                hdf5file=hdf5file,
+                group=group,
+                iteration=iter,
+                **self._mu_search_kwargs(mu_reference=g.mu),
+            )
             gnew.Save('gkf')
 
             self.conv.StartIter(iter, ready_after=npulay)
@@ -354,6 +383,7 @@ class CorrelationFunction(object):
             greenbare=self.greenbare.kf,
             hdf5file=hdf5file,
             group=group,
+            **self._mu_search_kwargs(),
         )
         green.Save('gkf_ini', scf=False)
 
@@ -458,6 +488,7 @@ class CorrelationFunction(object):
                 hdf5file=hdf5file,
                 group=group,
                 iteration=iter,
+                **self._mu_search_kwargs(mu_reference=green.mu),
             )
 
             # ---- mu NaN guard (F10): catch corrupted chemical potential
@@ -574,6 +605,7 @@ class CorrelationFunction(object):
             greenbare=self.greenbare.kf,
             hdf5file=hdf5file,
             group=group,
+            **self._mu_search_kwargs(),
         )
         green.Save('gkf_ini', scf=False)
 
@@ -745,6 +777,7 @@ class CorrelationFunction(object):
                 hdf5file=hdf5file,
                 group=group,
                 iteration=iter,
+                **self._mu_search_kwargs(mu_reference=green.mu),
             )
 
             if not np.isfinite(green_next.mu):
@@ -917,6 +950,7 @@ class CorrelationFunction(object):
             greenbare=self.greenbare.kf,
             hdf5file=hdf5file,
             group=group,
+            **self._mu_search_kwargs(),
         )
         green.Save('gkf_ini', scf=False)
         wlat = W(
@@ -1131,6 +1165,7 @@ class CorrelationFunction(object):
                 hdf5file=hdf5file,
                 group=group,
                 iteration=iter,
+                **self._mu_search_kwargs(mu_reference=green.mu),
             )
             if not np.isfinite(green_next.mu):
                 raise RuntimeError(

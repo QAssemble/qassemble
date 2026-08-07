@@ -167,6 +167,18 @@ class Run:
         control["run"]["npulay"] = control["run"]["NPulay"]
         control["run"]["nscf"] = ini.get("NSCF", 100)
         control["run"]["cw"] = ini.get("ConstantW", 1.0)
+        mu_search_ecut = float(ini.get("MuSearchEcut", ini.get("Ecut", 10.0)))
+        control["run"]["Ecut"] = mu_search_ecut
+        control["run"]["MuSearchEcut"] = mu_search_ecut
+        control["run"]["mu_search_ecut"] = mu_search_ecut
+        control["run"]["MuSearchMode"] = ini.get("MuSearchMode", "reference_nearest")
+        control["run"]["mu_search_mode"] = str(control["run"]["MuSearchMode"]).lower()
+        control["run"]["MuSearchScanPoints"] = int(ini.get("MuSearchScanPoints", 41))
+        control["run"]["mu_search_scan_points"] = control["run"]["MuSearchScanPoints"]
+        control["run"]["MuSearchMaxIter"] = int(ini.get("MuSearchMaxIter", 1000))
+        control["run"]["mu_search_max_iter"] = control["run"]["MuSearchMaxIter"]
+        control["run"]["MuSearchDensityTol"] = float(ini.get("MuSearchDensityTol", 1.0e-7))
+        control["run"]["mu_search_density_tol"] = control["run"]["MuSearchDensityTol"]
 
         # ---- Legacy / removed key deprecation warnings -----------------
         # Keys here are dropped — they are NOT copied into control['run'].

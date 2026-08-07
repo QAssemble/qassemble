@@ -959,6 +959,12 @@ class G(FLatDyn):
         hdf5file : str = 'glob.h5',
         group : str = None,
         iteration: int = None,
+        mu_reference: float = None,
+        mu_search_mode: str = "reference_nearest",
+        mu_search_ecut: float = 10.0,
+        mu_search_scan_points: int = 41,
+        mu_search_max_iter: int = 1000,
+        mu_search_density_tol: float = 1.0e-7,
     ) -> object:
         
         if greenbare is None:
@@ -992,6 +998,14 @@ class G(FLatDyn):
         self.group = group
         self.subgroup = self.__class__.__name__
         self.iteration = iteration
+        self.mu_reference = self._coerce_optional_float(mu_reference)
+        self.mu_search_mode = str(mu_search_mode).lower()
+        self.mu_search_ecut = float(mu_search_ecut)
+        self.mu_search_scan_points = int(mu_search_scan_points)
+        self.mu_search_max_iter = int(mu_search_max_iter)
+        self.mu_search_density_tol = float(mu_search_density_tol)
+        self.mu_search_diagnostics = {}
+        self._validate_mu_search_options()
         
         logger.info("Interacting Green's function Calculation Start")
         start = time.time()
@@ -1138,28 +1152,46 @@ class G(FLatDyn):
 
         return (self.crystal.nume - Ne)
 
-    def SearchMu(self):
+    @staticmethod
+    def _coerce_optional_float(value):
+        if value is None:
+            return None
+        value = float(value)
+        if not np.isfinite(value):
+            return None
+        return value
 
-        logger.info("Finding chemical potential start")
+    def _validate_mu_search_options(self):
+        allowed = {"global", "reference_bisect", "reference_nearest"}
+        if self.mu_search_mode not in allowed:
+            raise ValueError(
+                f"Unknown MuSearchMode={self.mu_search_mode!r}; "
+                f"expected one of {sorted(allowed)}"
+            )
+        if not np.isfinite(self.mu_search_ecut) or self.mu_search_ecut <= 0.0:
+            raise ValueError("MuSearchEcut/Ecut must be positive and finite")
+        if self.mu_search_scan_points < 3:
+            raise ValueError("MuSearchScanPoints must be at least 3")
+        if self.mu_search_max_iter < 1:
+            raise ValueError("MuSearchMaxIter must be positive")
+        if not np.isfinite(self.mu_search_density_tol) or self.mu_search_density_tol <= 0.0:
+            raise ValueError("MuSearchDensityTol must be positive and finite")
 
-        # Estimate Hartree-induced shift so the bisection bracket [omega[0], omega[-1]]
-        # is recentered around the physical mu (the Hartree-trace shift trick has been
-        # removed from CalMu0, so sol now equals the full physical chemical potential).
-        shift_est = 0.0
-        shift_spread = 0.0
-        if self.sigmah is not None:
-            diag = np.real(np.diagonal(self.sigmah[:, :, 0, 0]))
-            shift_est = float(np.mean(diag))
-            shift_spread = float(np.max(np.abs(diag - shift_est)))
-        safety = 1.5
-        mumin = self.dlr.omega[0] + shift_est - safety * shift_spread
-        mumax = self.dlr.omega[-1] + shift_est + safety * shift_spread
-        logger.info(
-            f"minimum : {mumin}, maximum : {mumax} "
-            f"(shift_est={shift_est}, spread={shift_spread})"
-        )
+    def _load_mu_reference_from_hdf5(self):
+        if self.hdf5file is None or self.group is None or self.iteration is None:
+            return None
+        if int(self.iteration) <= 1:
+            return None
+        try:
+            with h5py.File(self.hdf5file, "r") as file:
+                path = f"{self.group}/{self.subgroup}/mu.{int(self.iteration) - 1}"
+                if path in file:
+                    return float(file[path][()])
+        except OSError:
+            return None
+        return None
 
-        # Precompute G0^{-1} for vectorized NumOfE
+    def _prepare_mu_search_cache(self):
         norb = len(self.crystal.find)
         g0 = self.gkfmu0  # (norb, norb, ns, nk, nfreq)
         g0_batch = np.moveaxis(g0, (0, 1), (-2, -1))  # (..., norb, norb)
@@ -1169,6 +1201,26 @@ class G(FLatDyn):
         g0inv_batch = g0inv_flat.reshape(orig_shape + (norb, norb))
         self._g0inv_cache = np.moveaxis(g0inv_batch, (-2, -1), (0, 1))  # (norb, norb, ns, nk, nfreq)
         self._tau_beta_cache = np.array([self._tau_beta], dtype=np.float64)
+
+    def _global_mu_bracket(self):
+        # Keep the legacy global bracket as the reproducibility fallback.
+        shift_est = 0.0
+        shift_spread = 0.0
+        if self.sigmah is not None:
+            diag = np.real(np.diagonal(self.sigmah[:, :, 0, 0]))
+            shift_est = float(np.mean(diag))
+            shift_spread = float(np.max(np.abs(diag - shift_est)))
+        safety = 1.5
+        mumin = self.dlr.omega[0] + shift_est - safety * shift_spread
+        mumax = self.dlr.omega[-1] + shift_est + safety * shift_spread
+        return float(mumin), float(mumax), shift_est, shift_spread
+
+    def _solve_global_mu(self):
+        mumin, mumax, shift_est, shift_spread = self._global_mu_bracket()
+        logger.info(
+            f"global mu search range : {mumin}, {mumax} "
+            f"(shift_est={shift_est}, spread={shift_spread})"
+        )
 
         nmin = self.NumOfE(mumin)
         nmax = self.NumOfE(mumax)
@@ -1187,14 +1239,199 @@ class G(FLatDyn):
             logger.error("Chemical potential is out of the bisection range after expansion")
             logger.error(f"nmin : {nmin}, nmax : {nmax}")
             sys.exit()
-        sol = scipy.optimize.brentq(self.NumOfE,mumin,mumax,xtol=1.0e-6)
-        self.mu = sol  # physical chemical potential (c-shift no longer applied)
-        logger.debug(f"[G.SearchMu] sol={sol}, mu={self.mu}, mumin={mumin}, mumax={mumax}")
-        logger.info("Finding chemical potential finish")
 
-        # Clean up caches
-        del self._g0inv_cache
-        del self._tau_beta_cache
+        sol = scipy.optimize.brentq(self.NumOfE, mumin, mumax, xtol=1.0e-6)
+        return float(sol), {
+            "search_mode": "global",
+            "bracket_min": float(mumin),
+            "bracket_max": float(mumax),
+            "global_expand_tries": int(expand_tries),
+            "used_global_fallback": False,
+        }
+
+    @staticmethod
+    def _solve_reference_bisect(
+        func,
+        mu_reference,
+        ecut,
+        density_tol=1.0e-7,
+        max_iter=1000,
+    ):
+        lower_delta = -float(ecut)
+        upper_delta = float(ecut)
+        delta_mu = 0.0
+        residual = float(func(float(mu_reference) + delta_mu))
+        iterations = 0
+
+        for iterations in range(1, int(max_iter) + 1):
+            residual = float(func(float(mu_reference) + delta_mu))
+            if abs(residual) < float(density_tol):
+                break
+            if residual <= 0.0:
+                upper_delta = delta_mu
+            else:
+                lower_delta = delta_mu
+            delta_mu = 0.5 * (lower_delta + upper_delta)
+
+        sol = float(mu_reference) + float(delta_mu)
+        residual = float(func(sol))
+        converged = abs(residual) < float(density_tol)
+        return sol, {
+            "search_mode": "reference_bisect",
+            "mu_reference": float(mu_reference),
+            "Ecut": float(ecut),
+            "delta_mu": float(delta_mu),
+            "bracket_min": float(mu_reference) - float(ecut),
+            "bracket_max": float(mu_reference) + float(ecut),
+            "reference_iterations": int(iterations),
+            "reference_residual": float(residual),
+            "used_global_fallback": False,
+            "local_root_found": bool(converged),
+            "local_root_count": int(converged),
+        }
+
+    @staticmethod
+    def _solve_reference_nearest(
+        func,
+        mu_reference,
+        ecut,
+        xtol=1.0e-6,
+        density_tol=1.0e-7,
+        scan_points=41,
+    ):
+        mu_reference = float(mu_reference)
+        ecut = float(ecut)
+        grid = np.linspace(mu_reference - ecut, mu_reference + ecut, int(scan_points))
+        values = np.asarray([float(func(mu)) for mu in grid], dtype=float)
+        candidates = []
+
+        for mu, value in zip(grid, values):
+            if np.isfinite(value) and abs(value) < float(density_tol):
+                candidates.append(float(mu))
+
+        for idx in range(len(grid) - 1):
+            f_left = values[idx]
+            f_right = values[idx + 1]
+            if not (np.isfinite(f_left) and np.isfinite(f_right)):
+                continue
+            if f_left == 0.0 or f_right == 0.0:
+                continue
+            if np.sign(f_left) == np.sign(f_right):
+                continue
+            root = scipy.optimize.brentq(
+                func,
+                float(grid[idx]),
+                float(grid[idx + 1]),
+                xtol=float(xtol),
+            )
+            candidates.append(float(root))
+
+        unique = []
+        for root in candidates:
+            if not any(abs(root - old) <= float(xtol) for old in unique):
+                unique.append(root)
+
+        if not unique:
+            return None, {
+                "search_mode": "reference_nearest",
+                "mu_reference": mu_reference,
+                "Ecut": ecut,
+                "bracket_min": mu_reference - ecut,
+                "bracket_max": mu_reference + ecut,
+                "used_global_fallback": True,
+                "local_root_found": False,
+                "local_root_count": 0,
+            }
+
+        def sort_key(root):
+            return (abs(root - mu_reference), abs(float(func(root))))
+
+        sol = float(min(unique, key=sort_key))
+        return sol, {
+            "search_mode": "reference_nearest",
+            "mu_reference": mu_reference,
+            "Ecut": ecut,
+            "delta_mu": sol - mu_reference,
+            "bracket_min": mu_reference - ecut,
+            "bracket_max": mu_reference + ecut,
+            "used_global_fallback": False,
+            "local_root_found": True,
+            "local_root_count": int(len(unique)),
+            "scan_points": int(scan_points),
+        }
+
+    def SearchMu(self):
+
+        logger.info("Finding chemical potential start")
+
+        self._prepare_mu_search_cache()
+        try:
+            reference = self.mu_reference
+            if reference is None:
+                reference = self._load_mu_reference_from_hdf5()
+                self.mu_reference = reference
+
+            diagnostics = {}
+            if self.mu_search_mode == "global" or reference is None:
+                if self.mu_search_mode != "global":
+                    logger.info("No mu reference available; falling back to global mu search")
+                sol, diagnostics = self._solve_global_mu()
+                diagnostics["used_global_fallback"] = self.mu_search_mode != "global"
+                diagnostics.setdefault("mu_reference", np.nan)
+                diagnostics.setdefault("Ecut", float(self.mu_search_ecut))
+                diagnostics.setdefault("delta_mu", np.nan)
+                diagnostics.setdefault("local_root_found", False)
+                diagnostics.setdefault("local_root_count", 0)
+            elif self.mu_search_mode == "reference_bisect":
+                sol, diagnostics = self._solve_reference_bisect(
+                    self.NumOfE,
+                    reference,
+                    self.mu_search_ecut,
+                    density_tol=self.mu_search_density_tol,
+                    max_iter=self.mu_search_max_iter,
+                )
+            else:
+                sol, diagnostics = self._solve_reference_nearest(
+                    self.NumOfE,
+                    reference,
+                    self.mu_search_ecut,
+                    density_tol=self.mu_search_density_tol,
+                    scan_points=self.mu_search_scan_points,
+                )
+                if sol is None:
+                    logger.warning(
+                        "No local mu root found in "
+                        f"[{reference - self.mu_search_ecut}, {reference + self.mu_search_ecut}]; "
+                        "falling back to global mu search"
+                    )
+                    sol, global_diag = self._solve_global_mu()
+                    diagnostics.update(global_diag)
+                    diagnostics["search_mode"] = "reference_nearest"
+                    diagnostics["used_global_fallback"] = True
+
+            final_residual = float(self.NumOfE(sol))
+            diagnostics["mu_final"] = float(sol)
+            diagnostics["delta_mu"] = float(sol - reference) if reference is not None else np.nan
+            diagnostics["occupation_at_mu"] = float(self.crystal.nume - final_residual)
+            diagnostics["residual_at_mu"] = final_residual
+            self.mu_search_diagnostics = diagnostics
+            self.mu = float(sol)  # physical chemical potential
+        finally:
+            if hasattr(self, "_g0inv_cache"):
+                del self._g0inv_cache
+            if hasattr(self, "_tau_beta_cache"):
+                del self._tau_beta_cache
+
+        logger.info(
+            "Finding chemical potential finish: "
+            f"mode={self.mu_search_diagnostics.get('search_mode')}, "
+            f"mu_ref={self.mu_search_diagnostics.get('mu_reference')}, "
+            f"Ecut={self.mu_search_diagnostics.get('Ecut')}, "
+            f"delta_mu={self.mu_search_diagnostics.get('delta_mu')}, "
+            f"mu={self.mu}, "
+            f"occupation={self.mu_search_diagnostics.get('occupation_at_mu')}, "
+            f"fallback={self.mu_search_diagnostics.get('used_global_fallback')}"
+        )
 
         self.UpdateMu()
         return None
@@ -1226,6 +1463,27 @@ class G(FLatDyn):
             
             # mureal = np.real(self.mu)
             IO.CreateDataset(green, mu_write, self.mu, dtype=float)
+            diag = getattr(self, "mu_search_diagnostics", {})
+            suffix = f".{self.iteration}" if scf else ""
+            scalar_diagnostics = {
+                "mu_reference": diag.get("mu_reference", np.nan),
+                "mu_ecut": diag.get("Ecut", np.nan),
+                "delta_mu": diag.get("delta_mu", np.nan),
+                "occupation_at_mu": diag.get("occupation_at_mu", np.nan),
+                "residual_at_mu": diag.get("residual_at_mu", np.nan),
+                "used_global_fallback": int(bool(diag.get("used_global_fallback", False))),
+                "local_root_found": int(bool(diag.get("local_root_found", False))),
+                "local_root_count": int(diag.get("local_root_count", 0)),
+            }
+            for key, value in scalar_diagnostics.items():
+                dtype = int if key in {"used_global_fallback", "local_root_found", "local_root_count"} else float
+                IO.CreateDataset(green, f"{key}{suffix}", value, dtype=dtype)
+            IO.CreateDataset(
+                green,
+                f"mu_search_mode{suffix}",
+                str(diag.get("search_mode", getattr(self, "mu_search_mode", "global"))),
+                dtype=h5py.string_dtype(encoding="utf-8"),
+            )
 
         return None
 
