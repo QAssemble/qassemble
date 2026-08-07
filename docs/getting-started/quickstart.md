@@ -1,5 +1,9 @@
 # Quick Start
 
+For a complete worked example — from input construction through execution,
+HDF5 output inspection, and post-processing — see the
+[graphene GW tutorial](../tutorials/graphene-gw.md).
+
 ## 1. Prepare `qassemble.in`
 
 QAssemble reads input from a restricted declarative input file named `qassemble.in`.
@@ -23,7 +27,7 @@ Below is a minimal example for a graphene-like two-site model with GW:
         "OneBody": {
             "Hopping": {
                 ((0, 0), (1, 0)): {
-                    1.0: [[0, 0, 0], [-1, 0, 0], [0, -1, 0]],
+                    2.8: [[0, 0, 0], [-1, 0, 0], [0, -1, 0]],
                 },
             },
             "Onsite": {

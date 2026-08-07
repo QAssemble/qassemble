@@ -72,6 +72,8 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
+  - Tutorials:
+    - Graphene GW: tutorials/graphene-gw.md
   - Basic Theory:
     - Green's Function Formalism: theory/greens-function.md
     - Hamiltonian: theory/hamiltonian.md
