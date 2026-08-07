@@ -80,7 +80,9 @@ def test_gw_converges_to_reference_chemical_potential(tmp_path, monkeypatch):
             int(name.split(".")[1]) for name in h5["/gw/G"] if name.startswith("gkf.")
         )
 
-    assert mu == pytest.approx(GW_MU_GOLDEN, abs=1e-6)
+    # abs=1e-5: the converged SCF fixed point drifts by O(1e-6) across
+    # platforms/BLAS builds (observed 2.4e-6 between macOS and ubuntu CI).
+    assert mu == pytest.approx(GW_MU_GOLDEN, abs=1e-5)
     assert np.isfinite(gkf).all()
     # Early convergence exit must trigger well before itermax (6 iterations when pinned)
     assert n_iterations < 50
