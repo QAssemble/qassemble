@@ -1,3 +1,5 @@
+import json
+
 import h5py
 import numpy as np
 import pytest
@@ -101,3 +103,59 @@ def test_hdf5_self_check_supports_edmft_wloc_paths(tmp_path):
 
     assert converged is True
     assert info["self"]["WLoc"]["abs"] == pytest.approx(4.0)
+
+
+def test_commit_aggregates_sigimp_guard_diagnostics_without_nan_json(tmp_path):
+    with h5py.File(tmp_path / "calc.h5", "w") as handle:
+        _write(handle, "dmft/GLoc/gloc.0.1", [0.0])
+        _write(handle, "dmft/GLoc/gloc.1.1", [1.0])
+
+    conv = _conv(tmp_path)
+    conv.Start()
+    conv.StartIter(1)
+    conv.CheckSelfHDF5(
+        "GLoc",
+        group="dmft",
+        subgroup="GLoc",
+        current="gloc.1",
+        previous="gloc.0",
+        keys=["1"],
+    )
+    conv.RecordDiagnostics({
+        "1": {
+            "sign": 0.99,
+            "nimp": 1.0,
+            "histo_m1": 2.0,
+            "histo_m2": 3.0,
+            "sigimp_guard_used_fallback": 1.0,
+            "sigimp_guard_failed": 1.0,
+            "sigimp_raw_roughness": 4.0,
+            "sigimp_err_mean": np.nan,
+            "sigimp_err_max": 6.0,
+            "sigimp_max_positive_imag": 7.0,
+        },
+        "2": {
+            "sign": 1.0,
+            "nimp": 2.0,
+            "histo_m1": 4.0,
+            "histo_m2": 5.0,
+            "sigimp_guard_used_fallback": 0.0,
+            "sigimp_guard_failed": 0.0,
+            "sigimp_raw_roughness": 8.0,
+            "sigimp_err_mean": 10.0,
+            "sigimp_err_max": np.nan,
+            "sigimp_max_positive_imag": 9.0,
+        },
+    })
+
+    converged, _ = conv.Commit(1, will_continue=False)
+
+    assert converged is True
+    with open(tmp_path / "convergence.jsonl") as fh:
+        row = json.loads(fh.readline())
+    assert row["sigimp_guard_used_fallback"] == pytest.approx(1.0)
+    assert row["sigimp_guard_failed"] == pytest.approx(1.0)
+    assert row["sigimp_raw_roughness"] == pytest.approx(8.0)
+    assert row["sigimp_err_mean"] == pytest.approx(10.0)
+    assert row["sigimp_err_max"] == pytest.approx(6.0)
+    assert row["sigimp_max_positive_imag"] == pytest.approx(9.0)

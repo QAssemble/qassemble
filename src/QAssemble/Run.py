@@ -42,6 +42,17 @@ class Run:
             sys.exit()
         return None
 
+    def _as_bool(self, value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            value_lower = value.strip().lower()
+            if value_lower in {"true", "t", "1", "yes", "y", "on"}:
+                return True
+            if value_lower in {"false", "f", "0", "no", "n", "off"}:
+                return False
+        return bool(value)
+
     # def BuildCorrelationFunction(self, control: dict):
 
     #     try:
@@ -179,6 +190,44 @@ class Run:
         control["run"]["mu_search_max_iter"] = control["run"]["MuSearchMaxIter"]
         control["run"]["MuSearchDensityTol"] = float(ini.get("MuSearchDensityTol", 1.0e-7))
         control["run"]["mu_search_density_tol"] = control["run"]["MuSearchDensityTol"]
+        control["run"]["SigImpGuard"] = self._as_bool(ini.get("SigImpGuard", True))
+        control["run"]["sigimp_guard"] = control["run"]["SigImpGuard"]
+        control["run"]["SigImpGuardMode"] = str(
+            ini.get("SigImpGuardMode", "fallback_previous")
+        ).lower()
+        control["run"]["sigimp_guard_mode"] = control["run"]["SigImpGuardMode"]
+        control["run"]["SigImpGuardImTol"] = float(
+            ini.get("SigImpGuardImTol", 1.0e-10)
+        )
+        control["run"]["sigimp_guard_im_tol"] = control["run"]["SigImpGuardImTol"]
+        control["run"]["SigImpGuardRoughnessFactor"] = float(
+            ini.get("SigImpGuardRoughnessFactor", 10.0)
+        )
+        control["run"]["sigimp_guard_roughness_factor"] = control["run"][
+            "SigImpGuardRoughnessFactor"
+        ]
+        control["run"]["SigImpGuardErrorFactor"] = float(
+            ini.get("SigImpGuardErrorFactor", 10.0)
+        )
+        control["run"]["sigimp_guard_error_factor"] = control["run"][
+            "SigImpGuardErrorFactor"
+        ]
+        control["run"]["SigImpGuardLowFreqPoints"] = int(
+            ini.get("SigImpGuardLowFreqPoints", 80)
+        )
+        control["run"]["sigimp_guard_low_freq_points"] = control["run"][
+            "SigImpGuardLowFreqPoints"
+        ]
+        control["run"]["SigImpSmoothing"] = self._as_bool(
+            ini.get("SigImpSmoothing", False)
+        )
+        control["run"]["sigimp_smoothing"] = control["run"]["SigImpSmoothing"]
+        control["run"]["SigImpSmoothingWidth"] = float(
+            ini.get("SigImpSmoothingWidth", 0.05)
+        )
+        control["run"]["sigimp_smoothing_width"] = control["run"][
+            "SigImpSmoothingWidth"
+        ]
 
         # ---- Legacy / removed key deprecation warnings -----------------
         # Keys here are dropped — they are NOT copied into control['run'].

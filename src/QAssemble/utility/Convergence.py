@@ -515,6 +515,28 @@ class Convergence:
             row["ctqmc_sign"] = self._agg_diag("sign", np.min)
             row["histo_1"] = self._agg_diag("histo_m1")
             row["histo_2"] = self._agg_diag("histo_m2")
+            guard_aggs = {
+                "sigimp_guard_used_fallback": np.max,
+                "sigimp_guard_failed": np.max,
+                "sigimp_raw_roughness": np.max,
+                "sigimp_err_mean": np.mean,
+                "sigimp_err_max": np.max,
+                "sigimp_max_positive_imag": np.max,
+            }
+            for name, fn in guard_aggs.items():
+                vals = []
+                for diag in self._iter_diag.values():
+                    value = diag.get(name)
+                    if value is None:
+                        continue
+                    try:
+                        value = float(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if np.isfinite(value):
+                        vals.append(value)
+                if vals:
+                    row[name] = float(fn(vals))
         if mu_value is not None:
             row["mu"] = mu_value
 
