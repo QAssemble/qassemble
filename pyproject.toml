@@ -32,3 +32,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "slow: manuscript-scale reproduction runs (deselect with '-m \"not slow\"')",
+]
