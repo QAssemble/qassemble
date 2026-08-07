@@ -33,7 +33,7 @@ def minimal_crystal(minimal_crystal_input):
 
 
 def graphene_sections(prefix, method="gw", kgrid=(5, 5, 1), nscf=100, cutoff=100):
-    """Manuscript graphene model (t=2.8, U=2.0, V=0.2) with adjustable size knobs."""
+    """Manuscript graphene model (t=1.0, U=2.0, V=0.2) with adjustable size knobs."""
     return {
         "Crystal": {
             "RVec": [[1, 0, 0], [0.5, 0.866, 0], [0, 0, 1]],
@@ -47,7 +47,7 @@ def graphene_sections(prefix, method="gw", kgrid=(5, 5, 1), nscf=100, cutoff=100
         "Hamiltonian": {
             "OneBody": {
                 "Hopping": {
-                    ((0, 0), (1, 0)): {2.8: [[0, 0, 0], [-1, 0, 0], [0, -1, 0]]},
+                    ((0, 0), (1, 0)): {1.0: [[0, 0, 0], [-1, 0, 0], [0, -1, 0]]},
                 },
                 "Onsite": {0: {(0, 0): 0.0, (1, 0): 0.0}},
             },

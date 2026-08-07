@@ -9,7 +9,7 @@ of the repository, and the whole workflow is two commands:
 
 ```bash
 cd examples/graphene
-qassemble            # ~30 s serial
+qassemble            # ~20 s serial
 python analyze.py    # band structure, DOS, Matsubara Green's function
 ```
 
@@ -24,9 +24,10 @@ H = -t \sum_{\langle ij \rangle \sigma} c^\dagger_{i\sigma} c_{j\sigma}
   + V \sum_{\langle ij \rangle} n_i n_j ,
 $$
 
-with nearest-neighbour hopping $t = 2.8$ eV, on-site interaction
+with nearest-neighbour hopping $t = 1.0$ eV, on-site interaction
 $U = 2.0$ eV, and nearest-neighbour interaction $V = 0.2$ eV, at half
-filling. See the [Hamiltonian](../theory/hamiltonian.md) and
+filling — the parameters of the graphene results section of the QAssemble
+manuscript. See the [Hamiltonian](../theory/hamiltonian.md) and
 [GW approximation](../theory/gw-approximation.md) theory pages for the
 formalism.
 
@@ -59,7 +60,7 @@ lattice translations it connects:
 "OneBody": {
     "Hopping": {
         ((0, 0), (1, 0)): {                       # sublattice A orbital 0 -> B orbital 0
-            2.8: [[0, 0, 0], [-1, 0, 0], [0, -1, 0]],  # t (eV): three NN vectors
+            1.0: [[0, 0, 0], [-1, 0, 0], [0, -1, 0]],  # t (eV): three NN vectors
         },
     },
     "Onsite": {0: {(0, 0): 0.0, (1, 0): 0.0}},
@@ -94,14 +95,14 @@ The log prints one block per iteration. Watch for the convergence criteria
 and the chemical potential:
 
 ```text
-iteration : 7
-fcriteria : 3.47e-08        # max change of the fermionic quantities
-bcriteria : 2.91e-07        # max change of the screened interaction W
-chemicalpotential : 1.6000000612508236
-Self-consistency is achived with 7-th
+iteration : 34
+fcriteria : 7.57e-07        # max change of the fermionic quantities
+bcriteria : 1.95e-06        # max change of the screened interaction W
+chemicalpotential : 1.5999999636787783
+Self-consistency is achived with 34-th
 ```
 
-The calculation converges in 7 iterations (~30 s serial) and closes with the
+The calculation converges in 34 iterations (~20 s serial) and closes with the
 total GW loop time.
 
 ## 4. The HDF5 output
@@ -221,15 +222,16 @@ cheap.
 
 ## 6. What the results mean
 
-- **The GW bands lie almost on top of the tight-binding bands.** With
-  $U/t \approx 0.7$, graphene at this temperature is weakly correlated: the
-  printed Z-factor eigenvalues are $\approx 0.99$, i.e. very weak mass
-  renormalization, and the Dirac crossing at $K$ stays pinned to the Fermi
-  level ($\mu = 1.6$ eV absorbs the Hartree--Fock shift; the run reproduces
-  the reference value to $2 \times 10^{-7}$).
+- **The GW bands stay close to the tight-binding bands.** At $U/t = 2$
+  graphene remains weakly correlated at this temperature: the printed
+  Z-factor eigenvalues are $\approx 0.94$, i.e. only mild mass
+  renormalization (visible as a slight narrowing of the bands), and the
+  Dirac crossing at $K$ stays pinned to the Fermi level ($\mu = 1.6$ eV
+  absorbs the Hartree--Fock shift; the converged value is pinned by the
+  reproduction test run in CI).
 - **The DOS shows the Dirac cone and van Hove singularities.** The linear
   $|E|$ onset around $E = \mu$ reflects the Dirac dispersion; the peaks at
-  $\pm t = \pm 2.8$ eV are the van Hove singularities at the $M$ point. Both
+  $\pm t = \pm 1.0$ eV are the van Hove singularities at the $M$ point. Both
   sublattice orbitals are identical by symmetry.
 - **$\operatorname{Im} G(\Gamma, i\omega_n)$ decays as $-1/\omega_n$** at
   large frequency (the exact sum-rule tail) and remains small at low

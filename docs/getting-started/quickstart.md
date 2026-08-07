@@ -27,7 +27,7 @@ Below is a minimal example for a graphene-like two-site model with GW:
         "OneBody": {
             "Hopping": {
                 ((0, 0), (1, 0)): {
-                    2.8: [[0, 0, 0], [-1, 0, 0], [0, -1, 0]],
+                    1.0: [[0, 0, 0], [-1, 0, 0], [0, -1, 0]],
                 },
             },
             "Onsite": {
