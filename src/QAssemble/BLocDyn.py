@@ -23,6 +23,13 @@ logger = logging.getLogger("QAssemble")
 
 _solvers_logged = False
 
+# EDMFT charge-instability boundary for the bosonic Dyson solves: an
+# eigenvalue of U*chi (equivalently p*W) reaching 1 makes (1 - U*chi)
+# singular, so the physical threshold is not tunable.  The condition-number
+# limit only gates a diagnostic log line.
+_UCHI_LAMBDA_MAX = 1.0
+_UCHI_COND_WARN = 100.0
+
 
 def _log_available_solvers_once() -> None:
     """Log the installed qpsolvers backends the first time a projection runs.
@@ -485,7 +492,58 @@ class BLocDyn(object):
     def Dyson(self, mat1 : np.ndarray, mat2 : np.ndarray):
 
         return Dyson.BLocDyn(mat1, mat2)
-    
+
+    def _UChiGuard(self, g0 : np.ndarray, sigma : np.ndarray, tag : str) -> np.ndarray:
+        """Flag frequencies where the bosonic Dyson solve is unstable.
+
+        ``max|eig(sigma g0)| >= 1`` marks the EDMFT charge-instability
+        boundary where ``(1 - sigma g0)`` is (near-)singular, so CTQMC noise
+        in the inputs is amplified without bound by the solve.  The
+        downstream causal projection cannot catch this: a blown-up but
+        finite result still projects "successfully".  Callers substitute the
+        previous iteration's value at the flagged frequencies (CoQuí guards
+        the same inversion with an eigenvalue check).
+
+        Returns the flagged frequency indices (empty when stable).
+        """
+        g0 = np.asarray(g0)
+        sigma = np.asarray(sigma)
+        if g0.ndim != 5 or sigma.shape != g0.shape:
+            raise ValueError(
+                f"_UChiGuard expects matching 5D arrays, got g0 {g0.shape} "
+                f"and sigma {sigma.shape}"
+            )
+        norb = g0.shape[0]
+        ns = g0.shape[2]
+        dim = norb * ns
+        nfreq = g0.shape[4]
+        # Same batch layout as Dyson._solve_bosonic:
+        # (norb, norb, ns, ns, nfreq) -> (nfreq, dim, dim)
+        g0_b = np.moveaxis(g0, (0, 1, 2, 3), (-4, -2, -3, -1)).reshape(nfreq, dim, dim)
+        sigma_b = np.moveaxis(sigma, (0, 1, 2, 3), (-4, -2, -3, -1)).reshape(nfreq, dim, dim)
+        m = sigma_b @ g0_b
+        lam = np.abs(np.linalg.eigvals(m)).max(axis=-1)
+        cond = np.linalg.cond(np.eye(dim) - m)
+        bad = np.flatnonzero(lam >= _UCHI_LAMBDA_MAX)
+        if bad.size:
+            msg = (
+                f"[uchi-guard] {tag} key={getattr(self, 'key', None)} "
+                f"iter={getattr(self, 'iteration', None)}: "
+                f"max|lambda(U*chi)|={lam.max():.6g} >= {_UCHI_LAMBDA_MAX} "
+                f"at nu indices {bad.tolist()} (cond={cond[bad].max():.3g}); "
+                "substituting previous iteration values there if available"
+            )
+            warnings.warn(msg, RuntimeWarning)
+            logger.warning(msg)
+        elif cond.max() > _UCHI_COND_WARN:
+            logger.warning(
+                f"[uchi-guard] {tag} key={getattr(self, 'key', None)} "
+                f"iter={getattr(self, 'iteration', None)}: large condition "
+                f"number for (1 - U*chi): cond={cond.max():.3g}, "
+                f"max|lambda(U*chi)|={lam.max():.6g}"
+            )
+        return bad
+
     def _static_to_dynamic(self, mat : np.ndarray) -> np.ndarray:
         return np.repeat(mat[..., np.newaxis], len(self.dlr.nu), axis=4)
 
@@ -1012,6 +1070,13 @@ class Chi(BLocDyn):
             return None
 
         susc_uniform = self.QuadSusceptibility2Boson(susc_uniform)
+        # chi[ib, jb, s1, s2] = chi[jb, ib, s2, s1] exactly (n_i and n_j are
+        # hermitian), but EVALSIM measures "i_j" and "j_i" independently so
+        # they differ by CTQMC noise.  Enforcing the symmetry (orbital and
+        # spin transposed together) before the causal projection removes the
+        # antisymmetric noise component instead of spending projection
+        # freedom on it (CoQuí symmetrizes nn_nu_dlr the same way).
+        susc_uniform = 0.5 * (susc_uniform + susc_uniform.transpose(1, 0, 3, 2, 4))
         raw_uniform = np.asfortranarray(susc_uniform)
         self.occupation_susceptibility_bulla = raw_uniform
         # chi decays to zero and has non-negative diagonal spectral weight, so
@@ -1177,7 +1242,17 @@ class PImp(BLocDyn):
             # P is negative for a positive susceptibility, which is what the
             # coefficient_sign=-1 projection below and the negative-P
             # convention in WImp/BWeiss/PolC/W all expect.
+            bad = self._UChiGuard(self.chi_boson_uniform, utilde, "pimp")
             self.f_uniform = -self.Dyson(self.chi_boson_uniform, utilde)
+            if bad.size:
+                prev = self.ReadBrdPrev(
+                    "pimp", self.f_uniform.shape[:4] + (len(self.dlr.nu),)
+                )
+                if prev is not None:
+                    # cache and f_uniform share the negative-P convention
+                    self.f_uniform[..., bad] = self._boson_dlr_to_uniform(
+                        prev, "pimp"
+                    )[..., bad]
 
         # Pimp is a response-like quantity that decays to zero at high
         # frequency; the zero-static convention (pimpbrd's static_mode="zero")
@@ -1310,6 +1385,16 @@ class BWeiss(BLocDyn):
 
         wsource = getattr(self.w, "f", self.w)
         w = np.asarray(wsource, dtype=np.complex128)
+
+        # Static interaction is read before the Dyson solve so the guard's
+        # previous-iteration splice (cache stores cf = f - v) can rebuild f.
+        v = np.asarray(self.vloc.vproj[self.key], dtype=np.complex128)
+        if v.shape != w.shape[:4]:
+            raise ValueError(
+                f"BWeiss static interaction shape mismatch for key '{self.key}': "
+                f"{v.shape} != {w.shape[:4]}"
+            )
+
         if self.p is None:
             self.f = np.array(w, copy=True, order="F")
         else:
@@ -1321,7 +1406,13 @@ class BWeiss(BLocDyn):
                 )
             if not np.all(np.isfinite(p)):
                 raise ValueError("BWeiss p contains non-finite values")
+            bad = self._UChiGuard(w, -p, "bweiss")
             self.f = self.Dyson(w, -p)
+            if bad.size:
+                prev = self.ReadBrdPrev("bweiss", w.shape)
+                if prev is not None:
+                    # cache stores the projected correlated bath cf = f - v
+                    self.f[..., bad] = prev[..., bad] + v[..., np.newaxis]
 
         if self.f.shape[4] != nfreq:
             raise ValueError(
@@ -1329,12 +1420,6 @@ class BWeiss(BLocDyn):
                 f"{self.f.shape[4]} != {nfreq}"
             )
 
-        v = np.asarray(self.vloc.vproj[self.key], dtype=np.complex128)
-        if v.shape != self.f.shape[:4]:
-            raise ValueError(
-                f"BWeiss static interaction shape mismatch for key '{self.key}': "
-                f"{v.shape} != {self.f.shape[:4]}"
-            )
         vdyn = np.broadcast_to(v[..., np.newaxis], self.f.shape)
         self.cf = self.f - vdyn
         # The correlated bath is always projected — including the bare/first
@@ -1462,7 +1547,13 @@ class WImp(BLocDyn):
         self.Cal()
 
     def Cal(self):
+        bad = self._UChiGuard(self.utilde, self.polarization, "wimp")
         self.f = self.Dyson(self.utilde, self.polarization)
+        if bad.size:
+            prev = self.ReadBrdPrev("wimp", self.f.shape)
+            if prev is not None:
+                self.f[..., bad] = prev[..., bad]
+        self.WriteBrdPrev("wimp", self.f)
         self.f_uniform = np.asfortranarray(
             self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
         )
