@@ -110,7 +110,6 @@ def test_chi_cal_projects_ctqmc_susceptibility_causally(monkeypatch):
     assert kwargs["coefficient_sign"] == 1
     assert kwargs["oddzero"] is True
     assert kwargs["highzero"] is True
-    assert kwargs["constraint_tol"] == "auto"
     # No hdf5 cache target: the previous-iteration fallback is absent.
     assert kwargs["fallback_matrix"] is None
     np.testing.assert_allclose(value[0, 0, 0, 0, :], raw)

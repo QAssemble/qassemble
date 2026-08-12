@@ -1091,10 +1091,6 @@ class Chi(BLocDyn):
             coefficient_sign=1,
             oddzero=True,
             highzero=True,
-            # "auto" acceptance tolerance as in PImp/BWeiss: chi is
-            # CTQMC-derived, so the strict 1e-8 default rejects noise at the
-            # DLR<->uniform interpolation floor and falls back to stale data.
-            constraint_tol="auto",
             fallback_matrix=fallback,
         )
         self.WriteBrdPrev("chi", self.f)
