@@ -62,7 +62,7 @@ def test_chi_quad_susceptibility_converts_ctqmc_7d_to_bosonic_5d():
 
     out = reader.QuadSusceptibility2Boson(raw)
 
-    expected = 0.5 * np.array([16.0, 20.0], dtype=np.complex128)
+    expected = np.array([16.0, 20.0], dtype=np.complex128)
     assert out.shape == (1, 1, 1, 1, 2)
     np.testing.assert_allclose(out[0, 0, 0, 0, :], expected)
 
@@ -104,7 +104,7 @@ def test_chi_cal_projects_ctqmc_susceptibility_causally(monkeypatch):
         partition=partition,
     )
 
-    raw = 0.5 * np.array([1111.0, 2222.0, 3333.0], dtype=np.complex128)
+    raw = np.array([1111.0, 2222.0, 3333.0], dtype=np.complex128)
     value, grid, kwargs = projection_calls[0]
     assert grid == "uniform"
     assert kwargs["coefficient_sign"] == 1

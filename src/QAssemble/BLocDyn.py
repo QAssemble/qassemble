@@ -915,7 +915,13 @@ class Chi(BLocDyn):
 
         chi_boson = np.zeros((norbb, norbb, ns, ns, nfreq), dtype=np.complex128, order='F')
         if ns == 1 and nspin == 2:
-            chi_boson[:, :, 0, 0, :] = 0.5 * (
+            # The ns=1 slot holds the full spin-summed charge susceptibility
+            # chi_NN = sum_{ss'} chi^{ss'} (gw_edmft_v208 edmft.py
+            # write_comctqmc_susceptibility, FullGWEDMFT cimpurity.py
+            # write_xijk): the bare V couples to the total density with no
+            # spin factor of its own, so a per-spin normalization here would
+            # halve the screening in W.
+            chi_boson[:, :, 0, 0, :] = (
                 chi_temp[:, :, 0, 0, :]
                 + chi_temp[:, :, 0, 1, :]
                 + chi_temp[:, :, 1, 0, :]
