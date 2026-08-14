@@ -439,7 +439,16 @@ def test_bweiss_mixing_mixes_reprojects_and_rebuilds_derived(monkeypatch, tmp_pa
 
     monkeypatch.setattr(BWeiss, "CausalProjection", fake_causal_projection)
 
+    # The solver-consistent rebuild needs a real projector and 5D arrays;
+    # stub it here (covered by test_bweiss_solver_consistent.py) but assert
+    # Mixing still triggers it so dyn.json/PImp stay in sync after mixing.
+    build_calls = []
+    monkeypatch.setattr(
+        BWeiss, "_build_solver_consistent", lambda self: build_calls.append(True)
+    )
+
     assert obj.Mixing(obj.control) is None
+    assert build_calls
     # iter 1 passthrough [0.0] -> projected [1.0]; every derived quantity is
     # rebuilt from the mixed bath (fake DLR->uniform adds 10, fake F2T adds 20).
     np.testing.assert_allclose(obj.cf, [1.0])

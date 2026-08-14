@@ -13,6 +13,10 @@ class _FakeProjector:
             "2": np.array([[[0.0]], [[1.0]]]),
         }
         self.equiv = {"1": np.eye(1, dtype=int), "2": np.eye(1, dtype=int)}
+        self.blocal2pair = {"1": [{0: (0, 0)}], "2": [{0: (0, 0)}]}
+
+    def ProbFPair2Borb(self, key, iorb, jorb, ispace=0):
+        return 0
 
 
 class _FakeDLR:
@@ -126,6 +130,9 @@ def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs(monkeypa
     np.testing.assert_allclose(bweiss.cf_uniform, expected_ubar + 10.0)
     np.testing.assert_allclose(bweiss.t, expected_utilde)
     np.testing.assert_allclose(bweiss.ct, expected_ubar)
+    # Single density pair: the solver-consistent view degenerates to f/cf.
+    np.testing.assert_allclose(bweiss.f_to_solver, expected_utilde)
+    np.testing.assert_allclose(bweiss.cf_to_solver, expected_ubar[0, 0, 0, 0, :])
 
     removed_attrs = (
         "v",
