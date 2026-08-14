@@ -7,7 +7,7 @@ package:
 
 source:
   url: https://github.com/QAssemble/qassemble/archive/refs/tags/v{{ version }}.tar.gz
-  sha256: 7bab835af8b438e131200a3e72e2de5e9bb080560c4ccf9572927f8c68b34400
+  sha256: 2c3f464cea1c855ff4d673a4f1839f84d35b5ab6538815b77c541b4422682697
 
 build:
   noarch: python
