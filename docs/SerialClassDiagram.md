@@ -259,9 +259,6 @@ classDiagram
         +Cal()
         +Save()
     }
-    class BPathDyn {
-        +R2K()
-    }
     class BPathStc {
         +R2K()
     }
@@ -289,7 +286,6 @@ classDiagram
 
     CorrelationFunction --> BLatDyn
     CorrelationFunction --> BLatStc
-    CorrelationFunction --> BPathDyn
     CorrelationFunction --> BPathStc
     CorrelationFunction --> BLocStc
     CorrelationFunction --> V
@@ -300,7 +296,6 @@ classDiagram
     BLatStc --> Crystal
     V --|> BLatStc
     V --> Crystal
-    BPathDyn --> Crystal
     BPathStc --> Crystal
     BLocStc --> Crystal
     VLoc --|> BLocStc
@@ -367,7 +362,6 @@ classDiagram
     FPathDyn ..> Fourier
     BLatDyn ..> Fourier
     BLatStc ..> Fourier
-    BPathDyn ..> Fourier
     BPathStc ..> Fourier
     FLatDyn ..> Dyson
     FLatStc ..> Dyson

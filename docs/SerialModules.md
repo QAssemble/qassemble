@@ -50,8 +50,8 @@ This guide summarises the serial implementation that lives under `src/QAssemble/
 - `src/QAssemble/BLatStc.py`
   Provides static (`omega=0`) bosonic response support. Core methods: `Inverse`, `K2R`/`R2K`, `Mixing`, `Dyson`, `Save`, `R2KArb`, `HermitianCheck`, plus the same index-space conversions as `BLatDyn`. Subcomponent:
   - `V` evaluates bare Coulomb kernels (`Cal`, `LocPlusNonLoc`, `OhnoYukawa`, `OhnoParameter`, `JTHPotential`) and writes parameter tables with `Save`.
-- `src/QAssemble/BPathDyn.py` / `BPathStc.py`
-  Minimal wrappers that expose `R2K` transforms for k-path extraction from real-space datasets.
+- `src/QAssemble/BPathStc.py`
+  Minimal wrapper that exposes `R2K` transforms for k-path extraction from real-space datasets.
 
 ## Local Bosonic Module
 - `src/QAssemble/BLocStc.py`
@@ -75,11 +75,6 @@ This guide summarises the serial implementation that lives under `src/QAssemble/
   Static embedding kernels translated from `modules/Embedding.f90`. Each method embeds a correlated-subspace quantity into the full orbital space with spin-resolved projectors, `out = P A P^dagger`, where `projector` has shape `[norb, norbc, ns]`. Lattice variants broadcast the embedded local block onto all k-points. Methods cover fermionic/bosonic x local/lattice x static/dynamic combinations: `FLocStc`, `FLatStc`, `FLocDyn`, `FLatDyn`, `BLocStc`, `BLatStc`, `BLocDyn`, `BLatDyn`.
 - `src/QAssemble/utility/Projection.py`
   Static projection kernels translated from `modules/Projection.f90`. Each method projects a full-space quantity onto the correlated subspace with spin-resolved projectors, `out = P^dagger A P`, using the same `[norb, norbc, ns]` projector convention as `Embedding`. Lattice variants average over k-points. Methods: `FLocStc`, `FLatStc`, `FLocDyn`, `FLatDyn`, `BLocStc`, `BLatStc`, `BLocDyn`, `BLatDyn`.
-
-## Stub / Placeholder Modules
-The following modules exist but contain only placeholder or fully commented-out code:
-- `src/QAssemble/Projector.py` — fully commented-out MPI projector code.
-- `src/QAssemble/FLocStc.py`, `FLocDyn.py`, `BLocDyn.py` — entirely commented out.
 
 ## Working Tips
 - Dynamic classes (`FLatDyn`, `BLatDyn`) expect a `DLR` instance seeded with the same beta/cutoff as the solver. When adding new routines, pass the `DLR` object rather than re-instantiating it.

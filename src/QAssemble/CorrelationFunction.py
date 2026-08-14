@@ -9,11 +9,8 @@ from .Crystal import Crystal
 from .utility.DLR import DLR
 from .FLatDyn import *
 from .FLatStc import *
-from .FLocDyn import *
-from .FLocStc import *
 from .BLatDyn import *
 from .BLatStc import *
-from .BLocDyn import *
 from .BLocStc import *
 
 class CorrelationFunction(object):
