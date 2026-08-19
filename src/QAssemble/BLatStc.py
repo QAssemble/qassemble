@@ -596,6 +596,7 @@ class V(BLatStc):
             dtype=np.complex128,
             order="F",
         )
+        assigned = {}
 
         for js in range(ns):
             for ks in range(ns):
@@ -614,9 +615,32 @@ class V(BLatStc):
                         logger.error(errmessage)
                         sys.exit()
 
-                    # else:
-                    tempmat[iorb, jorb, js, ks, R[0], R[1], R[2]] = vij
-                    tempmat[jorb, iorb, js, ks, -R[0], -R[1], -R[2]] = vij
+                    r_index = tuple(
+                        int(value) % size for value, size in zip(R, rkgrid)
+                    )
+                    minus_r_index = tuple(
+                        (-int(value)) % size for value, size in zip(R, rkgrid)
+                    )
+                    targets = dict.fromkeys(
+                        (
+                            (iorb, jorb, *r_index),
+                            (iorb, jorb, *minus_r_index),
+                            (jorb, iorb, *r_index),
+                            (jorb, iorb, *minus_r_index),
+                        )
+                    )
+                    for target in targets:
+                        key = (target[0], target[1], js, ks, *target[2:])
+                        if key in assigned and not np.isclose(
+                            assigned[key], vij, rtol=0.0, atol=1.0e-12
+                        ):
+                            raise ValueError(
+                                "Conflicting non-local density interaction for "
+                                f"component ({target[0]}, {target[1]}) at grid index "
+                                f"{target[2:]}: {assigned[key]} != {vij}"
+                            )
+                        assigned[key] = vij
+                        tempmat[key] = vij
 
         vnlr = tempmat.reshape((norb, norb, ns, ns, nk), order="F")
         vnlk = self.R2K(vnlr)

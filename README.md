@@ -116,6 +116,14 @@ Control = {
 }
 ```
 
+Each displacement listed under `TwoBody['NonLocal']` represents the pair of
+neighbouring bonds at `+R` and `-R`. The amplitude is stored unchanged at both
+displacements; their Fourier sum produces the factor `2*cos(k*R)`. A
+density-density pair `((a,m),(b,n))` is unordered, so the same amplitude is
+also applied to the reversed pair `((b,n),(a,m))`. Listing both `R` and `-R`
+with the same amplitude is allowed but redundant; conflicting amplitudes for
+symmetry-equivalent entries are rejected.
+
 ### 2. Run Simulation
 
 Using the installed CLI command:
