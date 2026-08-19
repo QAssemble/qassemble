@@ -621,26 +621,25 @@ class V(BLatStc):
                     minus_r_index = tuple(
                         (-int(value)) % size for value, size in zip(R, rkgrid)
                     )
-                    targets = dict.fromkeys(
+                    targets = (
+                        ((iorb, jorb, *r_index), vij),
                         (
-                            (iorb, jorb, *r_index),
-                            (iorb, jorb, *minus_r_index),
-                            (jorb, iorb, *r_index),
                             (jorb, iorb, *minus_r_index),
-                        )
+                            np.conjugate(vij),
+                        ),
                     )
-                    for target in targets:
+                    for target, value in targets:
                         key = (target[0], target[1], js, ks, *target[2:])
                         if key in assigned and not np.isclose(
-                            assigned[key], vij, rtol=0.0, atol=1.0e-12
+                            assigned[key], value, rtol=0.0, atol=1.0e-12
                         ):
                             raise ValueError(
                                 "Conflicting non-local density interaction for "
                                 f"component ({target[0]}, {target[1]}) at grid index "
-                                f"{target[2:]}: {assigned[key]} != {vij}"
+                                f"{target[2:]}: {assigned[key]} != {value}"
                             )
-                        assigned[key] = vij
-                        tempmat[key] = vij
+                        assigned[key] = value
+                        tempmat[key] = value
 
         vnlr = tempmat.reshape((norb, norb, ns, ns, nk), order="F")
         vnlk = self.R2K(vnlr)

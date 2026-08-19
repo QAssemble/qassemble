@@ -116,13 +116,12 @@ Control = {
 }
 ```
 
-Each displacement listed under `TwoBody['NonLocal']` represents the pair of
-neighbouring bonds at `+R` and `-R`. The amplitude is stored unchanged at both
-displacements; their Fourier sum produces the factor `2*cos(k*R)`. A
-density-density pair `((a,m),(b,n))` is unordered, so the same amplitude is
-also applied to the reversed pair `((b,n),(a,m))`. Listing both `R` and `-R`
-with the same amplitude is allowed but redundant; conflicting amplitudes for
-symmetry-equivalent entries are rejected.
+Each displacement under `TwoBody['NonLocal']` defines the directed matrix
+element `V_ab(R)`. QAssemble adds only its Hermitian counterpart
+`V_ba(-R) = V_ab(R)*`; it does not infer `V_ab(-R)` or `V_ba(R)`. List both
+signs explicitly when model symmetry requires an isotropic `+R/-R` shell.
+Repeating the same matrix element with the same amplitude is allowed, while
+conflicting definitions are rejected.
 
 ### 2. Run Simulation
 
