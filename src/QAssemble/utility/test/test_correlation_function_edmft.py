@@ -352,13 +352,14 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
         def __call__(self):
             iter_no = float(self.kwargs["iteration"])
             key_no = float(self.kwargs["key"])
+            key_offset = 10.0 * (key_no - 1.0)
             result = SimpleNamespace(
                 ctqmc=SimpleNamespace(),
                 diagnostics={"sign": iter_no, "nimp": iter_no},
                 gimp=_SavedObject(f=np.asarray([1.0])),
-                sighimp=_SavedObject(h=np.asarray([2.0])),
-                sigfimp=_SavedObject(s=np.asarray([3.0])),
-                sigimp=_SavedObject(f=np.asarray([4.0])),
+                sighimp=_SavedObject(h=np.asarray([2.0 + key_offset])),
+                sigfimp=_SavedObject(s=np.asarray([3.0 + key_offset])),
+                sigimp=_SavedObject(f=np.asarray([4.0 + key_offset])),
                 chi=_SavedObject(f=np.asarray([5.0])),
                 pimp=_SavedObject(
                     f=np.ones((1, 1, 1, 1, 2), dtype=np.complex128)
@@ -714,11 +715,23 @@ def test_gwedmft_composes_gw_dc_and_impurity_without_quantity_dicts(
     assert sigc.kwargs["sigf"] == pytest.approx(np.asarray([20.0]))
     assert sigc.kwargs["siggwc"] == pytest.approx(np.asarray([30.0]))
     assert len(sigc.embedded) == 2
+    np.testing.assert_allclose(sigc.embedded[0]["sighimp"], -50.0)
     np.testing.assert_allclose(sigc.embedded[0]["sigfimp"], -5.0)
     np.testing.assert_allclose(sigc.embedded[0]["sigimp"], -6.0)
+    np.testing.assert_allclose(sigc.embedded[1]["sighimp"], 2.0)
     np.testing.assert_allclose(sigc.embedded[1]["sigfimp"], 3.0)
     np.testing.assert_allclose(sigc.embedded[1]["sigimp"], 4.0)
-    assert "sighimp" not in sigc.embedded[0]
+
+    eimp = stack.cf_mod.EImp.instances[0]
+    np.testing.assert_allclose(eimp.kwargs["sigh"], 10.0)
+    np.testing.assert_allclose(eimp.kwargs["sigf"], 20.0)
+    np.testing.assert_allclose(eimp.kwargs["hloc"], 50.0)
+    np.testing.assert_allclose(eimp.kwargs["floc"], 5.0)
+
+    hyb = stack.Hyb.instances[0]
+    np.testing.assert_allclose(hyb.kwargs["sigh"], 50.0)
+    np.testing.assert_allclose(hyb.kwargs["sigf"], 5.0)
+    np.testing.assert_allclose(hyb.kwargs["sigc"], 6.0)
 
     polc = stack.PolC.instances[0]
     assert hasattr(polc.gw, "kf")
@@ -754,10 +767,13 @@ def test_gwedmft_builds_bosonic_weiss_from_previous_impurity_polarization(
         (stack.PolC.instances[0].pimp, "1")
     ]
     np.testing.assert_allclose(stack.PolC.instances[1].dc[0].f, 0.2)
-    for hyb in stack.Hyb.instances:
-        np.testing.assert_allclose(hyb.kwargs["sigh"], 10.0)
-        np.testing.assert_allclose(hyb.kwargs["sigf"], 20.0)
-        np.testing.assert_allclose(hyb.kwargs["sigc"], 30.0)
+    first_hyb, second_hyb = stack.Hyb.instances
+    np.testing.assert_allclose(first_hyb.kwargs["sigh"], 50.0)
+    np.testing.assert_allclose(first_hyb.kwargs["sigf"], 5.0)
+    np.testing.assert_allclose(first_hyb.kwargs["sigc"], 6.0)
+    np.testing.assert_allclose(second_hyb.kwargs["sigh"], 2.0)
+    np.testing.assert_allclose(second_hyb.kwargs["sigf"], 3.0)
+    np.testing.assert_allclose(second_hyb.kwargs["sigc"], 4.0)
     assert stack.PolC.instances[0].embedded[0][0] is stack.ImpurityAction.results[0].pimp
 
 
@@ -804,15 +820,23 @@ def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
     assert stack.GWLoc.instances[3].result.pol.projection_calls == [
         (stack.PolC.instances[0].pimp, "2")
     ]
-    np.testing.assert_allclose(
-        stack.Hyb.instances[2].kwargs["sigf"],
-        20.0,
-    )
-    np.testing.assert_allclose(
-        stack.Hyb.instances[3].kwargs["sigf"],
-        20.0,
-    )
+    for hyb in stack.Hyb.instances[:2]:
+        np.testing.assert_allclose(hyb.kwargs["sigh"], 50.0)
+        np.testing.assert_allclose(hyb.kwargs["sigf"], 5.0)
+        np.testing.assert_allclose(hyb.kwargs["sigc"], 6.0)
+    np.testing.assert_allclose(stack.Hyb.instances[2].kwargs["sigh"], 2.0)
+    np.testing.assert_allclose(stack.Hyb.instances[2].kwargs["sigf"], 3.0)
+    np.testing.assert_allclose(stack.Hyb.instances[2].kwargs["sigc"], 4.0)
+    np.testing.assert_allclose(stack.Hyb.instances[3].kwargs["sigh"], 12.0)
+    np.testing.assert_allclose(stack.Hyb.instances[3].kwargs["sigf"], 13.0)
+    np.testing.assert_allclose(stack.Hyb.instances[3].kwargs["sigc"], 14.0)
     assert len(stack.SigC.instances[0].embedded) == 4
+    np.testing.assert_allclose(
+        np.asarray(
+            [entry["sighimp"] for entry in stack.SigC.instances[0].embedded]
+        ).reshape(-1),
+        [-50.0, 2.0, -50.0, 12.0],
+    )
     assert len(stack.PolC.instances[0].embedded) == 2
     assert not any(name.endswith("_by_key") for name in vars(corr))
 

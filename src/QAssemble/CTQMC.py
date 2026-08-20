@@ -430,6 +430,25 @@ class CTQMC(object):
     def _resolve_sighimp_vloc(self, key):
         if self.bweiss.f is None:
             return self.bweiss.vloc.vproj[key], "bare_vloc"
+
+        solver_uniform = getattr(self.bweiss, "f_to_solver_uniform", None)
+        if solver_uniform is not None:
+            return solver_uniform[..., 0], "bweiss_solver_uniform_nu0"
+
+        solver_dlr = getattr(self.bweiss, "f_to_solver", None)
+        if solver_dlr is not None and hasattr(
+            self.dlr, "MatsubaraDLR2UniformGrid"
+        ):
+            return (
+                self.dlr.MatsubaraDLR2UniformGrid(solver_dlr, sign=1)[..., 0],
+                "bweiss_solver_dlr_to_uniform_nu0",
+            )
+
+        logger.warning(
+            "[sighimp] key=%s: solver-consistent BWeiss unavailable; "
+            "using legacy matrix-valued interaction",
+            key,
+        )
         if getattr(self.bweiss, "f_uniform", None) is not None:
             return self.bweiss.f_uniform[..., 0], "bweiss_uniform_nu0"
         if hasattr(self.dlr, "MatsubaraDLR2UniformGrid"):

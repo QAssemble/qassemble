@@ -129,7 +129,36 @@ def test_sigimp_guard_builds_fallback_objects_and_saves_current_iter(tmp_path):
         )
 
 
-def test_sighimp_uses_uniform_bweiss_zero_frequency(tmp_path):
+def test_sighimp_uses_solver_consistent_uniform_zero_frequency(tmp_path):
+    ctqmc = _fake_ctqmc(tmp_path)
+    ctqmc.bweiss.f = np.asarray([[[[[999.0]]]]])
+    ctqmc.bweiss.f_uniform = np.asarray([[[[[123.0, 124.0]]]]])
+    ctqmc.bweiss.f_to_solver_uniform = np.asarray([[[[[321.0, 322.0]]]]])
+
+    vloc, source = ctqmc._resolve_sighimp_vloc("1")
+
+    assert source == "bweiss_solver_uniform_nu0"
+    np.testing.assert_allclose(vloc, np.asarray([[[[321.0]]]]))
+
+
+def test_sighimp_uses_solver_consistent_dlr_fallback(tmp_path):
+    ctqmc = _fake_ctqmc(tmp_path)
+    ctqmc.bweiss.f = np.asarray([[[[[999.0]]]]])
+    ctqmc.bweiss.f_uniform = np.asarray([[[[[123.0, 124.0]]]]])
+    ctqmc.bweiss.f_to_solver = np.asarray([[[[[456.0]]]]])
+    ctqmc.dlr = SimpleNamespace(
+        MatsubaraDLR2UniformGrid=lambda arr, sign=1: np.concatenate(
+            (arr, arr + 1.0), axis=-1
+        )
+    )
+
+    vloc, source = ctqmc._resolve_sighimp_vloc("1")
+
+    assert source == "bweiss_solver_dlr_to_uniform_nu0"
+    np.testing.assert_allclose(vloc, np.asarray([[[[456.0]]]]))
+
+
+def test_sighimp_legacy_uniform_fallback_warns(tmp_path, caplog):
     ctqmc = _fake_ctqmc(tmp_path)
     ctqmc.bweiss.f = np.asarray([[[[[999.0]]]]])
     ctqmc.bweiss.f_uniform = np.asarray([[[[[123.0, 124.0]]]]])
@@ -137,10 +166,11 @@ def test_sighimp_uses_uniform_bweiss_zero_frequency(tmp_path):
     vloc, source = ctqmc._resolve_sighimp_vloc("1")
 
     assert source == "bweiss_uniform_nu0"
+    assert "legacy matrix-valued interaction" in caplog.text
     np.testing.assert_allclose(vloc, np.asarray([[[[123.0]]]]))
 
 
-def test_sighimp_falls_back_to_dlr_to_uniform_zero_frequency(tmp_path):
+def test_sighimp_legacy_dlr_fallback_warns(tmp_path, caplog):
     ctqmc = _fake_ctqmc(tmp_path)
     ctqmc.bweiss.f = np.asarray([[[[[999.0]]]]])
     ctqmc.bweiss.f_uniform = None
@@ -151,4 +181,14 @@ def test_sighimp_falls_back_to_dlr_to_uniform_zero_frequency(tmp_path):
     vloc, source = ctqmc._resolve_sighimp_vloc("1")
 
     assert source == "bweiss_dlr_to_uniform_nu0"
+    assert "legacy matrix-valued interaction" in caplog.text
     np.testing.assert_allclose(vloc, np.asarray([[[[456.0]]]]))
+
+
+def test_sighimp_static_bweiss_uses_bare_interaction(tmp_path):
+    ctqmc = _fake_ctqmc(tmp_path)
+
+    vloc, source = ctqmc._resolve_sighimp_vloc("1")
+
+    assert source == "bare_vloc"
+    np.testing.assert_allclose(vloc, np.asarray([[[[2.0]]]]))

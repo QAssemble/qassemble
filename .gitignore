@@ -12,3 +12,6 @@ plans
 .claude
 .serena/
 analysis_plots
+.agents 
+.codex
+src/QAssemble/graphify-out

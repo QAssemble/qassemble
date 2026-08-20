@@ -967,6 +967,7 @@ class CorrelationFunction(object):
 
         diag_prev_by_key = None
         polc_previous = None
+        sigma_imp_previous_by_key = {}
         self.conv.Start()
 
         for iter in range(1, itermax + 1):
@@ -1047,14 +1048,19 @@ class CorrelationFunction(object):
                     iteration=iter,
                 )()
 
+                dc_h = hf_loc_result.sigh.hloc
+                dc_f = hf_loc_result.sigf.floc
+                dc_c = gw_loc_result.siggwc.f
+
                 # Green DC path: subtract the local GW diagrams before the
                 # impurity calculation is added.  Keeping this separate from
                 # the EDMFT contribution makes the assembly explicit:
                 # Sigma = Sigma_GW - Sigma_DC + Sigma_EDMFT and
                 # P = P_GW - P_DC + P_EDMFT.
                 sigc.ImpEmbedding(
-                    sigfimp=-hf_loc_result.sigf.floc,
-                    sigimp=-gw_loc_result.siggwc.f,
+                    sighimp=-dc_h,
+                    sigfimp=-dc_f,
+                    sigimp=-dc_c,
                     projector=projector,
                     key=key,
                 )
@@ -1071,12 +1077,21 @@ class CorrelationFunction(object):
                     hamtb=self.niham.k,
                     sigh = hf_result.sigh.k,
                     sigf = hf_result.sigf.k,
+                    hloc=dc_h,
+                    floc=dc_f,
                     mu=green.mu,
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iter,
                 )
                 eimp.Save('eimp')
+
+                sigma_imp_previous = sigma_imp_previous_by_key.get(key)
+                if sigma_imp_previous is None:
+                    bath_h, bath_f, bath_c = dc_h, dc_f, dc_c
+                else:
+                    bath_h, bath_f, bath_c = sigma_imp_previous
+
                 hyb = Hyb(
                     crystal=self.crystal,
                     dlr=self.dlr,
@@ -1084,9 +1099,9 @@ class CorrelationFunction(object):
                     key=key,
                     green=gloc.f,
                     eimp=eimp.e,
-                    sigh=hf_loc_result.sigh.Projection(hf_result.sigh.k, key),
-                    sigf=hf_loc_result.sigf.Projection(hf_result.sigf.k, key),
-                    sigc=gw_loc_result.siggwc.Projection(gw_result.siggwc.kf, key),
+                    sigh=bath_h,
+                    sigf=bath_f,
+                    sigc=bath_c,
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iter,
@@ -1141,16 +1156,23 @@ class CorrelationFunction(object):
                             f"GW+EDMFT requires the complete impurity pipeline output."
                         )
 
+                sighimp_new = impurity_result.sighimp
                 sigfimp_new = impurity_result.sigfimp
                 sigimp_new = impurity_result.sigimp
                 pimp_new = impurity_result.pimp
                 sigc.ImpEmbedding(
+                    sighimp=sighimp_new.h,
                     sigfimp=sigfimp_new.s,
                     sigimp=sigimp_new.f,
                     projector=projector,
                     key=key,
                 )
                 polc.ImpEmbedding(pimp_new, projector, key)
+                sigma_imp_previous_by_key[key] = (
+                    np.array(sighimp_new.h, copy=True, order="F"),
+                    np.array(sigfimp_new.s, copy=True, order="F"),
+                    np.array(sigimp_new.f, copy=True, order="F"),
+                )
 
                 diag_by_key[key] = dict(impurity_result.diagnostics)
 
