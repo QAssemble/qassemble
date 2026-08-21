@@ -911,7 +911,7 @@ class CorrelationFunction(object):
     def GWEDMFT(self):
         itermax = self.control["run"]["nscf"]
         hdf5file = self.hdf5path
-        group = 'gwedmft'
+        group = "gwedmft"
 
         config = self.control.get("impurity", self.control.get("gwedmft", {}))
         impdict = config.get("impdict", config.get("ImpDict"))
@@ -927,7 +927,7 @@ class CorrelationFunction(object):
             equiv=copy.deepcopy(equiv),
         )
         problem_keys = list(projector.fprojector.keys())
-        if len(problem_keys) == 0:
+        if not problem_keys:
             raise ValueError("GW+EDMFT requires at least one impurity problem")
         self.vbare.vloc.projector = projector
         if hasattr(self.vbare.vloc, "BuildProjection"):
@@ -941,7 +941,7 @@ class CorrelationFunction(object):
         if itermax <= min_iter:
             logger.warning(
                 f"nscf={itermax} <= min_iter={min_iter}; convergence cannot "
-                f"trigger break. Loop will run to max_iter."
+                f"trigger break. Loop will run max_iter."
             )
 
         green = G(
@@ -952,7 +952,7 @@ class CorrelationFunction(object):
             group=group,
             **self._mu_search_kwargs(),
         )
-        green.Save('gkf_ini', scf=False)
+        green.Save("gkf_ini", scf=False)
         wlat = W(
             crystal=self.crystal,
             dlr=self.dlr,
@@ -963,37 +963,61 @@ class CorrelationFunction(object):
             group=group,
             iteration=0,
         )
-        wlat.Save('wkf_ini', scf=False)
+        wlat.Save("wkf_ini", scf=False)
 
-        diag_prev_by_key = None
-        polc_previous = None
-        sigma_imp_previous_by_key = {}
+        gloc_by_key = {}
+        wloc_by_key = {}
+        for key in problem_keys:
+            gloc_by_key[key] = GLoc(
+                crystal=self.crystal,
+                dlr=self.dlr,
+                projector=projector,
+                green=green.kf,
+                key=key,
+                hdf5file=hdf5file,
+                group=group,
+                iteration=0,
+                scf=True,
+            )
+            wloc = WLoc(
+                crystal=self.crystal,
+                dlr=self.dlr,
+                projector=projector,
+                key=key,
+                wlat=wlat.kf,
+                vloc=self.vbare.vloc.vproj[key],
+                hdf5file=hdf5file,
+                group=group,
+                iteration=0,
+            )
+            wloc.Save("wloc")
+            wloc_by_key[key] = wloc
+
         self.conv.Start()
 
-        for iter in range(1, itermax + 1):
-            hf = HF(
+        for iteration in range(1, itermax + 1):
+            hf_result = HF(
                 occ=green.occ,
                 occr=green.occr,
                 v=self.vbare,
                 hdf5file=hdf5file,
                 group=group,
-                iteration=iter,
+                iteration=iteration,
                 mix=mix,
                 mixing_method=mixing_method,
                 npulay=npulay,
-            )
-            hf_result = hf()
-            gw = GW(
+            )()
+            gw_result = GW(
                 g=green,
                 w=wlat,
                 hdf5file=hdf5file,
                 group=group,
-                iteration=iter,
+                iteration=iteration,
                 mix=mix,
                 mixing_method=mixing_method,
                 npulay=npulay,
-            )
-            gw_result = gw()
+            )()
+
             sigc = SigC(
                 crystal=self.crystal,
                 dlr=self.dlr,
@@ -1003,60 +1027,33 @@ class CorrelationFunction(object):
             )
             polc = PolC(crystal=self.crystal, dlr=self.dlr)
             polc.GWContribution(gw_result.pol)
-            diag_by_key = {}
 
+            dc_by_key = {}
+            sigma_seed_by_key = {}
+            p_seed_by_key = {}
             for key in problem_keys:
-                gloc = GLoc(
-                    crystal=self.crystal,
-                    dlr=self.dlr,
-                    projector=projector,
-                    green=green.kf,
-                    key=key,
-                    hdf5file=hdf5file,
-                    group=group,
-                    iteration=iter - 1,
-                    scf=True,
-                )
-                wloc = WLoc(
-                    crystal=self.crystal,
-                    dlr=self.dlr,
-                    projector=projector,
-                    key=key,
-                    wlat=wlat.kf,
-                    vloc=self.vbare.vloc.vproj[key],
-                    hdf5file=hdf5file,
-                    group=group,
-                    iteration=iter - 1,
-                )
-                wloc.Save('wloc')
-
-                # Double Counting: subtract the local GW diagrams before the impurity calculation is added.
                 hf_loc_result = HFLoc(
-                    gloc=gloc,
+                    gloc=gloc_by_key[key],
                     vloc=self.vbare.vloc,
                     key=key,
                     hdf5file=hdf5file,
                     group=group,
-                    iteration=iter,
+                    iteration=iteration,
                 )()
                 gw_loc_result = GWLoc(
-                    gloc=gloc,
-                    wloc=wloc,
+                    gloc=gloc_by_key[key],
+                    wloc=wloc_by_key[key],
                     key=key,
                     hdf5file=hdf5file,
                     group=group,
-                    iteration=iter,
+                    iteration=iteration,
                 )()
 
                 dc_h = hf_loc_result.sigh.hloc
                 dc_f = hf_loc_result.sigf.floc
                 dc_c = gw_loc_result.siggwc.f
+                dc_by_key[key] = (dc_h, dc_f, dc_c)
 
-                # Green DC path: subtract the local GW diagrams before the
-                # impurity calculation is added.  Keeping this separate from
-                # the EDMFT contribution makes the assembly explicit:
-                # Sigma = Sigma_GW - Sigma_DC + Sigma_EDMFT and
-                # P = P_GW - P_DC + P_EDMFT.
                 sigc.ImpEmbedding(
                     sighimp=-dc_h,
                     sigfimp=-dc_f,
@@ -1066,32 +1063,112 @@ class CorrelationFunction(object):
                 )
                 polc.GWDoubleCounting(gw_loc_result.pol, projector, key)
 
-                # Build the impurity Weiss fields from the projected lattice
-                # quantities.  The bosonic Weiss field uses only the previous
-                # impurity polarization; local GW polarization remains a
-                # lattice double-counting term above.
+                if iteration == 1:
+                    sigma_seed = (dc_h, dc_f, dc_c)
+                    p_seed = gw_loc_result.pol
+                else:
+                    previous = iteration - 1
+                    with h5py.File(hdf5file, "r") as handle:
+                        sigma_seed = tuple(
+                            np.asfortranarray(handle[path][()])
+                            for path in (
+                                f"{group}/SigHImp/sighimp.{previous}.{key}",
+                                f"{group}/SigFImp/sigfimp.{previous}.{key}",
+                                f"{group}/SigCImp/sigimp.{previous}.{key}",
+                            )
+                        )
+                        p_seed = np.asfortranarray(
+                            handle[f"{group}/PImp/pimp.{previous}.{key}"][()]
+                        )
+                sigma_seed_by_key[key] = sigma_seed
+                p_seed_by_key[key] = p_seed
+                sigc.ImpEmbedding(
+                    sighimp=sigma_seed[0],
+                    sigfimp=sigma_seed[1],
+                    sigimp=sigma_seed[2],
+                    projector=projector,
+                    key=key,
+                )
+                polc.ImpEmbedding(p_seed, projector, key)
+
+            sigc()
+            polc()
+            green_next = G(
+                crystal=self.crystal,
+                dlr=self.dlr,
+                greenbare=self.greenbare.kf,
+                sigmagwc=sigc.kf,
+                hdf5file=hdf5file,
+                group=group,
+                iteration=iteration,
+                **self._mu_search_kwargs(mu_reference=green.mu),
+            )
+            if not np.isfinite(green_next.mu):
+                raise RuntimeError(
+                    f"GW+EDMFT produced non-finite mu={green_next.mu} "
+                    f"at iter={iteration}."
+                )
+            green_next.Save("gkf")
+            wlat_next = W(
+                crystal=self.crystal,
+                dlr=self.dlr,
+                pol=polc.kf,
+                vbare=self.vbare,
+                c=self.c,
+                hdf5file=hdf5file,
+                group=group,
+                iteration=iteration,
+            )
+            wlat_next.Save("wkf")
+
+            gloc_next_by_key = {}
+            wloc_next_by_key = {}
+            diag_by_key = {}
+            for key in problem_keys:
+                gloc = GLoc(
+                    crystal=self.crystal,
+                    dlr=self.dlr,
+                    projector=projector,
+                    green=green_next.kf,
+                    key=key,
+                    hdf5file=hdf5file,
+                    group=group,
+                    iteration=iteration,
+                    scf=True,
+                )
+                wloc = WLoc(
+                    crystal=self.crystal,
+                    dlr=self.dlr,
+                    projector=projector,
+                    key=key,
+                    wlat=wlat_next.kf,
+                    vloc=self.vbare.vloc.vproj[key],
+                    hdf5file=hdf5file,
+                    group=group,
+                    iteration=iteration,
+                )
+                wloc.Save("wloc")
+                gloc_next_by_key[key] = gloc
+                wloc_next_by_key[key] = wloc
+
+                dc_h, dc_f, _ = dc_by_key[key]
                 eimp = EImp(
                     crystal=self.crystal,
                     projector=projector,
                     key=key,
                     hamtb=self.niham.k,
-                    sigh = hf_result.sigh.k,
-                    sigf = hf_result.sigf.k,
+                    sigh=hf_result.sigh.k,
+                    sigf=hf_result.sigf.k,
                     hloc=dc_h,
                     floc=dc_f,
-                    mu=green.mu,
+                    mu=green_next.mu,
                     hdf5file=hdf5file,
                     group=group,
-                    iteration=iter,
+                    iteration=iteration,
                 )
-                eimp.Save('eimp')
+                eimp.Save("eimp")
 
-                sigma_imp_previous = sigma_imp_previous_by_key.get(key)
-                if sigma_imp_previous is None:
-                    bath_h, bath_f, bath_c = dc_h, dc_f, dc_c
-                else:
-                    bath_h, bath_f, bath_c = sigma_imp_previous
-
+                bath_h, bath_f, bath_c = sigma_seed_by_key[key]
                 hyb = Hyb(
                     crystal=self.crystal,
                     dlr=self.dlr,
@@ -1104,9 +1181,9 @@ class CorrelationFunction(object):
                     sigc=bath_c,
                     hdf5file=hdf5file,
                     group=group,
-                    iteration=iter,
+                    iteration=iteration,
                 )
-                hyb.Save('hyb')
+                hyb.Save("hyb")
                 fweiss = FWeiss(
                     crystal=self.crystal,
                     dlr=self.dlr,
@@ -1114,16 +1191,10 @@ class CorrelationFunction(object):
                     key=key,
                     eimp=eimp,
                     hyb=hyb,
-                    mu=green.mu,
+                    mu=green_next.mu,
                     hdf5file=hdf5file,
                     group=group,
                 )
-                p = None
-                if polc_previous is not None:
-                    p = gw_loc_result.pol.Projection(
-                        polc_previous.pimp,
-                        key,
-                    )
                 bweiss = BWeiss(
                     crystal=self.crystal,
                     dlr=self.dlr,
@@ -1131,13 +1202,12 @@ class CorrelationFunction(object):
                     key=key,
                     vloc=self.vbare.vloc,
                     w=wloc,
-                    p=p,
+                    p=p_seed_by_key[key],
                     hdf5file=hdf5file,
                     group=group,
-                    iteration=iter,
+                    iteration=iteration,
                 )
-                bweiss.Save('bweiss')
-
+                bweiss.Save("bweiss")
                 impurity_result = ImpurityAction(
                     fweiss=fweiss,
                     bweiss=bweiss,
@@ -1145,137 +1215,113 @@ class CorrelationFunction(object):
                     control=self.control["run"],
                     hdf5file=hdf5file,
                     group=group,
-                    iteration=iter,
+                    iteration=iteration,
                 )()
                 for attr in (
-                    "gimp", "sighimp", "sigfimp", "sigimp", "chi", "pimp", "wimp"
+                    "gimp",
+                    "sighimp",
+                    "sigfimp",
+                    "sigimp",
+                    "chi",
+                    "pimp",
+                    "wimp",
                 ):
                     if getattr(impurity_result, attr, None) is None:
                         raise RuntimeError(
-                            f"CTQMC produced no {attr} for key={key}, iter={iter}. "
-                            f"GW+EDMFT requires the complete impurity pipeline output."
+                            f"CTQMC produced no {attr} for key={key}, "
+                            f"iter={iteration}. GW+EDMFT requires complete "
+                            f"impurity pipeline output."
                         )
-
-                sighimp_new = impurity_result.sighimp
-                sigfimp_new = impurity_result.sigfimp
-                sigimp_new = impurity_result.sigimp
-                pimp_new = impurity_result.pimp
-                sigc.ImpEmbedding(
-                    sighimp=sighimp_new.h,
-                    sigfimp=sigfimp_new.s,
-                    sigimp=sigimp_new.f,
-                    projector=projector,
-                    key=key,
-                )
-                polc.ImpEmbedding(pimp_new, projector, key)
-                sigma_imp_previous_by_key[key] = (
-                    np.array(sighimp_new.h, copy=True, order="F"),
-                    np.array(sigfimp_new.s, copy=True, order="F"),
-                    np.array(sigimp_new.f, copy=True, order="F"),
-                )
 
                 diag_by_key[key] = dict(impurity_result.diagnostics)
 
-            sigc()
-            polc()
-
-            green_next = G(
-                crystal=self.crystal,
-                dlr=self.dlr,
-                greenbare=self.greenbare.kf,
-                sigmagwc=sigc.kf,
-                hdf5file=hdf5file,
+            self.conv.StartIter(iteration)
+            self.conv.CheckSelfHDF5(
+                name="GLoc",
                 group=group,
-                iteration=iter,
-                **self._mu_search_kwargs(mu_reference=green.mu),
+                subgroup="GLoc",
+                current=f"gloc.{iteration}",
+                previous=f"gloc.{iteration - 1}",
+                keys=problem_keys,
             )
-            if not np.isfinite(green_next.mu):
-                raise RuntimeError(
-                    f"iter {iter}: mu solver produced non-finite mu={green_next.mu}."
+            if iteration > 1:
+                self.conv.CheckSelfHDF5(
+                    name="PImp",
+                    group=group,
+                    subgroup="PImp",
+                    current=f"pimp.{iteration}",
+                    previous=f"pimp.{iteration - 1}",
+                    keys=problem_keys,
                 )
-            green_next.Save('gkf')
-            wlat_next = W(
-                crystal=self.crystal,
-                dlr=self.dlr,
-                pol=polc.kf,
-                vbare=self.vbare,
-                c=self.c,
-                hdf5file=hdf5file,
+            self.conv.CheckSelfHDF5(
+                name="WLoc",
                 group=group,
-                iteration=iter,
+                subgroup="WLoc",
+                current=f"wloc.{iteration}",
+                previous=f"wloc.{iteration - 1}",
+                keys=problem_keys,
             )
-            wlat_next.Save('wkf')
+            self.conv.CheckCrossHDF5(
+                name_a="GLoc",
+                name_b="GImp",
+                group=group,
+                subgroup_a="GLoc",
+                subgroup_b="GImp",
+                stem_a=f"gloc.{iteration}",
+                stem_b=f"gimp.{iteration}",
+                keys=problem_keys,
+            )
+            self.conv.CheckCrossHDF5(
+                name_a="WLoc",
+                name_b="WImp",
+                group=group,
+                subgroup_a="WLoc",
+                subgroup_b="WImp",
+                stem_a=f"wloc.{iteration}",
+                stem_b=f"wimp.{iteration}",
+                keys=problem_keys,
+            )
+            self.conv.CheckSelf("mu", value=float(green_next.mu), kind="scalar")
+            self.conv.RecordDiagnostics(diag_by_key)
+            converged, info = self.conv.Commit(
+                iteration, will_continue=(iteration < itermax)
+            )
 
-            converged = False
-            gcheck = dG_iter = dW_iter = dmu = float("nan")
-            if iter > 1:
-                completed_iter = iter - 1
-                self.conv.StartIter(completed_iter)
-                self.conv.CheckSelfHDF5(
-                    name="GLoc", group=group, subgroup="GLoc",
-                    current=f"gloc.{completed_iter}",
-                    previous=f"gloc.{completed_iter - 1}", keys=problem_keys,
-                )
-                if iter > 2:
-                    self.conv.CheckSelfHDF5(
-                        name="PImp", group=group, subgroup="PImp",
-                        current=f"pimp.{completed_iter}",
-                        previous=f"pimp.{completed_iter - 1}", keys=problem_keys,
-                    )
-                self.conv.CheckSelfHDF5(
-                    name="WLoc", group=group, subgroup="WLoc",
-                    current=f"wloc.{completed_iter}",
-                    previous=f"wloc.{completed_iter - 1}", keys=problem_keys,
-                )
-                self.conv.CheckCrossHDF5(
-                    name_a="GLoc", name_b="GImp", group=group,
-                    subgroup_a="GLoc", subgroup_b="GImp",
-                    stem_a=f"gloc.{completed_iter}",
-                    stem_b=f"gimp.{completed_iter}", keys=problem_keys,
-                )
-                self.conv.CheckCrossHDF5(
-                    name_a="WLoc", name_b="WImp", group=group,
-                    subgroup_a="WLoc", subgroup_b="WImp",
-                    stem_a=f"wloc.{completed_iter}",
-                    stem_b=f"wimp.{completed_iter}", keys=problem_keys,
-                )
-                self.conv.CheckSelf('mu', value=float(green.mu), kind='scalar')
-                self.conv.RecordDiagnostics(diag_prev_by_key)
-                converged, info = self.conv.Commit(
-                    completed_iter, will_continue=(iter < itermax)
-                )
-                gcheck = info.get('cross', {}).get('GLoc-GImp', {}).get('abs', float('nan'))
-                dG_iter = info.get('self', {}).get('GLoc', {}).get('abs', float('nan'))
-                dW_iter = info.get('self', {}).get('WLoc', {}).get('abs', float('nan'))
-                dmu = info.get('self', {}).get('mu', {}).get('abs', float('nan'))
-                logger.info(
-                    f"iteration : {completed_iter} | gcheck={gcheck:.3e} | "
-                    f"dG={dG_iter:.3e}/dW={dW_iter:.3e}/dmu={dmu:.3e} | "
-                    f"μ={green.mu}"
-                )
-            else:
-                logger.info("iteration : 1 | convergence skipped")
+            gcheck = info.get("cross", {}).get("GLoc-GImp", {}).get(
+                "abs", float("nan")
+            )
+            dG_iter = info.get("self", {}).get("GLoc", {}).get(
+                "abs", float("nan")
+            )
+            dW_iter = info.get("self", {}).get("WLoc", {}).get(
+                "abs", float("nan")
+            )
+            dmu = info.get("self", {}).get("mu", {}).get("abs", float("nan"))
+            logger.info(
+                f"iteration : {iteration} | gcheck={gcheck:.3e} | "
+                f"dG={dG_iter:.3e}/dW={dW_iter:.3e}/dmu={dmu:.3e} | "
+                f"mu={green_next.mu}"
+            )
 
-            if converged or iter == itermax:
+            if converged or iteration == itermax:
                 self.green = green_next
                 self.w = wlat_next
                 self.pol = polc
                 self.sigc = sigc
-
-            if converged:
-                logger.info(
-                    f"GW+EDMFT self-consistency achieved at iter {completed_iter}"
-                )
+                if converged:
+                    logger.info(
+                        f"GW+EDMFT self-consistency achieved at iter {iteration}"
+                    )
+                else:
+                    logger.info(
+                        f"GW+EDMFT max iter {itermax} reached; "
+                        f"gcheck={gcheck:.3e}, dG={dG_iter:.3e}, "
+                        f"dW={dW_iter:.3e}, dmu={dmu:.3e}"
+                    )
                 break
-            if iter == itermax:
-                logger.info(
-                    f"GW+EDMFT max iter {itermax} reached; gcheck={gcheck:.3e}, "
-                    f"dG={dG_iter:.3e}, dW={dW_iter:.3e}, dmu={dmu:.3e}"
-                )
-            else:
-                green = green_next
-                wlat = wlat_next
-                polc_previous = polc
-                diag_prev_by_key = diag_by_key
 
+            green = green_next
+            wlat = wlat_next
+            gloc_by_key = gloc_next_by_key
+            wloc_by_key = wloc_next_by_key
             gc.collect()

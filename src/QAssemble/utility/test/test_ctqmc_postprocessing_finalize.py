@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import os
 import numpy as np
+import pytest
 
 from QAssemble.CTQMC import CTQMC
 
@@ -68,11 +69,12 @@ def test_preprocessing_mixes_inputs_before_writing_json(monkeypatch, tmp_path):
     ctqmc.projector = _fake_projector()
     ctqmc.dlr = SimpleNamespace(
         beta=10.0,
-        MatsubaraFermionUniform=lambda: np.asarray([1.0, 3.0]),
+        MatsubaraFermionUniform=lambda: np.asarray([1.0, 3.0, 5.0, 7.0]),
         MatsubaraBosonUniform=lambda: np.asarray([0.0, 2.0]),
     )
     ctqmc.fweiss = SimpleNamespace(
         e=np.zeros((2, 2, 1)),
+        h=np.zeros((1, 1, 1, 4), dtype=np.complex128),
         eimp=SimpleNamespace(ToCTQMC=lambda key, Eimp: (np.zeros((2, 2)), 0.5)),
         Mixing=lambda iter=None, control=None: events.append(
             ("fweiss_mix", iter, control)
@@ -119,11 +121,12 @@ def test_preprocessing_static_bath_skips_bweiss_mixing(monkeypatch, tmp_path):
     ctqmc.projector = _fake_projector()
     ctqmc.dlr = SimpleNamespace(
         beta=10.0,
-        MatsubaraFermionUniform=lambda: np.asarray([1.0, 3.0]),
+        MatsubaraFermionUniform=lambda: np.asarray([1.0, 3.0, 5.0, 7.0]),
         MatsubaraBosonUniform=lambda: np.asarray([0.0, 2.0]),
     )
     ctqmc.fweiss = SimpleNamespace(
         e=np.zeros((2, 2, 1)),
+        h=np.zeros((1, 1, 1, 4), dtype=np.complex128),
         eimp=SimpleNamespace(ToCTQMC=lambda key, Eimp: (np.zeros((2, 2)), 0.5)),
         Mixing=lambda iter=None, control=None: events.append(
             ("fweiss_mix", iter, control)
@@ -152,6 +155,37 @@ def test_preprocessing_static_bath_skips_bweiss_mixing(monkeypatch, tmp_path):
         ("fweiss_mix", 1, control),
         ("write", "hyb", 1, "1"),
     ]
+
+
+def test_hybridization_tail_guard_rejects_nondecaying_constant():
+    omega = np.arange(1.0, 33.0, 2.0)
+    iw = 1j * omega
+    ctqmc = object.__new__(CTQMC)
+    ctqmc.key = "1"
+    ctqmc.dlr = SimpleNamespace(MatsubaraFermionUniform=lambda: omega)
+    ctqmc.fweiss = SimpleNamespace(
+        h=(0.7 / iw + 0.2 / iw**2).reshape(1, 1, 1, -1)
+    )
+
+    ctqmc._validate_hybridization_tail(iteration=1)
+
+    ctqmc.fweiss.h = ctqmc.fweiss.h - 3.7
+    with pytest.raises(RuntimeError, match="non-decaying high-frequency constant"):
+        ctqmc._validate_hybridization_tail(iteration=1)
+
+
+def test_run_ctqmc_propagates_solver_exit_code(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("QAssemble", str(tmp_path))
+    monkeypatch.setattr(
+        "QAssemble.CTQMC.subprocess.call", lambda *args, **kwargs: 7
+    )
+    ctqmc = object.__new__(CTQMC)
+
+    with pytest.raises(SystemExit) as exc_info:
+        ctqmc.RunCTQMC()
+
+    assert exc_info.value.code == 7
 
 
 def test_ctqmc_finalize_only_saves_outputs():

@@ -1,6 +1,7 @@
 import importlib
 from types import SimpleNamespace
 
+import h5py
 import numpy as np
 import pytest
 
@@ -74,7 +75,7 @@ class _FakeConvergence:
         }
 
 
-def _install_fake_edmft_stack(monkeypatch, *, missing=()):
+def _install_fake_edmft_stack(monkeypatch, *, missing=(), hdf5_offset=0.0):
     cf_mod = importlib.import_module("QAssemble.CorrelationFunction")
     missing = set(missing)
 
@@ -243,7 +244,10 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
 
         def ImpEmbedding(self, value, projector, key):
             self.embedded.append((value, projector, key))
-            local = np.asarray(value.f, dtype=np.complex128)
+            local = np.asarray(
+                value.f if hasattr(value, "f") else value,
+                dtype=np.complex128,
+            )
             projection = projector.bprojector[str(key)][:, 0, 0]
             if self.pimp is None:
                 norb = projection.shape[0]
@@ -371,6 +375,21 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=()):
             )
             for attr in missing:
                 setattr(result, attr, None)
+            with h5py.File(self.kwargs["hdf5file"], "a") as handle:
+                for subgroup, name, attr, field in (
+                    ("SigHImp", "sighimp", "sighimp", "h"),
+                    ("SigFImp", "sigfimp", "sigfimp", "s"),
+                    ("SigCImp", "sigimp", "sigimp", "f"),
+                    ("PImp", "pimp", "pimp", "f"),
+                ):
+                    obj = getattr(result, attr)
+                    if obj is not None:
+                        handle.require_group(
+                            f"{self.kwargs['group']}/{subgroup}"
+                        ).create_dataset(
+                            f"{name}.{int(iter_no)}.{self.kwargs['key']}",
+                            data=getattr(obj, field) + hdf5_offset,
+                        )
             FakeImpurityAction.results.append(result)
             return result
 
@@ -718,9 +737,9 @@ def test_gwedmft_composes_gw_dc_and_impurity_without_quantity_dicts(
     np.testing.assert_allclose(sigc.embedded[0]["sighimp"], -50.0)
     np.testing.assert_allclose(sigc.embedded[0]["sigfimp"], -5.0)
     np.testing.assert_allclose(sigc.embedded[0]["sigimp"], -6.0)
-    np.testing.assert_allclose(sigc.embedded[1]["sighimp"], 2.0)
-    np.testing.assert_allclose(sigc.embedded[1]["sigfimp"], 3.0)
-    np.testing.assert_allclose(sigc.embedded[1]["sigimp"], 4.0)
+    np.testing.assert_allclose(sigc.embedded[1]["sighimp"], 50.0)
+    np.testing.assert_allclose(sigc.embedded[1]["sigfimp"], 5.0)
+    np.testing.assert_allclose(sigc.embedded[1]["sigimp"], 6.0)
 
     eimp = stack.cf_mod.EImp.instances[0]
     np.testing.assert_allclose(eimp.kwargs["sigh"], 10.0)
@@ -736,7 +755,15 @@ def test_gwedmft_composes_gw_dc_and_impurity_without_quantity_dicts(
     polc = stack.PolC.instances[0]
     assert hasattr(polc.gw, "kf")
     assert polc.dc[0] is not None
-    assert polc.embedded[0][0] is stack.ImpurityAction.results[0].pimp
+    assert polc.embedded[0][0] is polc.dc[0]
+    np.testing.assert_allclose(polc.embedded[0][0].f, 0.2)
+
+    np.testing.assert_allclose(
+        stack.GLoc.instances[1].kwargs["green"], stack.G.instances[1].kf
+    )
+    np.testing.assert_allclose(
+        stack.WLoc.instances[1].kwargs["wlat"], stack.W.instances[1].kf
+    )
 
     assert not any(name.endswith("_by_key") for name in vars(corr))
     assert not hasattr(corr, "impurity_state")
@@ -750,31 +777,38 @@ def test_gwedmft_builds_bosonic_weiss_from_previous_impurity_polarization(
     monkeypatch,
     tmp_path,
 ):
-    stack = _install_fake_edmft_stack(monkeypatch)
+    stack = _install_fake_edmft_stack(monkeypatch, hdf5_offset=100.0)
+    conv = _FakeConvergence(converge_after=2)
     corr = _edmft_correlation_object(
         stack.cf_mod,
         tmp_path,
         nscf=2,
-        conv=_FakeConvergence(converge_after=2),
+        conv=conv,
     )
 
     corr.GWEDMFT()
 
-    assert stack.BWeiss.instances[0].p is None
-    np.testing.assert_allclose(stack.BWeiss.instances[1].p, 0.4)
+    np.testing.assert_allclose(stack.BWeiss.instances[0].p.f, 0.2)
+    np.testing.assert_allclose(stack.BWeiss.instances[1].p, 100.4)
     assert stack.GWLoc.instances[0].result.pol.projection_calls == []
-    assert stack.GWLoc.instances[1].result.pol.projection_calls == [
-        (stack.PolC.instances[0].pimp, "1")
-    ]
+    assert stack.GWLoc.instances[1].result.pol.projection_calls == []
     np.testing.assert_allclose(stack.PolC.instances[1].dc[0].f, 0.2)
     first_hyb, second_hyb = stack.Hyb.instances
     np.testing.assert_allclose(first_hyb.kwargs["sigh"], 50.0)
     np.testing.assert_allclose(first_hyb.kwargs["sigf"], 5.0)
     np.testing.assert_allclose(first_hyb.kwargs["sigc"], 6.0)
-    np.testing.assert_allclose(second_hyb.kwargs["sigh"], 2.0)
-    np.testing.assert_allclose(second_hyb.kwargs["sigf"], 3.0)
-    np.testing.assert_allclose(second_hyb.kwargs["sigc"], 4.0)
-    assert stack.PolC.instances[0].embedded[0][0] is stack.ImpurityAction.results[0].pimp
+    np.testing.assert_allclose(second_hyb.kwargs["sigh"], 102.0)
+    np.testing.assert_allclose(second_hyb.kwargs["sigf"], 103.0)
+    np.testing.assert_allclose(second_hyb.kwargs["sigc"], 104.0)
+    assert stack.PolC.instances[0].embedded[0][0] is stack.PolC.instances[0].dc[0]
+    np.testing.assert_allclose(stack.PolC.instances[1].embedded[0][0], 100.4)
+    assert conv.start_iters == [1, 2]
+    assert conv.self_hdf5_checks[0][1]["current"] == "gloc.1"
+    assert conv.self_hdf5_checks[0][1]["previous"] == "gloc.0"
+    assert conv.self_hdf5_checks[2][1]["current"] == "gloc.2"
+    assert conv.self_hdf5_checks[2][1]["previous"] == "gloc.1"
+    assert conv.cross_hdf5_checks[0][1]["stem_a"] == "gloc.1"
+    assert conv.cross_hdf5_checks[0][1]["stem_b"] == "gimp.1"
 
 
 def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
@@ -799,7 +833,7 @@ def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
     corr.GWEDMFT()
 
     assert [item.kwargs["key"] for item in stack.GLoc.instances] == [
-        "1", "2", "1", "2"
+        "1", "2", "1", "2", "1", "2"
     ]
     assert [item.kwargs["key"] for item in stack.HFLoc.instances] == [
         "1", "2", "1", "2"
@@ -810,16 +844,12 @@ def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
     assert [item.kwargs["key"] for item in stack.ImpurityAction.instances] == [
         "1", "2", "1", "2"
     ]
-    assert stack.BWeiss.instances[0].p is None
-    assert stack.BWeiss.instances[1].p is None
+    np.testing.assert_allclose(stack.BWeiss.instances[0].p.f, 0.2)
+    np.testing.assert_allclose(stack.BWeiss.instances[1].p.f, 0.2)
     np.testing.assert_allclose(stack.BWeiss.instances[2].p, 0.4)
     np.testing.assert_allclose(stack.BWeiss.instances[3].p, 0.5)
-    assert stack.GWLoc.instances[2].result.pol.projection_calls == [
-        (stack.PolC.instances[0].pimp, "1")
-    ]
-    assert stack.GWLoc.instances[3].result.pol.projection_calls == [
-        (stack.PolC.instances[0].pimp, "2")
-    ]
+    assert stack.GWLoc.instances[2].result.pol.projection_calls == []
+    assert stack.GWLoc.instances[3].result.pol.projection_calls == []
     for hyb in stack.Hyb.instances[:2]:
         np.testing.assert_allclose(hyb.kwargs["sigh"], 50.0)
         np.testing.assert_allclose(hyb.kwargs["sigf"], 5.0)
@@ -835,7 +865,7 @@ def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
         np.asarray(
             [entry["sighimp"] for entry in stack.SigC.instances[0].embedded]
         ).reshape(-1),
-        [-50.0, 2.0, -50.0, 12.0],
+        [-50.0, 50.0, -50.0, 50.0],
     )
     assert len(stack.PolC.instances[0].embedded) == 2
     assert not any(name.endswith("_by_key") for name in vars(corr))

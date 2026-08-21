@@ -13,6 +13,7 @@ from .BLocDyn import *
 from .BLocStc import *
 from .utility.Common import Common
 from .utility.HDF5 import IO
+from .utility.Fourier import Fourier
 
 logger = logging.getLogger("QAssemble")
 
@@ -471,6 +472,42 @@ class CTQMC(object):
                 elif isinstance(value, str):
                     group.attrs[name] = value
 
+    def _validate_hybridization_tail(self, iteration):
+        omega = np.asarray(self.dlr.MatsubaraFermionUniform(), dtype=float)
+        hyb = np.asarray(self.fweiss.h, dtype=np.complex128)
+        if hyb.shape[-1] != omega.size:
+            raise ValueError(
+                "Hybridization/frequency size mismatch: "
+                f"{hyb.shape[-1]} != {omega.size}"
+            )
+        if not np.all(np.isfinite(hyb)):
+            raise RuntimeError(
+                f"Non-finite hybridization for key={self.key}, "
+                f"iter={iteration}."
+            )
+
+        c0 = []
+        c0_sigma = []
+        for channel in hyb.reshape(-1, omega.size):
+            coeff, sigma = Fourier.FermionTailCoefficients(
+                omega,
+                channel,
+                tail_points=min(24, omega.size),
+                log_spaced=True,
+                return_sigma=True,
+            )
+            c0.append(abs(coeff[0]))
+            c0_sigma.append(sigma[0])
+
+        max_c0 = max(c0, default=0.0)
+        limit = max(1.0e-4, 10.0 * max(c0_sigma, default=0.0))
+        if max_c0 > limit:
+            raise RuntimeError(
+                "Hybridization has a non-decaying high-frequency constant "
+                f"for key={self.key}, iter={iteration}: "
+                f"max|c0|={max_c0:.6e} > {limit:.6e}."
+            )
+
     def PreProcessing(self, iter : int):
 
         # iter = iter + 1 ### convert index from 0-based to 1-based
@@ -490,6 +527,7 @@ class CTQMC(object):
             ###########################
             logger.info('*** mix hybridization input ***')
             self.fweiss.Mixing(iter=iter, control=self.control)
+            self._validate_hybridization_tail(iter)
 
             logger.info('*** write hyb.json file ***')
 
@@ -618,7 +656,7 @@ class CTQMC(object):
             ret = subprocess.call(run_cmd, stdout=logfile, stderr=errfile, shell=True)
             if ret != 0:
                 logger.error("Error in CTQMC. Check ctqmc.err for error message.")
-                sys.exit()
+                sys.exit(ret)
         
         return None
     

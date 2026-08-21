@@ -1261,6 +1261,8 @@ class BWeiss(BLocDyn):
     For a dynamic bath, ``Cal`` evaluates ``U = (W_loc^-1 + p)^-1``.
     """
     component = "bweiss"
+    _DENOMINATOR_SMIN_FLOOR = 1.0e-2
+    _DENOMINATOR_COND_CEILING = 1.0e2
 
     def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key,
                  vloc : VLoc, w = None, p = None,
@@ -1284,6 +1286,14 @@ class BWeiss(BLocDyn):
         self.cf_to_solver_uniform = None
         self.f_to_solver = None
         self.f_to_solver_uniform = None
+        self.denominator_smin = np.nan
+        self.denominator_smax = np.nan
+        self.denominator_cond = np.nan
+        self.denominator_bad_frequency = -1
+        self.denominator_bad = False
+        self.denominator_fallback = False
+        self.projection_delta_abs = np.nan
+        self.projection_delta_rel = np.nan
         self.hdf5file = hdf5file
         self.group = group
         self.subgroup = self.__class__.__name__
@@ -1294,6 +1304,54 @@ class BWeiss(BLocDyn):
         self.is_bare = self.p is None
         if self.w is not None:
             self.Cal()
+
+    @classmethod
+    def _denominator_metrics(cls, w: np.ndarray, p: np.ndarray):
+        """Diagnose FullGWEDMFT's ``I + W_loc P`` frequency blocks."""
+        norb = w.shape[0]
+        ns = w.shape[2]
+        dim = norb * ns
+        w_batch = np.moveaxis(
+            w, (0, 1, 2, 3), (-4, -2, -3, -1)
+        ).reshape(-1, dim, dim)
+        p_batch = np.moveaxis(
+            p, (0, 1, 2, 3), (-4, -2, -3, -1)
+        ).reshape(-1, dim, dim)
+        denominator = w_batch @ p_batch
+        denominator[:, np.arange(dim), np.arange(dim)] += 1.0
+
+        try:
+            singular_values = np.linalg.svd(denominator, compute_uv=False)
+        except np.linalg.LinAlgError:
+            return 0.0, np.nan, np.inf, -1, True
+
+        if not np.all(np.isfinite(singular_values)):
+            return 0.0, np.nan, np.inf, -1, True
+
+        smin_by_frequency = singular_values[:, -1]
+        smax_by_frequency = singular_values[:, 0]
+        cond_by_frequency = np.divide(
+            smax_by_frequency,
+            smin_by_frequency,
+            out=np.full_like(smax_by_frequency, np.inf),
+            where=smin_by_frequency > 0.0,
+        )
+        bad_by_frequency = (
+            (smin_by_frequency < cls._DENOMINATOR_SMIN_FLOOR)
+            | (cond_by_frequency > cls._DENOMINATOR_COND_CEILING)
+        )
+        if np.any(bad_by_frequency):
+            bad_frequency = int(np.flatnonzero(bad_by_frequency)[0])
+        else:
+            bad_frequency = int(np.argmax(cond_by_frequency))
+
+        return (
+            float(np.min(smin_by_frequency)),
+            float(np.max(smax_by_frequency)),
+            float(np.max(cond_by_frequency)),
+            bad_frequency,
+            bool(np.any(bad_by_frequency)),
+        )
 
     def _density_boson_indices(self, pkey) -> list:
         pairs = self.projector.blocal2pair[pkey][0].values()
@@ -1356,11 +1414,35 @@ class BWeiss(BLocDyn):
     def Cal(self):
         nfreq = len(self.dlr.nu)
 
+        self.denominator_smin = np.nan
+        self.denominator_smax = np.nan
+        self.denominator_cond = np.nan
+        self.denominator_bad_frequency = -1
+        self.denominator_bad = False
+        self.denominator_fallback = False
+        self.projection_delta_abs = np.nan
+        self.projection_delta_rel = np.nan
+
         if self.w is None:
             raise ValueError("BWeiss.Cal requires w")
 
         wsource = getattr(self.w, "f", self.w)
         w = np.asarray(wsource, dtype=np.complex128)
+        if not np.all(np.isfinite(w)):
+            raise ValueError("BWeiss w contains non-finite values")
+        if w.shape[4] != nfreq:
+            raise ValueError(
+                f"BWeiss frequency mismatch key '{self.key}': "
+                f"{w.shape[4]} != {nfreq}"
+            )
+
+        v = np.asarray(self.vloc.vproj[self.key], dtype=np.complex128)
+        if v.shape != w.shape[:4]:
+            raise ValueError(
+                f"BWeiss static interaction shape mismatch key '{self.key}': "
+                f"{v.shape} != {w.shape[:4]}"
+            )
+        vdyn = np.broadcast_to(v[..., np.newaxis], w.shape)
         if self.p is None:
             self.f = np.array(w, copy=True, order="F")
         else:
@@ -1372,6 +1454,54 @@ class BWeiss(BLocDyn):
                 )
             if not np.all(np.isfinite(p)):
                 raise ValueError("BWeiss p contains non-finite values")
+            (
+                self.denominator_smin,
+                self.denominator_smax,
+                self.denominator_cond,
+                self.denominator_bad_frequency,
+                self.denominator_bad,
+            ) = self._denominator_metrics(w, p)
+
+            if self.denominator_bad:
+                diagnostic = (
+                    f"key='{self.key}' iteration={self.iteration} "
+                    f"smin={self.denominator_smin:.6e} "
+                    f"smax={self.denominator_smax:.6e} "
+                    f"cond={self.denominator_cond:.6e} "
+                    f"frequency={self.denominator_bad_frequency}"
+                )
+                if self.iteration is not None and self.iteration > 1:
+                    previous_cf = self.ReadBrdPrev("bweiss", w.shape)
+                    if previous_cf is None:
+                        raise RuntimeError(
+                            "BWeiss denominator is near singular and no "
+                            f"previous bath is available: {diagnostic}"
+                        )
+                    warnings.warn(
+                        "BWeiss denominator is near singular; reusing "
+                        f"previous bath: {diagnostic}",
+                        RuntimeWarning,
+                    )
+                    self.cf = np.array(previous_cf, copy=True, order="F")
+                    self.f = np.asfortranarray(self.cf + vdyn)
+                    self.denominator_fallback = True
+                    self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(
+                        self.f, sign=1
+                    )
+                    self.cf_uniform = self.dlr.MatsubaraDLR2UniformGrid(
+                        self.cf, sign=1
+                    )
+                    self.t = self.F2T(self.f)
+                    self.ct = self.F2T(self.cf)
+                    self._build_solver_consistent()
+                    return None
+
+                warnings.warn(
+                    "BWeiss denominator is near singular on the first "
+                    f"iteration; continuing without fallback: {diagnostic}",
+                    RuntimeWarning,
+                )
+
             self.f = self.Dyson(w, -p)
 
         if self.f.shape[4] != nfreq:
@@ -1388,6 +1518,7 @@ class BWeiss(BLocDyn):
             )
         vdyn = np.broadcast_to(v[..., np.newaxis], self.f.shape)
         self.cf = self.f - vdyn
+        raw_cf = np.array(self.cf, copy=True)
         # The correlated bath is always projected — including the bare/first
         # iteration path (p is None), whose W_loc - v carries lattice
         # interpolation noise and used to enter CTQMC's dyn.json unprojected.
@@ -1414,6 +1545,13 @@ class BWeiss(BLocDyn):
                 f"using unprojected correlated bath: {err}",
                 RuntimeWarning,
             )
+
+        difference = self.cf - raw_cf
+        self.projection_delta_abs = float(np.max(np.abs(difference)))
+        self.projection_delta_rel = float(
+            np.linalg.norm(difference)
+            / max(float(np.linalg.norm(raw_cf)), np.finfo(float).eps)
+        )
         self.f = np.asfortranarray(self.cf + vdyn)
         self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
         self.cf_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
@@ -1491,6 +1629,35 @@ class BWeiss(BLocDyn):
                 IO.CreateDataset(bweiss, fn_write + '_correlated', self.cf, dtype=complex)
                 IO.CreateDataset(bweiss, fn_write + '_uniform', self.f_uniform, dtype=complex)
                 IO.CreateDataset(bweiss, fn_write + '_correlated_uniform', self.cf_uniform, dtype=complex)
+                diagnostics = {
+                    "denominator_smin": getattr(
+                        self, "denominator_smin", np.nan
+                    ),
+                    "denominator_smax": getattr(
+                        self, "denominator_smax", np.nan
+                    ),
+                    "denominator_cond": getattr(
+                        self, "denominator_cond", np.nan
+                    ),
+                    "denominator_bad_frequency": getattr(
+                        self, "denominator_bad_frequency", -1
+                    ),
+                    "denominator_fallback": int(getattr(
+                        self, "denominator_fallback", False
+                    )),
+                    "projection_delta_abs": getattr(
+                        self, "projection_delta_abs", np.nan
+                    ),
+                    "projection_delta_rel": getattr(
+                        self, "projection_delta_rel", np.nan
+                    ),
+                }
+                for diagnostic_name, diagnostic_value in diagnostics.items():
+                    IO.CreateDataset(
+                        bweiss,
+                        fn_write + '_' + diagnostic_name,
+                        np.asarray(diagnostic_value),
+                    )
                 if self.f_to_solver is not None:
                     IO.CreateDataset(bweiss, fn_write + '_to_solver', self.f_to_solver, dtype=complex)
                 bweiss[fn_write].attrs['is_bare'] = bool(self.is_bare)
