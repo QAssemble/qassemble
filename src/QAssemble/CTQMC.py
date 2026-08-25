@@ -594,12 +594,12 @@ class CTQMC(object):
 
                     params["hybridisation"]["matrix"]=self._ctqmc_matrix_labels(equiv)
                     params["hybridisation"]["functions"]="hyb.json"
-                    params["thermalisation time"]=5 #imp['thermalization_time']
+                    params["thermalisation time"] = 5  # minutes
                     params["quantum number susceptibility"]=True
                     params["occupation susceptibility bulla"]=True        
                     params["green bulla"]=True       
                     params["density matrix precise"]=False #True 
-                    params["measurement time"]=25 # 10 # 3 #imp['measurement_time']
+                    params["measurement time"] = 100  # minutes
 
                     if self._use_dyn():
                         params["dyn"] = {}
