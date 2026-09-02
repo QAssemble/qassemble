@@ -5,6 +5,7 @@ import h5py
 import numpy as np
 import pytest
 
+from QAssemble.FLocStc import EImp
 from QAssemble.utility.Projection import Projection as PJ
 
 
@@ -21,6 +22,7 @@ class _SavedObject:
 
     def Mixing(self, **kwargs):
         self.mixing_calls.append(kwargs)
+        return getattr(self, "mixing_result", kwargs["value"])
 
     def Projection(self, matin, key):
         self.projection_calls.append((matin, key))
@@ -303,10 +305,11 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=(), hdf5_offset=0.0):
             self.kwargs = kwargs
 
         def __call__(self):
-            return SimpleNamespace(
+            self.result = SimpleNamespace(
                 sigh=_SavedObject(hloc=np.asarray([50.0])),
                 sigf=_SavedObject(floc=np.asarray([5.0])),
             )
+            return self.result
 
     class FakeGWLoc:
         instances = []
@@ -477,6 +480,35 @@ def _dmft_correlation_object(cf_mod, tmp_path, *, nscf=1, conv=None):
         conv=conv,
     )
     return corr
+
+
+def test_eimp_static_moment_subtracts_impurity_hartree_and_fock_dc():
+    projector = SimpleNamespace(
+        fprojector={"1": np.ones((1, 1, 1), dtype=np.complex128)}
+    )
+    hamtb = np.asarray([4.0, 8.0], dtype=np.complex128).reshape(1, 1, 1, 2)
+    sigh = np.asarray([2.0, 4.0], dtype=np.complex128).reshape(1, 1, 1, 2)
+    sigf = np.asarray([-1.0, 3.0], dtype=np.complex128).reshape(1, 1, 1, 2)
+    sigma_imp_h = np.asarray([11.0], dtype=np.complex128).reshape(1, 1, 1)
+    sigma_dc_f = np.asarray([-3.0], dtype=np.complex128).reshape(1, 1, 1)
+
+    eimp = EImp(
+        crystal=SimpleNamespace(),
+        projector=projector,
+        key="1",
+        hamtb=hamtb,
+        mu=1.0,
+        sigh=sigh,
+        sigf=sigf,
+        hloc=sigma_imp_h,
+        floc=sigma_dc_f,
+    )
+
+    lattice_hf_moment = np.mean(hamtb - 1.0 + sigh + sigf, axis=3)
+    np.testing.assert_allclose(
+        eimp.e,
+        lattice_hf_moment - sigma_imp_h - sigma_dc_f,
+    )
 
 
 def test_dmft_projects_gloc_in_problem_loop_and_uses_hdf5_convergence(
@@ -729,15 +761,32 @@ def test_gwedmft_composes_gw_dc_and_impurity_without_quantity_dicts(
 
     corr.GWEDMFT()
 
+    hf_dc = stack.HFLoc.instances[0].result
+    gw_dc = stack.GWLoc.instances[0].result
+    assert hf_dc.sigh.mixing_calls == []
+    for obj, component, value in (
+        (hf_dc.sigf, "sigfdc", hf_dc.sigf.floc),
+        (gw_dc.siggwc, "siggwcdc", gw_dc.siggwc.f),
+        (gw_dc.pol, "pdc", gw_dc.pol.f),
+    ):
+        assert len(obj.mixing_calls) == 1
+        call = obj.mixing_calls[0]
+        assert call["iter"] == 1
+        assert call["mix"] == 0.5
+        assert call["component"] == component
+        assert call["method"] == "pulay"
+        assert call["npulay"] == 5
+        np.testing.assert_allclose(call["value"], value)
+
     sigc = stack.SigC.instances[0]
     assert sigc.kwargs["sigh"] == pytest.approx(np.asarray([10.0]))
     assert sigc.kwargs["sigf"] == pytest.approx(np.asarray([20.0]))
     assert sigc.kwargs["siggwc"] == pytest.approx(np.asarray([30.0]))
     assert len(sigc.embedded) == 2
-    np.testing.assert_allclose(sigc.embedded[0]["sighimp"], -50.0)
+    assert "sighimp" not in sigc.embedded[0]
     np.testing.assert_allclose(sigc.embedded[0]["sigfimp"], -5.0)
     np.testing.assert_allclose(sigc.embedded[0]["sigimp"], -6.0)
-    np.testing.assert_allclose(sigc.embedded[1]["sighimp"], 50.0)
+    assert "sighimp" not in sigc.embedded[1]
     np.testing.assert_allclose(sigc.embedded[1]["sigfimp"], 5.0)
     np.testing.assert_allclose(sigc.embedded[1]["sigimp"], 6.0)
 
@@ -771,6 +820,50 @@ def test_gwedmft_composes_gw_dc_and_impurity_without_quantity_dicts(
     assert corr.w is stack.W.instances[-1]
     assert corr.pol is polc
     assert corr.sigc is sigc
+
+
+def test_gwedmft_uses_mixed_non_hartree_dc_in_lattice_and_bath(
+    monkeypatch, tmp_path
+):
+    stack = _install_fake_edmft_stack(monkeypatch)
+    original_hf_call = stack.HFLoc.__call__
+    original_gw_call = stack.GWLoc.__call__
+
+    def mixed_hf_call(self):
+        result = original_hf_call(self)
+        result.sigh.mixing_result = np.asarray([51.0])
+        result.sigf.mixing_result = np.asarray([7.0])
+        return result
+
+    def mixed_gw_call(self):
+        result = original_gw_call(self)
+        result.siggwc.mixing_result = np.asarray([8.0])
+        result.pol.mixing_result = np.full_like(result.pol.f, 0.25)
+        return result
+
+    monkeypatch.setattr(stack.HFLoc, "__call__", mixed_hf_call)
+    monkeypatch.setattr(stack.GWLoc, "__call__", mixed_gw_call)
+
+    corr = _edmft_correlation_object(stack.cf_mod, tmp_path, nscf=1)
+    corr.GWEDMFT()
+
+    sigc = stack.SigC.instances[0]
+    assert stack.HFLoc.instances[0].result.sigh.mixing_calls == []
+    assert "sighimp" not in sigc.embedded[0]
+    np.testing.assert_allclose(sigc.embedded[0]["sigfimp"], -7.0)
+    np.testing.assert_allclose(sigc.embedded[0]["sigimp"], -8.0)
+    assert "sighimp" not in sigc.embedded[1]
+    np.testing.assert_allclose(sigc.embedded[1]["sigfimp"], 7.0)
+    np.testing.assert_allclose(sigc.embedded[1]["sigimp"], 8.0)
+
+    eimp = stack.cf_mod.EImp.instances[0]
+    np.testing.assert_allclose(eimp.kwargs["hloc"], 50.0)
+    np.testing.assert_allclose(eimp.kwargs["floc"], 7.0)
+    hyb = stack.Hyb.instances[0]
+    np.testing.assert_allclose(hyb.kwargs["sigh"], 50.0)
+    np.testing.assert_allclose(hyb.kwargs["sigf"], 7.0)
+    np.testing.assert_allclose(hyb.kwargs["sigc"], 8.0)
+    np.testing.assert_allclose(stack.PolC.instances[0].dc[0].f, 0.25)
 
 
 def test_gwedmft_builds_bosonic_weiss_from_previous_impurity_polarization(
@@ -860,12 +953,15 @@ def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
     np.testing.assert_allclose(stack.Hyb.instances[3].kwargs["sigh"], 12.0)
     np.testing.assert_allclose(stack.Hyb.instances[3].kwargs["sigf"], 13.0)
     np.testing.assert_allclose(stack.Hyb.instances[3].kwargs["sigc"], 14.0)
-    assert len(stack.SigC.instances[0].embedded) == 4
     np.testing.assert_allclose(
         np.asarray(
-            [entry["sighimp"] for entry in stack.SigC.instances[0].embedded]
+            [item.kwargs["hloc"] for item in stack.cf_mod.EImp.instances]
         ).reshape(-1),
-        [-50.0, 50.0, -50.0, 50.0],
+        [50.0, 50.0, 2.0, 12.0],
+    )
+    assert len(stack.SigC.instances[0].embedded) == 4
+    assert all(
+        "sighimp" not in entry for entry in stack.SigC.instances[0].embedded
     )
     assert len(stack.PolC.instances[0].embedded) == 2
     assert not any(name.endswith("_by_key") for name in vars(corr))

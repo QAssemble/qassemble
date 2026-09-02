@@ -276,7 +276,7 @@ class EImp(FLocStc):
         print("Chemical Potential : ", self.mu)
         print("Hartree Self Energy : \n", sigh[:, :, 0, 0] if sigh is not None else None)
         print("Fock Self Energy : \n", sigf[:, :, 0, 0] if sigf is not None else None)
-        print("Double Counting Hartree : ", hloc[:, :, 0] if hloc is not None else None)
+        print("Impurity Hartree Subtraction : ", hloc[:, :, 0] if hloc is not None else None)
         print("Double Counting Fock : ", floc[:, :, 0] if floc is not None else None)
 
         tempmat = np.zeros_like(hamtb, dtype=np.complex128, order='F')

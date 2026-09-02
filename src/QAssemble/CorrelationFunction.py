@@ -1049,13 +1049,39 @@ class CorrelationFunction(object):
                     iteration=iteration,
                 )()
 
+                hf_loc_result.sigf.floc = hf_loc_result.sigf.Mixing(
+                    iter=iteration,
+                    mix=mix,
+                    component="sigfdc",
+                    value=hf_loc_result.sigf.floc,
+                    method=mixing_method,
+                    npulay=npulay,
+                )
+                gw_loc_result.siggwc.f = gw_loc_result.siggwc.Mixing(
+                    iter=iteration,
+                    mix=mix,
+                    component="siggwcdc",
+                    value=gw_loc_result.siggwc.f,
+                    method=mixing_method,
+                    npulay=npulay,
+                )
+                gw_loc_result.pol.f = gw_loc_result.pol.Mixing(
+                    iter=iteration,
+                    mix=mix,
+                    component="pdc",
+                    value=gw_loc_result.pol.f,
+                    method=mixing_method,
+                    npulay=npulay,
+                )
+
                 dc_h = hf_loc_result.sigh.hloc
                 dc_f = hf_loc_result.sigf.floc
                 dc_c = gw_loc_result.siggwc.f
                 dc_by_key[key] = (dc_h, dc_f, dc_c)
 
+                # Keep the global Hartree term; replace only local Fock and
+                # correlation diagrams with their impurity counterparts.
                 sigc.ImpEmbedding(
-                    sighimp=-dc_h,
                     sigfimp=-dc_f,
                     sigimp=-dc_c,
                     projector=projector,
@@ -1083,7 +1109,6 @@ class CorrelationFunction(object):
                 sigma_seed_by_key[key] = sigma_seed
                 p_seed_by_key[key] = p_seed
                 sigc.ImpEmbedding(
-                    sighimp=sigma_seed[0],
                     sigfimp=sigma_seed[1],
                     sigimp=sigma_seed[2],
                     projector=projector,
@@ -1151,7 +1176,10 @@ class CorrelationFunction(object):
                 gloc_next_by_key[key] = gloc
                 wloc_next_by_key[key] = wloc
 
-                dc_h, dc_f, _ = dc_by_key[key]
+                _, dc_f, _ = dc_by_key[key]
+                bath_h, bath_f, bath_c = sigma_seed_by_key[key]
+                # The impurity Dyson equation keeps the full impurity self-energy,
+                # so its Hartree term is removed from the impurity level instead.
                 eimp = EImp(
                     crystal=self.crystal,
                     projector=projector,
@@ -1159,7 +1187,7 @@ class CorrelationFunction(object):
                     hamtb=self.niham.k,
                     sigh=hf_result.sigh.k,
                     sigf=hf_result.sigf.k,
-                    hloc=dc_h,
+                    hloc=bath_h,
                     floc=dc_f,
                     mu=green_next.mu,
                     hdf5file=hdf5file,
@@ -1168,7 +1196,6 @@ class CorrelationFunction(object):
                 )
                 eimp.Save("eimp")
 
-                bath_h, bath_f, bath_c = sigma_seed_by_key[key]
                 hyb = Hyb(
                     crystal=self.crystal,
                     dlr=self.dlr,
