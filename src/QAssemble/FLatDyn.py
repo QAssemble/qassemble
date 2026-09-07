@@ -566,12 +566,7 @@ class G(FLatDyn):
         else:
             if (self.sigh is not None):
                 # print(sigma[:,:,0,0,0])
-                diag = np.diagonal(self.sigh[:,:,0,0])
-                const = np.mean(diag)
-                self.c = np.real(const)
-                # print(const)
                 sigma += self.StcEmbedding(self.sigh)
-                sigma += self.ChemEmbedding(-const)
                 print('Hartree')
                 print(sigma[:,:,0,0,0])
             if (self.sigf is not None):
@@ -699,8 +694,15 @@ class G(FLatDyn):
         """Find the chemical potential matching the target electron count."""
 
         print("Finding chemical potential start")
-        mumin = self.dlr.omega[0]
-        mumax = self.dlr.omega[-1]
+        shift_est = 0.0
+        shift_spread = 0.0
+        if self.sigh is not None:
+            diag = np.real(np.diagonal(self.sigh[:, :, 0, 0]))
+            shift_est = float(np.mean(diag))
+            shift_spread = float(np.max(np.abs(diag - shift_est)))
+        safety = 1.5
+        mumin = self.dlr.omega[0] + shift_est - safety * shift_spread
+        mumax = self.dlr.omega[-1] + shift_est + safety * shift_spread
         print(f"minimum : {mumin}, maximum : {mumax}")
 
         # Precompute G0^{-1} for vectorized NumOfE
@@ -716,6 +718,14 @@ class G(FLatDyn):
 
         nmin = self.NumOfE(mumin)
         nmax = self.NumOfE(mumax)
+        expand_tries = 0
+        while ((nmin < 0) or (nmax > 0)) and expand_tries < 3:
+            width = mumax - mumin
+            mumin -= 0.5 * width
+            mumax += 0.5 * width
+            nmin = self.NumOfE(mumin)
+            nmax = self.NumOfE(mumax)
+            expand_tries += 1
         if (nmin < 0) or (nmax>0):
             print("Chemical potential is out of the bisection range")
             print(f"nmin : {nmin}, nmax : {nmax}")
@@ -748,7 +758,7 @@ class G(FLatDyn):
             green.create_dataset(fn,dtype=complex,data=self.kf)
             
             if chem:
-                mureal = np.real(self.mu+self.c)
+                mureal = np.real(self.mu)
                 green.create_dataset('mu',dtype=float,data=mureal)
 
         return None
