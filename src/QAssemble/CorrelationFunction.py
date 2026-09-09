@@ -1176,7 +1176,7 @@ class CorrelationFunction(object):
                 gloc_next_by_key[key] = gloc
                 wloc_next_by_key[key] = wloc
 
-                _, dc_f, _ = dc_by_key[key]
+                dc_h, dc_f, _ = dc_by_key[key]
                 bath_h, bath_f, bath_c = sigma_seed_by_key[key]
                 # The impurity Dyson equation keeps the full impurity self-energy,
                 # so its Hartree term is removed from the impurity level instead.
@@ -1195,6 +1195,23 @@ class CorrelationFunction(object):
                     iteration=iteration,
                 )
                 eimp.Save("eimp")
+
+                # The solver level uses the pre-lattice HFLoc Hartree DC.
+                eimp_solver = EImp(
+                    crystal=self.crystal,
+                    projector=projector,
+                    key=key,
+                    hamtb=self.niham.k,
+                    sigh=hf_result.sigh.k,
+                    sigf=hf_result.sigf.k,
+                    hloc=dc_h,
+                    floc=dc_f,
+                    mu=green_next.mu,
+                    hdf5file=hdf5file,
+                    group=group,
+                    iteration=iteration,
+                )
+                eimp_solver.Save("eimp_solver")
 
                 hyb = Hyb(
                     crystal=self.crystal,
@@ -1216,7 +1233,7 @@ class CorrelationFunction(object):
                     dlr=self.dlr,
                     projector=projector,
                     key=key,
-                    eimp=eimp,
+                    eimp=eimp_solver,
                     hyb=hyb,
                     mu=green_next.mu,
                     hdf5file=hdf5file,
