@@ -1,8 +1,11 @@
 from types import SimpleNamespace
 
+import h5py
 import numpy as np
+import pytest
 
 from QAssemble.BLocDyn import WLoc
+from QAssemble.utility.Projection import Projection as PJ
 
 
 class _FakeDLR:
@@ -20,20 +23,19 @@ class _FakeProjector:
         self.equiv = {"1": np.eye(1, dtype=int)}
 
 
-def _identity_projection(monkeypatch, calls):
-    def _fake(self, matin, **kwargs):
-        calls.append((np.array(matin, copy=True), kwargs))
-        return np.asfortranarray(np.asarray(matin, dtype=np.complex128))
+@pytest.fixture(autouse=True)
+def _forbid_projection_and_cache(monkeypatch):
+    def _fail(*args, **kwargs):
+        pytest.fail("WLoc must not call causal projection or fallback cache methods")
 
-    monkeypatch.setattr(WLoc, "CausalProjection", _fake)
+    for method in ("CausalProjection", "ReadBrdPrev", "WriteBrdPrev"):
+        monkeypatch.setattr(WLoc, method, _fail)
 
 
-def test_wloc_projects_lattice_screened_interaction_and_correlation_part(monkeypatch):
+def test_wloc_projects_lattice_screened_interaction_and_correlation_part():
     dlr = _FakeDLR(nfreq=3)
     crystal = SimpleNamespace(ns=1)
     projector = _FakeProjector()
-    calls = []
-    _identity_projection(monkeypatch, calls)
 
     vloc = np.zeros((1, 1, 1, 1), dtype=np.complex128, order="F")
     vloc[0, 0, 0, 0] = 2.0
@@ -54,23 +56,14 @@ def test_wloc_projects_lattice_screened_interaction_and_correlation_part(monkeyp
     np.testing.assert_allclose(wloc.f, expected)
     np.testing.assert_allclose(wloc.cf, expected - vloc[..., np.newaxis])
 
-    # The exact static v is split off and the decaying dynamic part is
-    # projected on the DLR grid with the wlocbrd sign convention.
-    assert len(calls) == 1
-    projected_input, kwargs = calls[0]
-    np.testing.assert_allclose(projected_input, expected - vloc[..., np.newaxis])
-    assert kwargs["grid"] == "dlr"
-    assert kwargs["coefficient_sign"] == -1
-    assert kwargs["oddzero"] is True
-    assert kwargs["highzero"] is True
-    assert kwargs["fallback_matrix"] is None
+    np.testing.assert_array_equal(wloc.f, PJ.BLatDyn(wlat, projector.bprojector["1"]))
+    assert wloc.cf.flags.f_contiguous
 
 
-def test_wloc_builds_tau_quantities_through_f2t(monkeypatch):
+def test_wloc_builds_tau_quantities_through_f2t():
     dlr = _FakeDLR(nfreq=3)
     crystal = SimpleNamespace(ns=1)
     projector = _FakeProjector()
-    _identity_projection(monkeypatch, [])
 
     vloc = np.ones((1, 1, 1, 1), dtype=np.complex128, order="F")
     wlat = np.ones((1, 1, 1, 1, 2, 3), dtype=np.complex128, order="F")
@@ -89,12 +82,10 @@ def test_wloc_builds_tau_quantities_through_f2t(monkeypatch):
     np.testing.assert_allclose(wloc.ct, 2.0 * wloc.cf)
 
 
-def test_wloc_without_vloc_projects_full_f(monkeypatch):
+def test_wloc_without_vloc_preserves_full_f():
     dlr = _FakeDLR(nfreq=3)
     crystal = SimpleNamespace(ns=1)
     projector = _FakeProjector()
-    calls = []
-    _identity_projection(monkeypatch, calls)
 
     wlat = np.ones((1, 1, 1, 1, 2, 3), dtype=np.complex128, order="F") * 4.0
 
@@ -110,25 +101,17 @@ def test_wloc_without_vloc_projects_full_f(monkeypatch):
     assert wloc.cf is None
     assert wloc.ct is None
     np.testing.assert_allclose(wloc.f, np.mean(wlat, axis=4))
-    # No static to split: the full f is projected with the default c0
-    # tail-fit split (no oddzero/highzero overrides).
-    assert len(calls) == 1
-    _, kwargs = calls[0]
-    assert kwargs["grid"] == "dlr"
-    assert kwargs["coefficient_sign"] == -1
-    assert "oddzero" not in kwargs
-    assert "highzero" not in kwargs
+    np.testing.assert_array_equal(wloc.t, 2.0 * wloc.f)
 
 
-def test_wloc_seeds_and_reuses_brd_prev_cache(monkeypatch, tmp_path):
+@pytest.mark.parametrize("with_vloc", [False, True])
+def test_wloc_leaves_brd_prev_cache_untouched(tmp_path, with_vloc):
     dlr = _FakeDLR(nfreq=3)
     crystal = SimpleNamespace(ns=1)
     projector = _FakeProjector()
     path = str(tmp_path / "glob.h5")
-    calls = []
-    _identity_projection(monkeypatch, calls)
 
-    vloc = np.zeros((1, 1, 1, 1), dtype=np.complex128, order="F")
+    vloc = np.ones((1, 1, 1, 1), dtype=np.complex128) if with_vloc else None
     wlat = np.ones((1, 1, 1, 1, 2, 3), dtype=np.complex128, order="F") * 4.0
 
     def _build():
@@ -143,9 +126,46 @@ def test_wloc_seeds_and_reuses_brd_prev_cache(monkeypatch, tmp_path):
             group="calc",
         )
 
+    with h5py.File(path, "w"):
+        pass
     first = _build()
-    assert calls[0][1]["fallback_matrix"] is None
+    with h5py.File(path, "r") as file:
+        assert list(file) == []
+    cache_path = "calc/WLoc/wloc_brd_prev.1"
+    cache = np.full(first.f.shape, 17.0 + 3.0j)
+    with h5py.File(path, "a") as file:
+        file[cache_path] = cache
+    second = _build()
+    np.testing.assert_array_equal(second.f, first.f)
+    if with_vloc:
+        np.testing.assert_array_equal(second.cf, first.cf)
+    with h5py.File(path, "r") as file:
+        np.testing.assert_array_equal(file[cache_path][()], cache)
 
-    _build()
-    # The second iteration receives the first one's projected cf as fallback.
-    np.testing.assert_allclose(calls[1][1]["fallback_matrix"], first.cf)
+
+@pytest.mark.parametrize("offdiag", [0.0, 1e-15 + 2e-15j])
+def test_wloc_preserves_multiorbital_spatial_projection(offdiag):
+    # A non-unit projector makes direct projection differ from a k-average.
+    projector = SimpleNamespace(
+        bprojector={"1": np.diag([0.5, 2.0])[..., None]},
+        equiv={"1": np.eye(2, dtype=int)},
+    )
+    wlat = np.zeros((2, 2, 1, 1, 2, 3), dtype=np.complex128)
+    wlat[0, 0, 0, 0] = [[3, 4, 5], [5, 6, 7]]
+    wlat[1, 1, 0, 0] = [[7, 8, 9], [9, 10, 11]]
+    # Reconstructing f as (f - v) + v would lose this small diagonal value.
+    wlat[0, 0, 0, 0, :, 2] = 1e-18 + 1e-19j
+    wlat[0, 1] = offdiag
+    wlat[1, 0] = np.conjugate(offdiag)
+    vloc = np.diag([0.5, 1.5])[:, :, None, None]
+    wloc = WLoc(SimpleNamespace(ns=1), _FakeDLR(), projector, "1", wlat, vloc)
+    expected = PJ.BLatDyn(wlat, projector.bprojector["1"])
+    np.testing.assert_array_equal(wloc.f, expected)
+    np.testing.assert_array_equal(wloc.cf, expected - vloc[..., None])
+    np.testing.assert_array_equal(wloc.t, 2.0 * expected)
+    np.testing.assert_array_equal(wloc.ct, 2.0 * wloc.cf)
+    mask = ~np.eye(2, dtype=bool)
+    if offdiag == 0:
+        assert np.count_nonzero(wloc.cf[mask]) == 0
+    else:
+        assert np.all(wloc.cf[mask] != 0)

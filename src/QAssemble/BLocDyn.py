@@ -1856,32 +1856,16 @@ class WLoc(BLocDyn):
         if wlat.ndim != 6:
             raise ValueError(f"WLoc expects 6D lattice W, got {wlat.ndim}D")
         self.f = PJ.BLatDyn(wlat, self.projector.bprojector[self.key])
-        # The local screened interaction inherits the (mixed, Pulay-affine)
-        # lattice polarization and is not causal by construction; project it
-        # like BWeiss projects the correlated bath (wlocbrd analog).  With
-        # vloc the exact static is split off and the decaying dynamic part is
-        # projected; without vloc the projection falls back to the c0
-        # tail-fit split on the full f.
-        fallback = self.ReadBrdPrev("wloc", self.f.shape)
+        # Preserve the direct spatial projection of lattice W. BWeiss keeps
+        # its separate causal projection and fallback path.
         if self.vloc is None:
-            self.f = self.CausalProjection(
-                self.f, grid="dlr", coefficient_sign=-1,
-                constraint_tol="auto", fallback_matrix=fallback,
-            )
             self.cf = None
-            self.WriteBrdPrev("wloc", self.f)
         else:
             vdyn = np.broadcast_to(
                 np.asarray(self.vloc, dtype=np.complex128)[..., np.newaxis],
                 self.f.shape,
             )
-            self.cf = self.CausalProjection(
-                self.f - vdyn, grid="dlr", coefficient_sign=-1,
-                oddzero=True, highzero=True, constraint_tol="auto",
-                fallback_matrix=fallback,
-            )
-            self.f = np.asfortranarray(self.cf + vdyn)
-            self.WriteBrdPrev("wloc", self.cf)
+            self.cf = np.asfortranarray(self.f - vdyn)
 
         self.t = self.F2T(self.f)
         self.ct = None if self.cf is None else self.F2T(self.cf)
