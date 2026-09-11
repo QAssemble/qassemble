@@ -25,7 +25,6 @@ QAssemble is intentionally implemented in **pure Python**, meaning:
 - **Coulomb Interactions**:
   - Local: Slater-Kanamori, Slater, Kanamori parameterizations
   - Non-local: Ohno, Ohno-Yukawa, J-threading (JTH)
-- **Parallelization**: MPI-parallelized implementations via `mpi4py` (with graceful serial fallback)
 - **Input/Output**: `.ini`-based configuration and HDF5 data storage via `h5py`
 - **Crystal Structure**: Lattice vectors, basis positions, k-point grids, spin-orbit coupling (SOC)
 
@@ -36,7 +35,6 @@ QAssemble is intentionally implemented in **pure Python**, meaning:
 | [NumPy](https://numpy.org/) | Array operations and linear algebra |
 | [SciPy](https://scipy.org/) | Eigensolvers, interpolation, special functions |
 | [h5py](https://www.h5py.org/) | HDF5-based data storage |
-| [mpi4py](https://mpi4py.readthedocs.io/) | MPI parallelization |
 | [Matplotlib](https://matplotlib.org/) | Plotting |
 | [pydlr](https://github.com/flatironinstitute/libdlr) | Discrete Lehmann Representation |
 | [SymPy](https://www.sympy.org/) | Wigner 3j symbols and Gaunt coefficients |
@@ -44,18 +42,18 @@ QAssemble is intentionally implemented in **pure Python**, meaning:
 
 ## Installation
 
-### From source (recommended)
+### From PyPI (recommended)
 
 ```bash
-git clone https://github.com/Mo-Seong-Jun/QAssemble.git
-cd QAssemble
-pip install .
+pip install QAssemble
 ```
 
-### Editable install (for development)
+### From source (for development)
 
 ```bash
-pip install -e .
+git clone https://github.com/QAssemble/qassemble.git
+cd qassemble
+pip install -e ".[test]"
 ```
 
 After installation, the `qassemble` command will be available in your terminal.
