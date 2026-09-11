@@ -1371,12 +1371,12 @@ class Z(FLatStc):
         for jorb in range(norb):
             for iorb in range(norb):
                 if (iorb == jorb):
-                    tempmat[iorb, jorb, :, :] = 1.0 - iw * (
+                    tempmat[iorb, jorb, :, :] = 1.0 + iw * (
                         self.sigmac[iorb, jorb, ..., 0] 
                         - np.conjugate(self.sigmac[jorb, iorb, ..., 0])
                     )
                 else:
-                    tempmat[iorb, jorb, :, :] = - iw * (
+                    tempmat[iorb, jorb, :, :] = + iw * (
                         self.sigmac[iorb, jorb, ..., 0] 
                         - np.conjugate(self.sigmac[jorb, iorb, ..., 0])
                     )
