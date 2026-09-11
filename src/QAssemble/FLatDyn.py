@@ -607,7 +607,7 @@ class G(FLatDyn):
         for irk in range(nrk):
             for js in range(ns):
 
-                block = self.kt[:, :, js, irk, :].T  # (ntau, norb, norb)
+                block = np.moveaxis(self.kt[:, :, js, irk, :], -1, 0)  # (ntau, norb, norb)
                 ntau_b = block.shape[0]
                 block_2d = block.reshape(ntau_b, -1)
 
