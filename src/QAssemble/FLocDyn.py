@@ -876,7 +876,7 @@ class GLoc(FLocDyn):
         tau_beta = np.array([self.dlr.tauF[-1]], dtype=np.float64)
         occ = np.zeros_like(mat[...,0], dtype=np.complex128)
         for js in range(mat.shape[2]):
-            block = mat[:, :, js, :].T
+            block = np.moveaxis(mat[:, :, js, :], -1, 0)
 
             ntau_b = block.shape[0]
             block_2d = block.reshape(ntau_b, -1)
@@ -969,7 +969,7 @@ class GImp(FLocDyn):
         tau_beta = np.array([self.dlr.tauF[-1]], dtype=np.float64)
         occ = np.zeros_like(mat[..., 0], dtype=np.complex128)
         for js in range(mat.shape[2]):
-            block = mat[:, :, js, :].T
+            block = np.moveaxis(mat[:, :, js, :], -1, 0)
 
             ntau_b = block.shape[0]
             block_2d = block.reshape(ntau_b, -1)

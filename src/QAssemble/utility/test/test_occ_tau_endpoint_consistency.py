@@ -27,12 +27,21 @@ records the size of that error so a regression is visible rather than silent.
 """
 
 import inspect
+from types import SimpleNamespace
 
 import numpy as np
 from pydlr import dlr
 
 from QAssemble.FLatDyn import G
 from QAssemble.FLocDyn import GImp, GLoc
+
+
+class _IdentityFermionDLR:
+    def dlr_from_tau(self, block):
+        return block
+
+    def eval_dlr_tau(self, coefficients, tau, beta):
+        return coefficients
 
 
 def _source(func):
@@ -61,6 +70,30 @@ def test_lattice_occ_and_charge_root_find_share_the_endpoint():
     assert "self._tau_beta = self.dlr.tauF[-1]" in _source(G.__init__)
     assert "self._tau_beta" in _source(G.Occ)
     assert "self._tau_beta_cache" in _source(G.NumOfE)
+
+
+def test_local_occ_preserves_orbital_axis_order():
+    """Moving tau first must not transpose complex orbital off-diagonals."""
+    expected = np.array(
+        [
+            [0.8, 0.2 + 0.3j, -0.1 + 0.4j],
+            [0.2 - 0.3j, 0.5, 0.15 - 0.25j],
+            [-0.1 - 0.4j, 0.15 + 0.25j, 0.1],
+        ],
+        dtype=np.complex128,
+    )
+    mat = np.zeros((3, 3, 1, 1), dtype=np.complex128)
+    mat[:, :, 0, 0] = -expected
+    owner = SimpleNamespace(
+        dlr=SimpleNamespace(
+            tauF=np.array([0.5]), beta=1.0, dF=_IdentityFermionDLR()
+        )
+    )
+
+    for cls in (GLoc, GImp):
+        got = cls.Occ(owner, mat)[:, :, 0]
+        np.testing.assert_allclose(got, expected)
+        assert not np.allclose(got, expected.T)
 
 
 def test_occupation_error_stays_within_the_expected_band():
