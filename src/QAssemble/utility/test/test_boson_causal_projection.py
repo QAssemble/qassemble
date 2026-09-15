@@ -302,9 +302,9 @@ def test_causal_boson_preserves_causal_input(reflection):
     assert boson.check(target, tail_coeffs=tail).causal
 
     projected = boson.project(target, tail_coeffs=tail)
-    assert boson.last_validation["skipped"] is False
+    assert boson.last_validation["skip_reason"] == "causal_certificate"
     assert boson.last_validation["valid"] is True
-    np.testing.assert_allclose(projected, target, atol=1.0e-6)
+    np.testing.assert_array_equal(projected, target)
 
 
 def test_causal_projector_boson_facade_projects():
@@ -343,10 +343,10 @@ def test_static_contamination_is_split_as_c0():
     assert boson.check(contaminated, tail_coeffs=tail).causal
     projected = boson.project(contaminated, tail_coeffs=tail)
 
-    assert boson.last_validation["skipped"] is False
+    assert boson.last_validation["skip_reason"] == "causal_certificate"
     assert boson.last_validation["valid"] is True
     assert boson.last_validation["c0"] == pytest.approx(offset, abs=1.0e-12)
-    np.testing.assert_allclose(projected, contaminated, atol=1.0e-6)
+    np.testing.assert_array_equal(projected, contaminated)
 
 
 def test_static_only_boson_is_split_as_c0():
@@ -563,18 +563,21 @@ def test_boson_loc_offdiagonal_x_identity_on_uniform_grid():
     local = BLocDyn(crystal, dlr, projector=None)
     out = local.CausalProjection(local_values, grid="uniform")
 
+    out_uniform = dlr.MatsubaraDLR2UniformGrid(out, sign=1, method="interp")
     xarr = np.zeros_like(local_values, dtype=np.complex128, order="F")
     xarr[0, 1, 0, 0, :] = (
-        local_values[0, 0, 0, 0, :]
+        out_uniform[0, 0, 0, 0, :]
         + local_values[0, 1, 0, 0, :]
         + local_values[1, 0, 0, 0, :]
-        + local_values[1, 1, 0, 0, :]
+        + out_uniform[1, 1, 0, 0, :]
     )
     xarr[1, 0, 0, 0, :] = xarr[0, 1, 0, 0, :]
     xmoment, xhigh, xsigma = local.Moment(
         xarr, grid="uniform", return_sigma=True
     )
-    x_dlr = dlr.MatsubaraUniformGrid2DLR(xarr, omega=nu_uniform, sign=1)
+    raw_dlr = dlr.MatsubaraUniformGrid2DLR(local_values, omega=nu_uniform, sign=1)
+    x_target = (out[0, 0, 0, 0] + raw_dlr[0, 1, 0, 0]
+                + raw_dlr[1, 0, 0, 0] + out[1, 1, 0, 0])
     c0x = complex(xhigh[0, 1, 0, 0])
     tail = np.empty(4, dtype=float)
     tail[0] = 0.0
@@ -593,7 +596,7 @@ def test_boson_loc_offdiagonal_x_identity_on_uniform_grid():
     )
     x_projected = ProjectBosonComponentWithFallback(
         projector,
-        x_dlr[0, 1, 0, 0, :] - c0x,
+        x_target - c0x,
         tail,
         tail_sigma=xsigma[0, 1, 0, 0, :],
     ) + c0x
@@ -943,7 +946,8 @@ def test_boson_loc_positive_chi_offdiag_x_path_preserves_input():
     )
 
 
-def test_boson_loc_offdiagonal_fallback_uses_x_combination(monkeypatch):
+@pytest.mark.parametrize("failure", ["all", "x_only"])
+def test_boson_loc_offdiagonal_fallback_uses_x_combination(monkeypatch, failure):
     crystal = _two_orbital_crystal()
     dlr = _boson_dlr()
     verifier = _BosonVerifier(dlr)
@@ -963,7 +967,14 @@ def test_boson_loc_offdiagonal_fallback_uses_x_combination(monkeypatch):
     fallback[0, 1, 0, 0, :] = verifier.reconstruct(0.1 * base) + (0.25 - 0.3j)
     fallback[1, 0, 0, 0, :] = np.conj(fallback[0, 1, 0, 0, :])
 
-    monkeypatch.setattr(CausalBosonProjector, "project", _raise_runtime)
+    original = CausalBosonProjector.project
+    calls = []
+    def fail_selected(self, target, **kwargs):
+        calls.append(target.copy())
+        if failure == "all" or len(calls) == norb + 1:
+            raise RuntimeError("forced QP failure")
+        return original(self, target, **kwargs)
+    monkeypatch.setattr(CausalBosonProjector, "project", fail_selected)
     local = BLocDyn(crystal, dlr, projector=None)
     with pytest.warns(RuntimeWarning, match="previous iteration"):
         out = local.CausalProjection(values, fallback_matrix=fallback)
@@ -973,11 +984,16 @@ def test_boson_loc_offdiagonal_fallback_uses_x_combination(monkeypatch):
         + fallback[0, 1, 0, 0, :]
         + fallback[1, 0, 0, 0, :]
         + fallback[1, 1, 0, 0, :]
-        - fallback[0, 0, 0, 0, :]
-        - fallback[1, 1, 0, 0, :]
+        - out[0, 0, 0, 0, :]
+        - out[1, 1, 0, 0, :]
     )
-    np.testing.assert_allclose(out[0, 0, 0, 0, :], fallback[0, 0, 0, 0, :])
-    np.testing.assert_allclose(out[1, 1, 0, 0, :], fallback[1, 1, 0, 0, :])
+    if failure == "all":
+        np.testing.assert_allclose(out[0, 0, 0, 0, :], fallback[0, 0, 0, 0, :])
+        np.testing.assert_allclose(out[1, 1, 0, 0, :], fallback[1, 1, 0, 0, :])
+    else:
+        assert len(calls) == norb + 1
+        assert not np.allclose(out[0, 0, 0, 0, :], fallback[0, 0, 0, 0, :])
+        assert not np.allclose(out[1, 1, 0, 0, :], fallback[1, 1, 0, 0, :])
     np.testing.assert_allclose(out[0, 1, 0, 0, :], np.real(expected_offdiag))
     np.testing.assert_allclose(out[1, 0, 0, 0, :], np.conj(out[0, 1, 0, 0, :]))
 
@@ -1088,3 +1104,253 @@ def test_causal_projection_rejects_fallback_matrix_shape_mismatch():
     local = BLocDyn(crystal, dlr, projector=None)
     with pytest.raises(ValueError, match="fallback_matrix shape"):
         local.CausalProjection(values, fallback_matrix=bad)
+
+
+@pytest.mark.parametrize('sign', [-1, 1])
+def test_exact_zero_bypasses_qp_and_resets_diagnostics(monkeypatch, sign):
+    dlr = _boson_dlr()
+    projector = _boson(dlr, coefficient_sign=sign, output_omega=dlr.nu[::2])
+    monkeypatch.setattr(projector, '_solve_qp', lambda *args: pytest.fail('zero reached QP'))
+    projector.last_solver = 'stale'
+    target = np.zeros(len(dlr.nu), dtype=np.complex128)
+    out = projector.project(target, tail_coeffs=np.zeros(4), moment_sigma=np.zeros(2))
+    assert out.dtype == np.complex128 and out.shape == dlr.nu[::2].shape
+    assert np.all(out == 0) and np.all(projector.last_coefficients == 0)
+    assert projector.last_solver is None
+    assert projector.last_validation['skip_reason'] == 'zero'
+    assert projector.check(target, moments={'m1':0, 'm2':0}).causal
+    assert projector.last_validation['skip_reason'] == 'zero'
+
+
+@pytest.mark.parametrize('kwargs', [
+    {'tail_coeffs':[0,0,0]}, {'tail_coeffs':[0,0,0,np.nan]},
+    {'moments':{'m1':np.nan}}, {'moments':{'m2':np.inf}},
+    {'moment_sigma':[-1,0]}, {'moment_sigma':[np.nan,0]},
+    {'moment_sigma':[0,0,0]},
+])
+def test_zero_still_validates_arguments(kwargs):
+    dlr = _boson_dlr()
+    projector = _boson(dlr)
+    target = np.zeros(len(dlr.nu))
+    with pytest.raises(ValueError):
+        projector.project(target, **kwargs)
+    with pytest.raises(ValueError):
+        projector.check(target, **kwargs)
+
+
+@pytest.mark.parametrize('scale', [0, -1, np.nan, np.inf])
+def test_zero_still_validates_scale(scale):
+    dlr = _boson_dlr()
+    with pytest.raises(ValueError):
+        _boson(dlr).project(np.zeros(len(dlr.nu)), scale=scale)
+
+
+@pytest.mark.parametrize('tail', [[0,0,1,0], [0,1,0,0], [1,0,0,0], [0,0,0,1]])
+def test_zero_with_nonzero_supplied_tail_does_not_skip(monkeypatch, tail):
+    dlr = _boson_dlr()
+    projector = _boson(dlr, tail_tol=2)
+    def qp_entered(*args):
+        raise RuntimeError('QP entered')
+    monkeypatch.setattr(projector, '_solve_qp', qp_entered)
+    with pytest.raises(RuntimeError, match='QP entered'):
+        projector.project(np.zeros(len(dlr.nu)), tail_coeffs=tail)
+    assert not projector.last_validation.get('skipped', False)
+
+
+def test_tiny_nonzero_is_not_zero(monkeypatch):
+    dlr = _boson_dlr()
+    projector = _boson(dlr, tail_tol=2)
+    target = np.full(len(dlr.nu), 1e-20)
+    assert projector._validate_target(target) == 1.0
+    def qp_entered(*args):
+        raise RuntimeError('QP entered')
+    monkeypatch.setattr(projector, '_solve_qp', qp_entered)
+    with pytest.raises(RuntimeError, match='QP entered'):
+        projector.project(target, tail_coeffs=np.zeros(4))
+
+
+@pytest.mark.parametrize('sign', [-1, 1])
+@pytest.mark.parametrize('reflection', [False, True])
+@pytest.mark.parametrize('amplitude', [1., 1e-20])
+def test_certificate_uses_only_lu_and_preserves_input(monkeypatch, sign, reflection, amplitude):
+    dlr = _boson_dlr()
+    p = _boson(dlr, coefficient_sign=sign, reflection_symmetry=reflection)
+    coeff = sign * amplitude * np.ones(p.rank)
+    target = p.kernel @ coeff
+    moments = {'m1':0., 'm2':float((p.moment_rows @ coeff)[-1])}
+    if not reflection:
+        moments['m1'] = float((p.moment_rows @ coeff)[0])
+    def forbidden(*args, **kwargs):
+        pytest.fail('certificate used QP, least squares, or check')
+    monkeypatch.setattr(p, '_solve_qp', forbidden)
+    monkeypatch.setattr(p, '_fit_coefficients', forbidden)
+    monkeypatch.setattr(p, 'check', forbidden)
+    out = p.project(target, moments=moments)
+    np.testing.assert_array_equal(out, target)
+    assert out is not target
+    assert p.last_validation['skip_reason'] == 'causal_certificate'
+    assert np.all(sign * p.last_coefficients >= 0)
+    assert p.last_validation['moment_residual'] <= p.last_validation['effective_tol']
+
+
+@pytest.mark.parametrize('grid', ['reversed', 'uniform', 'positive'])
+def test_certificate_interpolation_and_output_grid(monkeypatch, grid):
+    dlr = _boson_dlr()
+    source = dlr.nu[::-1] if grid == 'reversed' else dlr.MatsubaraBosonUniformFull()
+    if grid == 'positive':
+        source = dlr.MatsubaraBosonUniform()
+    p = CausalBosonProjector(d=dlr.dB, beta=dlr.beta, fit_omega=source,
+                            output_omega=dlr.nu[::2], reflection_symmetry=True)
+    coeff = -np.ones(p.rank)
+    target = p.kernel @ coeff
+    def forbidden(*args):
+        pytest.fail('causal interpolation reached QP')
+    monkeypatch.setattr(p, '_solve_qp', forbidden)
+    out = p.project(target, moments={'m2':float((p.moment_rows @ coeff)[0])})
+    assert p.last_validation['skip_reason'] == 'causal_certificate'
+    np.testing.assert_array_equal(out, p.output_kernel @ p.last_coefficients)
+    np.testing.assert_allclose(out, p.output_kernel @ coeff, rtol=p.fit_tol, atol=0)
+
+
+@pytest.mark.parametrize('failure', ['sign', 'tiny_sign', 'nonfinite', 'reproduction',
+                                    'imaginary', 'moments', 'offset', 'coverage', 'positive_no_symmetry'])
+def test_certificate_failure_enters_existing_qp(monkeypatch, failure):
+    dlr = _boson_dlr()
+    source = dlr.nu
+    if failure == 'coverage':
+        source = np.sort(source)[1:-1]
+    if failure == 'positive_no_symmetry':
+        source = dlr.MatsubaraBosonUniform()
+    p = CausalBosonProjector(d=dlr.dB, beta=dlr.beta, fit_omega=source,
+                            reflection_symmetry=failure != 'positive_no_symmetry')
+    coeff = -np.ones(p.rank)
+    target = p.kernel @ coeff
+    moments = {'m1':0., 'm2':float((p.moment_rows @ coeff)[-1])}
+    if failure == 'moments':
+        moments['m2'] += 1.
+    if failure == 'offset':
+        target += 2 * np.max(np.abs(target))
+    if failure in ['sign', 'tiny_sign', 'nonfinite', 'reproduction', 'imaginary']:
+        bad = coeff.astype(complex)
+        if failure == 'sign': bad[0] = 1
+        if failure == 'tiny_sign': bad[0] = 1e-30
+        if failure == 'nonfinite': bad[0] = np.nan
+        if failure == 'reproduction': bad *= 2
+        if failure == 'imaginary':
+            target = target.astype(complex) * (1 + .1j)
+            bad *= 1 + .1j
+        monkeypatch.setattr(DLR, '_matsubara_nodes_to_coefficients', lambda *args: bad)
+    def qp_entered(*args):
+        raise RuntimeError('QP entered')
+    monkeypatch.setattr(p, '_solve_qp', qp_entered)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', RuntimeWarning)
+        with pytest.raises(RuntimeError, match='QP entered'):
+            p.project(target, moments=moments, moment_sigma=[1e6,1e6])
+    assert not p.last_validation.get('skipped', False)
+
+
+def test_certificate_ignores_only_disabled_moments(monkeypatch):
+    dlr = _boson_dlr()
+    p = _boson(dlr)
+    target = p.kernel @ -np.ones(p.rank)
+    monkeypatch.setattr(p, '_solve_qp', lambda *args: pytest.fail('QP called'))
+    np.testing.assert_array_equal(p.project(target, moments={'m2':1e6}, enforce_moments=False), target)
+    assert p.last_validation['skip_reason'] == 'causal_certificate'
+
+
+def test_rank_deficient_dlr_certificate_never_falsely_skips():
+    dlr = DLR({'beta':20., 'cutoff':8., 'eps':1e-8})
+    p = _boson(dlr)
+    assert np.linalg.matrix_rank(np.vstack([p.kernel.real, p.kernel.imag])) < p.rank
+    coeff = -np.ones(p.rank)
+    target = p.kernel @ coeff
+    out = p.project(target, moments={'m2':float((p.moment_rows @ coeff)[0])})
+    if p.last_validation['skipped']:
+        np.testing.assert_array_equal(out, target)
+        assert np.all(p.last_coefficients <= 0)
+        residual = np.linalg.norm(p.kernel @ p.last_coefficients-target)/np.linalg.norm(target)
+        assert residual <= p.fit_tol
+        assert p.last_validation['moment_residual'] <= p.last_validation['effective_tol']
+    else:
+        assert p.last_solver is not None
+
+
+@pytest.mark.parametrize('grid', ['dlr', 'uniform'])
+def test_x_target_and_tail_use_selected_diagonals(monkeypatch, grid):
+    dlr = _boson_dlr()
+    local = BLocDyn(_two_orbital_crystal(), dlr, projector=None)
+    nu = dlr.nu if grid == 'dlr' else dlr.MatsubaraBosonUniform()
+    raw = np.zeros((2,2,1,1,len(nu)), dtype=complex)
+    shape = 1 / (1 + nu**2)
+    raw[0,0,0,0] = shape
+    raw[1,1,0,0] = .8*shape
+    raw[0,1,0,0] = raw[1,0,0,0] = .1*shape
+    calls = []
+    def project(self, target, **kwargs):
+        calls.append((target.copy(), kwargs))
+        return target * ([.7,1.3,1.][len(calls)-1])
+    monkeypatch.setattr(CausalBosonProjector, 'project', project)
+    out = local.CausalProjection(raw, grid=grid, oddzero=True, highzero=True)
+    raw_dlr = raw if grid == 'dlr' else dlr.MatsubaraUniformGrid2DLR(raw, omega=nu, sign=1)
+    expected = out[0,0,0,0] + raw_dlr[0,1,0,0] + raw_dlr[1,0,0,0] + out[1,1,0,0]
+    assert len(calls) == 3
+    assert not np.allclose(out[0,0,0,0], raw_dlr[0,0,0,0])
+    np.testing.assert_array_equal(calls[2][0], expected)
+    out_fit = out if grid == 'dlr' else dlr.MatsubaraDLR2UniformGrid(out, sign=1, method='interp')
+    x = np.zeros_like(raw)
+    x[0,1,0,0] = x[1,0,0,0] = out_fit[0,0,0,0] + raw[0,1,0,0] + raw[1,0,0,0] + out_fit[1,1,0,0]
+    moment, high, sigma = local.Moment(x, grid=grid, oddzero=True, highzero=True, return_sigma=True)
+    np.testing.assert_array_equal(calls[2][1]['tail_coeffs'][1:], moment[0,1,0,0].real)
+    np.testing.assert_array_equal(calls[2][1]['moment_sigma'], sigma[0,1,0,0,1:3])
+    np.testing.assert_allclose(out[0,1,0,0], raw_dlr[0,1,0,0], atol=1e-15, rtol=1e-13)
+
+
+@pytest.mark.parametrize('grid', ['dlr', 'uniform'])
+@pytest.mark.parametrize('sign', [-1, 1])
+def test_one_nonzero_diagonal_preserves_structural_zero_pairs(monkeypatch, grid, sign):
+    dlr = _boson_dlr()
+    local = BLocDyn(_two_orbital_crystal(), dlr, projector=None)
+    nu = dlr.nu if grid == 'dlr' else dlr.MatsubaraBosonUniform()
+    raw = np.zeros((2,2,1,1,len(nu)), dtype=complex)
+    raw[0,0,0,0] = -sign / (1 + nu**2)
+    original_project, original_moment = CausalBosonProjector.project, local.Moment
+    projects, fits = [], []
+    def project(self, target, **kwargs):
+        projects.append(target.copy())
+        return original_project(self, target, **kwargs)
+    def moment(values, **kwargs):
+        fits.append(values.copy())
+        return original_moment(values, **kwargs)
+    monkeypatch.setattr(CausalBosonProjector, 'project', project)
+    monkeypatch.setattr(local, 'Moment', moment)
+    out = local.CausalProjection(raw, grid=grid, coefficient_sign=sign, oddzero=True, highzero=True)
+    assert len(projects) == 2 and len(fits) == 1
+    assert np.all(out[0,1] == 0) and np.all(out[1,0] == 0) and np.all(out[1,1] == 0)
+    assert np.any(out[0,0] != 0)
+
+
+@pytest.mark.parametrize('nonzero', ['raw', 'moment', 'constant'])
+def test_structural_zero_guard_requires_all_cross_data_zero(monkeypatch, nonzero):
+    dlr = _boson_dlr()
+    local = BLocDyn(_two_orbital_crystal(), dlr, projector=None)
+    raw = np.zeros((2,2,1,1,len(dlr.nu)), dtype=complex)
+    raw[0,0,0,0] = 1/(1+dlr.nu**2)
+    if nonzero == 'raw':
+        raw[1,0,0,0] = 1e-20/(1+dlr.nu**2)
+    original_moment = local.Moment
+    fits, calls = [], []
+    def moment(values, **kwargs):
+        m,h,s = original_moment(values, **kwargs)
+        if not fits:
+            if nonzero == 'moment': m[1,0,0,0,1] = 1e-20
+            if nonzero == 'constant': h[1,0,0,0] = 1e-20
+        fits.append(values)
+        return m,h,s
+    def project(self, target, **kwargs):
+        calls.append(target)
+        return target.copy()
+    monkeypatch.setattr(local, 'Moment', moment)
+    monkeypatch.setattr(CausalBosonProjector, 'project', project)
+    local.CausalProjection(raw)
+    assert len(calls) == 3 and len(fits) == 2

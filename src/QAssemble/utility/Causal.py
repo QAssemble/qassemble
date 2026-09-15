@@ -11,6 +11,7 @@ from qpsolvers import SolverNotFound, solve_qp
 from scipy.sparse import csc_matrix
 
 from .Common import Common
+from .DLR import DLR
 from .Fourier import Fourier
 
 
@@ -692,6 +693,10 @@ class CausalBosonProjector:
     ) -> np.ndarray:
         """Project one bosonic scalar channel and return it on ``output_omega``.
 
+        Exact zero channels return zero directly. An interpolation/LU candidate
+        can also bypass the QP after sign, fit-grid reconstruction, and hard
+        moment checks. Certified data on the same grid is copied exactly.
+
         ``enforce_moments=False`` drops the moment equality rows from the QP
         (the sign constraint alone can be incompatible with an off-diagonal
         moment target); moment residuals are then recorded as diagnostics only.
@@ -732,8 +737,35 @@ class CausalBosonProjector:
             moments=moments,
             scale=scale_val,
         )
+        if moment_sigma is not None:
+            self._moment_penalty(self._moment_vector(moment_target), moment_sigma, scale_val, 0.0)
+        if self._is_zero_input(target_vec, tail_coeffs, moments):
+            return self._zero_output()
         target_dec = target_scaled - c0
         tail_ratio = self._validate_target(target_dec)
+        if tail_ratio <= self.tail_tol:
+            certificate = self._causal_certificate(target_dec, moment_target, scale_val, enforce_moments)
+            if certificate is not None:
+                candidate, residual, tolerance = certificate
+                coefficients = candidate * scale_val
+                sigma = None
+                if moment_sigma is not None and enforce_moments:
+                    sigma, _ = self._moment_penalty(
+                        self._moment_vector(moment_target), moment_sigma, scale_val, residual
+                    )
+                    sigma = sigma * scale_val
+                self.last_coefficients = coefficients
+                self.last_validation = self._validate(
+                    coefficients, target_vec - c0 * scale_val,
+                    self._moment_vector(moment_target) * scale_val,
+                    node_residual=residual, skipped=True, c0=c0 * scale_val,
+                    constraint_tol=tolerance, enforce_moments=enforce_moments,
+                    moment_sigma_unscaled=sigma, tail_ratio=tail_ratio,
+                )
+                self.last_validation["skip_reason"] = "causal_certificate"
+                if np.array_equal(self.fit_omega, self.output_omega):
+                    return target_vec.copy()
+                return np.asarray(self.output_kernel @ coefficients + c0 * scale_val, dtype=np.complex128)
         c0_dropped = 0.0
         if tail_ratio > self.tail_tol:
             tail_indices = np.argsort(np.abs(self.fit_omega))[-2:]
@@ -862,6 +894,7 @@ class CausalBosonProjector:
         and ``moment_sigma`` switches the moment verdict to sigma units.
         """
 
+        self._reset_diagnostics()
         target_vec = Common.ComplexVector(
             target,
             name="target",
@@ -875,6 +908,11 @@ class CausalBosonProjector:
             moments=moments,
             scale=scale,
         )
+        if moment_sigma is not None:
+            self._moment_penalty(self._moment_vector(moment_target), moment_sigma, scale, 0.0)
+        if self._is_zero_input(target_vec, tail_coeffs, moments):
+            self._zero_output()
+            return CausalCheckResult(True, 0.0, 0.0, 0, node_residual=0.0, c0=0.0)
         target_dec = target_scaled - c0
         tail_ratio = self._validate_target(target_dec)
         if tail_ratio > self.tail_tol:
@@ -920,6 +958,72 @@ class CausalBosonProjector:
         return self._frequency_kernel(Common.RealFrequencyVector(nu, name="nu")) @ np.asarray(
             coefficients, dtype=float
         )
+
+    @staticmethod
+    def _is_zero_input(target, tail_coeffs, moments) -> bool:
+        return bool(
+            np.all(target == 0)
+            and (tail_coeffs is None or np.all(np.asarray(tail_coeffs) == 0))
+            and (moments is None or all(float(value) == 0 for value in moments.values()))
+        )
+
+    def _causal_certificate(self, target, moments, scale, enforce_moments):
+        """Certify an interpolation/LU candidate in this projector's kernel.
+
+        Failure only declines the shortcut; it is not a noncausality verdict.
+        No least-squares fit, clipping, or elastic moment allowance is used.
+        """
+        order = np.argsort(self.fit_omega)
+        omega, values = self.fit_omega[order], target[order]
+        if self.reflection_symmetry and np.all(omega >= 0):
+            positive = omega > 0
+            omega = np.concatenate((-omega[positive][::-1], omega))
+            values = np.concatenate((values[positive][::-1], values))
+        if np.any(np.diff(omega) <= 0):
+            return None
+        try:
+            nodes = np.asarray(self.d.get_matsubara_frequencies(self.beta).imag, dtype=float)
+            if np.array_equal(omega, np.sort(nodes)):
+                sampled = values[np.searchsorted(omega, nodes)]
+            else:
+                # Unlike general grid conversion, certification never clamps.
+                if nodes.min() < omega[0] or nodes.max() > omega[-1]:
+                    return None
+                sampled = DLR._interp_to_grid(values[:, None, None], omega, nodes)[:, 0, 0]
+            candidate = DLR._matsubara_nodes_to_coefficients(self.d, sampled, self.beta, 1)
+        except (AttributeError, ValueError, np.linalg.LinAlgError):
+            return None
+        if not np.all(np.isfinite(candidate)):
+            return None
+        candidate = candidate.real
+        if np.any(self.coefficient_sign * candidate < 0):
+            return None
+        # Normalize by the decaying channel itself, including very small data.
+        magnitude = float(np.max(np.abs(target)))
+        if magnitude == 0:
+            return None
+        residual = float(
+            np.linalg.norm((self.kernel @ candidate - target) / magnitude)
+            / np.linalg.norm(target / magnitude)
+        )
+        if not np.isfinite(residual) or residual > self.fit_tol:
+            return None
+        tolerance, scaled_tolerance = self._effective_tol(residual, scale)
+        if enforce_moments and np.max(np.abs(
+            self.moment_rows @ candidate - self._moment_vector(moments)
+        )) > scaled_tolerance:
+            return None
+        return candidate, residual, tolerance
+
+    def _zero_output(self) -> np.ndarray:
+        self.last_coefficients = np.zeros(self.rank)
+        self.last_validation = self._validate(
+            self.last_coefficients, np.zeros(self.fit_omega.size),
+            np.zeros(self.moment_rows.shape[0]), node_residual=0.0,
+            skipped=True, c0=0.0, constraint_tol=self._effective_tol(0.0, 1.0)[0],
+        )
+        self.last_validation["skip_reason"] = "zero"
+        return np.zeros(self.output_omega.size, dtype=np.complex128)
 
     def _reset_diagnostics(self) -> None:
         self.last_coefficients = None
@@ -989,6 +1093,8 @@ class CausalBosonProjector:
         scale: float,
     ) -> tuple[float, dict[str, float]]:
         if moments is not None:
+            if not all(np.isfinite(float(value)) for value in moments.values()):
+                raise ValueError("moments contain non-finite values")
             c0 = 0.0
             if tail_coeffs is not None:
                 c0 = float(
@@ -1102,12 +1208,12 @@ class CausalBosonProjector:
     def _validate_target(self, target_vec: np.ndarray) -> float:
         """Non-decay ratio ``|tail|/max`` of a c0-subtracted bosonic target.
 
-        Returns 0.0 for (numerically) zero data.  The caller compares the
+        Returns 0.0 for exactly zero data.  The caller compares the
         ratio against ``tail_tol`` and splits off the non-decaying offset —
         this method never raises.
         """
         magnitude = float(np.max(np.abs(target_vec)))
-        if magnitude <= 100.0 * np.finfo(float).eps:
+        if magnitude == 0.0:
             return 0.0
         tail_indices = np.argsort(np.abs(self.fit_omega))[-2:]
         tail_magnitude = float(np.max(np.abs(target_vec[tail_indices])))
@@ -1139,6 +1245,8 @@ class CausalBosonProjector:
         """
         n_rows = self.moment_rows.shape[0]
         sig = np.asarray(moment_sigma, dtype=float).reshape(-1)
+        if not np.all(np.isfinite(sig)) or np.any(sig < 0.0):
+            raise ValueError("moment_sigma must be finite and nonnegative")
         if sig.size == 2 and n_rows == 1:
             sigma_rows = sig[1:2]
         elif sig.size == n_rows:

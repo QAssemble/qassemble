@@ -540,9 +540,10 @@ class BLocDyn(object):
         Spin-diagonal orbital diagonals ``[iorb, iorb, is_, is_, :]`` are
         projected as scalar channels.  Orbital off-diagonals use the
         FullGWEDMFT-style X combination: project
-        ``X_ij = f_ii + f_ij + f_ji + f_jj`` as the autocorrelation of
-        ``O_i + O_j``, then recover
-        ``f_ij = (X_ij - f_ii - f_jj) / 2`` using the projected diagonals.
+        ``X_ij = f_ii_out + f_ij_raw + f_ji_raw + f_jj_out`` for the
+        ``O_i + O_j`` autocorrelation, then recover
+        ``f_ij = (X_ij - f_ii - f_jj) / 2`` using those same projected diagonals.
+        Structural zero cross channels bypass X projection and remain exactly zero.
         The off-diagonal imaginary part, including any imaginary static
         ``c0``, is dropped; the returned off-diagonal is real-symmetric and the
         lower triangle is filled by conjugation.  The frequency-independent
@@ -551,10 +552,12 @@ class BLocDyn(object):
         channel.  ``oddzero``/``highzero`` are forwarded to :meth:`Moment`; with
         ``highzero=True`` the constant is excluded from the tail fit and the
         ``c0`` split is skipped, so the projected output strictly decays
-        (response functions such as chi).  If a component's QP is infeasible
-        with the hard moment equality, it is retried with the equality relaxed
-        and finally falls back to the unprojected channel with a warning
-        (mirroring causal_boson.py).
+        (response functions such as chi). If hard moment constraints fail, the
+        QP retries with elastic moments. Solver failure uses previous-iteration
+        data when supplied,
+        otherwise a clipped fit (or the raw channel if that fit degenerates).
+        On X-only failure, previous-iteration X is combined with the current
+        selected diagonals.
 
         ``fallback_matrix`` supplies the previous iteration's projected data on
         the DLR output grid (shape ``(norb, norb, ns, ns, len(self.dlr.nu))``);
@@ -610,25 +613,7 @@ class BLocDyn(object):
         moment, high, sigma = self.Moment(
             arr, grid=grid, oddzero=oddzero, highzero=highzero, return_sigma=True
         )
-        xmoment = xhigh = xsigma = None
-        if norb > 1:
-            xarr = np.zeros_like(arr, dtype=np.complex128, order="F")
-            for is_ in range(ns):
-                for iorb in range(norb):
-                    for jorb in range(norb):
-                        xarr[iorb, jorb, is_, is_, :] = (
-                            arr[iorb, iorb, is_, is_, :]
-                            + arr[iorb, jorb, is_, is_, :]
-                            + arr[jorb, iorb, is_, is_, :]
-                            + arr[jorb, jorb, is_, is_, :]
-                        )
-            xmoment, xhigh, xsigma = self.Moment(
-                xarr,
-                grid=grid,
-                oddzero=oddzero,
-                highzero=highzero,
-                return_sigma=True,
-            )
+        raw = arr
 
         # For uniform input, interpolate the data onto the DLR basis.  The
         # projection grid is always the DLR grid; uniform output is returned on
@@ -675,18 +660,50 @@ class BLocDyn(object):
                     ),
                 ) + c0
                 out[iorb, iorb, is_, is_, :] = projected
+            diagonal_uniform = None
+            if grid == "uniform":
+                diagonal_uniform = [
+                    self.dlr.MatsubaraDLR2UniformGrid(
+                        out[i:i + 1, i:i + 1, is_:is_ + 1, is_:is_ + 1, :],
+                        sign=1, method="interp",
+                    )[0, 0, 0, 0, :]
+                    for i in range(norb)
+                ]
             for iorb in range(norb):
                 for jorb in range(iorb + 1, norb):
-                    c0x = complex(xhigh[iorb, jorb, is_, is_])
-                    tail_coeffs = np.empty(4, dtype=float)
-                    tail_coeffs[0] = 0.0
-                    tail_coeffs[1:] = np.real(xmoment[iorb, jorb, is_, is_, :])
+                    if all(
+                        np.all(raw[i, j, is_, is_, :] == 0)
+                        and np.all(moment[i, j, is_, is_, :] == 0)
+                        and high[i, j, is_, is_] == 0
+                        for i, j in ((iorb, jorb), (jorb, iorb))
+                    ):
+                        # Structural zeros must not acquire diagonal QP errors
+                        # through X projection and subtractive reconstruction.
+                        out[iorb, jorb, is_, is_, :] = 0
+                        out[jorb, iorb, is_, is_, :] = 0
+                        continue
                     x_target = (
-                        arr[iorb, iorb, is_, is_, :]
+                        out[iorb, iorb, is_, is_, :]
                         + arr[iorb, jorb, is_, is_, :]
                         + arr[jorb, iorb, is_, is_, :]
-                        + arr[jorb, jorb, is_, is_, :]
+                        + out[jorb, jorb, is_, is_, :]
                     )
+                    x_fit = x_target if grid == "dlr" else (
+                        diagonal_uniform[iorb] + raw[iorb, jorb, is_, is_, :]
+                        + raw[jorb, iorb, is_, is_, :] + diagonal_uniform[jorb]
+                    )
+                    # Fit the new X directly, preserving Moment's cross-channel
+                    # Hermitian convention and its own tail-fit uncertainty.
+                    xarr = np.zeros((2, 2, 1, 1, x_fit.size), dtype=np.complex128)
+                    xarr[0, 1, 0, 0, :] = xarr[1, 0, 0, 0, :] = x_fit
+                    xmoment, xhigh, xsigma = self.Moment(
+                        xarr, grid=grid, oddzero=oddzero, highzero=highzero,
+                        return_sigma=True,
+                    )
+                    c0x = complex(xhigh[0, 1, 0, 0])
+                    tail_coeffs = np.empty(4, dtype=float)
+                    tail_coeffs[0] = 0.0
+                    tail_coeffs[1:] = np.real(xmoment[0, 1, 0, 0, :])
                     if fallback_matrix is not None:
                         x_fallback = (
                             fallback_matrix[iorb, iorb, is_, is_, :]
@@ -703,7 +720,7 @@ class BLocDyn(object):
                         projector,
                         x_target - c0x,
                         tail_coeffs,
-                        tail_sigma=xsigma[iorb, jorb, is_, is_, :],
+                        tail_sigma=xsigma[0, 1, 0, 0, :],
                         fallback_channel=x_fallback,
                     ) + c0x
                     projected = 0.5 * (

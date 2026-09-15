@@ -568,17 +568,8 @@ class DLR(object):
         # its bosonic_corr divide assumes a 3D shape), so flatten the (a, b)
         # matrix axes to a 2D batch, solve directly, and apply the bosonic
         # correction by hand (mirrors BF2T).
-        from scipy.linalg import lu_solve
-
         d = self.dF if sign == -1 else self.dB
-        rank, bi, bj = interp.shape
-        fxx2 = lu_solve(
-            (d.dlrmf2cf, d.mf2cfpiv),
-            interp.reshape(rank, bi * bj) / self.beta,
-        )
-        if sign == 1:
-            fxx2 = fxx2 / d.bosonic_corr_x[:, None]
-        fxx = np.asarray(fxx2).reshape(rank, bi, bj)
+        fxx = self._matsubara_nodes_to_coefficients(d, interp, self.beta, sign)
         # Step 3: re-evaluate the coefficients on the DLR grid (applies the
         # single trailing-axis transpose the ndim-restore rule is written for).
         out = d.matsubara_from_dlr(G_xaa=fxx, beta=self.beta, xi=sign)
@@ -588,8 +579,21 @@ class DLR(object):
             return out[:, 0, :]
         return out
 
+    @staticmethod
+    def _matsubara_nodes_to_coefficients(d, values: np.ndarray, beta: float, sign: int):
+        """Solve the DLR-node LU system without changing trailing axes."""
+        from scipy.linalg import lu_solve
+
+        values = np.asarray(values, dtype=np.complex128)
+        coefficients = lu_solve(
+            (d.dlrmf2cf, d.mf2cfpiv), values.reshape(values.shape[0], -1) / beta
+        )
+        if sign == 1:
+            coefficients = coefficients / d.bosonic_corr_x[:, None]
+        return coefficients.reshape(values.shape)
+
+    @staticmethod
     def _interp_to_grid(
-        self,
         ff: np.ndarray,
         x_src: np.ndarray,
         x_target: np.ndarray,
