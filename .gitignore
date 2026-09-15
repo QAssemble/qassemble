@@ -16,3 +16,4 @@ analysis_plots
 .codex
 src/QAssemble/graphify-out
 *.egg-info/
+*graphify-out
