@@ -599,7 +599,7 @@ class CTQMC(object):
                     params["occupation susceptibility bulla"]=True        
                     params["green bulla"]=True       
                     params["density matrix precise"]=False #True 
-                    params["measurement time"] = 100  # minutes
+                    params["measurement time"] = 30  # minutes
 
                     if self._use_dyn():
                         params["dyn"] = {}
