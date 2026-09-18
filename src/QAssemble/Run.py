@@ -228,6 +228,14 @@ class Run:
         control["run"]["sigimp_smoothing_width"] = control["run"][
             "SigImpSmoothingWidth"
         ]
+        control["run"]["MeasurementTime"] = int(ini.get("MeasurementTime", 30))
+        control["run"]["measurement_time"] = control["run"]["MeasurementTime"]
+        control["run"]["ThermalisationTime"] = int(
+            ini.get("ThermalisationTime", 5)
+        )
+        control["run"]["thermalisation_time"] = control["run"][
+            "ThermalisationTime"
+        ]
 
         # ---- Legacy / removed key deprecation warnings -----------------
         # Keys here are dropped — they are NOT copied into control['run'].
