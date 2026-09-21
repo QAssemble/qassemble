@@ -35,6 +35,72 @@ class IO:
         return group.create_dataset(name, data=data, dtype=dtype)
 
     @staticmethod
+    def LastCompleteIteration(hdf5file, group, keys, itermax) -> int:
+        """Return the end of the contiguous, fully saved GW+EDMFT iterations."""
+        if not os.path.exists(hdf5file):
+            return 0
+        try:
+            with h5py.File(hdf5file, "r") as handle:
+                if group not in handle:
+                    return 0
+                last = 0
+                for iteration in range(1, int(itermax) + 1):
+                    paths = [
+                        f"{group}/G/gkf.{iteration}",
+                        f"{group}/G/mu.{iteration}",
+                        f"{group}/W/wkf.{iteration}",
+                    ]
+                    for key in keys:
+                        paths.extend(
+                            f"{group}/{subgroup}/{stem}.{iteration}.{key}"
+                            for subgroup, stem in (
+                                ("GLoc", "gloc"), ("WLoc", "wloc"),
+                                ("GImp", "gimp"), ("SigHImp", "sighimp"),
+                                ("SigFImp", "sigfimp"), ("SigCImp", "sigimp"),
+                                ("Chi", "chi"), ("PImp", "pimp"),
+                                ("WImp", "wimp"),
+                            )
+                        )
+                    if not all(path in handle and isinstance(handle[path], h5py.Dataset)
+                               for path in paths):
+                        break
+                    last = iteration
+                return last
+        except OSError as exc:
+            logger.warning("[restart] cannot inspect %s: %s", hdf5file, exc)
+            return 0
+
+    @staticmethod
+    def AlignMixingHistory(hdf5file, group, keys, resume_iter):
+        """Keep histories at the resume point; reset only torn components."""
+        components = {
+            "global": ("sigh", "sigf", "siggwc", "pol"),
+            **{str(key): (
+                "sigfdc", "siggwcdc", "pdc", "hyb", "bweiss",
+                "sighimp", "sigimp", "pimp",
+            ) for key in keys},
+        }
+        actions = {}
+        with h5py.File(hdf5file, "a") as handle:
+            for key, names in components.items():
+                for name in names:
+                    path = f"{group}/Mixing/{key}/{name}"
+                    component = handle.get(path)
+                    last_iter = None if component is None else component.attrs.get("last_iter")
+                    if component is None or "last" not in component:
+                        action = "absent"
+                    elif last_iter is not None and int(last_iter) == resume_iter:
+                        action = "kept"
+                    else:
+                        IO._reset_mixing_component(component)
+                        for attr in ("last_iter", "num_history", "next_slot", "shape"):
+                            component.attrs.pop(attr, None)
+                        action = "reset"
+                    actions[f"{key}/{name}"] = action
+                    logger.info("[restart] mixing %s last_iter=%s action=%s", path, last_iter, action)
+        return actions
+
+    @staticmethod
     def MixComponent(
         hdf5file: str,
         group: str,

@@ -9,6 +9,7 @@ from .Crystal import Crystal
 # from .FTGrid import FTGrid
 from .utility.DLR import DLR
 from .utility.Convergence import Convergence
+from .utility.HDF5 import IO
 from .FLatDyn import *
 from .FLatStc import *
 from .FLocDyn import *
@@ -908,6 +909,35 @@ class CorrelationFunction(object):
 
             gc.collect()
 
+    def _restore_green(self, green, group, iteration):
+        path = f"{group}/G/gkf.{iteration}"
+        mu_path = f"{group}/G/mu.{iteration}"
+        with h5py.File(self.hdf5path, "r") as handle:
+            saved = np.asfortranarray(handle[path][()])
+            mu = np.asarray(handle[mu_path][()])
+        if saved.shape != self.greenbare.kf.shape:
+            raise ValueError(f"{path}: shape {saved.shape} != {self.greenbare.kf.shape}")
+        if mu.size != 1 or not np.isfinite(mu).all():
+            raise ValueError(f"{mu_path}: expected one finite chemical potential")
+        green.mu = float(mu.reshape(-1)[0])
+        # UpdateMu reconstructs kf from the zero-mu Green function.
+        green.gkfmu0 = green.Dyson(saved, green.ChemEmbedding(green.mu))
+        green.UpdateMu()
+        return green
+
+    def _restore_wlat(self, wlat, group, iteration):
+        path = f"{group}/W/wkf.{iteration}"
+        with h5py.File(self.hdf5path, "r") as handle:
+            saved = np.asfortranarray(handle[path][()])
+        if saved.shape != wlat.kf.shape:
+            raise ValueError(f"{path}: shape {saved.shape} != {wlat.kf.shape}")
+        wlat.kf = saved
+        wlat.ckf = np.asfortranarray(saved - wlat.StcEmbedding(self.vbare.k))
+        wlat.ckt = wlat.F2T(wlat.ckf)
+        wlat.crf = wlat.K2R(wlat.ckf)
+        wlat.crt = wlat.K2R(wlat.ckt)
+        return wlat
+
     def GWEDMFT(self):
         itermax = self.control["run"]["nscf"]
         hdf5file = self.hdf5path
@@ -929,6 +959,15 @@ class CorrelationFunction(object):
         problem_keys = list(projector.fprojector.keys())
         if not problem_keys:
             raise ValueError("GW+EDMFT requires at least one impurity problem")
+        mode = self.control["run"].get("mode", "FromScratch")
+        resume = (IO.LastCompleteIteration(hdf5file, group, problem_keys, itermax)
+                  if mode in ("Auto", "Restart") else 0)
+        if mode in ("Auto", "Restart"):
+            logger.info("[GW+EDMFT] resume iteration=%d", resume)
+            if resume:
+                with h5py.File(hdf5file, "r") as handle:
+                    if f"{group}/G/gkf.{resume + 1}" in handle:
+                        logger.info("[GW+EDMFT] recomputing incomplete iteration=%d", resume + 1)
         self.vbare.vloc.projector = projector
         if hasattr(self.vbare.vloc, "BuildProjection"):
             self.vbare.vloc.BuildProjection(projector)
@@ -952,7 +991,10 @@ class CorrelationFunction(object):
             group=group,
             **self._mu_search_kwargs(),
         )
-        green.Save("gkf_ini", scf=False)
+        if resume:
+            green = self._restore_green(green, group, resume)
+        else:
+            green.Save("gkf_ini", scf=False)
         wlat = W(
             crystal=self.crystal,
             dlr=self.dlr,
@@ -963,7 +1005,10 @@ class CorrelationFunction(object):
             group=group,
             iteration=0,
         )
-        wlat.Save("wkf_ini", scf=False)
+        if resume:
+            wlat = self._restore_wlat(wlat, group, resume)
+        else:
+            wlat.Save("wkf_ini", scf=False)
 
         gloc_by_key = {}
         wloc_by_key = {}
@@ -976,7 +1021,7 @@ class CorrelationFunction(object):
                 key=key,
                 hdf5file=hdf5file,
                 group=group,
-                iteration=0,
+                iteration=resume,
                 scf=True,
             )
             wloc = WLoc(
@@ -988,14 +1033,19 @@ class CorrelationFunction(object):
                 vloc=self.vbare.vloc.vproj[key],
                 hdf5file=hdf5file,
                 group=group,
-                iteration=0,
+                iteration=resume,
             )
             wloc.Save("wloc")
             wloc_by_key[key] = wloc
 
-        self.conv.Start()
+        if resume:
+            IO.AlignMixingHistory(hdf5file, group, problem_keys, resume)
+            self.conv.Resume(resume)
+            self.conv.seed_prev("mu", green.mu, kind="scalar")
+        else:
+            self.conv.Start()
 
-        for iteration in range(1, itermax + 1):
+        for iteration in range(resume + 1, itermax + 1):
             hf_result = HF(
                 occ=green.occ,
                 occr=green.occr,

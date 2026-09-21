@@ -112,6 +112,30 @@ class Convergence:
         except Exception as e:
             logger.warning(f"convergence.jsonl truncate failed: {e}")
 
+    def Resume(self, resume_iter):
+        """Restore committed convergence rows without truncating the JSONL record."""
+        self._require_not_tb("Resume")
+        self._self_prev = {}
+        self._pending_prev = {}
+        self._iter_buf = []
+        self._iter_diag = {}
+        self._iter_no = None
+        self._schema_cols = None
+        self._schema_warned = False
+        self._conv_table = []
+        try:
+            with open(self._conv_jsonl_path) as stream:
+                for line in stream:
+                    row = json.loads(line)
+                    if int(row["iter"]) <= resume_iter:
+                        self._conv_table.append(row)
+            if self._conv_table:
+                self._schema_cols = list(self._conv_table[0].keys())
+        except Exception as exc:
+            logger.warning("convergence.jsonl resume read failed: %s", exc)
+            self._conv_table = []
+            self._schema_cols = None
+
     @staticmethod
     def SCFCheck(a, b) -> float:
         return np.abs(a - b).max()

@@ -404,9 +404,9 @@ class Run:
 
         for key in d2.keys():
             for key2 in d2[key].keys():
-                if key2 == "Method":
+                if key2 in ("Method", "Mode"):
                     continue
-                elif d1[key][key2] == d2[key][key2]:
+                elif key not in d1 or key2 not in d1[key] or d1[key][key2] == d2[key][key2]:
                     check.append(1)
                 else:
                     check.append(0)
