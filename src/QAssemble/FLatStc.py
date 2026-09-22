@@ -12,8 +12,8 @@ import scipy.optimize
 from scipy.integrate import trapezoid
 
 from .Crystal import Crystal
-from .utility.Dyson import Dyson
-from .utility.Fourier import Fourier
+from .utility import Dyson
+from .utility import Fourier
 from .utility.Mixing import Mixing
 
 # from .FLatDyn import SigGWC

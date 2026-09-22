@@ -1,6 +1,6 @@
 import numpy as np
 
-from QAssemble.utility.Dyson import Dyson
+from QAssemble.utility import Dyson
 
 
 def _direct_dyson(g0, sigma):

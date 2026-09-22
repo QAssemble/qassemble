@@ -18,7 +18,7 @@ from .Crystal import Crystal
 from .FLatDyn import FLatDyn, G, G0, SigGWC
 # from .FTGrid import FTGrid
 from .utility.DLR import DLR
-from .utility.Fourier import Fourier
+from .utility import Fourier
 
 
 class FPathDyn(object):

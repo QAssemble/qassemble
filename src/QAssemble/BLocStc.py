@@ -18,8 +18,8 @@ import subprocess
 import copy
 # import Crystal, FTGrid
 from .Crystal import Crystal
-from .utility.Common import Common
-from .utility.Dyson import Dyson
+from .utility import Common
+from .utility import Dyson
 
 class BLocStc(object):
     """Base operations for static local bosonic tensors."""

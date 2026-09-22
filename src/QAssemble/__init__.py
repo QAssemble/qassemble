@@ -13,14 +13,14 @@ from .FLatStc import FLatStc, H, H0, HamiltonianAB, SigF, SigH, SigStc, Z
 from .FPathDyn import FPathDyn
 from .FPathStc import FPathStc
 from .Run import Run
-from .utility.Bare import Bare
-from .utility.Common import Common
+from .utility import Bare
+from .utility import Common
 from .utility.DLR import DLR
-from .utility.Dyson import Dyson
-from .utility.Embedding import Embedding
-from .utility.Fourier import Fourier
+from .utility import Dyson
+from .utility import Embedding
+from .utility import Fourier
 from .utility.Mixing import Mixing
-from .utility.Projection import Projection
+from .utility import Projection
 
 __all__ = [
     "CorrelationFunction",

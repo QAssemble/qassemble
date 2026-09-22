@@ -7,7 +7,7 @@ A collection of functions to compute bare Green's functions for non-interacting 
     The functions handle fermionic and bosonic statistics, and can compute Green's functions
     in both frequency and imaginary-time (Matsubara) domains. It also provides functions
     to compute these for both single-site (local) and multi-site (lattice) Hamiltonians."""
-from .Common import Common
+from . import Common
 from sys import exit
 import numpy as np
 

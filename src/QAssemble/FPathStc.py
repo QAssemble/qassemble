@@ -27,7 +27,7 @@ from sympy.physics.wigner import gaunt, wigner_3j
 
 from .Crystal import Crystal
 from .FLatStc import FLatStc
-from .utility.Fourier import Fourier
+from .utility import Fourier
 
 
 class FPathStc(object):

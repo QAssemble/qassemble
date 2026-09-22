@@ -9,8 +9,8 @@ import numpy as np
 
 from .BLocStc import VLoc
 from .Crystal import Crystal
-from .utility.Fourier import Fourier
-from .utility.Dyson import Dyson
+from .utility import Fourier
+from .utility import Dyson
 
 
 
@@ -928,7 +928,7 @@ class V(BLatStc):
 
     def RMin2(self, d: np.ndarray):
         """Return the minimum squared periodic distance for a displacement."""
-        from .utility.Common import Common
+        from .utility import Common
         svec = self.crystal.svec
 
 

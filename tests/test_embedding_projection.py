@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from QAssemble.utility.Embedding import Embedding
-from QAssemble.utility.Projection import Projection
+from QAssemble.utility import Embedding
+from QAssemble.utility import Projection
 
 NORB = 4
 NORBC = 2

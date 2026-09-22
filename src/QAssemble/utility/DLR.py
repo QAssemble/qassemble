@@ -1,7 +1,7 @@
 """Discrete Lehmann representation grids and transform wrappers."""
 import numpy as np
 from pydlr import dlr
-from .Common import Common
+from . import Common
 
 
 class DLR(object):

@@ -7,8 +7,8 @@ import h5py
 from .Crystal import Crystal
 from .BLatStc import V
 from .utility.DLR import DLR
-from .utility.Fourier import Fourier
-from .utility.Dyson import Dyson
+from .utility import Fourier
+from .utility import Dyson
 from .utility.Mixing import Mixing
 
 

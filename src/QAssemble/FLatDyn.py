@@ -9,9 +9,9 @@ import time, datetime
 from .Crystal import Crystal
 from .FLatStc import FLatStc
 from .utility.DLR import DLR
-from .utility.Common import Common
-from .utility.Fourier import Fourier
-from .utility.Dyson import Dyson
+from .utility import Common
+from .utility import Fourier
+from .utility import Dyson
 from .utility.Mixing import Mixing
 # qapath = os.environ.get('QAssemble','')
 # sys.path.append(qapath+'/src/QAssemble/modules')
@@ -466,7 +466,7 @@ class G0(FLatDyn):
     def Cal(self): # freq, tau combine
         """Compute the primary array represented by this object."""
         
-        from .utility.Bare import Bare
+        from .utility import Bare
         # print(self.h0[:,:,0,0])
         # gnotkf = QAFort.bare.flatfreq(self.h0,self.dlr.omega)
         gnotkf = Bare.FLatFreq(self.dlr.omega, self.h0)

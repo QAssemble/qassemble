@@ -4,7 +4,7 @@ import sys
 import itertools
 
 import copy
-from .utility.Common import Common
+from .utility import Common
 
 
 # Ask to professor for change variables
@@ -861,7 +861,7 @@ class Crystal(object):
             grid = self.rkgrid
         r = np.zeros((grid[0]*grid[1]*grid[2], 3), dtype=float)
         rind = np.zeros((grid[0]*grid[1]*grid[2],3),dtype=float) 
-        from .utility.Common import Common
+        from .utility import Common
 
         for iz in range(grid[2]):
             for iy in range(grid[1]):
