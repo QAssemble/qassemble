@@ -87,17 +87,43 @@ class IO:
                     path = f"{group}/Mixing/{key}/{name}"
                     component = handle.get(path)
                     last_iter = None if component is None else component.attrs.get("last_iter")
-                    if component is None or "last" not in component:
+                    snapshot_name = f"last.{resume_iter}"
+                    snapshot = None if component is None else component.get(snapshot_name)
+                    has_snapshot = isinstance(snapshot, h5py.Dataset)
+                    if component is None:
                         action = "absent"
-                    elif last_iter is not None and int(last_iter) == resume_iter:
+                    elif ("last" in component and last_iter is not None
+                          and int(last_iter) == resume_iter
+                          and (not has_snapshot or np.array_equal(
+                              component["last"][()], snapshot[()]))):
                         action = "kept"
+                    elif has_snapshot:
+                        IO._write_mixing_dataset(component, "last", snapshot[()])
+                        component.attrs["last_iter"] = resume_iter
+                        component.attrs["shape"] = np.asarray(snapshot.shape, dtype=np.int64)
+                        for child in list(component):
+                            if (child.startswith("last.") and child[5:].isdigit()
+                                    and int(child[5:]) > resume_iter):
+                                del component[child]
+                        for history in ("input_history", "residual_history"):
+                            if history in component:
+                                del component[history]
+                            component.require_group(history)
+                        component.attrs["num_history"] = 0
+                        component.attrs["next_slot"] = 0
+                        action = "rewound"
+                    elif "last" not in component:
+                        action = "absent"
                     else:
                         IO._reset_mixing_component(component)
                         for attr in ("last_iter", "num_history", "next_slot", "shape"):
                             component.attrs.pop(attr, None)
                         action = "reset"
                     actions[f"{key}/{name}"] = action
-                    logger.info("[restart] mixing %s last_iter=%s action=%s", path, last_iter, action)
+                    log = logger.warning if action == "reset" else logger.info
+                    log("[restart] mixing %s last_iter=%s action=%s%s", path,
+                        last_iter, action,
+                        "; next iteration will pass UNMIXED" if action == "reset" else "")
         return actions
 
     @staticmethod
@@ -160,6 +186,8 @@ class IO:
             comp_group = IO.Group(handle, group, "Mixing", key, component)
             comp_group.attrs["method"] = method
             comp_group.attrs["npulay"] = npulay
+            # Mark this component before Pulay can overwrite a history slot.
+            comp_group.attrs["last_iter"] = int(iter)
 
             if int(iter) == 1 or "last" not in comp_group:
                 if int(iter) != 1:
@@ -174,7 +202,6 @@ class IO:
                         f"(first iteration is never mixed)"
                     )
                 IO._reset_mixing_component(comp_group)
-                IO._write_mixing_dataset(comp_group, "last", fnew)
                 IO._write_mixing_attrs(
                     comp_group,
                     shape=shape,
@@ -182,6 +209,7 @@ class IO:
                     num_history=0,
                     next_slot=0,
                 )
+                IO._write_mixing_last(comp_group, fnew, iter, npulay)
                 return fnew.copy(order="F")
 
             stored_shape = tuple(int(x) for x in comp_group.attrs.get("shape", []))
@@ -198,8 +226,8 @@ class IO:
 
             if method == "linear":
                 mixed = mixer(method=method, mix=float(mix), fnew=fnew, fold=fold)
-                IO._write_mixing_dataset(comp_group, "last", mixed)
                 IO._write_mixing_attrs(comp_group, shape=shape, iter=int(iter))
+                IO._write_mixing_last(comp_group, mixed, iter, npulay)
                 logger.info(
                     f"[mixing] {key}/{component} iter={int(iter)}: linear "
                     f"mix={float(mix)} applied"
@@ -222,8 +250,8 @@ class IO:
                 inputs=inputs,
                 residuals=residuals,
             )
-            IO._write_mixing_dataset(comp_group, "last", mixed)
             IO._write_mixing_attrs(comp_group, shape=shape, iter=int(iter))
+            IO._write_mixing_last(comp_group, mixed, iter, npulay)
             logger.info(
                 f"[mixing] {key}/{component} iter={int(iter)}: pulay "
                 f"mix={float(mix)} applied with num_history="
@@ -284,8 +312,11 @@ class IO:
             return
         with h5py.File(hdf5file, "a") as handle:
             comp_group = IO.Group(handle, group, "Mixing", key, component)
-            IO._write_mixing_dataset(
-                comp_group, "last", IO._as_mixing_array(component, value)
+            if "last_iter" not in comp_group.attrs:
+                raise ValueError(f"{key}/{component}: no last_iter for projected mixing value")
+            IO._write_mixing_last(
+                comp_group, IO._as_mixing_array(component, value),
+                int(comp_group.attrs["last_iter"]),
             )
 
     @staticmethod
@@ -300,6 +331,18 @@ class IO:
     @staticmethod
     def _write_mixing_dataset(group, name: str, data) -> None:
         IO.CreateDataset(group, name, np.asarray(data, dtype=np.complex128))
+
+    @staticmethod
+    def _write_mixing_last(comp_group, value, iteration, npulay=None) -> None:
+        IO._write_mixing_dataset(comp_group, "last", value)
+        IO._write_mixing_dataset(comp_group, f"last.{int(iteration)}", value)
+        if npulay is not None:
+            snapshots = sorted(
+                (int(name[5:]), name) for name in comp_group
+                if name.startswith("last.") and name[5:].isdigit()
+            )
+            for _, name in snapshots[:-max(2, int(npulay))]:
+                del comp_group[name]
 
     @staticmethod
     def _write_mixing_attrs(
@@ -318,8 +361,10 @@ class IO:
 
     @staticmethod
     def _reset_mixing_component(comp_group) -> None:
-        for name in ("last", "input_history", "residual_history"):
-            if name in comp_group:
+        for name in list(comp_group):
+            if name in ("last", "input_history", "residual_history") or (
+                name.startswith("last.") and name[5:].isdigit()
+            ):
                 del comp_group[name]
         comp_group.require_group("input_history")
         comp_group.require_group("residual_history")

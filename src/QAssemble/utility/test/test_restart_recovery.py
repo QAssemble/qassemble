@@ -62,17 +62,23 @@ def _mix(path, component, iteration, value):
     )
 
 
-def test_align_mixing_keeps_current_and_resets_torn_component(tmp_path):
+def test_align_mixing_keeps_current_and_resets_legacy_component(tmp_path, caplog):
     path = tmp_path / "glob.h5"
     for name in ("sigh", "sigf"):
         _mix(path, name, 1, [0.0, 0.0])
         _mix(path, name, 2, [1.0, 0.0])
     _mix(path, "sigf", 3, [2.0, 0.0])
+    with h5py.File(path, "a") as handle:
+        component = handle["gwedmft/Mixing/global/sigf"]
+        for name in list(component):
+            if name.startswith("last."):
+                del component[name]
     with h5py.File(path, "r") as handle:
         kept_before = handle["gwedmft/Mixing/global/sigh/last"][()].copy()
     actions = IO.AlignMixingHistory(path, "gwedmft", ["a"], 2)
     assert actions["global/sigh"] == "kept"
     assert actions["global/sigf"] == "reset"
+    assert "next iteration will pass UNMIXED" in caplog.text
     assert actions["global/pol"] == "absent"
     with h5py.File(path, "r") as handle:
         kept = handle["gwedmft/Mixing/global/sigh"]
@@ -83,6 +89,86 @@ def test_align_mixing_keeps_current_and_resets_torn_component(tmp_path):
     new = np.asarray([3.0, 1.0])
     np.testing.assert_allclose(_mix(path, "sigf", 3, new), new)
     assert not np.allclose(_mix(path, "sigh", 3, new), new)
+
+
+def test_align_mixing_rewinds_torn_component_and_next_iteration_mixes(tmp_path):
+    path = tmp_path / "glob.h5"
+    _mix(path, "sigf", 1, [0.0, 0.0])
+    _mix(path, "sigf", 2, [1.0, 0.0])
+    with h5py.File(path, "r") as handle:
+        expected = handle["gwedmft/Mixing/global/sigf/last.2"][()].copy()
+    _mix(path, "sigf", 3, [2.0, 0.0])
+
+    actions = IO.AlignMixingHistory(path, "gwedmft", ["a"], 2)
+    assert actions["global/sigf"] == "rewound"
+    with h5py.File(path, "r") as handle:
+        component = handle["gwedmft/Mixing/global/sigf"]
+        np.testing.assert_array_equal(component["last"][()], expected)
+        assert "last.3" not in component
+        assert int(component.attrs["last_iter"]) == 2
+        assert int(component.attrs["num_history"]) == 0
+        assert int(component.attrs["next_slot"]) == 0
+        assert list(component["input_history"]) == []
+        assert list(component["residual_history"]) == []
+    new = np.asarray([3.0, 1.0])
+    assert not np.allclose(_mix(path, "sigf", 3, new), new)
+
+
+def test_projected_last_snapshot_is_the_rewind_value(tmp_path):
+    path = tmp_path / "glob.h5"
+    _mix(path, "sigf", 1, [0.0, 0.0])
+    _mix(path, "sigf", 2, [1.0, 0.0])
+    projected = np.asarray([0.25, 0.75])
+    IO.OverwriteMixingLast(path, "gwedmft", "global", "sigf", projected)
+    _mix(path, "sigf", 3, [2.0, 0.0])
+    assert IO.AlignMixingHistory(path, "gwedmft", ["a"], 2)["global/sigf"] == "rewound"
+    with h5py.File(path, "r") as handle:
+        component = handle["gwedmft/Mixing/global/sigf"]
+        np.testing.assert_array_equal(component["last.2"][()], projected)
+        np.testing.assert_array_equal(component["last"][()], projected)
+
+
+def test_snapshot_pruning_keeps_at_least_two_iterations(tmp_path):
+    path = tmp_path / "glob.h5"
+    for iteration in range(1, 5):
+        IO.MixComponent(
+            str(path), "gwedmft", "global", "sigh", np.asarray([iteration]),
+            iter=iteration, mix=0.5, method="linear", npulay=1, mixer=Mixing(),
+        )
+    with h5py.File(path, "r") as handle:
+        component = handle["gwedmft/Mixing/global/sigh"]
+        assert sorted(name for name in component if name.startswith("last.")) == ["last.3", "last.4"]
+
+
+def test_rewound_linear_mixing_matches_uninterrupted_run(tmp_path):
+    def mix(path, iteration, value):
+        return IO.MixComponent(
+            str(path), "gwedmft", "global", "sigh", np.asarray(value),
+            iter=iteration, mix=0.1, method="linear", npulay=2, mixer=Mixing(),
+        )
+
+    clean = tmp_path / "clean.h5"
+    resumed = tmp_path / "resumed.h5"
+    for path in (clean, resumed):
+        mix(path, 1, [0.0, 0.0])
+        mix(path, 2, [1.0, 0.0])
+    expected = mix(clean, 3, [3.0, 1.0])
+    mix(resumed, 3, [2.0, 0.0])
+    assert IO.AlignMixingHistory(resumed, "gwedmft", ["a"], 2)["global/sigh"] == "rewound"
+    np.testing.assert_array_equal(mix(resumed, 3, [3.0, 1.0]), expected)
+
+
+def test_rewind_when_last_changed_before_last_iter_was_updated(tmp_path):
+    path = tmp_path / "glob.h5"
+    _mix(path, "sigh", 1, [0.0, 0.0])
+    _mix(path, "sigh", 2, [1.0, 0.0])
+    with h5py.File(path, "a") as handle:
+        component = handle["gwedmft/Mixing/global/sigh"]
+        expected = component["last.2"][()].copy()
+        IO.CreateDataset(component, "last", np.asarray([9.0, 9.0]))
+    assert IO.AlignMixingHistory(path, "gwedmft", ["a"], 2)["global/sigh"] == "rewound"
+    with h5py.File(path, "r") as handle:
+        np.testing.assert_array_equal(handle["gwedmft/Mixing/global/sigh/last"][()], expected)
 
 
 def test_convergence_resume_preserves_rows_and_next_commit(tmp_path):
