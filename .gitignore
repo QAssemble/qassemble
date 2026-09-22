@@ -11,3 +11,6 @@ reviewer_response_checklist.md
 AGENTS.md
 docs/analysis_plots
 *graphify-out
+dist/
+site/
+*.bak

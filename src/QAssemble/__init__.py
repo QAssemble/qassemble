@@ -18,7 +18,7 @@ from .utility.Common import Common
 from .utility.DLR import DLR
 from .utility.Dyson import Dyson
 from .utility.Embedding import Embedding
-from .utility.Fourier import Fourier, FourierMPI
+from .utility.Fourier import Fourier
 from .utility.Mixing import Mixing
 from .utility.Projection import Projection
 
@@ -57,5 +57,4 @@ __all__ = [
     "Mixing",
     "Common",
     "Fourier",
-    "FourierMPI",
 ]
