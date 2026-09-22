@@ -28,7 +28,7 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 
-from QAssemble import FPathDyn, FPathStc
+from QAssemble import FPathDyn, FPathStc, H, SigStc, Z
 
 KPATH = [[0, 0, 0], [2 / 3, 1 / 3, 0], [1 / 2, 1 / 2, 0], [0, 0, 0]]
 KLABELS = [r"$\Gamma$", r"$K$", r"$M$", r"$\Gamma$"]
@@ -48,7 +48,7 @@ def load_results(h5file):
         }
 
 
-def qp_hamiltonian(flatstc, h0k, sigh, sigf, siggwc, mu, omega):
+def qp_hamiltonian(crystal, h0k, sigh, sigf, siggwc, mu, beta, omega):
     """Quasiparticle Hamiltonian from the first-Matsubara static estimate.
 
     The dynamic self-energy Sigma(i omega_0) at the lowest positive Matsubara
@@ -56,34 +56,18 @@ def qp_hamiltonian(flatstc, h0k, sigh, sigf, siggwc, mu, omega):
     anti-Hermitian part, from which Z^-1 = 1 - Im Sigma(i omega_0)/omega_0.
     Returns (hqp, z_eigval) with hqp = Z^1/2 (H_HF + Sigma_stc - mu) Z^1/2.
     """
-    norb, _, ns, nk = h0k.shape
     i0 = int(np.argmin(np.where(omega > 0, omega, np.inf)))
-    sig0 = siggwc[:, :, :, :, i0]
+    if not np.isclose(omega[i0], np.pi / beta):
+        raise ValueError("Z/SigStc assume the lowest positive Matsubara node is pi/beta")
+    sig_pos = np.asfortranarray(siggwc[..., i0:])
 
-    sig_stc = np.zeros_like(h0k)
-    zinv = np.zeros_like(h0k)
-    for ik in range(nk):
-        for js in range(ns):
-            s = sig0[:, :, js, ik]
-            sig_stc[:, :, js, ik] = (s + s.conj().T) / 2
-            zinv[:, :, js, ik] = np.eye(norb) + 1j / (2 * omega[i0]) * (s - s.conj().T)
+    z = Z(crystal, sigmac=sig_pos, beta=beta)
+    sig_stc = SigStc(crystal, sigmac=sig_pos, beta=beta)
+    hqp = H(crystal, h0=h0k, beta=beta, mu=mu,
+            sigh=sigh, sigf=sigf, sigmac=sig_stc.k, z=z.k)
 
-    z = flatstc.Inverse(zinv)
-    eigval, eigvec = flatstc.Diagonalize(z, True)
-    z_eig = np.array([np.diag(eigval[:, :, js, ik]).real
-                      for ik in range(nk) for js in range(ns)])
-    if not ((z_eig >= 0) & (z_eig <= 1)).all():
-        raise ValueError("Z-factor eigenvalues outside [0, 1]; check the input data.")
-
-    hqp = np.zeros_like(h0k)
-    h_temp = h0k + sigh + sigf + sig_stc
-    for ik in range(nk):
-        for js in range(ns):
-            zs = eigvec[:, :, js, ik] @ (
-                np.sqrt(eigval[:, :, js, ik]) @ np.linalg.inv(eigvec[:, :, js, ik])
-            )
-            hqp[:, :, js, ik] = zs @ ((h_temp[:, :, js, ik] - np.eye(norb) * mu) @ zs)
-    return hqp, z_eig
+    z_eig = np.linalg.eigvalsh(np.moveaxis(z.k, (0, 1), (-2, -1))).ravel().real
+    return hqp.k, z_eig
 
 
 def band_on_path(fpathstc, mat_k):
@@ -103,8 +87,8 @@ def main(h5file="graphene.h5", outdir="."):
     print(f"Chemical potential mu = {mu:.6f} eV")
 
     hqp, z_eig = qp_hamiltonian(
-        fpathstc.flatstc, data["h0k"], data["sigh"], data["sigf"],
-        data["siggwc"], mu, fpathdyn.dlr.omega,
+        fpathstc.crystal, data["h0k"], data["sigh"], data["sigf"],
+        data["siggwc"], mu, fpathdyn.dlr.beta, fpathdyn.dlr.omega,
     )
     print(f"Z-factor eigenvalues: min {z_eig.min():.4f}, max {z_eig.max():.4f}")
 

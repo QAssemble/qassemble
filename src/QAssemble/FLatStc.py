@@ -1088,6 +1088,7 @@ class H(FLatStc):
         sigf: np.ndarray = None,
         sigmac: np.ndarray = None,
         z : np.ndarray = None,
+        mu: float = None,
         hdf5file: str = "glob.h5",
         group: str = None,
     ):
@@ -1113,7 +1114,11 @@ class H(FLatStc):
         # self.muold = mu
         print("Hamiltonian with Self-energy Calculation Start")
         self.CalMu0()
-        self.SearchMu()
+        if mu is None:
+            self.SearchMu()
+        else:
+            self.mu = mu
+            self.UpdateMu()
         print("Hamiltonian with Self-energy Calculation Finish")
 
     def CalMu0(self) -> np.ndarray:
@@ -1143,9 +1148,7 @@ class H(FLatStc):
                 for js in range(ns):
                     diag_vals = np.diag(eigval[:, :, js, ik])
                     if np.any((diag_vals < 0.0) | (diag_vals > 1.0)):
-                        print("Error : The z-factor was calculated incorrectly. Please rerun the code.")
-                        print(diag_vals)
-                        sys.exit()
+                        raise ValueError(f"Z-factor eigenvalues outside [0, 1]: {diag_vals}")
 
                     sqrt_diag = np.sqrt(diag_vals)
                     transform = eigvec[:, :, js, ik]
@@ -1154,6 +1157,7 @@ class H(FLatStc):
                     block = tempmat[:, :, js, ik]
                     tempmat[:, :, js, ik] = dressing @ block @ dressing
 
+        self.zmat = self.z if self.z is not None else self.ChemEmbedding(1.0)
         self.hkmu0 = np.array(tempmat, dtype=np.complex128, order="F", copy=True)
         return None
 
@@ -1164,7 +1168,7 @@ class H(FLatStc):
         ns = self.crystal.ns
         nk = len(self.crystal.kpoint)
 
-        energy = self.Diagonalize(self.hkmu0)
+        energy = self.Diagonalize(self.hkmu0 - mu * self.zmat)
 
         Ne = 0
 
@@ -1172,7 +1176,7 @@ class H(FLatStc):
             for js in range(ns):
                 for iorb in range(norb):
                     Ne += 1 / (
-                        1 + np.exp((energy[iorb, iorb, js, ik] - mu) * self.beta)
+                        1 + np.exp(energy[iorb, iorb, js, ik] * self.beta)
                     )
 
         Ne /= nk
@@ -1242,9 +1246,7 @@ class H(FLatStc):
     def UpdateMu(self) -> np.ndarray:
         """Recompute Green-function data after updating the chemical potential."""
 
-        chem = self.ChemEmbedding(self.mu)
-
-        ham = self.hkmu0 - chem
+        ham = self.hkmu0 - self.mu * self.zmat
         hamr = self.K2R(ham)
         self.k = ham
         self.r = hamr
