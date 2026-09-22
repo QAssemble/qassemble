@@ -1,3 +1,7 @@
+import re
+from pathlib import Path
+
+
 def test_core_public_imports():
     import QAssemble
     from QAssemble import (
@@ -17,7 +21,8 @@ def test_core_public_imports():
         W,
     )
 
-    assert QAssemble.__version__
+    pyproject = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text()
+    assert QAssemble.__version__ == re.search(r'^version = "([^"]+)"$', pyproject, re.M).group(1)
     for obj in (BLatStc, Crystal, DLR, G, G0, H, H0, P, Run, SigF, SigGWC, SigH, V, W):
         assert obj is not None
 

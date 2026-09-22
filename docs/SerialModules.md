@@ -62,21 +62,21 @@ This guide summarises the serial implementation that lives under `src/QAssemble/
 - `src/QAssemble/utility/DLR.py`
   Wraps the discrete Lehmann representation grids. Constructor parameters set temperature, beta, and frequency cutoffs; `FT2F`, `FF2T`, `BT2F`, and `BF2T` perform high-accuracy imaginary-time/Matsubara conversions. The `TauDLR2Uniform` family (including `TauDLR2Points`, `TauDLR2Uniform_v2`) exports non-uniform sampling onto uniform meshes when plotting. Additional methods: `TauUniform`, `MatsubaraFermionUniform`, `MatsubaraBosonUniform`, `TauUniform2DLR`, `MatsubaraDLR2Uniform`, `T2mT`, `TauF2TauB`, `TauB2TauF`.
 - `src/QAssemble/utility/Fourier.py`
-  Static methods for Fourier transforms across all lattice types. Moment extraction: `FLocDynM`, `FLatDynM`, `BLocDynM`, `BLatDynM`. Real/reciprocal conversions: `FLatStcK2R`/`R2K`, `FLatDynK2R`/`R2K`, `BLatStcK2R`/`R2K`, `BLatDynK2R`/`R2K`, `FPathStcR2K`, `FPathDynR2K`.
+  Module-level functions for Fourier transforms across all lattice types. Moment extraction: `FLocDynM`, `FLatDynM`, `BLocDynM`, `BLatDynM`. Real/reciprocal conversions: `FLatStcK2R`/`R2K`, `FLatDynK2R`/`R2K`, `BLatStcK2R`/`R2K`, `BLatDynK2R`/`R2K`, `FPathStcR2K`, `FPathDynR2K`.
 - `src/QAssemble/utility/Dyson.py`
-  Static Dyson-equation solvers for every lattice/local combination: `FLocStc`, `FLatStc`, `FLocDyn`, `FLatDyn`, `BLocStc`, `BLocDyn`, `BLatStc`, `BLatDyn`.
+  Dyson-equation solvers for every lattice/local combination: `FLocStc`, `FLatStc`, `FLocDyn`, `FLatDyn`, `BLocStc`, `BLocDyn`, `BLatStc`, `BLatDyn`.
 - `src/QAssemble/utility/Bare.py`
-  Static methods for bare propagator construction. Scalar versions: `FFreq`, `FTau`, `BFreq`, `BTau`. Matrix versions for local and lattice: `FLocFreq`, `FLatFreq`, `FLocTau`, `FLatTau`, `BLocFreq`, `BLatFreq`, `BLocTau`, `BLatTau`.
+  Functions for bare propagator construction. Scalar versions: `FFreq`, `FTau`, `BFreq`, `BTau`. Matrix versions for local and lattice: `FLocFreq`, `FLatFreq`, `FLocTau`, `FLatTau`, `BLocFreq`, `BLatFreq`, `BLocTau`, `BLatTau`.
 - `src/QAssemble/utility/Common.py`
   General numerical helpers: `MatInv` (matrix inversion), `HermitianEigenCmplx` (Hermitian diagonalisation), `SplineCmplx` / `FderivCmplx` (complex spline interpolation and derivatives), `BernoulliPolynomial`, `EulerPolynomial`, `FactorialInt`, `Ttind` (Chebyshev-node index mapping for tau grids), `Gcoeff` (high-frequency expansion coefficients), and `MinDistance`.
 - `src/QAssemble/utility/Mixing.py`
   `Mixing` class supporting linear and Pulay (DIIS) mixing for self-consistent field iterations. Callable interface with automatic history management. Maintains input and residual vectors for DIIS extrapolation with configurable history depth (`npulay`). Methods: `reset`, `_linear`, `_pulay`.
 - `src/QAssemble/utility/Embedding.py`
-  Static embedding kernels translated from `modules/Embedding.f90`. Each method embeds a correlated-subspace quantity into the full orbital space with spin-resolved projectors, `out = P A P^dagger`, where `projector` has shape `[norb, norbc, ns]`. Lattice variants broadcast the embedded local block onto all k-points. Methods cover fermionic/bosonic x local/lattice x static/dynamic combinations: `FLocStc`, `FLatStc`, `FLocDyn`, `FLatDyn`, `BLocStc`, `BLatStc`, `BLocDyn`, `BLatDyn`.
+  Embedding kernels translated from `modules/Embedding.f90`. Each method embeds a correlated-subspace quantity into the full orbital space with spin-resolved projectors, `out = P A P^dagger`, where `projector` has shape `[norb, norbc, ns]`. Lattice variants broadcast the embedded local block onto all k-points. Methods cover fermionic/bosonic x local/lattice x static/dynamic combinations: `FLocStc`, `FLatStc`, `FLocDyn`, `FLatDyn`, `BLocStc`, `BLatStc`, `BLocDyn`, `BLatDyn`.
 - `src/QAssemble/utility/Projection.py`
-  Static projection kernels translated from `modules/Projection.f90`. Each method projects a full-space quantity onto the correlated subspace with spin-resolved projectors, `out = P^dagger A P`, using the same `[norb, norbc, ns]` projector convention as `Embedding`. Lattice variants average over k-points. Methods: `FLocStc`, `FLatStc`, `FLocDyn`, `FLatDyn`, `BLocStc`, `BLatStc`, `BLocDyn`, `BLatDyn`.
+  Projection kernels translated from `modules/Projection.f90`. Each method projects a full-space quantity onto the correlated subspace with spin-resolved projectors, `out = P^dagger A P`, using the same `[norb, norbc, ns]` projector convention as `Embedding`. Lattice variants average over k-points. Methods: `FLocStc`, `FLatStc`, `FLocDyn`, `FLatDyn`, `BLocStc`, `BLatStc`, `BLocDyn`, `BLatDyn`.
 
 ## Working Tips
 - Dynamic classes (`FLatDyn`, `BLatDyn`) expect a `DLR` instance seeded with the same beta/cutoff as the solver. When adding new routines, pass the `DLR` object rather than re-instantiating it.
 - Real/reciprocal conversions apply phase factors derived from `Crystal.basisf`. Preserve these factors if you alter the basis ordering, otherwise the transforms will silently break hermiticity.
-- Many methods previously called into the Fortran extension `QAFort`. The Python fallbacks in `utility/Fourier.py` and `utility/Dyson.py` are feature-complete but slower; profile large runs if you disable the compiled modules.
+- Earlier versions called the compiled `QAFort` extension for some kernels; the current implementation runs through the Python functions in `utility/Fourier.py` and `utility/Dyson.py`.
