@@ -181,11 +181,42 @@ def test_run_ctqmc_propagates_solver_exit_code(monkeypatch, tmp_path):
         "QAssemble.CTQMC.subprocess.call", lambda *args, **kwargs: 7
     )
     ctqmc = object.__new__(CTQMC)
+    ctqmc.control = {}
 
     with pytest.raises(SystemExit) as exc_info:
         ctqmc.RunCTQMC()
 
     assert exc_info.value.code == 7
+
+
+@pytest.mark.parametrize(
+    ("control", "expected"),
+    [({}, (64, 64)), ({"CTQMCMPIRanks": 32, "MeasureMPIRanks": 16}, (32, 16))],
+)
+def test_solver_commands_use_independent_mpi_ranks(
+    monkeypatch, tmp_path, caplog, control, expected
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("QAssemble", str(tmp_path))
+    commands = []
+
+    def fake_call(command, **kwargs):
+        commands.append(command)
+        return 0
+
+    monkeypatch.setattr("QAssemble.CTQMC.subprocess.call", fake_call)
+    ctqmc = object.__new__(CTQMC)
+    ctqmc.control = control
+    with caplog.at_level("INFO", logger="QAssemble"):
+        ctqmc.RunCTQMC()
+        ctqmc.RunMeasure()
+
+    assert commands == [
+        f"mpirun -np {expected[0]} {tmp_path}/CTQMC/bin/CTQMC params",
+        f"mpirun -np {expected[1]} {tmp_path}/CTQMC/bin/EVALSIM params",
+    ]
+    assert f"Running CTQMC with {expected[0]} MPI ranks" in caplog.text
+    assert f"Running EVALSIM with {expected[1]} MPI ranks" in caplog.text
 
 
 def test_ctqmc_finalize_only_saves_outputs():

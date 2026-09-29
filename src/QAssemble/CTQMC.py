@@ -653,8 +653,9 @@ class CTQMC(object):
             sys.exit()
 
         ctqmc_path = os.path.join(os.path.expanduser(qassemble_path), "CTQMC", "bin", "CTQMC")
-        # run_cmd = ["mpirun", "-np", "4", ctqmc_path, "params"]
-        run_cmd = "mpirun -np 64 " + ctqmc_path + " params"
+        ranks = self._control_int('CTQMCMPIRanks', default=64)
+        run_cmd = f"mpirun -np {ranks} {ctqmc_path} params"
+        logger.info("Running CTQMC with %d MPI ranks", ranks)
 
         with open('./ctqmc.out', 'w') as logfile, open('./ctqmc.err', 'w') as errfile:
             ret = subprocess.call(run_cmd, stdout=logfile, stderr=errfile, shell=True)
@@ -672,8 +673,9 @@ class CTQMC(object):
             sys.exit()
 
         evalsim_path = os.path.join(os.path.expanduser(qassemble_path), "CTQMC", "bin", "EVALSIM")
-        # run_cmd = ["mpirun", "-np", "4", evalsim_path, "params"]
-        run_cmd = "mpirun -np 64 " + evalsim_path + " params"
+        ranks = self._control_int('MeasureMPIRanks', default=64)
+        run_cmd = f"mpirun -np {ranks} {evalsim_path} params"
+        logger.info("Running EVALSIM with %d MPI ranks", ranks)
 
         with open('./evalsim.out', 'w') as logfile, open('./evalsim.err', 'w') as errfile :
             ret = subprocess.call(run_cmd, stdout=logfile, stderr=errfile, shell=True)

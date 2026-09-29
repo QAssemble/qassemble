@@ -236,6 +236,11 @@ class Run:
         control["run"]["thermalisation_time"] = control["run"][
             "ThermalisationTime"
         ]
+        for key in ("CTQMCMPIRanks", "MeasureMPIRanks"):
+            value = ini.get(key, 64)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{key} must be a positive integer")
+            control["run"][key] = value
 
         # ---- Legacy / removed key deprecation warnings -----------------
         # Keys here are dropped — they are NOT copied into control['run'].
@@ -404,7 +409,9 @@ class Run:
 
         for key in d2.keys():
             for key2 in d2[key].keys():
-                if key2 in ("Method", "Mode"):
+                if key2 in ("Method", "Mode") or (
+                    key == "Control" and key2 in ("CTQMCMPIRanks", "MeasureMPIRanks")
+                ):
                     continue
                 elif key not in d1 or key2 not in d1[key] or d1[key][key2] == d2[key][key2]:
                     check.append(1)
