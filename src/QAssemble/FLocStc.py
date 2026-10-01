@@ -19,6 +19,26 @@ from .utility.Mixing import Mixing as MixingKernel
 
 logger = logging.getLogger("QAssemble")
 
+def _local_fock(projector, key, occ, vloc):
+    """Contract bare V with same-spin density in the local pair basis."""
+    norbc, ns = projector.fprojector[key].shape[1:]
+    occ = np.asarray(occ, dtype=np.complex128)
+    vloc = np.asarray(vloc, dtype=np.complex128)
+    norb = vloc.shape[0]
+    if occ.shape != (norbc, norbc, ns):
+        raise ValueError("Local Fock occupation shape does not match projector")
+    if vloc.shape != (norb, norb, ns, ns):
+        raise ValueError("Local Fock interaction shape does not match projector")
+    f = np.zeros_like(occ, order="F")
+    spins = np.arange(ns)
+    for iorb in range(norb):
+        a, b = projector.ProbBorb2FPair(key, iorb)
+        for jorb in range(norb):
+            c, d = projector.ProbBorb2FPair(key, jorb)
+            f[a, d, :] -= occ[b, c, :] * vloc[iorb, jorb, spins, spins]
+    return f
+
+
 class FLocStc(object):
     mixer = MixingKernel()
 
@@ -600,35 +620,7 @@ class SigFLoc(FLocStc):
         self.Cal()
 
     def Cal(self):
-
-        key = self.key
-        proj = self.projector.fprojector[key]
-        norbc = proj.shape[1]
-        ns = proj.shape[2]
-        v = self.vloc
-        norb = v.shape[0]
-
-        f = np.zeros((norbc, norbc, ns), dtype=np.complex128, order='F')
-
-        for ind1 in range(norb * ns):
-            nn1 = [0] * 2
-            ind1, [iorb, js] = Common.Indexing(norb * ns, 2, [norb, ns], 0, ind1, nn1)
-
-            iorbc1, iorbc4 = self.projector.ProbBorb2FPair(key, iorb)
-
-            for ind2 in range(norb * ns):
-                nn2 = [0] * 2
-                ind2, [jorb, ks] = Common.Indexing(norb * ns, 2, [norb, ns], 0, ind2, nn2)
-
-                iorbc3, iorbc2 = self.projector.ProbBorb2FPair(key, jorb)
-
-                if js == ks:
-                    f[iorbc1, iorbc2, js] += (
-                        -self.occ[iorbc4, iorbc3, js] * v[iorb, jorb, js, ks]
-                    )
-
-        self.floc = f
-
+        self.floc = _local_fock(self.projector, self.key, self.occ, self.vloc)
         return None
 
     def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
@@ -664,6 +656,8 @@ class SigFImp(FLocStc):
         hdf5file : str = 'glob.h5',
         group : str = None,
         iteration: int = None,
+        occ : np.ndarray = None,
+        vloc : np.ndarray = None,
     ):
 
         super().__init__(crystal, projector)
@@ -671,6 +665,10 @@ class SigFImp(FLocStc):
         self.key = self.ResolveProblemKey(key)
         self.sigma_in = sigma
         self.sigh = sigh
+        if occ is not None and vloc is None:
+            raise ValueError("Independent impurity Fock requires bare vloc")
+        self.occ = occ
+        self.vloc = vloc
         self.control = control if control is not None else {}
         self.hf = None
         self.s = None
@@ -704,7 +702,12 @@ class SigFImp(FLocStc):
         else:
             self.hf = np.asfortranarray(self.sigma_in, dtype=np.complex128)
 
-        if self.sigh is None:
+        if getattr(self, "occ", None) is not None:
+            self.s = np.asfortranarray(
+                _local_fock(self.projector, self.key, self.occ, self.vloc).real,
+                dtype=np.complex128,
+            )
+        elif self.sigh is None:
             self.s = np.array(self.hf, dtype=np.complex128, copy=True, order='F')
         else:
             sigh = self.sigh.s if hasattr(self.sigh, "s") else self.sigh
@@ -713,23 +716,19 @@ class SigFImp(FLocStc):
         return None
 
     def Mixing(self) -> None:
-        """Re-derive s = hf - sigh instead of mixing independently.
-
-        SigF is not an independent quantity: Cal defines it as the complement
-        of SigH with respect to the solver's static moment hf.  Mixing it with
-        its own history breaks SigH + SigF = hf by one iteration of lag, in
-        both the real and imaginary parts.  That identity is required because
-        SigCImp subtracts the *unmixed* hf from the dynamic self-energy
-        (FLocDyn.py:1212) and the embedding re-adds SigH + SigF, so the
-        reconstruction of the solver self-energy is correct only while it
-        holds.
-
-        The reference implementation never splits the pair: it carries a single
-        combined Shf (FullGWEDMFT bin/classes/cimpurity.py:322,408) and mixes
-        only the dynamic self-energy (bin/comfull.py:1451).  Damping still acts
-        on this channel through the mixed SigH that Cal subtracts.
-        """
-        self.Cal()
+        """Mix diagrammatic Fock; preserve the legacy HF complement otherwise."""
+        if getattr(self, "occ", None) is None:
+            self.Cal()
+        else:
+            self.s = super().Mixing(
+                iter=self.iteration,
+                mix=float(self.control["mix"]),
+                component=self.component,
+                value=self.s,
+                method=self.control["mixing_method"],
+                npulay=int(self.control["npulay"]),
+                key=self.key,
+            )
 
     def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):
         if fn is None:

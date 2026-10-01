@@ -77,7 +77,7 @@ class IO:
             "global": ("sigh", "sigf", "siggwc", "pol"),
             **{str(key): (
                 "sigfdc", "siggwcdc", "pdc", "hyb", "bweiss",
-                "sighimp", "sigimp", "pimp",
+                "sighimp", "sigfimp", "sigimp", "pimp",
             ) for key in keys},
         }
         actions = {}

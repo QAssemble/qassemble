@@ -775,10 +775,15 @@ class CTQMC(object):
                     group=self.group,
                     iteration=iter,
                 )
-                # SigH is mixed first; SigF is then constructed from the *mixed*
-                # SigH so that SigH + SigF == hf holds exactly.  SigFImp.Mixing()
-                # is a re-derivation, not an independent mix -- see its docstring.
+                # EDMFT retains the HF complement. GW+EDMFT contracts bare V
+                # with the DLR impurity density and mixes Fock independently.
                 self.sighimp.Mixing()
+                fock_inputs = {}
+                if self.control.get("method") == "gw+edmft":
+                    fock_inputs = {
+                        "occ": self.gimp.occ,
+                        "vloc": self.bweiss.vloc.vproj[key],
+                    }
                 self.sigfimp = SigFImp(
                     crystal=self.crystal,
                     projector=self.projector,
@@ -789,6 +794,7 @@ class CTQMC(object):
                     hdf5file=self.hdf5file,
                     group=self.group,
                     iteration=iter,
+                    **fock_inputs,
                 )
                 self.sigfimp.Mixing()
                 self.sigimp = SigCImp(
