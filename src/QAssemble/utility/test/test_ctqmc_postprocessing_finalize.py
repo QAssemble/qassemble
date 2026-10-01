@@ -57,7 +57,8 @@ def test_ctqmc_keeps_run_control_for_impurity_objects(monkeypatch, tmp_path):
     assert os.getcwd() == str(tmp_path / "ctqmc")
 
 
-def test_preprocessing_mixes_inputs_before_writing_json(monkeypatch, tmp_path):
+@pytest.mark.parametrize("static_fit", [False, True])
+def test_preprocessing_mixes_inputs_before_writing_json(monkeypatch, tmp_path, static_fit):
     monkeypatch.chdir(tmp_path)
     events = []
     control = {"mix": 0.25, "mixing_method": "linear", "npulay": 3}
@@ -68,7 +69,8 @@ def test_preprocessing_mixes_inputs_before_writing_json(monkeypatch, tmp_path):
     ctqmc.crystal = SimpleNamespace(soc=False, ns=1)
     ctqmc.projector = _fake_projector()
     ctqmc.dlr = SimpleNamespace(
-        beta=10.0,
+        beta=10.0, cutoff=8.0,
+        nu=np.asarray([-22., 0., 22.]), omega=np.asarray([-15., 15.]),
         MatsubaraFermionUniform=lambda: np.asarray([1.0, 3.0, 5.0, 7.0]),
         MatsubaraBosonUniform=lambda: np.asarray([0.0, 2.0]),
     )
@@ -86,6 +88,8 @@ def test_preprocessing_mixes_inputs_before_writing_json(monkeypatch, tmp_path):
     )
     ctqmc.bweiss = SimpleNamespace(
         cf=np.asarray([1.0]),
+        static_fit=static_fit,
+        Save=lambda name: events.append(("bweiss_save", name)),
         vloc=SimpleNamespace(GetUijklComCTQMC=lambda key: np.zeros((1, 1, 1, 1))),
         Mixing=lambda control=None: events.append(("bweiss_mix", control)),
         _write_json_pair=lambda stem, iter, key, payload: events.append(
@@ -98,6 +102,15 @@ def test_preprocessing_mixes_inputs_before_writing_json(monkeypatch, tmp_path):
     ctqmc.ctqmc_dir = str(tmp_path)
 
     ctqmc.PreProcessing(iter=2)
+    import json
+    with open(tmp_path / "impurity_2_1" / "params.json") as stream:
+        partition = json.load(stream)["partition"]
+    assert partition["green matsubara cutoff"] == 0.08
+    assert partition["susceptibility cutoff"] == 0.16
+    spacing = 2*np.pi/ctqmc.dlr.beta
+    n_tail = int(partition["susceptibility tail"]/spacing)
+    assert (n_tail-1)*spacing >= np.max(np.abs(ctqmc.dlr.nu))
+    assert partition["susceptibility tail"] >= 2*ctqmc.dlr.cutoff
 
     # Both inputs are mixed strictly before their json files are written, and
     # each Mixing receives the run control (hyb additionally the iteration).
@@ -105,6 +118,7 @@ def test_preprocessing_mixes_inputs_before_writing_json(monkeypatch, tmp_path):
         ("fweiss_mix", 2, control),
         ("write", "hyb", 2, "1"),
         ("bweiss_mix", control),
+        *([("bweiss_save", "bweiss")] if static_fit else []),
         ("write", "dyn", 2, "1"),
     ]
 
@@ -120,7 +134,8 @@ def test_preprocessing_static_bath_skips_bweiss_mixing(monkeypatch, tmp_path):
     ctqmc.crystal = SimpleNamespace(soc=False, ns=1)
     ctqmc.projector = _fake_projector()
     ctqmc.dlr = SimpleNamespace(
-        beta=10.0,
+        beta=10.0, cutoff=8.0,
+        nu=np.asarray([-22., 0., 22.]), omega=np.asarray([-15., 15.]),
         MatsubaraFermionUniform=lambda: np.asarray([1.0, 3.0, 5.0, 7.0]),
         MatsubaraBosonUniform=lambda: np.asarray([0.0, 2.0]),
     )

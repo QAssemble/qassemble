@@ -539,6 +539,8 @@ class CTQMC(object):
             if self._use_dyn():
                 logger.info('*** mix dynamic interaction input ***')
                 self.bweiss.Mixing(control=self.control)
+                if getattr(self.bweiss, "static_fit", False):
+                    self.bweiss.Save("bweiss")
 
                 logger.info('*** write dyn.json file ***')
                 self.bweiss._write_json_pair('dyn', iter, key, self.bweiss._as_dyn_dict(key))
@@ -554,10 +556,8 @@ class CTQMC(object):
                     params["hloc"]['one body'] = Eimp_final.tolist()
                     params["hloc"]["two body"] = self.bweiss.vloc.GetUijklComCTQMC(key).tolist()
 
-                    omega_uniform = self.dlr.MatsubaraFermionUniform()
-                    nu_uniform = self.dlr.MatsubaraBosonUniform()
-                    green_cutoff = float(omega_uniform[-1])
-                    susc_cutoff = float(nu_uniform[-1])
+                    green_cutoff = float(self.dlr.cutoff)
+                    susc_cutoff = float(self.dlr.cutoff)
 
                     params["partition"]={}
 
@@ -569,9 +569,13 @@ class CTQMC(object):
                     params["partition"]["quantum number susceptibility"] = True
                     params["partition"]["susceptibility cutoff"] = susc_cutoff / 50
                     # measured up to susc_cutoff/50; EVALSIM fills the rest with the
-                    # analytic -M/(nu^2+alpha) tail. 2x the grid maximum guarantees the
-                    # output is longer than MatsubaraBosonUniform(); Chi truncates on read.
-                    params["partition"]["susceptibility tail"] = 2 * susc_cutoff
+                    # analytic -M/(nu^2+alpha) tail. Cover both the cutoff and DLR
+                    # nodes; Chi truncates the output to the solver uniform grid.
+                    spacing = 2 * np.pi / self.dlr.beta
+                    required = max(float(np.max(np.abs(self.dlr.nu))), float(np.max(np.abs(self.dlr.omega))))
+                    # EVALSIM emits indices 0..nTail-1, so include one more point.
+                    dlr_tail = np.nextafter(spacing * (np.ceil(required / spacing) + 1), np.inf)
+                    params["partition"]["susceptibility tail"] = max(2 * susc_cutoff, dlr_tail)
                     params["partition"]["quantum numbers"]={}
                     tempmat = np.ones(Eimp_final.shape[0])
                     params["partition"]["quantum numbers"]["N"]=tempmat.tolist()

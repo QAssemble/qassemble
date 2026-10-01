@@ -85,6 +85,7 @@ class BLocDyn(object):
                 f"frequency dimension {nfreq} does not match omega length {omega.shape[0]}"
             )
 
+        mat, omega = self.dlr._ExtendUniformTail(mat, omega, 1, oddzero=True)
         if omega.ndim == 1 and omega.size > 0 and np.all(omega >= 0.0):
             istart = 1 if np.isclose(omega[0], 0.0) else 0
             if hermitian:
@@ -528,6 +529,9 @@ class BLocDyn(object):
         fit_tol : float = 1.0e-6,
         tail_tol : float = 1.0e-1,
         fallback_matrix : np.ndarray | None = None,
+        fallback_static : np.ndarray = None,
+        tail_points : int = None,
+        tail_log_spaced : bool = None,
     ) -> np.ndarray:
         """Project local bosonic channels onto real pole-weight causal QP via
         CausalBosonProjector.
@@ -610,16 +614,35 @@ class BLocDyn(object):
         # then pass [high, moment...] explicitly to the projector.  The fit
         # sigmas drive the elastic moment penalties so noisy moment estimates
         # can never make the QP infeasible.
-        moment, high, sigma = self.Moment(
-            arr, grid=grid, oddzero=oddzero, highzero=highzero, return_sigma=True
-        )
         raw = arr
 
         # For uniform input, interpolate the data onto the DLR basis.  The
         # projection grid is always the DLR grid; uniform output is returned on
         # the DLR grid.
+        moment, high, sigma = self.Moment(
+            arr, grid=grid, oddzero=oddzero, highzero=highzero,
+            tail_points=tail_points, tail_log_spaced=tail_log_spaced, return_sigma=True,
+        )
+        dynamic = arr - high[..., None]
+        if not highzero:
+            # An instantaneous term has exactly zero dynamic weight. Canonicalize
+            # roundoff before the ill-conditioned DLR LU can amplify it in tau.
+            constant = np.max(np.abs(dynamic), axis=-1) <= (
+                32 * np.finfo(float).eps * np.maximum(np.max(np.abs(arr), axis=-1), np.finfo(float).tiny)
+            )
+            powers = np.maximum(np.max(np.abs(nu)), 1.0)**np.arange(1, 4)
+            constant &= np.max(np.abs(moment) / powers, axis=-1) <= (
+                32 * np.finfo(float).eps * np.maximum(np.max(np.abs(arr), axis=-1), np.finfo(float).tiny)
+            )
+            dynamic = np.where(constant[..., None], 0.0, dynamic)
+            moment = np.where(constant[..., None], 0.0, moment)
+            sigma = np.where(constant[..., None], 0.0, sigma)
         if grid == "uniform":
-            arr = self.dlr.MatsubaraUniformGrid2DLR(arr, omega=nu, sign=1)
+            tail = np.concatenate((np.zeros_like(high)[..., None], moment), axis=-1)
+            arr = self.dlr.MatsubaraUniformGrid2DLR(
+                dynamic, omega=nu, sign=1, tail=tail,
+                highzero=True, oddzero=oddzero,
+            ) + high[..., None]
 
         proj_nu = np.asarray(self.dlr.nu, dtype=np.float64)
         projector = CausalBosonProjector(
@@ -636,6 +659,7 @@ class BLocDyn(object):
             raise_on_failure=True,
         )
         out = np.array(arr, dtype=np.complex128, copy=True, order='F')
+        out_static = high.copy()
         for is_ in range(ns):
             for iorb in range(norb):
                 # Moment() Hermitian-symmetrizes, so c0 is real on the
@@ -660,6 +684,12 @@ class BLocDyn(object):
                     ),
                 ) + c0
                 out[iorb, iorb, is_, is_, :] = projected
+                if fallback_static is not None and fallback_matrix is not None and np.allclose(
+                    projected, fallback_matrix[iorb, iorb, is_, is_, :],
+                    rtol=64 * np.finfo(float).eps, atol=0.0,
+                ):
+                    out_static[iorb, iorb, is_, is_] = fallback_static[iorb, iorb, is_, is_]
+
             diagonal_uniform = None
             if grid == "uniform":
                 diagonal_uniform = [
@@ -699,6 +729,7 @@ class BLocDyn(object):
                     xmoment, xhigh, xsigma = self.Moment(
                         xarr, grid=grid, oddzero=oddzero, highzero=highzero,
                         return_sigma=True,
+                        tail_points=tail_points, tail_log_spaced=tail_log_spaced,
                     )
                     c0x = complex(xhigh[0, 1, 0, 0])
                     tail_coeffs = np.empty(4, dtype=float)
@@ -731,17 +762,61 @@ class BLocDyn(object):
                     projected = np.real(projected).astype(np.complex128)
                     out[iorb, jorb, is_, is_, :] = projected
                     out[jorb, iorb, is_, is_, :] = np.conj(projected)
+                    x_static = c0x
+                    if fallback_static is not None and x_fallback is not None and np.allclose(
+                        x_projected, x_fallback + c0x,
+                        rtol=64 * np.finfo(float).eps, atol=0.0,
+                    ):
+                        x_static = (fallback_static[iorb, iorb, is_, is_]
+                                    + fallback_static[iorb, jorb, is_, is_]
+                                    + fallback_static[jorb, iorb, is_, is_]
+                                    + fallback_static[jorb, jorb, is_, is_])
+                    selected_static = 0.5 * np.real(
+                        x_static - out_static[iorb, iorb, is_, is_]
+                        - out_static[jorb, jorb, is_, is_]
+                    )
+                    out_static[iorb, jorb, is_, is_] = selected_static
+                    out_static[jorb, iorb, is_, is_] = selected_static
 
+
+        self._projection_cstatic = np.asfortranarray(out_static)
+        # Diagnostic c2 follows Full's c2/nu^2 convention, not M2/(i nu)^2.
+        self._projection_c2 = np.asfortranarray(-moment[..., 1])
         return np.asfortranarray(out)
+
+    def _StaticFitProjection(self, cf, stem):
+        self.raw_uniform = np.asfortranarray(self.dlr.MatsubaraDLR2UniformGrid(cf, sign=1))
+        projected = self.CausalProjection(
+            self.raw_uniform, grid="uniform", oddzero=True, highzero=False,
+            tail_points=5, tail_log_spaced=False, coefficient_sign=-1, constraint_tol="auto",
+            fallback_matrix=self.ReadBrdPrev(stem, cf.shape),
+            fallback_static=self.ReadBrdPrev(stem + "_cstatic", cf.shape[:-1]),
+        )
+        self.cstatic = self._projection_cstatic
+        self.c2 = self._projection_c2
+        self.projection_delta_abs = float(np.max(np.abs(projected - cf)))
+        self.projection_delta_rel = float(np.linalg.norm(projected - cf) / max(np.linalg.norm(cf), np.finfo(float).eps))
+        self.WriteBrdPrev(stem, projected)
+        self.WriteBrdPrev(stem + "_cstatic", self.cstatic)
+        return projected
+
+    def _SaveStaticFitDiagnostics(self, group, name):
+        for suffix, value in (
+            ("raw_uniform", self.raw_uniform), ("cstatic", self.cstatic), ("c2", self.c2),
+            ("projection_delta_abs", self.projection_delta_abs),
+            ("projection_delta_rel", self.projection_delta_rel),
+        ):
+            IO.CreateDataset(group, name + "_" + suffix, value)
 
     def Moment(
         self,
         bf: np.ndarray,
         oddzero: bool = False,
         highzero: bool = False,
-        tail_points: int = 5,
+        tail_points: int = None,
         grid: str = "dlr",
         return_sigma: bool = False,
+        tail_log_spaced: bool = None,
     ) -> tuple:
         """Physical high-frequency moments of a local bosonic function.
 
@@ -769,7 +844,7 @@ class BLocDyn(object):
             raise ValueError(
                 f"frequency dimension {arr.shape[4]} does not match {grid} nu size {nu.size}"
             )
-        if arr.shape[4] < tail_points:
+        if tail_points is not None and arr.shape[4] < tail_points:
             raise ValueError(
                 f"Need at least {tail_points} frequency points to build "
                 "high-frequency moments."
@@ -780,9 +855,10 @@ class BLocDyn(object):
         moment = np.zeros((norb, norb, ns, ns, 3), dtype=np.complex128, order="F")
         high = np.zeros((norb, norb, ns, ns), dtype=np.complex128, order="F")
         sigma = np.zeros((norb, norb, ns, ns, 4), dtype=float, order="F")
-        log_spaced = grid == "uniform"
-        pts = _LOG_TAIL_POINTS if log_spaced else tail_points
+        log_spaced = grid == "uniform" if tail_log_spaced is None else tail_log_spaced
+        pts = (_LOG_TAIL_POINTS if log_spaced else 5) if tail_points is None else tail_points
         idx = Fourier._tail_fit_indices(nu, pts, log_spaced)
+        idx = idx[nu[idx] != 0]
         z = 1j * nu[idx]
         columns = [np.ones_like(z), 1.0 / z, 1.0 / z**2, 1.0 / z**3]
         active = [
@@ -1283,11 +1359,13 @@ class BWeiss(BLocDyn):
 
     def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key,
                  vloc : VLoc, w = None, p = None,
-                 hdf5file : str = None, group : str = None, iteration: int = None):
+                 hdf5file : str = None, group : str = None, iteration: int = None, static_fit: bool = False):
 
         super().__init__(crystal, dlr, projector)
 
         self.key = self.ResolveProblemKey(key)
+        self.static_fit = static_fit
+        self.cstatic = None
         self.vloc = vloc
         if hasattr(self.vloc, "projector") and self.vloc.projector is None:
             self.vloc.projector = projector
@@ -1502,15 +1580,9 @@ class BWeiss(BLocDyn):
                     self.cf = np.array(previous_cf, copy=True, order="F")
                     self.f = np.asfortranarray(self.cf + vdyn)
                     self.denominator_fallback = True
-                    self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(
-                        self.f, sign=1
-                    )
-                    self.cf_uniform = self.dlr.MatsubaraDLR2UniformGrid(
-                        self.cf, sign=1
-                    )
-                    self.t = self.F2T(self.f)
-                    self.ct = self.F2T(self.cf)
-                    self._build_solver_consistent()
+                    if getattr(self, "static_fit", False):
+                        self.cstatic = self.ReadBrdPrev("bweiss_cstatic", self.cf.shape[:-1])
+                    self._RebuildBath()
                     return None
 
                 warnings.warn(
@@ -1544,7 +1616,7 @@ class BWeiss(BLocDyn):
             # "auto" acceptance tolerance mirrors Hyb.Cal: the DLR<->
             # uniform interpolation noise floor exceeds the strict 1e-8
             # default on noisy CTQMC-derived data.
-            self.cf = self.CausalProjection(
+            self.cf = self._StaticFitProjection(raw_cf, "bweiss") if getattr(self, "static_fit", False) else self.CausalProjection(
                 cf_uniform_raw, grid="uniform",
                 coefficient_sign=-1, oddzero=True, highzero=True,
                 constraint_tol="auto",
@@ -1570,15 +1642,25 @@ class BWeiss(BLocDyn):
             / max(float(np.linalg.norm(raw_cf)), np.finfo(float).eps)
         )
         self.f = np.asfortranarray(self.cf + vdyn)
-        self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
-        self.cf_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
-
-        self.t = self.F2T(self.f)
-        self.ct = self.F2T(self.cf)
-
-        self._build_solver_consistent()
+        self._RebuildBath()
 
         return None
+
+    def _RebuildBath(self):
+        if getattr(self, "static_fit", False):
+            if self.cstatic is None:
+                self.cstatic = np.zeros(self.cf.shape[:-1], dtype=complex)
+            dynamic = self.cf - self.cstatic[..., None]
+            self.cf_uniform = self.dlr.MatsubaraDLR2UniformGrid(dynamic, sign=1) + self.cstatic[..., None]
+            self.f_uniform = self.cf_uniform + self.vloc.vproj[self.key][..., None]
+            self.ct = self.F2T(dynamic)
+            self.t = self.ct.copy()
+        else:
+            self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
+            self.cf_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
+            self.t = self.F2T(self.f)
+            self.ct = self.F2T(self.cf)
+        self._build_solver_consistent()
 
     def Mixing(self, control : dict) -> None:
         """Mix the correlated bath entering dyn.json against the previous
@@ -1602,7 +1684,7 @@ class BWeiss(BLocDyn):
             npulay=int(control["npulay"]),
             key=self.key,
         )
-        self.cf = self.CausalProjection(
+        self.cf = self._StaticFitProjection(self.cf, "bweiss") if getattr(self, "static_fit", False) else self.CausalProjection(
             self.cf, grid="dlr", coefficient_sign=-1,
             oddzero=True, highzero=True, constraint_tol="auto",
             fallback_matrix=self.ReadBrdPrev("bweiss", self.cf.shape),
@@ -1614,12 +1696,7 @@ class BWeiss(BLocDyn):
         v = np.asarray(self.vloc.vproj[self.key], dtype=np.complex128)
         vdyn = np.broadcast_to(v[..., np.newaxis], self.cf.shape)
         self.f = np.asfortranarray(self.cf + vdyn)
-        self.f_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
-        self.cf_uniform = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
-        self.t = self.F2T(self.f)
-        self.ct = self.F2T(self.cf)
-
-        self._build_solver_consistent()
+        self._RebuildBath()
 
         return None
 
@@ -1646,6 +1723,8 @@ class BWeiss(BLocDyn):
                 IO.CreateDataset(bweiss, fn_write + '_correlated', self.cf, dtype=complex)
                 IO.CreateDataset(bweiss, fn_write + '_uniform', self.f_uniform, dtype=complex)
                 IO.CreateDataset(bweiss, fn_write + '_correlated_uniform', self.cf_uniform, dtype=complex)
+                if getattr(self, "static_fit", False) and hasattr(self, "raw_uniform"):
+                    self._SaveStaticFitDiagnostics(bweiss, fn_write)
                 diagnostics = {
                     "denominator_smin": getattr(
                         self, "denominator_smin", np.nan
@@ -1837,10 +1916,12 @@ class WLoc(BLocDyn):
 
     def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key,
                  wlat : np.ndarray = None, vloc : np.ndarray = None,
-                 hdf5file : str = None, group : str = None, iteration: int = None):
+                 hdf5file : str = None, group : str = None, iteration: int = None, causal: bool = False):
 
         super().__init__(crystal, dlr, projector)
 
+        self.causal = causal
+        self.cstatic = None
         self.key = self.ResolveProblemKey(key)
 
         ns = self.crystal.ns
@@ -1884,8 +1965,16 @@ class WLoc(BLocDyn):
             )
             self.cf = np.asfortranarray(self.f - vdyn)
 
-        self.t = self.F2T(self.f)
-        self.ct = None if self.cf is None else self.F2T(self.cf)
+        if self.causal:
+            if self.cf is None:
+                raise ValueError("WLoc causal projection requires bare vloc")
+            self.cf = self._StaticFitProjection(self.cf, "wloc")
+            self.f = np.asfortranarray(self.cf + vdyn)
+            self.ct = self.F2T(self.cf - self.cstatic[..., None])
+            self.t = self.ct.copy()
+        else:
+            self.t = self.F2T(self.f)
+            self.ct = None if self.cf is None else self.F2T(self.cf)
 
         return None
 
@@ -1904,6 +1993,8 @@ class WLoc(BLocDyn):
                 IO.CreateDataset(wloc, fn_write, obj, dtype=complex)
             else:
                 IO.CreateDataset(wloc, fn_write, self.f, dtype=complex)
+                if self.causal:
+                    self._SaveStaticFitDiagnostics(wloc, fn_write)
 
         return None
 

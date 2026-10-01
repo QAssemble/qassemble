@@ -14,6 +14,7 @@ from .FLatDyn import *
 from .FLatStc import *
 from .FLocDyn import *
 from .FLocStc import *
+from .FLocStc import _local_fock
 from .BLatDyn import *
 from .BLatStc import *
 from .BLocDyn import *
@@ -962,14 +963,14 @@ class CorrelationFunction(object):
         mode = self.control["run"].get("mode", "FromScratch")
         if mode in ("Auto", "Restart") and os.path.exists(hdf5file):
             with h5py.File(hdf5file, "r") as handle:
-                if group in handle and handle[group].attrs.get("static_convention") != 2:
+                if group in handle and handle[group].attrs.get("static_convention") != 3:
                     raise RuntimeError(
                         "GW+EDMFT previous static convention checkpoint: fresh start "
-                        "required with a new output prefix (static_convention=2). "
+                        "required with a new output prefix (static_convention=3). "
                         "이전 규약 checkpoint, fresh start 필요."
                     )
         with h5py.File(hdf5file, "a") as handle:
-            handle.require_group(group).attrs["static_convention"] = 2
+            handle.require_group(group).attrs["static_convention"] = 3
         resume = (IO.LastCompleteIteration(hdf5file, group, problem_keys, itermax)
                   if mode in ("Auto", "Restart") else 0)
         if mode in ("Auto", "Restart"):
@@ -981,6 +982,29 @@ class CorrelationFunction(object):
         self.vbare.vloc.projector = projector
         if hasattr(self.vbare.vloc, "BuildProjection"):
             self.vbare.vloc.BuildProjection(projector)
+
+        if mode in ("Auto", "Restart"):
+            # A torn next iteration may have overwritten both fallback caches.
+            # Restore the dynamic/static pair before the first causal WLoc.
+            with h5py.File(hdf5file, "a") as handle:
+                for key in problem_keys:
+                    for subgroup, stem, suffix in (
+                        ("WLoc", "wloc", ""),
+                        ("BWeiss", "bweiss", "_correlated"),
+                    ):
+                        cache = IO.Group(handle, group, subgroup)
+                        snapshot = f"{stem}.{resume}.{key}"
+                        names = (f"{stem}_brd_prev.{key}", f"{stem}_cstatic_brd_prev.{key}")
+                        if resume and snapshot + suffix in cache and snapshot + "_cstatic" in cache:
+                            value = cache[snapshot + suffix][()]
+                            if stem == "wloc":
+                                value = value - self.vbare.vloc.vproj[key][..., None]
+                            IO.CreateDataset(cache, names[0], value)
+                            IO.CreateDataset(cache, names[1], cache[snapshot + "_cstatic"][()])
+                        else:
+                            for name in names:
+                                if name in cache:
+                                    del cache[name]
 
         mix = self.control["run"]["mix"]
         mixing_method = self.control["run"]["mixing_method"]
@@ -1044,6 +1068,7 @@ class CorrelationFunction(object):
                 hdf5file=hdf5file,
                 group=group,
                 iteration=resume,
+                causal=True,
             )
             wloc.Save("wloc")
             wloc_by_key[key] = wloc
@@ -1117,6 +1142,13 @@ class CorrelationFunction(object):
                     method=mixing_method,
                     npulay=npulay,
                 )
+                cstatic = getattr(wloc_by_key[key], "cstatic", None)
+                if cstatic is not None:
+                    static_dc = _local_fock(projector, key, gloc_by_key[key].occ, cstatic)
+                    gw_loc_result.siggwc.f = gw_loc_result.siggwc.f + static_dc[..., None]
+                    gw_loc_result.siggwc.Save("siggwcloc_static", obj=static_dc)
+                    if iteration == 1 or iteration % 50 == 0:
+                        gw_loc_result.siggwc.Save("siggwcloc.f")
                 gw_loc_result.siggwc.f = gw_loc_result.siggwc.Mixing(
                     iter=iteration,
                     mix=mix,
@@ -1231,6 +1263,7 @@ class CorrelationFunction(object):
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iteration,
+                    causal=True,
                 )
                 wloc.Save("wloc")
                 gloc_next_by_key[key] = gloc
@@ -1293,6 +1326,7 @@ class CorrelationFunction(object):
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iteration,
+                    static_fit=True,
                 )
                 bweiss.Save("bweiss")
                 impurity_result = ImpurityAction(

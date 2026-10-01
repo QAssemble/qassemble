@@ -613,7 +613,7 @@ def test_boson_loc_offdiagonal_x_identity_on_uniform_grid():
 
 def test_boson_uniform_expansion_uses_transposed_conjugate():
     dlr = _boson_dlr()
-    nu_uniform = dlr.MatsubaraBosonUniform()
+    nu_uniform = dlr.MatsubaraBosonUniform(Emax=np.max(np.abs(dlr.nu)))
     nu_dlr = np.asarray(dlr.nu, dtype=float)
 
     poles = np.array([0.7, -0.4])
@@ -843,7 +843,7 @@ def test_boson_loc_highzero_output_is_strictly_decaying():
     assert kept_residual > 100.0 * max(cleaned_residual, 1.0e-12)
 
 
-def test_bweiss_like_projection_handles_nondecaying_contamination():
+def test_bweiss_like_projection_handles_nondecaying_contamination(monkeypatch):
     # BWeiss.Cal path end-to-end: 5D cf on the uniform grid with
     # oddzero+highzero, coefficient_sign=-1 and constraint_tol="auto".  A
     # non-decaying contamination (CTQMC noise through the Dyson equation)
@@ -852,6 +852,8 @@ def test_bweiss_like_projection_handles_nondecaying_contamination():
     # never passes through.
     crystal = _single_band_crystal()
     dlr = _boson_dlr()
+    covering = dlr.MatsubaraBosonUniform(Emax=np.max(np.abs(dlr.nu)))
+    monkeypatch.setattr(dlr, "MatsubaraBosonUniform", lambda: covering)
     verifier = _BosonVerifier(dlr)
     base = _causal_coefficients(verifier)
     nu_uniform = np.asarray(dlr.MatsubaraBosonUniform(), dtype=float)
@@ -1196,9 +1198,9 @@ def test_certificate_uses_only_lu_and_preserves_input(monkeypatch, sign, reflect
 @pytest.mark.parametrize('grid', ['reversed', 'uniform', 'positive'])
 def test_certificate_interpolation_and_output_grid(monkeypatch, grid):
     dlr = _boson_dlr()
-    source = dlr.nu[::-1] if grid == 'reversed' else dlr.MatsubaraBosonUniformFull()
+    source = dlr.nu[::-1] if grid == 'reversed' else dlr.MatsubaraBosonUniformFull(Emax=np.max(np.abs(dlr.nu)))
     if grid == 'positive':
-        source = dlr.MatsubaraBosonUniform()
+        source = dlr.MatsubaraBosonUniform(Emax=np.max(np.abs(dlr.nu)))
     p = CausalBosonProjector(d=dlr.dB, beta=dlr.beta, fit_omega=source,
                             output_omega=dlr.nu[::2], reflection_symmetry=True)
     coeff = -np.ones(p.rank)
@@ -1292,7 +1294,9 @@ def test_x_target_and_tail_use_selected_diagonals(monkeypatch, grid):
         return target * ([.7,1.3,1.][len(calls)-1])
     monkeypatch.setattr(CausalBosonProjector, 'project', project)
     out = local.CausalProjection(raw, grid=grid, oddzero=True, highzero=True)
-    raw_dlr = raw if grid == 'dlr' else dlr.MatsubaraUniformGrid2DLR(raw, omega=nu, sign=1)
+    ref_moment, ref_high = local.Moment(raw, grid=grid, oddzero=True, highzero=True)
+    ref_tail = np.concatenate((np.zeros_like(ref_high)[..., None], ref_moment), axis=-1)
+    raw_dlr = raw if grid == 'dlr' else dlr.MatsubaraUniformGrid2DLR(raw, omega=nu, sign=1, oddzero=True, tail=ref_tail)
     expected = out[0,0,0,0] + raw_dlr[0,1,0,0] + raw_dlr[1,0,0,0] + out[1,1,0,0]
     assert len(calls) == 3
     assert not np.allclose(out[0,0,0,0], raw_dlr[0,0,0,0])
@@ -1303,7 +1307,7 @@ def test_x_target_and_tail_use_selected_diagonals(monkeypatch, grid):
     moment, high, sigma = local.Moment(x, grid=grid, oddzero=True, highzero=True, return_sigma=True)
     np.testing.assert_array_equal(calls[2][1]['tail_coeffs'][1:], moment[0,1,0,0].real)
     np.testing.assert_array_equal(calls[2][1]['moment_sigma'], sigma[0,1,0,0,1:3])
-    np.testing.assert_allclose(out[0,1,0,0], raw_dlr[0,1,0,0], atol=1e-15, rtol=1e-13)
+    np.testing.assert_allclose(out[0,1,0,0], raw_dlr[0,1,0,0].real, atol=1e-15, rtol=1e-13)
 
 
 @pytest.mark.parametrize('grid', ['dlr', 'uniform'])

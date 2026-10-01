@@ -219,7 +219,7 @@ class FLocDyn(object):
         if grid == "uniform":
             # conversion preserves the (norb, norb, ns, .) layout; squeeze rule
             # is unchanged
-            arr4 = self.dlr.MatsubaraUniformGrid2DLR(arr4, sign=-1)
+            arr4 = self.dlr.MatsubaraUniformGrid2DLR(arr4, sign=-1, highzero=True)
 
         proj_omega = np.asarray(self.dlr.omega, dtype=np.float64)
         projector = CausalFermionProjector(
@@ -316,7 +316,7 @@ class FLocDyn(object):
         # mirror CausalProjection: moments on native input grid, then DLR data.
         moment, high, sigma = self.Moment(arr4, grid=grid, return_sigma=True)
         if grid == "uniform":
-            arr4 = self.dlr.MatsubaraUniformGrid2DLR(arr4, sign=-1)
+            arr4 = self.dlr.MatsubaraUniformGrid2DLR(arr4, sign=-1, highzero=True)
 
         proj_omega = np.asarray(self.dlr.omega, dtype=np.float64)
         projector = CausalFermionProjector(
@@ -952,7 +952,7 @@ class GImp(FLocDyn):
             green = self._read_ctqmc_green(self.green)
             self.f_uniform = self.ReadDict(equiv, green)
             green_uniform = self.dlr.MatsubaraAddNegativeFrequency(self.f_uniform)
-            self.f = self.dlr.MatsubaraUniformGrid2DLR(green_uniform)
+            self.f = self.dlr.MatsubaraUniformGrid2DLR(green_uniform, highzero=True)
         else:
             self.f = np.asfortranarray(self.green, dtype=np.complex128)
 
@@ -1218,7 +1218,7 @@ class SigCImp(FLocDyn):
                 sigma_grid = np.asfortranarray(sigma_grid - self.hf[..., np.newaxis])
             self.f_uniform = sigma_grid
             sigma_uniform = self.dlr.MatsubaraAddNegativeFrequency(sigma_grid)
-            sigma_total = self.dlr.MatsubaraUniformGrid2DLR(sigma_uniform)
+            sigma_total = self.dlr.MatsubaraUniformGrid2DLR(sigma_uniform, highzero=True)
             if sigma_total.ndim != 4:
                 raise ValueError(
                     f"sigma must be 4D after DLR conversion, got {sigma_total.ndim}D"

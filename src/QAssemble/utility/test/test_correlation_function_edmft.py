@@ -1112,7 +1112,7 @@ def test_run_dispatch_calls_gwedmft(monkeypatch):
 
 
 @pytest.mark.parametrize("mode", ["Auto", "Restart"])
-@pytest.mark.parametrize("convention", [None, 1, 3])
+@pytest.mark.parametrize("convention", [None, 1, 2, 4])
 def test_gwedmft_rejects_previous_static_convention_without_mutation(monkeypatch, tmp_path, mode, convention):
     stack = _install_fake_edmft_stack(monkeypatch)
     corr = _edmft_correlation_object(stack.cf_mod, tmp_path)
@@ -1137,7 +1137,7 @@ def test_gwedmft_records_new_static_convention_and_accepts_resume(monkeypatch, t
     corr.control["run"]["mode"] = mode
     corr.GWEDMFT()
     with h5py.File(corr.hdf5path, "r") as handle:
-        assert handle["gwedmft"].attrs["static_convention"] == 2
+        assert handle["gwedmft"].attrs["static_convention"] == 3
     # Emulate a fully completed checkpoint; no numerical work remains to resume.
     monkeypatch.setattr(stack.cf_mod.IO, "LastCompleteIteration", lambda *args: 1)
     monkeypatch.setattr(corr, "_restore_green", lambda obj, *args: obj)
@@ -1147,3 +1147,75 @@ def test_gwedmft_records_new_static_convention_and_accepts_resume(monkeypatch, t
     corr.control["run"]["mode"] = "Restart"
     corr.GWEDMFT()
     assert len(stack.ImpurityAction.instances) == 1
+
+
+@pytest.mark.parametrize("resume", [0, 1])
+def test_gwedmft_rewinds_static_fallback_pairs_before_wloc(monkeypatch, tmp_path, resume):
+    stack = _install_fake_edmft_stack(monkeypatch)
+    corr = _edmft_correlation_object(stack.cf_mod, tmp_path)
+    corr.control["run"]["mode"] = "Restart"
+    shape = (1, 1, 1, 1, 2)
+    with h5py.File(corr.hdf5path, "a") as handle:
+        root = handle.require_group("gwedmft")
+        root.attrs["static_convention"] = 3
+        for subgroup, stem, value, static in (("WLoc", "wloc", 2., .04), ("BWeiss", "bweiss", 4., .05)):
+            group = root.require_group(subgroup)
+            if resume:
+                suffix = "" if stem == "wloc" else "_correlated"
+                group.create_dataset(f"{stem}.1.1{suffix}", data=np.full(shape, value + (stem == "wloc")))
+                group.create_dataset(f"{stem}.1.1_cstatic", data=np.full(shape[:-1], static))
+            group.create_dataset(f"{stem}_brd_prev.1", data=np.full(shape, 99.))
+            group.create_dataset(f"{stem}_cstatic_brd_prev.1", data=np.full(shape[:-1], 99.))
+    monkeypatch.setattr(stack.cf_mod.IO, "LastCompleteIteration", lambda *args: resume)
+    monkeypatch.setattr(corr, "_restore_green", lambda obj, *args: obj)
+    monkeypatch.setattr(corr, "_restore_wlat", lambda obj, *args: obj)
+    monkeypatch.setattr(corr.conv, "Resume", lambda *args, **kwargs: None, raising=False)
+    monkeypatch.setattr(corr.conv, "seed_prev", lambda *args, **kwargs: None, raising=False)
+    old_init = stack.cf_mod.WLoc.__init__
+    checked = []
+    def init(self, *args, **kwargs):
+        if not checked:
+            for subgroup, stem, value, static in (("WLoc", "wloc", 2., .04), ("BWeiss", "bweiss", 4., .05)):
+                cf = stack.cf_mod.IO.ReadProjectionCache(corr.hdf5path, "gwedmft", subgroup, f"{stem}_brd_prev.1")
+                cstatic = stack.cf_mod.IO.ReadProjectionCache(corr.hdf5path, "gwedmft", subgroup, f"{stem}_cstatic_brd_prev.1")
+                if resume:
+                    np.testing.assert_allclose(cf, value)
+                    np.testing.assert_allclose(cstatic, static)
+                else:
+                    assert cf is None and cstatic is None
+            checked.append(True)
+        old_init(self, *args, **kwargs)
+    monkeypatch.setattr(stack.cf_mod.WLoc, "__init__", init)
+    corr.GWEDMFT()
+    assert checked == [True]
+
+
+def test_gwedmft_static_gw_dc_is_added_before_dc_mixing(monkeypatch, tmp_path):
+    stack = _install_fake_edmft_stack(monkeypatch)
+    old_wloc_init = stack.cf_mod.WLoc.__init__
+    old_gloc_init = stack.GLoc.__init__
+    def wloc_init(self, *args, **kwargs):
+        old_wloc_init(self, *args, **kwargs)
+        assert kwargs['causal'] is True
+        self.cstatic = np.asarray([0.25])
+    def gloc_init(self, *args, **kwargs):
+        old_gloc_init(self, *args, **kwargs)
+        self.occ = np.asarray([2.0])
+    monkeypatch.setattr(stack.cf_mod.WLoc, '__init__', wloc_init)
+    monkeypatch.setattr(stack.GLoc, '__init__', gloc_init)
+    contractions=[]
+    def fock(projector, key, density, static):
+        contractions.append((key, density.copy(), static.copy()))
+        return -density*static
+    monkeypatch.setattr(stack.cf_mod, '_local_fock', fock)
+    corr=_edmft_correlation_object(stack.cf_mod,tmp_path)
+    corr.GWEDMFT()
+    assert len(contractions)==1
+    np.testing.assert_array_equal(contractions[0][1],stack.GLoc.instances[0].occ)
+    dc=stack.GWLoc.instances[0].result.siggwc
+    np.testing.assert_allclose(dc.mixing_calls[0]['value'],5.5)
+    saved=[kwargs['obj'] for name,args,kwargs in dc.saved if name=='siggwcloc_static']
+    assert len(saved)==1
+    np.testing.assert_allclose(saved[0],-0.5)
+    assert stack.cf_mod.FWeiss.instances[0].kwargs['eimp'] is stack.cf_mod.EImp.instances[0]
+    assert stack.cf_mod.BWeiss.instances[0].kwargs['static_fit'] is True

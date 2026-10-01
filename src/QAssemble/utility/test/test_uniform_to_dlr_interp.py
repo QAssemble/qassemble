@@ -72,8 +72,8 @@ def _boson_add_negative(mat, omega, hermitian=False):
 
 def test_boson_uniform_grids_split_non_negative_and_full():
     dlr = _dlr()
-    nu_pos = dlr.MatsubaraBosonUniform()
-    nu_full = dlr.MatsubaraBosonUniformFull()
+    nu_pos = dlr.MatsubaraBosonUniform(Emax=np.max(np.abs(dlr.nu)))
+    nu_full = dlr.MatsubaraBosonUniformFull(Emax=np.max(np.abs(dlr.nu)))
 
     assert np.isclose(nu_pos[0], 0.0)
     assert np.all(nu_pos >= 0.0)
@@ -97,9 +97,9 @@ def test_fermion_clean_roundtrip_is_exact_1d():
     coeff = -np.abs(rng.standard_normal(len(dlr.omega)))
 
     exact = _eval(dlr.dF, coeff, dlr.omega, xi=-1)
-    uniform = _eval(dlr.dF, coeff, dlr.MatsubaraFermionUniformFull(), xi=-1)
+    uniform = _eval(dlr.dF, coeff, dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega))), xi=-1)
 
-    back = dlr.MatsubaraUniform2DLR(uniform, sign=-1)
+    back = dlr.MatsubaraUniform2DLR(uniform, omega=dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega))), sign=-1)
     assert back.shape == exact.shape
     assert np.linalg.norm(back - exact) / np.linalg.norm(exact) < 1.0e-12
 
@@ -110,16 +110,16 @@ def test_boson_clean_roundtrip_is_exact_1d():
     coeff = -np.abs(rng.standard_normal(len(dlr.nu)))
 
     exact = _eval(dlr.dB, coeff, dlr.nu, xi=1)
-    uniform = _eval(dlr.dB, coeff, dlr.MatsubaraBosonUniformFull(), xi=1)
+    uniform = _eval(dlr.dB, coeff, dlr.MatsubaraBosonUniformFull(Emax=np.max(np.abs(dlr.nu))), xi=1)
 
-    back = dlr.MatsubaraUniform2DLR(uniform, sign=1)
+    back = dlr.MatsubaraUniform2DLR(uniform, omega=dlr.MatsubaraBosonUniformFull(Emax=np.max(np.abs(dlr.nu))), sign=1)
     assert back.shape == exact.shape
     assert np.linalg.norm(back - exact) / np.linalg.norm(exact) < 1.0e-12
 
 
 def test_fermion_4d_wrapper_clean_roundtrip_with_asymmetric_matrix():
     dlr = _dlr()
-    omega_u = dlr.MatsubaraFermionUniformFull()
+    omega_u = dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega)))
     rank = len(dlr.omega)
     rng = np.random.default_rng(7)
     norb = 2
@@ -134,14 +134,14 @@ def test_fermion_4d_wrapper_clean_roundtrip_with_asymmetric_matrix():
             arr[i, j, 0, :] = _eval(dlr.dF, coeff, omega_u, xi=-1)
             exact_t[j, i, 0, :] = _eval(dlr.dF, coeff, dlr.omega, xi=-1)
 
-    back = dlr.MatsubaraUniformGrid2DLR(arr, sign=-1)
+    back = dlr.MatsubaraUniformGrid2DLR(arr, omega=dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega))), sign=-1)
     assert back.shape == (norb, norb, 1, rank)
     assert np.linalg.norm(back - exact_t) / np.linalg.norm(exact_t) < 1.0e-12
 
 
 def test_boson_5d_wrapper_clean_roundtrip():
     dlr = _dlr()
-    nu_u = dlr.MatsubaraBosonUniformFull()
+    nu_u = dlr.MatsubaraBosonUniformFull(Emax=np.max(np.abs(dlr.nu)))
     rank = len(dlr.nu)
     rng = np.random.default_rng(3)
     norb = 2
@@ -154,7 +154,7 @@ def test_boson_5d_wrapper_clean_roundtrip():
             arr[i, j, 0, 0, :] = _eval(dlr.dB, coeff, nu_u, xi=1)
             exact[i, j, 0, 0, :] = _eval(dlr.dB, coeff, dlr.nu, xi=1)
 
-    back = dlr.MatsubaraUniformGrid2DLR(arr, sign=1)
+    back = dlr.MatsubaraUniformGrid2DLR(arr, omega=dlr.MatsubaraBosonUniformFull(Emax=np.max(np.abs(dlr.nu))), sign=1)
     assert back.shape == (norb, norb, 1, 1, rank)
     # the 5D boson path flattens to a batch before the solve (no matrix axes to
     # transpose), so it matches the untransposed reference.
@@ -208,7 +208,7 @@ def _interp_lstsq_path(dlr, arr_block, omega_u, sign):
 
 def test_lu_matches_lstsq_on_interpolated_grid_with_asymmetric_matrix():
     dlr = _dlr()
-    omega_u = dlr.MatsubaraFermionUniformFull()
+    omega_u = dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega)))
     rank = len(dlr.omega)
     rng = np.random.default_rng(11)
     norb = 2
@@ -221,7 +221,7 @@ def test_lu_matches_lstsq_on_interpolated_grid_with_asymmetric_matrix():
             arr[i, j, 0, :] = _eval(dlr.dF, coeff, omega_u, xi=-1)
             exact_t[j, i, 0, :] = _eval(dlr.dF, coeff, dlr.omega, xi=-1)
 
-    lu = dlr.MatsubaraUniformGrid2DLR(arr, sign=-1)
+    lu = dlr.MatsubaraUniformGrid2DLR(arr, omega=dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega))), sign=-1)
     lstsq = _interp_lstsq_path(dlr, arr[:, :, 0, :], omega_u, sign=-1)[:, :, None, :]
 
     # LU and lstsq agree on the interpolated grid ...
@@ -258,7 +258,7 @@ def test_interp_lu_reconstruction_is_comparable_to_raw_lstsq_on_noisy_data():
     magnitude as raw lstsq — i.e. nothing pathological.
     """
     dlr = _dlr()
-    omega_u = dlr.MatsubaraFermionUniformFull()
+    omega_u = dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega)))
     rank = len(dlr.omega)
     rng = np.random.default_rng(42)
     coeff = -np.abs(rng.standard_normal(rank))
@@ -273,7 +273,7 @@ def test_interp_lu_reconstruction_is_comparable_to_raw_lstsq_on_noisy_data():
         noisy = uniform + noise * (
             r.standard_normal(uniform.shape) + 1j * r.standard_normal(uniform.shape)
         )
-        interp_back = dlr.MatsubaraUniform2DLR(noisy, sign=-1)
+        interp_back = dlr.MatsubaraUniform2DLR(noisy, omega=omega_u, sign=-1)
         raw_back = _raw_uniform_lstsq(dlr, noisy, omega_u, sign=-1)
         interp_errs.append(np.linalg.norm(interp_back - exact) / np.linalg.norm(exact))
         raw_errs.append(np.linalg.norm(raw_back - exact) / np.linalg.norm(exact))
@@ -284,7 +284,7 @@ def test_interp_lu_reconstruction_is_comparable_to_raw_lstsq_on_noisy_data():
 
 def test_square_lu_system_is_better_conditioned_than_raw_lstsq_kernel():
     dlr = _dlr()
-    omega_u = dlr.MatsubaraFermionUniformFull()
+    omega_u = dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega)))
     # square LU system used by step-2 (dlr_from_matsubara)
     cond_lu = np.linalg.cond(dlr.dF.dlrmf2cf)
     # raw one-shot lstsq kernel over the full uniform grid
@@ -322,7 +322,7 @@ def test_coverage_check_runs_after_sort_for_unsorted_grid():
 def test_coverage_check_passes_for_full_uniform_grid_boson():
     dlr = _dlr()
     # the default boson uniform grid covers the DLR nu range (within tol)
-    nu_u = dlr.MatsubaraBosonUniformFull()
+    nu_u = dlr.MatsubaraBosonUniformFull(Emax=np.max(np.abs(dlr.nu)))
     data = np.ones(len(nu_u), dtype=np.complex128)
     out = dlr.MatsubaraUniform2DLR(data, omega=nu_u, sign=1)
     assert out.shape == (len(dlr.nu),)
@@ -336,7 +336,7 @@ def test_coverage_check_passes_for_full_uniform_grid_boson():
 
 def test_fermion_positive_only_roundtrip_explicit_omega_diagonal_3d():
     dlr = _dlr()
-    omega_pos = dlr.MatsubaraFermionUniform()
+    omega_pos = dlr.MatsubaraFermionUniform(Emax=np.max(np.abs(dlr.omega)))
     rank = len(dlr.omega)
     rng = np.random.default_rng(101)
     norb = 2
@@ -355,7 +355,7 @@ def test_fermion_positive_only_roundtrip_explicit_omega_diagonal_3d():
 
 def test_fermion_positive_only_and_full_grid_outputs_are_identical():
     dlr = _dlr()
-    omega_pos = dlr.MatsubaraFermionUniform()
+    omega_pos = dlr.MatsubaraFermionUniform(Emax=np.max(np.abs(dlr.omega)))
     omega_full = np.concatenate((-omega_pos[::-1], omega_pos))
     rank = len(dlr.omega)
     rng = np.random.default_rng(102)
@@ -377,7 +377,7 @@ def test_fermion_positive_only_and_full_grid_outputs_are_identical():
 
 def test_fermion_positive_only_offdiagonal_uses_hermitian_transpose():
     dlr = _dlr()
-    omega_pos = dlr.MatsubaraFermionUniform()
+    omega_pos = dlr.MatsubaraFermionUniform(Emax=np.max(np.abs(dlr.omega)))
     omega_full = np.concatenate((-omega_pos[::-1], omega_pos))
     rank = len(dlr.omega)
     rng = np.random.default_rng(103)
@@ -400,7 +400,7 @@ def test_fermion_positive_only_offdiagonal_uses_hermitian_transpose():
 def test_boson_positive_only_symmetric_default_with_and_without_zero(include_zero):
     dlr = _dlr()
     bloc = BLocDyn(None, dlr, None)
-    nu_pos = dlr.MatsubaraBosonUniform() if include_zero else _boson_positive_grid(dlr, include_zero=False)
+    nu_pos = dlr.MatsubaraBosonUniform(Emax=np.max(np.abs(dlr.nu))) if include_zero else _boson_positive_grid(dlr, include_zero=False)
     rank = len(dlr.nu)
     rng = np.random.default_rng(104 + int(include_zero))
     norb = 2
@@ -421,7 +421,7 @@ def test_boson_positive_only_symmetric_default_with_and_without_zero(include_zer
 def test_boson_positive_only_hermitian_true_offdiagonal_swaps_orbitals():
     dlr = _dlr()
     bloc = BLocDyn(None, dlr, None)
-    nu_pos = dlr.MatsubaraBosonUniform()
+    nu_pos = dlr.MatsubaraBosonUniform(Emax=np.max(np.abs(dlr.nu)))
     rank = len(dlr.nu)
     rng = np.random.default_rng(106)
     norb = 2
@@ -441,7 +441,7 @@ def test_boson_positive_only_hermitian_true_offdiagonal_swaps_orbitals():
 
 def test_boson_grid_wrapper_positive_only_and_full_outputs_are_identical():
     dlr = _dlr()
-    nu_pos = dlr.MatsubaraBosonUniform()
+    nu_pos = dlr.MatsubaraBosonUniform(Emax=np.max(np.abs(dlr.nu)))
     rank = len(dlr.nu)
     rng = np.random.default_rng(108)
     norb = 2
@@ -461,7 +461,7 @@ def test_boson_grid_wrapper_positive_only_and_full_outputs_are_identical():
 
 def test_fermion_positive_only_data_with_omega_none_raises_clear_error():
     dlr = _dlr()
-    omega_pos = dlr.MatsubaraFermionUniform()
+    omega_pos = dlr.MatsubaraFermionUniform(Emax=np.max(np.abs(dlr.omega)))
     data = np.ones((1, 1, 1, len(omega_pos)), dtype=np.complex128)
 
     with pytest.raises(ValueError, match="explicit positive omega"):
@@ -470,7 +470,7 @@ def test_fermion_positive_only_data_with_omega_none_raises_clear_error():
 
 def test_unsorted_full_grid_with_positive_first_element_is_not_positive_only():
     dlr = _dlr()
-    omega_full = dlr.MatsubaraFermionUniformFull()
+    omega_full = dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega)))
     rank = len(dlr.omega)
     rng = np.random.default_rng(107)
     coeff = -np.abs(rng.standard_normal(rank))
@@ -488,13 +488,12 @@ def test_unsorted_full_grid_with_positive_first_element_is_not_positive_only():
     np.testing.assert_allclose(unsorted_back, sorted_back, rtol=1.0e-12, atol=1.0e-12)
 
 
-def test_positive_only_coverage_check_still_fires():
+def test_low_level_positive_only_coverage_check_still_fires():
     dlr = _dlr()
     omega_short = dlr.MatsubaraFermionUniform()[:3]
-    data = np.ones((1, 1, 1, len(omega_short)), dtype=np.complex128)
-
-    with pytest.raises(ValueError, match="does not cover"):
-        dlr.MatsubaraUniformGrid2DLR(data, omega=omega_short, sign=-1)
+    data = np.ones((len(omega_short), 1, 1), dtype=np.complex128)
+    with pytest.raises(ValueError, match="does not cover.*DLR frequency range"):
+        dlr.MatsubaraUniform2DLR(data, omega=omega_short, sign=-1)
 
 
 def test_positive_only_edge_guards_raise_clear_errors():
@@ -502,8 +501,8 @@ def test_positive_only_edge_guards_raise_clear_errors():
     bloc = BLocDyn(None, dlr, None)
 
     one_freq = np.ones((1, 1, 1, 1), dtype=np.complex128)
-    with pytest.raises(ValueError, match="does not cover"):
-        dlr.MatsubaraUniformGrid2DLR(one_freq, omega=np.array([dlr.MatsubaraFermionUniform()[0]]), sign=-1)
+    with pytest.raises(ValueError, match="at least two"):
+        dlr.MatsubaraUniformGrid2DLR(one_freq, omega=np.array([dlr.MatsubaraFermionUniform(Emax=np.max(np.abs(dlr.omega)))[0]]), sign=-1)
 
     empty_fermion = np.ones((1, 1, 1, 0), dtype=np.complex128)
     with pytest.raises(ValueError, match="non-empty"):
@@ -553,7 +552,7 @@ def test_fold_restores_uniform_grid_coverage():
     """
     for beta, cutoff in [(100.0, 300.0), (20.0, 8.0), (10.0, 10.0), (200.0, 400.0)]:
         dlr = DLR({"beta": beta, "cutoff": cutoff, "eps": 1.0e-12})
-        uniform_max = dlr.MatsubaraFermionUniform().max()
+        uniform_max = dlr.MatsubaraFermionUniform(Emax=np.max(np.abs(dlr.omega))).max()
 
         folded, _ = dlr._fold_to_nonnegative(
             dlr.omega, np.zeros((len(dlr.omega), 1), dtype=np.complex128)
@@ -622,7 +621,7 @@ def test_fermion_dlr_to_uniform_passes_through_nodes():
     arr[0, 0, 0, :] = node
     out = dlr.MatsubaraDLR2UniformGrid(arr, sign=-1)[0, 0, 0, :]
 
-    positive = dlr.omega > 0
+    positive = (dlr.omega > 0) & (dlr.omega <= uniform[-1])
     idx = np.abs(uniform[:, None] - dlr.omega[positive][None, :]).argmin(axis=0)
     err = np.abs(out[idx] - node[positive]).max()
 
@@ -864,7 +863,7 @@ def test_interp_to_grid_offset_preserves_default():
     x_src = np.unique(np.round(np.abs(np.asarray(dlr.omega)), 12))
     ff = (rng.standard_normal((x_src.size, 1, 1))
           + 1j * rng.standard_normal((x_src.size, 1, 1)))
-    x_target = dlr.MatsubaraFermionUniform()
+    x_target = dlr.MatsubaraFermionUniform(Emax=np.max(np.abs(dlr.omega)))
 
     for variable, kind in (("linear", "linear"), ("inverse", "cubic")):
         base = dlr._interp_to_grid(ff, x_src, x_target, variable=variable, kind=kind)

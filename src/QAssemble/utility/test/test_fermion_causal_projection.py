@@ -885,11 +885,13 @@ def test_causal_projector_fermion_ignores_bosonic_kwargs():
     assert projected.shape == target.shape
 
 
-def test_causal_projection_uniform_grid_matches_dlr_grid():
+def test_causal_projection_uniform_grid_matches_dlr_grid(monkeypatch):
     """Project the SAME underlying function sampled on the DLR grid and on
     the uniform grid; both must be causal and, since uniform output is now
     returned on the DLR grid, they must agree on that common grid."""
     crystal, dlr, _ = _single_band_hubbard()
+    covering = dlr.MatsubaraFermionUniform(Emax=np.max(np.abs(dlr.omega)))
+    monkeypatch.setattr(dlr, "MatsubaraFermionUniform", lambda **kwargs: covering)
     flat = FLatDyn(crystal, dlr)
     local = FLocDyn(crystal, dlr, projector=None)
 
