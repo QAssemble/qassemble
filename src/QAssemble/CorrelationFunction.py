@@ -1246,23 +1246,6 @@ class CorrelationFunction(object):
                 )
                 eimp.Save("eimp")
 
-                # The solver level uses the pre-lattice HFLoc Hartree DC.
-                eimp_solver = EImp(
-                    crystal=self.crystal,
-                    projector=projector,
-                    key=key,
-                    hamtb=self.niham.k,
-                    sigh=hf_result.sigh.k,
-                    sigf=hf_result.sigf.k,
-                    hloc=dc_h,
-                    floc=dc_f,
-                    mu=green_next.mu,
-                    hdf5file=hdf5file,
-                    group=group,
-                    iteration=iteration,
-                )
-                eimp_solver.Save("eimp_solver")
-
                 hyb = Hyb(
                     crystal=self.crystal,
                     dlr=self.dlr,
@@ -1283,7 +1266,7 @@ class CorrelationFunction(object):
                     dlr=self.dlr,
                     projector=projector,
                     key=key,
-                    eimp=eimp_solver,
+                    eimp=eimp,
                     hyb=hyb,
                     mu=green_next.mu,
                     hdf5file=hdf5file,

@@ -514,7 +514,27 @@ def test_eimp_static_moment_subtracts_impurity_hartree_and_fock_dc():
     )
 
 
-def test_eimp_split_levels_preserve_difference_storage_and_ctqmc_conversion(tmp_path):
+@pytest.mark.parametrize("screened_u", [4.0, 2.5])
+def test_eimp_single_level_static_ledger(screened_u):
+    # U(0)=V is the zero-screening limit; the screened case catches bare-H DC.
+    bare_v, density, mu = 4.0, 0.3, 1.25
+    projector = SimpleNamespace(fprojector={"1": np.ones((1, 1, 1))})
+    h0 = np.asarray([[[[2.0, 6.0]]]])
+    h_lat = np.full_like(h0, 2 * bare_v * density)
+    f_lat = np.full_like(h0, -bare_v * density)
+    h_imp = np.asarray([[[2 * screened_u * density]]])
+    f_imp = np.asarray([[[-bare_v * density]]])
+    level = EImp(
+        crystal=SimpleNamespace(ns=1), projector=projector, key="1",
+        hamtb=h0, sigh=h_lat, sigf=f_lat, hloc=h_imp, floc=f_imp, mu=mu,
+    )
+    measured_correlation = np.asarray([[[[0.2, 0.1]]]])
+    impurity_inverse_static = (level.e + h_imp + f_imp)[..., None] + measured_correlation
+    lattice_inverse_static = np.mean(h0 + h_lat + f_lat, axis=3)[..., None] - mu + measured_correlation
+    np.testing.assert_allclose(impurity_inverse_static, lattice_inverse_static, atol=1e-12)
+
+
+def test_eimp_single_level_preserves_storage_and_ctqmc_conversion(tmp_path):
     projector = SimpleNamespace(fprojector={
         key: np.eye(2, dtype=complex)[:, :, None] for key in ("1", "2")
     })
@@ -539,10 +559,8 @@ def test_eimp_split_levels_preserve_difference_storage_and_ctqmc_conversion(tmp_
                 hdf5file=filename, group="gwedmft", iteration=iteration,
             )
             eimp = EImp(hloc=bath_h, **common)
-            solver = EImp(hloc=dc_h, **common)
-            np.testing.assert_allclose(solver.e - eimp.e, bath_h - dc_h)
             for name, level, hartree in (
-                ("eimp", eimp, bath_h), ("eimp_solver", solver, dc_h),
+                ("eimp", eimp, bath_h),
             ):
                 expected = moment - hartree - dc_f
                 np.testing.assert_allclose(level.e, expected)
@@ -845,19 +863,18 @@ def test_gwedmft_composes_gw_dc_and_impurity_without_quantity_dicts(
     np.testing.assert_allclose(sigc.embedded[1]["sigfimp"], 5.0)
     np.testing.assert_allclose(sigc.embedded[1]["sigimp"], 6.0)
 
-    eimp, eimp_solver = stack.cf_mod.EImp.instances
+    (eimp,) = stack.cf_mod.EImp.instances
     np.testing.assert_allclose(eimp.kwargs["sigh"], 10.0)
     np.testing.assert_allclose(eimp.kwargs["sigf"], 20.0)
     np.testing.assert_allclose(eimp.kwargs["hloc"], 50.0)
     np.testing.assert_allclose(eimp.kwargs["floc"], 5.0)
     assert eimp.kwargs["hloc"] is hf_dc.sigh.hloc
-    assert eimp_solver.kwargs["hloc"] is hf_dc.sigh.hloc
     assert len(stack.HFLoc.instances) == 1
 
     hyb = stack.Hyb.instances[0]
     assert hyb.kwargs["eimp"] is eimp.e
     fweiss = stack.cf_mod.FWeiss.instances[0]
-    assert fweiss.kwargs["eimp"] is eimp_solver
+    assert fweiss.kwargs["eimp"] is eimp
     assert fweiss.kwargs["hyb"] is hyb
     assert stack.ImpurityAction.instances[0].kwargs["fweiss"] is fweiss
     np.testing.assert_allclose(hyb.kwargs["sigh"], 50.0)
@@ -956,9 +973,8 @@ def test_gwedmft_builds_bosonic_weiss_from_previous_impurity_polarization(
     np.testing.assert_allclose(second_hyb.kwargs["sigh"], 102.0)
     np.testing.assert_allclose(second_hyb.kwargs["sigf"], 103.0)
     np.testing.assert_allclose(second_hyb.kwargs["sigc"], 104.0)
-    second_eimp, second_solver = stack.cf_mod.EImp.instances[2:]
+    second_eimp = stack.cf_mod.EImp.instances[1]
     np.testing.assert_allclose(second_eimp.kwargs["hloc"], 102.0)
-    np.testing.assert_allclose(second_solver.kwargs["hloc"], 150.0)
     assert stack.PolC.instances[0].embedded[0][0] is stack.PolC.instances[0].dc[0]
     np.testing.assert_allclose(stack.PolC.instances[1].embedded[0][0], 100.4)
     assert conv.start_iters == [1, 2]
@@ -1020,27 +1036,22 @@ def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
     np.testing.assert_allclose(stack.Hyb.instances[3].kwargs["sigf"], 13.0)
     np.testing.assert_allclose(stack.Hyb.instances[3].kwargs["sigc"], 14.0)
     levels = stack.cf_mod.EImp.instances
-    assert len(levels) == 8
-    for index, (eimp, solver) in enumerate(zip(levels[::2], levels[1::2])):
+    assert len(levels) == 4
+    for index, eimp in enumerate(levels):
         hf_loc = stack.HFLoc.instances[index]
         iteration, key = hf_loc.kwargs["iteration"], hf_loc.kwargs["key"]
         # HFLoc must still see the local Green function before lattice update.
         assert hf_loc.kwargs["gloc"] is stack.GLoc.instances[index]
-        assert solver.kwargs["hloc"] is hf_loc.result.sigh.hloc
-        np.testing.assert_allclose(solver.kwargs["hloc"], [50, 60, 150, 160][index])
         if iteration == 1:
-            assert eimp.kwargs["hloc"] is solver.kwargs["hloc"]
+            assert eimp.kwargs["hloc"] is hf_loc.result.sigh.hloc
         else:
             with h5py.File(eimp.kwargs["hdf5file"], "r") as handle:
                 previous = handle[
                     f"{eimp.kwargs['group']}/SigHImp/sighimp.{iteration - 1}.{key}"
                 ][()]
             np.testing.assert_allclose(eimp.kwargs["hloc"], previous)
-        for name in eimp.kwargs.keys() - {"hloc"}:
-            assert solver.kwargs[name] is eimp.kwargs[name]
         assert eimp.kwargs["floc"] is hf_loc.result.sigf.floc
         assert eimp.saved == [("eimp", (), {})]
-        assert solver.saved == [("eimp_solver", (), {})]
         hyb = stack.Hyb.instances[index]
         assert hyb.kwargs["eimp"] is eimp.e
         assert hyb.kwargs["sigh"] is eimp.kwargs["hloc"]
@@ -1054,7 +1065,7 @@ def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
         np.testing.assert_allclose(seed["sigfimp"], hyb.kwargs["sigf"])
         np.testing.assert_allclose(seed["sigimp"], hyb.kwargs["sigc"])
         fweiss = stack.cf_mod.FWeiss.instances[index]
-        assert fweiss.kwargs["eimp"] is solver
+        assert fweiss.kwargs["eimp"] is eimp
         assert fweiss.kwargs["hyb"] is hyb
         assert stack.ImpurityAction.instances[index].kwargs["fweiss"] is fweiss
     assert len(stack.SigC.instances[0].embedded) == 4
