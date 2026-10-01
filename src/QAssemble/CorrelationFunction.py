@@ -960,6 +960,16 @@ class CorrelationFunction(object):
         if not problem_keys:
             raise ValueError("GW+EDMFT requires at least one impurity problem")
         mode = self.control["run"].get("mode", "FromScratch")
+        if mode in ("Auto", "Restart") and os.path.exists(hdf5file):
+            with h5py.File(hdf5file, "r") as handle:
+                if group in handle and handle[group].attrs.get("static_convention") != 2:
+                    raise RuntimeError(
+                        "GW+EDMFT previous static convention checkpoint: fresh start "
+                        "required with a new output prefix (static_convention=2). "
+                        "이전 규약 checkpoint, fresh start 필요."
+                    )
+        with h5py.File(hdf5file, "a") as handle:
+            handle.require_group(group).attrs["static_convention"] = 2
         resume = (IO.LastCompleteIteration(hdf5file, group, problem_keys, itermax)
                   if mode in ("Auto", "Restart") else 0)
         if mode in ("Auto", "Restart"):

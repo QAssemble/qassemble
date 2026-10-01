@@ -1,3 +1,4 @@
+from pathlib import Path
 import importlib
 from types import SimpleNamespace
 
@@ -1108,3 +1109,41 @@ def test_run_dispatch_calls_gwedmft(monkeypatch):
     runner.RunDiagE()
 
     assert called == [runner.control]
+
+
+@pytest.mark.parametrize("mode", ["Auto", "Restart"])
+@pytest.mark.parametrize("convention", [None, 1, 3])
+def test_gwedmft_rejects_previous_static_convention_without_mutation(monkeypatch, tmp_path, mode, convention):
+    stack = _install_fake_edmft_stack(monkeypatch)
+    corr = _edmft_correlation_object(stack.cf_mod, tmp_path)
+    corr.control["run"]["mode"] = mode
+    with h5py.File(corr.hdf5path, "w") as handle:
+        group = handle.create_group("gwedmft")
+        group.create_dataset("old_checkpoint", data=[42.0])
+        if convention is not None:
+            group.attrs["static_convention"] = convention
+    original = Path(corr.hdf5path).read_bytes()
+    with pytest.raises(RuntimeError, match="previous static convention checkpoint.*fresh start"):
+        corr.GWEDMFT()
+    assert Path(corr.hdf5path).read_bytes() == original
+    assert not stack.HFLoc.instances
+    assert not stack.ImpurityAction.instances
+
+
+@pytest.mark.parametrize("mode", ["FromScratch", "Auto", "Restart"])
+def test_gwedmft_records_new_static_convention_and_accepts_resume(monkeypatch, tmp_path, mode):
+    stack = _install_fake_edmft_stack(monkeypatch)
+    corr = _edmft_correlation_object(stack.cf_mod, tmp_path)
+    corr.control["run"]["mode"] = mode
+    corr.GWEDMFT()
+    with h5py.File(corr.hdf5path, "r") as handle:
+        assert handle["gwedmft"].attrs["static_convention"] == 2
+    # Emulate a fully completed checkpoint; no numerical work remains to resume.
+    monkeypatch.setattr(stack.cf_mod.IO, "LastCompleteIteration", lambda *args: 1)
+    monkeypatch.setattr(corr, "_restore_green", lambda obj, *args: obj)
+    monkeypatch.setattr(corr, "_restore_wlat", lambda obj, *args: obj)
+    monkeypatch.setattr(corr.conv, "Resume", lambda *args, **kwargs: None, raising=False)
+    monkeypatch.setattr(corr.conv, "seed_prev", lambda *args, **kwargs: None, raising=False)
+    corr.control["run"]["mode"] = "Restart"
+    corr.GWEDMFT()
+    assert len(stack.ImpurityAction.instances) == 1
