@@ -539,8 +539,7 @@ class CTQMC(object):
             if self._use_dyn():
                 logger.info('*** mix dynamic interaction input ***')
                 self.bweiss.Mixing(control=self.control)
-                if getattr(self.bweiss, "static_fit", False):
-                    self.bweiss.Save("bweiss")
+                self.bweiss.Save("bweiss")
 
                 logger.info('*** write dyn.json file ***')
                 self.bweiss._write_json_pair('dyn', iter, key, self.bweiss._as_dyn_dict(key))

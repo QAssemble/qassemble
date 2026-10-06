@@ -1374,6 +1374,7 @@ class BWeiss(BLocDyn):
         self.f = None
         self.t = None
         self.cf = None
+        self.cf_raw = None
         self.ct = None
         self.f_uniform = None
         self.cf_uniform = None
@@ -1518,6 +1519,9 @@ class BWeiss(BLocDyn):
         self.projection_delta_abs = np.nan
         self.projection_delta_rel = np.nan
 
+        self.c2_raw = None
+        self.c2_mixed = None
+        self.cf_raw = None
         if self.w is None:
             raise ValueError("BWeiss.Cal requires w")
 
@@ -1607,42 +1611,20 @@ class BWeiss(BLocDyn):
             )
         vdyn = np.broadcast_to(v[..., np.newaxis], self.f.shape)
         self.cf = self.f - vdyn
-        raw_cf = np.array(self.cf, copy=True)
-        # The correlated bath is always projected — including the bare/first
-        # iteration path (p is None), whose W_loc - v carries lattice
-        # interpolation noise and used to enter CTQMC's dyn.json unprojected.
-        cf_uniform_raw = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
-        try:
-            # "auto" acceptance tolerance mirrors Hyb.Cal: the DLR<->
-            # uniform interpolation noise floor exceeds the strict 1e-8
-            # default on noisy CTQMC-derived data.
-            self.cf = self._StaticFitProjection(raw_cf, "bweiss") if getattr(self, "static_fit", False) else self.CausalProjection(
-                cf_uniform_raw, grid="uniform",
-                coefficient_sign=-1, oddzero=True, highzero=True,
-                constraint_tol="auto",
-                fallback_matrix=self.ReadBrdPrev("bweiss", self.cf.shape),
-            )
-            self.WriteBrdPrev("bweiss", self.cf)
-        except RuntimeError as err:
-            # With elastic moments, the offset split, and the clipped
-            # fallback inside the projection this branch should be
-            # unreachable; it survives as a final safety net so an
-            # unexpected error cannot kill the whole run (previously
-            # BWeiss had no net at all and a solver crash was fatal).
-            warnings.warn(
-                f"BWeiss causal projection failed for key '{self.key}'; "
-                f"using unprojected correlated bath: {err}",
-                RuntimeWarning,
-            )
-
-        difference = self.cf - raw_cf
-        self.projection_delta_abs = float(np.max(np.abs(difference)))
-        self.projection_delta_rel = float(
-            np.linalg.norm(difference)
-            / max(float(np.linalg.norm(raw_cf)), np.finfo(float).eps)
-        )
-        self.f = np.asfortranarray(self.cf + vdyn)
+        # Keep the raw bath until Mixing: FullGWEDMFT mixes Uweisstot before
+        # f0brd, and projection fallbacks must still refer to the prior bath.
+        self.cf_raw = np.array(self.cf, copy=True)
         self._RebuildBath()
+        # Record the raw c2/nu^2 coefficient on the grid the projection will use
+        # (diagnostic only).
+        if getattr(self, "static_fit", False):
+            src = self.dlr.MatsubaraDLR2UniformGrid(self.cf, sign=1)
+            kw = dict(grid="uniform", highzero=False, tail_points=5, tail_log_spaced=False)
+        else:
+            src, kw = self.cf, dict(grid="dlr", highzero=True)
+        self.c2_raw = np.full(self.cf.shape[:-1], np.nan, dtype=complex)
+        if src.shape[-1] >= 5:
+            self.c2_raw = -self.Moment(src, oddzero=True, **kw)[0][..., 1]
 
         return None
 
@@ -1684,11 +1666,21 @@ class BWeiss(BLocDyn):
             npulay=int(control["npulay"]),
             key=self.key,
         )
-        self.cf = self._StaticFitProjection(self.cf, "bweiss") if getattr(self, "static_fit", False) else self.CausalProjection(
-            self.cf, grid="dlr", coefficient_sign=-1,
-            oddzero=True, highzero=True, constraint_tol="auto",
-            fallback_matrix=self.ReadBrdPrev("bweiss", self.cf.shape),
-        )
+        if getattr(self, "static_fit", False):
+            self.cf = self._StaticFitProjection(self.cf, "bweiss")
+        else:
+            mixed_cf = np.array(self.cf, copy=True)
+            self.cf = self.CausalProjection(
+                self.cf, grid="dlr", coefficient_sign=-1,
+                oddzero=True, highzero=True, constraint_tol="auto",
+                fallback_matrix=self.ReadBrdPrev("bweiss", self.cf.shape),
+            )
+            self.projection_delta_abs = float(np.max(np.abs(self.cf - mixed_cf)))
+            self.projection_delta_rel = float(
+                np.linalg.norm(self.cf - mixed_cf)
+                / max(float(np.linalg.norm(mixed_cf)), np.finfo(float).eps)
+            )
+        self.c2_mixed = getattr(self, "_projection_c2", None)
         IO.OverwriteMixingLast(
             self.hdf5file, self.group, self.key, self.component, self.cf
         )
@@ -1721,10 +1713,23 @@ class BWeiss(BLocDyn):
             else:
                 IO.CreateDataset(bweiss, fn_write, self.f, dtype=complex)
                 IO.CreateDataset(bweiss, fn_write + '_correlated', self.cf, dtype=complex)
+                if getattr(self, "cf_raw", None) is not None:
+                    name = fn_write + '_correlated_raw'
+                    IO.CreateDataset(bweiss, name, self.cf_raw, dtype=complex)
+                    bweiss[name].attrs['stage'] = 'before mixing'
                 IO.CreateDataset(bweiss, fn_write + '_uniform', self.f_uniform, dtype=complex)
                 IO.CreateDataset(bweiss, fn_write + '_correlated_uniform', self.cf_uniform, dtype=complex)
                 if getattr(self, "static_fit", False) and hasattr(self, "raw_uniform"):
                     self._SaveStaticFitDiagnostics(bweiss, fn_write)
+                    bweiss[fn_write + '_raw_uniform'].attrs['stage'] = 'after mixing, before projection'
+                for stage in ("raw", "mixed"):
+                    c2 = getattr(self, f"c2_{stage}", None)
+                    if c2 is not None:
+                        name = fn_write + f"_c2_{stage}"
+                        IO.CreateDataset(bweiss, name, c2, dtype=complex)
+                        bweiss[name].attrs['convention'] = 'Ucorr = c0 + c2/nu^2; C_U = -c2'
+                        bweiss[name].attrs['stage'] = 'before mixing' if stage == 'raw' else 'after mixing, before projection'
+                        bweiss[name].attrs['grid'] = 'uniform' if getattr(self, 'static_fit', False) else 'dlr'
                 diagnostics = {
                     "denominator_smin": getattr(
                         self, "denominator_smin", np.nan

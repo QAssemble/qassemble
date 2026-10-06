@@ -457,6 +457,8 @@ def test_bweiss_mixing_mixes_reprojects_and_rebuilds_derived(monkeypatch, tmp_pa
     np.testing.assert_allclose(obj.cf_uniform, [11.0])
     np.testing.assert_allclose(obj.t, [23.0])
     np.testing.assert_allclose(obj.ct, [21.0])
+    np.testing.assert_allclose(obj.projection_delta_abs, 1.0)
+    np.testing.assert_allclose(obj.projection_delta_rel, 1.0 / np.finfo(float).eps)
 
     obj.cf = np.asarray([8.0], dtype=np.complex128)
     obj.iteration = 2
@@ -466,6 +468,8 @@ def test_bweiss_mixing_mixes_reprojects_and_rebuilds_derived(monkeypatch, tmp_pa
     # projection (+1) gives 5.5, which again overwrites last and the cache.
     np.testing.assert_allclose(obj.cf, [5.5])
     np.testing.assert_allclose(obj.f, [7.5])
+    np.testing.assert_allclose(obj.projection_delta_abs, 1.0)
+    np.testing.assert_allclose(obj.projection_delta_rel, 1.0 / 4.5)
     grid, kwargs = projection_calls[-1]
     assert grid == "dlr"
     assert kwargs["coefficient_sign"] == -1

@@ -92,7 +92,9 @@ def test_bweiss_first_iteration_warns_and_continues():
     np.testing.assert_allclose(obj.f, obj.w.f * 2.0)
     assert obj.denominator_bad is True
     assert obj.denominator_fallback is False
-    assert np.isfinite(obj.projection_delta_rel)
+    assert np.isnan(obj.projection_delta_abs)
+    assert np.isnan(obj.projection_delta_rel)
+    assert np.all(np.isnan(obj.c2_raw))
 
 
 def test_bweiss_later_iteration_reuses_previous_bath(tmp_path):
@@ -151,5 +153,5 @@ def test_bweiss_save_records_denominator_and_projection_diagnostics(tmp_path):
         np.testing.assert_allclose(handle[base + "denominator_cond"][()], 1.0)
         assert handle[base + "denominator_bad_frequency"][()] == 1
         assert handle[base + "denominator_fallback"][()] == 0
-        np.testing.assert_allclose(handle[base + "projection_delta_abs"][()], 0.0)
-        np.testing.assert_allclose(handle[base + "projection_delta_rel"][()], 0.0)
+        assert np.isnan(handle[base + "projection_delta_abs"][()])
+        assert np.isnan(handle[base + "projection_delta_rel"][()])

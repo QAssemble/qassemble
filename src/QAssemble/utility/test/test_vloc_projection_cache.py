@@ -96,9 +96,7 @@ def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs(monkeypa
     w[0, 0, 0, 0, :] = np.array([3.0, 4.0])
     p[0, 0, 0, 0, :] = np.array([0.1, -0.2])
 
-    # With p set, Cal causally projects cf before deriving the uniform/tau
-    # views.  Stub the projection to undo the fake uniform-grid offset so the
-    # wiring assertions below stay exact, and record the call.
+    # Cal derives the raw uniform/tau views; projection is deferred to Mixing.
     projection_calls = []
 
     def _fake_projection(self, matin, **kwargs):
@@ -119,11 +117,7 @@ def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs(monkeypa
 
     expected_utilde = w / (1.0 + p * w)
     expected_ubar = expected_utilde - vproj[..., np.newaxis]
-    assert len(projection_calls) == 1
-    assert projection_calls[0]["grid"] == "uniform"
-    assert projection_calls[0]["coefficient_sign"] == -1
-    assert projection_calls[0]["oddzero"] is True
-    assert projection_calls[0]["highzero"] is True
+    assert projection_calls == []
     np.testing.assert_allclose(bweiss.f, expected_utilde)
     np.testing.assert_allclose(bweiss.cf, expected_ubar)
     np.testing.assert_allclose(bweiss.f_uniform, expected_utilde + 10.0)
@@ -146,10 +140,8 @@ def test_bweiss_uses_cached_projected_vloc_and_projected_dynamic_inputs(monkeypa
         assert not hasattr(bweiss, attr)
 
 
-def test_bweiss_without_p_copies_w_and_projects_bare_bath(monkeypatch):
-    # The bare path (p is None, first iteration) used to skip the causal
-    # projection entirely, feeding an unprojected W_loc - v into dyn.json.
-    # It now projects cf like the correlated path does.
+def test_bweiss_without_p_copies_w_and_projects_bare_bath(monkeypatch, tmp_path):
+    # The bare path copies W in Cal and projects it in Mixing before dyn.json.
     projector = _FakeProjector()
     crystal = SimpleNamespace(ns=1)
     dlr = _FakeDLR(nfreq=2)
@@ -174,16 +166,22 @@ def test_bweiss_without_p_copies_w_and_projects_bare_bath(monkeypatch):
         vloc=vloc,
         w=SimpleNamespace(f=w),
         p=None,
+        hdf5file=str(tmp_path / 'glob.h5'),
+        group='calc',
+        iteration=1,
     )
 
-    assert len(projection_calls) == 1
-    assert projection_calls[0]["grid"] == "uniform"
-    assert projection_calls[0]["coefficient_sign"] == -1
-    assert projection_calls[0]["oddzero"] is True
-    assert projection_calls[0]["highzero"] is True
+    assert projection_calls == []
     np.testing.assert_allclose(bweiss.f, w)
     assert bweiss.f is not w
     assert bweiss.is_bare
+    bweiss.Mixing(dict(mix=0.5, mixing_method='linear', npulay=2))
+    assert len(projection_calls) == 1
+    assert projection_calls[0]["grid"] == "dlr"
+    assert projection_calls[0]["coefficient_sign"] == -1
+    assert projection_calls[0]["oddzero"] is True
+    assert projection_calls[0]["highzero"] is True
+    np.testing.assert_allclose(bweiss.f, w - 10.0)
 
 
 def test_bweiss_seeds_and_reuses_brd_prev_cache(monkeypatch, tmp_path):
@@ -207,7 +205,7 @@ def test_bweiss_seeds_and_reuses_brd_prev_cache(monkeypatch, tmp_path):
 
     monkeypatch.setattr(BWeiss, "CausalProjection", _fake_projection)
 
-    def _build():
+    def _build(iteration):
         return BWeiss(
             crystal=crystal,
             dlr=_FakeDLR(nfreq=2),
@@ -218,11 +216,18 @@ def test_bweiss_seeds_and_reuses_brd_prev_cache(monkeypatch, tmp_path):
             p=SimpleNamespace(f=p),
             hdf5file=path,
             group="calc",
+            iteration=iteration,
         )
 
-    first = _build()
+    control = dict(mix=0.5, mixing_method='linear', npulay=2)
+    first = _build(1)
+    assert projection_calls == []
+    first.Mixing(control)
     assert projection_calls[0]["fallback_matrix"] is None
 
-    _build()
+    second = _build(2)
+    assert len(projection_calls) == 1
+    np.testing.assert_allclose(second.ReadBrdPrev('bweiss', first.cf.shape), first.cf)
+    second.Mixing(control)
     # The second iteration receives the first one's projected cf as fallback.
     np.testing.assert_allclose(projection_calls[1]["fallback_matrix"], first.cf)

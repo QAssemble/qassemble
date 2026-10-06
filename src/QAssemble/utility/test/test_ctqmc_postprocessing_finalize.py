@@ -118,7 +118,7 @@ def test_preprocessing_mixes_inputs_before_writing_json(monkeypatch, tmp_path, s
         ("fweiss_mix", 2, control),
         ("write", "hyb", 2, "1"),
         ("bweiss_mix", control),
-        *([("bweiss_save", "bweiss")] if static_fit else []),
+        ("bweiss_save", "bweiss"),
         ("write", "dyn", 2, "1"),
     ]
 
