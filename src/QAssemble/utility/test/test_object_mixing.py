@@ -357,7 +357,7 @@ def test_pimp_mixing_overwrites_last_with_projected_value(monkeypatch, tmp_path)
         np.testing.assert_allclose(handle["calc/PImp/pimp_brd_prev.1"][()], [5.5])
 
 
-def test_fweiss_mixing_mixes_hyb_reprojects_and_recomputes_h(monkeypatch, tmp_path):
+def test_fweiss_mixing_mixes_hyb_and_recomputes_h(monkeypatch, tmp_path):
     path = tmp_path / "mix.h5"
     obj = object.__new__(FWeiss)
     _seed_common(obj, path)
@@ -377,41 +377,21 @@ def test_fweiss_mixing_mixes_hyb_reprojects_and_recomputes_h(monkeypatch, tmp_pa
     monkeypatch.setattr(FWeiss, "Cal", fake_cal)
 
     assert obj.Mixing(iter=1, control=obj.control) is None
-    # iter 1 passthrough [0.0] -> projected [1.0]; Cal rebuilds the averaged
-    # uniform hybridization hyb.json is written from (fake Cal adds 100).
-    np.testing.assert_allclose(obj.hyb, [1.0])
-    np.testing.assert_allclose(obj.h, [101.0])
+    # The first iteration passes through; Cal rebuilds the uniform bath.
+    np.testing.assert_allclose(obj.hyb, [0.0])
+    np.testing.assert_allclose(obj.h, [100.0])
+    with h5py.File(path, "r") as handle:
+        np.testing.assert_allclose(handle["calc/Mixing/1/hyb/last"][()], [0.0])
 
     obj.hyb = np.asarray([8.0], dtype=np.complex128)
     assert obj.Mixing(iter=2, control=obj.control) is None
 
-    # iter 2 folds against the *projected* last: 0.5*8 + 0.5*1 = 4.5, then
-    # the projection (+1) gives 5.5, which again overwrites last.
-    np.testing.assert_allclose(obj.hyb, [5.5])
-    np.testing.assert_allclose(obj.h, [105.5])
-    assert projection_calls[-1][0] == "dlr"
+    # The stored bath and the consumed bath both equal 0.5*8 + 0.5*0.
+    np.testing.assert_allclose(obj.hyb, [4.0])
+    np.testing.assert_allclose(obj.h, [104.0])
+    assert projection_calls == []
     with h5py.File(path, "r") as handle:
-        np.testing.assert_allclose(handle["calc/Mixing/1/hyb/last"][()], [5.5])
-
-
-def test_fweiss_mixing_survives_projection_failure(monkeypatch, tmp_path):
-    path = tmp_path / "mix.h5"
-    obj = object.__new__(FWeiss)
-    _seed_common(obj, path)
-    obj.hyb = np.asarray([3.0], dtype=np.complex128)
-
-    def broken_projection(self, value, **kwargs):
-        raise RuntimeError("infeasible")
-
-    monkeypatch.setattr(FWeiss, "CausalProjection", broken_projection)
-    monkeypatch.setattr(FWeiss, "Cal", lambda self: None)
-
-    with pytest.warns(RuntimeWarning, match="re-projection failed"):
-        assert obj.Mixing(iter=1, control=obj.control) is None
-    # The unprojected mixed value is kept and still becomes the stored last.
-    np.testing.assert_allclose(obj.hyb, [3.0])
-    with h5py.File(path, "r") as handle:
-        np.testing.assert_allclose(handle["calc/Mixing/1/hyb/last"][()], [3.0])
+        np.testing.assert_allclose(handle["calc/Mixing/1/hyb/last"][()], [4.0])
 
 
 def test_bweiss_mixing_mixes_reprojects_and_rebuilds_derived(monkeypatch, tmp_path):

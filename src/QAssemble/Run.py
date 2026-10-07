@@ -218,16 +218,6 @@ class Run:
         control["run"]["sigimp_guard_low_freq_points"] = control["run"][
             "SigImpGuardLowFreqPoints"
         ]
-        control["run"]["SigImpSmoothing"] = self._as_bool(
-            ini.get("SigImpSmoothing", False)
-        )
-        control["run"]["sigimp_smoothing"] = control["run"]["SigImpSmoothing"]
-        control["run"]["SigImpSmoothingWidth"] = float(
-            ini.get("SigImpSmoothingWidth", 0.05)
-        )
-        control["run"]["sigimp_smoothing_width"] = control["run"][
-            "SigImpSmoothingWidth"
-        ]
         control["run"]["MeasurementTime"] = int(ini.get("MeasurementTime", 30))
         control["run"]["measurement_time"] = control["run"]["MeasurementTime"]
         control["run"]["ThermalisationTime"] = int(

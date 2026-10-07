@@ -4,6 +4,7 @@ import h5py
 import numpy as np
 
 from QAssemble.CTQMC import CTQMC
+from QAssemble.FLocDyn import FWeiss
 
 
 def _fake_ctqmc(tmp_path, *, control=None):
@@ -31,6 +32,21 @@ def _fake_ctqmc(tmp_path, *, control=None):
         vloc=SimpleNamespace(vproj={"1": np.asarray([[[[2.0]]]])}),
     )
     return obj
+
+
+def test_sigimp_smoothing_preserves_first_two_points_across_beta(tmp_path):
+    ctqmc = _fake_ctqmc(tmp_path)
+    ctqmc.fweiss = FWeiss.__new__(FWeiss)
+    sigma = np.full((1, 1, 1, 12), -1j)
+    sigma[..., 1:3] = [-0.2j, -0.8j]
+    for beta in range(10, 401):
+        omega = (2 * np.arange(12) + 1) * np.pi / beta
+        ctqmc.dlr = SimpleNamespace(
+            beta=beta, cutoff=300.0, MatsubaraFermionUniform=lambda: omega
+        )
+        smoothed = ctqmc._smooth_sigma_grid(sigma)
+        np.testing.assert_array_equal(smoothed[..., :2], sigma[..., :2], err_msg=f"beta={beta}")
+        assert smoothed[0, 0, 0, 2] != sigma[0, 0, 0, 2], f"beta={beta}"
 
 
 def _write_previous_state(ctqmc, iter_no=2):

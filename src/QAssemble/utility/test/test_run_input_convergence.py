@@ -207,3 +207,17 @@ def test_input_min_scf_uses_explicit_value(monkeypatch, tmp_path):
     assert runner.control["run"]["min_iter"] == 4
     assert runner.control["run"]["NPulay"] == 4
     assert runner.control["run"]["npulay"] == 4
+
+
+def test_input_ignores_obsolete_sigimp_smoothing_options(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_input(
+        tmp_path / "input.ini",
+        "'SigImpSmoothing': True, 'SigImpSmoothingWidth': 0.3,",
+    )
+    runner = object.__new__(Run)
+    runner.ReadInput()
+    assert not {
+        "SigImpSmoothing", "sigimp_smoothing",
+        "SigImpSmoothingWidth", "sigimp_smoothing_width",
+    }.intersection(runner.control["run"])

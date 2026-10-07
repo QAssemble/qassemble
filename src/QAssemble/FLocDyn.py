@@ -3,7 +3,6 @@ import logging
 import sys
 import json
 import h5py
-import warnings
 from .Crystal import Crystal
 from .FLocStc import EImp
 from .Projector import Projector
@@ -528,7 +527,9 @@ class FLocDyn(object):
             if (x0>cutoff+(w0+w1*cutoff)*3.0):
                 ynew[...,cnt]=y[...,cnt]
             else:
-                if ((x0>3*widtharray[cnt])and((x[-1]-x0)>3*widtharray[cnt])):
+                # Exclude the exact 3-width boundary despite roundoff.
+                if (x0 > 3*widtharray[cnt]*(1.0 + 1.0e-12)
+                        and (x[-1]-x0) > 3*widtharray[cnt]):
                     dist = 1.0/np.sqrt(2*np.pi)/widtharray[cnt]*np.exp(-(x-x0)**2/2.0/widtharray[cnt]**2)
                     for js in range(ns):
                         for iorb in range(norb):
@@ -1355,22 +1356,6 @@ class Hyb(FLocDyn):
             for js in range(g_inv.shape[2]):
                 tempmat[..., js, iomega] = omega[iomega]*I - e[..., js] - g_inv[..., js, iomega] - sig[..., js, iomega]
         self.f = tempmat
-        tempmat_uniform = self.UniformGrid(self.f)
-        try:
-            # "auto" acceptance tolerance: the uniform->DLR interpolation noise
-            # floor exceeds the strict 1e-8 default on clean data.
-            self.f = self.CausalProjection(
-                tempmat_uniform, grid="uniform", constraint_tol="auto"
-            )
-        except RuntimeError as err:
-            # With elastic moments and the clipped last-resort fallback inside
-            # the projector this branch should be unreachable; it survives as a
-            # final safety net so an unexpected error cannot kill the run.
-            warnings.warn(
-                f"Hyb causal projection failed for key '{self.key}'; "
-                f"using unprojected hybridization: {err}",
-                RuntimeWarning,
-            )
         self.t = self.F2T(self.f)
         print(f"[Hyb.Cal] key={self.key}, f[0,0,0,0]={self.f[0,0,0,0]}, f[0,0,0,-1]={self.f[0,0,0,-1]}")
 
@@ -1424,15 +1409,7 @@ class FWeiss(FLocDyn):
         return None
 
     def Mixing(self, iter : int, control : dict) -> None:
-        """Mix the hybridization entering hyb.json against the previous
-        iteration (FullGWEDMFT deltamix semantics).
-
-        The mixed hybridization is re-projected and the stored mixing "last"
-        is overwritten with the projected value so the next iteration's fold
-        and residuals are based on the bath the run actually consumes (same
-        policy as PImp.Mixing).  ``Cal`` then rebuilds the equivalence-averaged
-        uniform-grid hybridization that hyb.json is written from.
-        """
+        """Mix the hybridization and rebuild the uniform bath for hyb.json."""
         self.hyb = super().Mixing(
             iter=iter,
             mix=float(control["mix"]),
@@ -1441,21 +1418,6 @@ class FWeiss(FLocDyn):
             method=control["mixing_method"],
             npulay=int(control["npulay"]),
             key=self.key,
-        )
-        try:
-            # The fermion projector has no fallback_matrix; mirror Hyb.Cal's
-            # safety net so an unexpected error cannot kill the run.
-            self.hyb = self.CausalProjection(
-                self.hyb, grid="dlr", constraint_tol="auto"
-            )
-        except RuntimeError as err:
-            warnings.warn(
-                f"FWeiss hybridization re-projection failed for key "
-                f"'{self.key}'; using unprojected mixed hybridization: {err}",
-                RuntimeWarning,
-            )
-        IO.OverwriteMixingLast(
-            self.hdf5file, self.group, self.key, "hyb", self.hyb
         )
         self.Cal()
 

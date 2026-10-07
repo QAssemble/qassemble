@@ -281,7 +281,6 @@ class CTQMC(object):
             "guard_reason": "ok",
             "used_fallback": False,
             "previous_iteration": int(iter) - 1 if iter > 1 else -1,
-            "smoothing_applied": False,
         })
         if not enabled or mode == "off":
             diagnostics["guard_status"] = "disabled"
@@ -316,47 +315,18 @@ class CTQMC(object):
         return diagnostics
 
     def _smooth_sigma_grid(self, sigma_grid : np.ndarray) -> np.ndarray:
-        width = self._control_float(
-            "SigImpSmoothingWidth", "sigimp_smoothing_width", default=0.05
-        )
         try:
             omega = np.asarray(self.dlr.MatsubaraFermionUniform(), dtype=float)
         except AttributeError:
             return sigma_grid
         if len(omega) != sigma_grid.shape[-1]:
             return sigma_grid
-        cutoff = float(omega[-1])
-        temperature = 1.0 / float(self.dlr.beta)
-        broadener = getattr(self.fweiss, "GaussianLinearBroad", None)
+        broadener = getattr(getattr(self, "fweiss", None), "GaussianLinearBroad", None)
         if broadener is None:
             return sigma_grid
-        return broadener(omega, sigma_grid, width, temperature, cutoff)
-
-    def _apply_optional_sigimp_smoothing(
-        self,
-        iter : int,
-        equiv : np.ndarray,
-        sigma : dict,
-        sigma_grid : np.ndarray,
-        err_grid,
-        diagnostics : dict,
-    ):
-        mode = self._control_string(
-            "SigImpGuardMode", "sigimp_guard_mode", default="fallback_previous"
-        )
-        smoothing_enabled = self._control_bool(
-            "SigImpSmoothing", "sigimp_smoothing", default=False
-        )
-        if mode != "smooth_then_check" or not smoothing_enabled:
-            return sigma, sigma_grid, diagnostics
-
-        smoothed_grid = self._smooth_sigma_grid(sigma_grid)
-        smoothed_diag = self._evaluate_sigimp_guard(iter, smoothed_grid, err_grid=err_grid)
-        smoothed_diag["smoothing_applied"] = True
-        if smoothed_diag["guard_status"] != "failed":
-            sigma = self._sigma_array_to_ctqmc_dict(equiv, sigma, smoothed_grid)
-            return sigma, smoothed_grid, smoothed_diag
-        return sigma, sigma_grid, smoothed_diag
+        # Full uses the solver's green Matsubara cutoff (params.json).
+        cutoff = float(self.dlr.cutoff) / 100
+        return broadener(omega, sigma_grid, 0.05, 1.0 / float(self.dlr.beta), cutoff)
 
     def _read_previous_impurity_output(self, iter : int):
         if not self._has_previous_impurity_output(iter):
@@ -741,12 +711,13 @@ class CTQMC(object):
             sigma_grid = self._dynamic_dict_to_array(
                 equiv, self._read_ctqmc_function_dict(sigma_input)
             )
+            # Smooth before the causality guard, as FullGWEDMFT does
+            # (impurity_postprocessing -> write_sctqmc).
+            sigma_grid = self._smooth_sigma_grid(sigma_grid)
+            sigma_input = self._sigma_array_to_ctqmc_dict(equiv, sigma_input, sigma_grid)
             err_grid = self._read_sigma_error_grid(equiv)
             guard_diag = self._evaluate_sigimp_guard(
                 iter, sigma_grid, err_grid=err_grid
-            )
-            sigma_input, sigma_grid, guard_diag = self._apply_optional_sigimp_smoothing(
-                iter, equiv, sigma_input, sigma_grid, err_grid, guard_diag
             )
             vloc, sighimp_vloc_source = self._resolve_sighimp_vloc(key)
             guard_diag["sighimp_vloc_source"] = sighimp_vloc_source
