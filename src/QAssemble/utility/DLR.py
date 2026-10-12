@@ -575,11 +575,17 @@ class DLR(object):
         return fout
 
     def MatsubaraUniform2DLR(self, ff: np.ndarray, omega: np.ndarray = None, sign: int = -1):
-        """Convert full signed uniform Matsubara data to the DLR grid.
+        """Least-squares fit full signed, tail-extended data onto the DLR grid.
 
         Positive-only Hermitian expansion is a wrapper-level operation, where the
-        orbital axes are still available.  This flattened core expects ``omega`` to
-        describe every input row directly.
+        orbital axes are still available.  This flattened core expects ``omega``
+        to describe every input row and cover the DLR frequency range.
+        Fitting all rows averages solver noise that interpolation followed by a
+        square node solve amplifies in imaginary time.  The statistics-aware
+        kernel includes the bosonic correction; 2D batches preserve orbital
+        order without pydlr's rank-3 Matsubara transpose.  Cache the pseudoinverse
+        as SVD factors: forming it explicitly loses precision through cancellation.
+        Lattice k-point calls on the same signed grid reuse these factors.
         """
         ff = np.asarray(ff, dtype=np.complex128)
         ff_ndim = ff.ndim
@@ -611,46 +617,39 @@ class DLR(object):
                 message
             )
 
-        # np.interp requires an ascending source grid; sort defensively and
-        # permute the data identically (the default grids are already ascending,
-        # but a caller-supplied omega may not be).
+        # Sort frequencies and data together, including caller-supplied grids.
         order = np.argsort(omega)
         x_src = np.asarray(omega, dtype=np.float64)[order]
         ff = ff[order]
 
-        # Coverage check AFTER the sort (so an unsorted caller-supplied omega can
-        # not bypass it), for both statistics.  ``np.interp`` would otherwise
-        # silently clamp out-of-range DLR nodes to the endpoint value.  The
-        # tolerance absorbs the bosonic outermost-|nu| node, which floor/ceil
-        # rounding in MatsubaraBosonUniformFull can leave marginally outside the
-        # source range; that single node is then clamped (decaying boundary).
+        # Keep the caller's tail-extension contract for both statistics.
         x_target = np.asarray(omega_dlr, dtype=np.float64)
         scale = max(abs(float(x_target[0])), abs(float(x_target[-1])), 1.0)
         tol = 1.0e-9 * scale
         if x_src[0] > x_target.min() + tol or x_src[-1] < x_target.max() - tol:
             raise ValueError("uniform Matsubara grid does not cover the DLR frequency range")
 
-        # Step 1: linearly interpolate the uniform data onto the DLR Matsubara
-        # sampling grid (element-wise, no transpose — the pydlr transforms below
-        # own the single (a, b) transpose).
-        interp = self._interp_to_grid(ff, x_src, x_target)
-        # Step 2: exact DLR coefficients from the interpolated data (square LU
-        # solve; row count == DLR rank is guaranteed by interpolating onto the
-        # DLR grid).  Inserting the interpolation first stabilises this versus
-        # fitting DLR coefficients directly from the raw uniform grid.  pydlr's
-        # dlr_from_matsubara wraps scipy lu_solve, which rejects a 3D RHS (and
-        # its bosonic_corr divide assumes a 3D shape), so flatten the (a, b)
-        # matrix axes to a 2D batch, solve directly, and apply the bosonic
-        # correction by hand (mirrors BF2T).
         d = self.dF if sign == -1 else self.dB
-        fxx = self._matsubara_nodes_to_coefficients(d, interp, self.beta, sign)
-        # Step 3: re-evaluate the coefficients on the DLR grid (applies the
-        # single trailing-axis transpose the ndim-restore rule is written for).
-        out = d.matsubara_from_dlr(G_xaa=fxx, beta=self.beta, xi=sign)
+        eye = np.eye(x_target.size, dtype=np.complex128)
+        if not hasattr(self, "_uniform_dlr_fit"):
+            self._uniform_dlr_fit = {}
+        key = (sign, x_src.tobytes())
+        if key not in self._uniform_dlr_fit:
+            kernel = d.eval_dlr_freq(eye, 1j * x_src, self.beta, xi=sign)
+            rcond = max(kernel.shape) * np.finfo(kernel.real.dtype).eps
+            u, singular, vh = np.linalg.svd(kernel, full_matrices=False)
+            keep = singular > rcond * singular[0]
+            self._uniform_dlr_fit[key] = (
+                vh[keep].conj().T / singular[keep], u[:, keep].conj().T
+            )
+        right, left = self._uniform_dlr_fit[key]
+        coefficients = right @ (left @ ff.reshape(x_src.size, -1))
+        kernel_nodes = d.eval_dlr_freq(eye, 1j * x_target, self.beta, xi=sign)
+        out = (kernel_nodes @ coefficients).reshape(x_target.size, *ff.shape[1:])
         if ff_ndim == 1:
             return out[:, 0, 0]
         if ff_ndim == 2:
-            return out[:, 0, :]
+            return out[:, :, 0]
         return out
 
     @staticmethod

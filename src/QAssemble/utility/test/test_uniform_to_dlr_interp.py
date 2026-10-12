@@ -1,37 +1,4 @@
-"""Tests for the 3-step interpolation-based uniform->DLR Matsubara conversion.
-
-``MatsubaraUniform2DLR`` / ``MatsubaraUniformGrid2DLR`` now run a 3-step
-pipeline instead of fitting DLR coefficients directly from the raw uniform grid
-in one global least-squares shot (which the user found numerically unstable):
-
-1. linearly interpolate the uniform-grid data onto the DLR Matsubara sampling
-   grid (``self.omega`` / ``self.nu``), real/imag independently;
-2. solve for DLR coefficients exactly via a square LU solve
-   (``dlr_from_matsubara``, flattened to a 2D batch);
-3. re-evaluate the coefficients on the DLR grid (``matsubara_from_dlr``).
-
-These tests pin:
-
-1. **Exact on clean data.** The DLR nodes are a subset of the signed uniform
-   grid, so step-1 is lossless and steps 2-3 are an exact round trip → machine
-   precision for fermions and bosons across the 1D / 4D-fermion / 5D-boson
-   entry points.
-
-2. **LU vs lstsq agreement + transpose convention.** Replacing the step-2 LU
-   solve with ``lstsq_dlr_from_matsubara`` on the SAME interpolated DLR-grid
-   data gives the same answer, and both match the pydlr matrix-axis transpose
-   convention (``matsubara_from_dlr`` transposes the trailing (a,b) axes once,
-   so an asymmetric matrix input lands transposed).
-
-3. **Stability vs raw one-shot lstsq.** On noisy uniform data the new
-   interp->LU path reconstructs the DLR grid at least as accurately as the
-   original raw-uniform lstsq fit (the user's core claim), and the square LU
-   system is far better conditioned than the raw-uniform lstsq kernel.
-
-4. **Coverage check.** A source grid that does not cover the DLR range raises,
-   for both statistics, even when the supplied grid is unsorted (the check runs
-   after the defensive argsort).
-"""
+"""Signed-grid least-squares uniform->DLR fits and DLR->uniform interpolation."""
 
 import numpy as np
 import pytest
@@ -125,18 +92,16 @@ def test_fermion_4d_wrapper_clean_roundtrip_with_asymmetric_matrix():
     norb = 2
 
     arr = np.zeros((norb, norb, 1, len(omega_u)), dtype=np.complex128)
-    # exact reference with the pydlr matrix-axis transpose applied, so it matches
-    # what the wrapper produces (result[i, j] holds the (j, i) channel).
-    exact_t = np.zeros((norb, norb, 1, rank), dtype=np.complex128)
+    exact = np.zeros((norb, norb, 1, rank), dtype=np.complex128)
     for i in range(norb):
         for j in range(norb):
             coeff = -np.abs(rng.standard_normal(rank)) * (1.0 + 0.3 * (i * norb + j))
             arr[i, j, 0, :] = _eval(dlr.dF, coeff, omega_u, xi=-1)
-            exact_t[j, i, 0, :] = _eval(dlr.dF, coeff, dlr.omega, xi=-1)
+            exact[i, j, 0, :] = _eval(dlr.dF, coeff, dlr.omega, xi=-1)
 
     back = dlr.MatsubaraUniformGrid2DLR(arr, omega=dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega))), sign=-1)
     assert back.shape == (norb, norb, 1, rank)
-    assert np.linalg.norm(back - exact_t) / np.linalg.norm(exact_t) < 1.0e-12
+    assert np.linalg.norm(back - exact) / np.linalg.norm(exact) < 1.0e-12
 
 
 def test_boson_5d_wrapper_clean_roundtrip():
@@ -156,8 +121,6 @@ def test_boson_5d_wrapper_clean_roundtrip():
 
     back = dlr.MatsubaraUniformGrid2DLR(arr, omega=dlr.MatsubaraBosonUniformFull(Emax=np.max(np.abs(dlr.nu))), sign=1)
     assert back.shape == (norb, norb, 1, 1, rank)
-    # the 5D boson path flattens to a batch before the solve (no matrix axes to
-    # transpose), so it matches the untransposed reference.
     assert np.linalg.norm(back - exact) / np.linalg.norm(exact) < 1.0e-12
 
 
@@ -185,112 +148,146 @@ def test_boson_5d_dlr_to_uniform_grid_batches_corr_axis():
 
 
 # ---------------------------------------------------------------------------
-# 2. LU vs lstsq (step-2 only) agreement and transpose convention
+# 2. Orbital order, noisy imaginary-time reconstruction, and kernel convention
 # ---------------------------------------------------------------------------
 
 
-def _interp_lstsq_path(dlr, arr_block, omega_u, sign):
-    """Reference: same interpolation onto the DLR grid, but step-2 = lstsq.
+@pytest.fixture(scope="module")
+def production_dlr():
+    return DLR({"beta": 100.0, "cutoff": 300.0})
 
-    Mirrors MatsubaraUniformGrid2DLR's fermion per-spin block path but swaps the
-    square LU solve for ``lstsq_dlr_from_matsubara`` on the SAME DLR-grid data.
-    """
+
+def _hermitian_hamiltonian():
+    return np.array([[-0.5, 0.15 + 0.2j], [0.15 - 0.2j, 0.3]])
+
+
+def _green(freqs):
+    return np.linalg.inv(
+        1j * freqs[:, None, None] * np.eye(2) - _hermitian_hamiltonian()
+    )
+
+
+def _node_tau(dlr, nodes, sign):
     d = dlr.dF if sign == -1 else dlr.dB
-    omega_dlr = dlr.omega if sign == -1 else dlr.nu
-    order = np.argsort(omega_u)
-    x_src = omega_u[order]
-    block = np.moveaxis(arr_block, -1, 0)[order]  # (nfreq_src, norb, norb)
-    interp = dlr._interp_to_grid(block, x_src, omega_dlr)
-    fxx = d.lstsq_dlr_from_matsubara(w_q=omega_dlr * 1j, G_qaa=interp, beta=dlr.beta)
-    out = d.matsubara_from_dlr(G_xaa=fxx, beta=dlr.beta, xi=sign)
-    return np.moveaxis(out, 0, -1)
+    coeff = dlr._matsubara_nodes_to_coefficients(d, nodes, dlr.beta, sign)
+    tau = np.linspace(0.0, dlr.beta, 501)
+    return tau, d.eval_dlr_tau(coeff, tau, dlr.beta)
 
 
-def test_lu_matches_lstsq_on_interpolated_grid_with_asymmetric_matrix():
-    dlr = _dlr()
-    omega_u = dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega)))
-    rank = len(dlr.omega)
-    rng = np.random.default_rng(11)
-    norb = 2
-
-    arr = np.zeros((norb, norb, 1, len(omega_u)), dtype=np.complex128)
-    exact_t = np.zeros((norb, norb, 1, rank), dtype=np.complex128)
-    for i in range(norb):
-        for j in range(norb):
-            coeff = -np.abs(rng.standard_normal(rank)) * (1.0 + 0.3 * (i * norb + j))
-            arr[i, j, 0, :] = _eval(dlr.dF, coeff, omega_u, xi=-1)
-            exact_t[j, i, 0, :] = _eval(dlr.dF, coeff, dlr.omega, xi=-1)
-
-    lu = dlr.MatsubaraUniformGrid2DLR(arr, omega=dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega))), sign=-1)
-    lstsq = _interp_lstsq_path(dlr, arr[:, :, 0, :], omega_u, sign=-1)[:, :, None, :]
-
-    # LU and lstsq agree on the interpolated grid ...
-    assert np.linalg.norm(lu - lstsq) / np.linalg.norm(lstsq) < 1.0e-10
-    # ... and both honour the single trailing-axis transpose (not doubled).
-    assert np.linalg.norm(lu - exact_t) / np.linalg.norm(exact_t) < 1.0e-10
+def test_complex_hermitian_green_preserves_orbital_order(production_dlr):
+    dlr = production_dlr
+    positive = dlr.MatsubaraFermionUniform()
+    uniform = np.moveaxis(_green(positive), 0, -1)[:, :, None, :]
+    nodes = dlr.MatsubaraUniformGrid2DLR(uniform, omega=positive, sign=-1)
+    exact = np.moveaxis(_green(dlr.omega), 0, -1)[:, :, None, :]
+    assert np.max(np.abs(exact - np.swapaxes(exact, 0, 1))) > 0.1
+    np.testing.assert_allclose(nodes, exact, rtol=1.0e-7, atol=1.0e-8)
 
 
-# ---------------------------------------------------------------------------
-# 3. stability vs the original raw-uniform one-shot lstsq
-# ---------------------------------------------------------------------------
-
-
-def _raw_uniform_lstsq(dlr, uniform, omega_u, sign):
-    """The original pre-session path: fit DLR coeffs directly from the raw
-    uniform grid in one lstsq shot, then re-evaluate on the DLR grid."""
-    d = dlr.dF if sign == -1 else dlr.dB
-    ff = np.asarray(uniform, dtype=np.complex128)[:, None, None]
-    fxx = d.lstsq_dlr_from_matsubara(w_q=omega_u * 1j, G_qaa=ff, beta=dlr.beta)
-    return d.matsubara_from_dlr(G_xaa=fxx, beta=dlr.beta, xi=-1 if sign == -1 else 1)[
-        :, 0, 0
-    ]
-
-
-def test_interp_lu_reconstruction_is_comparable_to_raw_lstsq_on_noisy_data():
-    """On white Gaussian noise the two paths are comparable.
-
-    Note: pure white noise actually slightly *favours* the raw one-shot lstsq,
-    because its global fit averages independent noise across the dense uniform
-    grid, while local interpolation passes per-node noise straight through.  The
-    stability advantage of interp->LU shows up in conditioning (see the next
-    test) and on *structured* (non-white) perturbations, not in this white-noise
-    average.  Here we only assert the interp->LU error stays the same order of
-    magnitude as raw lstsq — i.e. nothing pathological.
-    """
-    dlr = _dlr()
-    omega_u = dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega)))
-    rank = len(dlr.omega)
+def test_fermion_noise_tau_regression(production_dlr):
+    dlr = production_dlr
+    positive = dlr.MatsubaraFermionUniform()
     rng = np.random.default_rng(42)
-    coeff = -np.abs(rng.standard_normal(rank))
-
-    exact = _eval(dlr.dF, coeff, dlr.omega, xi=-1)
-    uniform = _eval(dlr.dF, coeff, omega_u, xi=-1)
-    noise = 0.02 * np.max(np.abs(uniform))
-
-    interp_errs, raw_errs = [], []
-    for seed in range(20):
-        r = np.random.default_rng(seed)
-        noisy = uniform + noise * (
-            r.standard_normal(uniform.shape) + 1j * r.standard_normal(uniform.shape)
-        )
-        interp_back = dlr.MatsubaraUniform2DLR(noisy, omega=omega_u, sign=-1)
-        raw_back = _raw_uniform_lstsq(dlr, noisy, omega_u, sign=-1)
-        interp_errs.append(np.linalg.norm(interp_back - exact) / np.linalg.norm(exact))
-        raw_errs.append(np.linalg.norm(raw_back - exact) / np.linalg.norm(exact))
-
-    # same order of magnitude (within 2x), not pathological.
-    assert np.mean(interp_errs) <= 2.0 * np.mean(raw_errs)
+    uniform = _green(positive)
+    noise = 1.0e-4 * (rng.standard_normal(uniform.shape)
+                      + 1j * rng.standard_normal(uniform.shape))
+    noise[positive >= 15.0] = 0.0
+    uniform = np.moveaxis(uniform + noise, 0, -1)[:, :, None, :]
+    nodes = dlr.MatsubaraUniformGrid2DLR(uniform, omega=positive, sign=-1)
+    tau, actual = _node_tau(dlr, np.moveaxis(nodes[:, :, 0, :], -1, 0), -1)
+    energies, vectors = np.linalg.eigh(_hermitian_hamiltonian())
+    weights = -np.exp(-tau[:, None] * energies) / (1.0 + np.exp(-dlr.beta * energies))
+    exact = np.einsum("ik,tk,jk->tij", vectors, weights, vectors.conj())
+    assert np.max(np.abs(actual - exact)) < 1.0e-2
+    anti = 0.5 * (actual - actual.conj().swapaxes(1, 2))
+    assert np.max(np.abs(anti)) < 1.0e-6
+    assert np.max(np.abs(actual[0] + actual[-1] + np.eye(2))) < 1.0e-2
 
 
-def test_square_lu_system_is_better_conditioned_than_raw_lstsq_kernel():
+@pytest.mark.parametrize("noise_amp", [1.0e-4, 1.0e-5])
+def test_boson_noise_tau_regression(production_dlr, noise_amp):
+    dlr = production_dlr
+    positive = dlr.MatsubaraBosonUniform()
+    energies = np.array([0.4, 1.0, 2.0])
+    amplitudes = np.array([[[0.5, 0.0], [0.0, 0.7]],
+                           [[0.8, 0.0], [0.0, 0.3]],
+                           [[0.0, 0.2], [0.2, 0.0]]])
+    factors = 2.0 * energies / (positive[:, None]**2 + energies**2)
+    uniform = np.einsum("tk,kij->tij", factors, amplitudes).astype(complex)
+    rng = np.random.default_rng(42)
+    noise = noise_amp * (rng.standard_normal(uniform.shape)
+                      + 1j * rng.standard_normal(uniform.shape))
+    noise[positive >= 15.0] = 0.0
+    # The unpaired zero-frequency datum must itself be Hermitian.
+    noise[0] = 0.5 * (noise[0] + noise[0].conj().T)
+    uniform = np.moveaxis(uniform + noise, 0, -1)[:, :, None, None, :]
+    nodes = dlr.MatsubaraUniformGrid2DLR(uniform, omega=positive, sign=1)
+    tau, actual = _node_tau(dlr, np.moveaxis(nodes[:, :, 0, 0, :], -1, 0), 1)
+    weights = (np.exp(-tau[:, None] * energies)
+               + np.exp(-(dlr.beta - tau[:, None]) * energies)) / (-np.expm1(-dlr.beta * energies))
+    exact = np.einsum("tk,kij->tij", weights, amplitudes)
+    assert np.max(np.abs(actual - exact)) < 1.0e-2
+    anti = 0.5 * (actual - actual.conj().swapaxes(1, 2))
+    # Grammar's lsq+tail reference gives ~2.7e-6 at noise_amp=1e-4;
+    # node->coefficient LU amplifies roundoff beyond the fermionic threshold.
+    assert np.max(np.abs(anti)) < 0.1 * noise_amp
+    assert np.max(np.abs(actual[0] - actual[-1])) < 1.0e-2
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_frequency_kernel_matches_matsubara_from_dlr(production_dlr, sign):
+    dlr = production_dlr
+    d = dlr.dF if sign == -1 else dlr.dB
+    freq = dlr.omega if sign == -1 else dlr.nu
+    rng = np.random.default_rng(51)
+    coefficients = rng.standard_normal((len(freq), 3)) + 1j * rng.standard_normal((len(freq), 3))
+    kernel = d.eval_dlr_freq(np.eye(len(freq)), 1j * freq, dlr.beta, xi=sign)
+    expected = d.matsubara_from_dlr(coefficients, dlr.beta, xi=sign)
+    np.testing.assert_allclose(kernel @ coefficients, expected, rtol=1.0e-12, atol=1.0e-12)
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+@pytest.mark.parametrize("ndim", [1, 2, 3])
+def test_uniform_fit_matches_direct_lstsq_and_preserves_shape(sign, ndim):
     dlr = _dlr()
-    omega_u = dlr.MatsubaraFermionUniformFull(Emax=np.max(np.abs(dlr.omega)))
-    # square LU system used by step-2 (dlr_from_matsubara)
-    cond_lu = np.linalg.cond(dlr.dF.dlrmf2cf)
-    # raw one-shot lstsq kernel over the full uniform grid
-    k_qx = -1.0 / (omega_u[:, None] * 1j - dlr.dF.dlrrf[None, :] / dlr.beta)
-    cond_lstsq = np.linalg.cond(k_qx)
-    assert cond_lu < cond_lstsq
+    d = dlr.dF if sign == -1 else dlr.dB
+    freq = dlr.omega if sign == -1 else dlr.nu
+    grid = (dlr.MatsubaraFermionUniformFull if sign == -1
+            else dlr.MatsubaraBosonUniformFull)(Emax=np.max(np.abs(freq)))
+    rng = np.random.default_rng(11)
+    shape = [(grid.size,), (grid.size, 3), (grid.size, 2, 3)][ndim - 1]
+    kernel = d.eval_dlr_freq(np.eye(freq.size), 1j * grid, dlr.beta, xi=sign)
+    source_coefficients = rng.standard_normal((freq.size, int(np.prod(shape[1:]))))
+    source_coefficients = source_coefficients + 1j * rng.standard_normal(source_coefficients.shape)
+    uniform = (kernel @ source_coefficients).reshape(shape)
+    coefficients = np.linalg.lstsq(kernel, uniform.reshape(grid.size, -1), rcond=None)[0]
+    kernel_nodes = d.eval_dlr_freq(np.eye(freq.size), 1j * freq, dlr.beta, xi=sign)
+    expected = (kernel_nodes @ coefficients).reshape(freq.size, *shape[1:])
+    actual = dlr.MatsubaraUniform2DLR(uniform, omega=grid, sign=sign)
+    assert actual.shape == expected.shape
+    np.testing.assert_allclose(actual, expected, rtol=1.0e-8, atol=1.0e-8)
+
+
+def test_uniform_pseudoinverse_cache_reuses_sorted_grid(monkeypatch):
+    dlr = _dlr()
+    emax = max(np.max(np.abs(dlr.omega)), np.max(np.abs(dlr.nu)))
+    grid = dlr.MatsubaraFermionUniformFull(Emax=emax + 2 * np.pi / dlr.beta)
+    uniform = 1.0 / (1j * grid - 0.3)
+    svd = np.linalg.svd
+    calls = []
+
+    def counted_svd(kernel, **kwargs):
+        calls.append(kernel.shape)
+        return svd(kernel, **kwargs)
+
+    monkeypatch.setattr(np.linalg, "svd", counted_svd)
+    first = dlr.MatsubaraUniform2DLR(uniform, omega=grid)
+    second = dlr.MatsubaraUniform2DLR(2 * uniform[::-1], omega=grid[::-1])
+    np.testing.assert_allclose(second, 2 * first)
+    assert len(calls) == 1
+    dlr.MatsubaraUniform2DLR(uniform, omega=grid, sign=1)
+    assert len(calls) == 2
+    np.testing.assert_allclose(dlr.MatsubaraUniform2DLR(uniform, omega=grid), first)
 
 
 # ---------------------------------------------------------------------------
@@ -636,7 +633,7 @@ def test_fermion_dlr_to_uniform_keeps_tail_constant():
 
     node = _hyb_nodes(dlr, poles, weights, 100.0)
     uniform = dlr.MatsubaraFermionUniform()
-    exact_tail = (_hyb_exact(uniform, poles, weights).real * uniform**2)
+    exactail = (_hyb_exact(uniform, poles, weights).real * uniform**2)
 
     arr = np.zeros((1, 1, 1, len(dlr.omega)), dtype=np.complex128)
     arr[0, 0, 0, :] = node
@@ -644,7 +641,7 @@ def test_fermion_dlr_to_uniform_keeps_tail_constant():
 
     window = (uniform >= uniform.max() / 10.0) & (uniform <= uniform.max())
     got = out.real[window] * uniform[window] ** 2
-    ref = exact_tail[window]
+    ref = exactail[window]
 
     assert np.abs(got - ref).max() < 0.05 * np.abs(ref).mean()
     assert np.all(got < 0.0), "tail must not change sign"

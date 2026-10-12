@@ -575,7 +575,12 @@ def test_boson_loc_offdiagonal_x_identity_on_uniform_grid():
     xmoment, xhigh, xsigma = local.Moment(
         xarr, grid="uniform", return_sigma=True
     )
-    raw_dlr = dlr.MatsubaraUniformGrid2DLR(local_values, omega=nu_uniform, sign=1)
+    raw_moment, raw_high = local.Moment(local_values, grid="uniform")
+    raw_tail = np.concatenate((np.zeros_like(raw_high)[..., None], raw_moment), axis=-1)
+    # Match the static split and supplied tail used by CausalProjection.
+    raw_dlr = dlr.MatsubaraUniformGrid2DLR(
+        local_values - raw_high[..., None], omega=nu_uniform, sign=1, tail=raw_tail
+    ) + raw_high[..., None]
     x_target = (out[0, 0, 0, 0] + raw_dlr[0, 1, 0, 0]
                 + raw_dlr[1, 0, 0, 0] + out[1, 1, 0, 0])
     c0x = complex(xhigh[0, 1, 0, 0])
