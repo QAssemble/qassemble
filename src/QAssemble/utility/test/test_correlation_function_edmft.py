@@ -7,6 +7,10 @@ import numpy as np
 import pytest
 
 from QAssemble.FLocStc import EImp
+from QAssemble.FLocDyn import FWeiss, Hyb
+from QAssemble.CTQMC import CTQMC
+from QAssemble.utility.DLR import DLR
+from QAssemble.utility.Fourier import Fourier
 from QAssemble.utility.Projection import Projection as PJ
 
 
@@ -105,7 +109,7 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=(), hdf5_offset=0.0):
             self.args = args
             self.kwargs = kwargs
             self.kf = np.asarray([len(FakeG.instances)], dtype=np.complex128)
-            self.mu = 0.25
+            self.mu = 0.25 * len(FakeG.instances)
             self.occ = np.asarray([1.0])
             self.occr = np.asarray([2.0])
             self.rt = np.asarray([3.0])
@@ -484,6 +488,34 @@ def _dmft_correlation_object(cf_mod, tmp_path, *, nscf=1, conv=None):
         conv=conv,
     )
     return corr
+
+
+def test_gwedmft_bare_fermionic_bath_has_no_constant_hybridization_tail():
+    dlr = DLR(dict(beta=20.0, cutoff=100.0))
+    crystal = SimpleNamespace(ns=1)
+    projector = SimpleNamespace(
+        fprojector={'1': np.ones((1, 1, 1))},
+        equiv={'1': np.ones((1, 1), dtype=int)},
+    )
+    mu0 = -1.0281
+    center, hopping = 0.6, 0.4
+    h0 = np.asarray([center - hopping, center + hopping]).reshape(1, 1, 1, 2)
+    iw = 1j * dlr.omega
+    g0 = np.mean(1.0 / (iw[None, :] + mu0 - h0.ravel()[:, None]), axis=0)
+    eimp = EImp(crystal, projector, '1', hamtb=h0, mu=mu0)
+    hyb = Hyb(crystal, dlr, projector, '1', green=g0.reshape(1, 1, 1, -1), eimp=eimp.e)
+    fweiss = FWeiss(crystal, dlr, projector, '1', eimp=eimp, hyb=hyb, mu=mu0)
+
+    np.testing.assert_allclose(eimp.e, center - mu0, atol=1e-12)
+    np.testing.assert_allclose(hyb.f.ravel(), hopping**2 / (iw - (center - mu0)), atol=1e-12)
+    omega = dlr.MatsubaraFermionUniform()
+    coeff = Fourier.FermionTailCoefficients(
+        omega, fweiss.h.ravel(), tail_points=min(24, len(omega)), log_spaced=True,
+    )
+    assert abs(coeff[0]) < 1e-4
+    ctqmc = object.__new__(CTQMC)
+    ctqmc.key, ctqmc.dlr, ctqmc.fweiss = '1', dlr, fweiss
+    ctqmc._validate_hybridization_tail(iteration=1)
 
 
 def test_eimp_static_moment_subtracts_impurity_hartree_and_fock_dc():
@@ -865,11 +897,9 @@ def test_gwedmft_composes_gw_dc_and_impurity_without_quantity_dicts(
     np.testing.assert_allclose(sigc.embedded[1]["sigimp"], 6.0)
 
     (eimp,) = stack.cf_mod.EImp.instances
-    np.testing.assert_allclose(eimp.kwargs["sigh"], 10.0)
-    np.testing.assert_allclose(eimp.kwargs["sigf"], 20.0)
-    np.testing.assert_allclose(eimp.kwargs["hloc"], 50.0)
-    np.testing.assert_allclose(eimp.kwargs["floc"], 5.0)
-    assert eimp.kwargs["hloc"] is hf_dc.sigh.hloc
+    for component in ("sigh", "sigf", "hloc", "floc"):
+        assert eimp.kwargs[component] is None
+    assert eimp.kwargs["mu"] == stack.G.instances[0].mu
     assert len(stack.HFLoc.instances) == 1
 
     hyb = stack.Hyb.instances[0]
@@ -878,9 +908,10 @@ def test_gwedmft_composes_gw_dc_and_impurity_without_quantity_dicts(
     assert fweiss.kwargs["eimp"] is eimp
     assert fweiss.kwargs["hyb"] is hyb
     assert stack.ImpurityAction.instances[0].kwargs["fweiss"] is fweiss
-    np.testing.assert_allclose(hyb.kwargs["sigh"], 50.0)
-    np.testing.assert_allclose(hyb.kwargs["sigf"], 5.0)
-    np.testing.assert_allclose(hyb.kwargs["sigc"], 6.0)
+    for component in ("sigh", "sigf", "sigc"):
+        assert hyb.kwargs[component] is None
+    assert hyb.kwargs["green"] is stack.GLoc.instances[0].f
+    assert fweiss.kwargs["mu"] == stack.G.instances[0].mu
 
     polc = stack.PolC.instances[0]
     assert hasattr(polc.gw, "kf")
@@ -938,12 +969,13 @@ def test_gwedmft_uses_mixed_non_hartree_dc_in_lattice_and_bath(
     np.testing.assert_allclose(sigc.embedded[1]["sigimp"], 8.0)
 
     for eimp in stack.cf_mod.EImp.instances:
-        np.testing.assert_allclose(eimp.kwargs["hloc"], 50.0)
-        np.testing.assert_allclose(eimp.kwargs["floc"], 7.0)
+        for component in ("sigh", "sigf", "hloc", "floc"):
+            assert eimp.kwargs[component] is None
+        assert eimp.kwargs["mu"] == stack.G.instances[0].mu
     hyb = stack.Hyb.instances[0]
-    np.testing.assert_allclose(hyb.kwargs["sigh"], 50.0)
-    np.testing.assert_allclose(hyb.kwargs["sigf"], 7.0)
-    np.testing.assert_allclose(hyb.kwargs["sigc"], 8.0)
+    for component in ("sigh", "sigf", "sigc"):
+        assert hyb.kwargs[component] is None
+    assert hyb.kwargs["green"] is stack.GLoc.instances[0].f
     np.testing.assert_allclose(stack.PolC.instances[0].dc[0].f, 0.25)
 
 
@@ -962,15 +994,18 @@ def test_gwedmft_builds_bosonic_weiss_from_previous_impurity_polarization(
 
     corr.GWEDMFT()
 
-    np.testing.assert_allclose(stack.BWeiss.instances[0].p.f, 0.2)
+    assert stack.BWeiss.instances[0].p is None
+    assert stack.BWeiss.instances[0].w is stack.WLoc.instances[0]
+    assert stack.BWeiss.instances[1].w is stack.WLoc.instances[2]
     np.testing.assert_allclose(stack.BWeiss.instances[1].p, 100.4)
     assert stack.GWLoc.instances[0].result.pol.projection_calls == []
     assert stack.GWLoc.instances[1].result.pol.projection_calls == []
     np.testing.assert_allclose(stack.PolC.instances[1].dc[0].f, 0.2)
     first_hyb, second_hyb = stack.Hyb.instances
-    np.testing.assert_allclose(first_hyb.kwargs["sigh"], 50.0)
-    np.testing.assert_allclose(first_hyb.kwargs["sigf"], 5.0)
-    np.testing.assert_allclose(first_hyb.kwargs["sigc"], 6.0)
+    for component in ("sigh", "sigf", "sigc"):
+        assert first_hyb.kwargs[component] is None
+    assert first_hyb.kwargs["green"] is stack.GLoc.instances[0].f
+    assert second_hyb.kwargs["green"] is stack.GLoc.instances[2].f
     np.testing.assert_allclose(second_hyb.kwargs["sigh"], 102.0)
     np.testing.assert_allclose(second_hyb.kwargs["sigf"], 103.0)
     np.testing.assert_allclose(second_hyb.kwargs["sigc"], 104.0)
@@ -1020,16 +1055,18 @@ def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
     assert [item.kwargs["key"] for item in stack.ImpurityAction.instances] == [
         "1", "2", "1", "2"
     ]
-    np.testing.assert_allclose(stack.BWeiss.instances[0].p.f, 0.2)
-    np.testing.assert_allclose(stack.BWeiss.instances[1].p.f, 0.2)
+    assert stack.BWeiss.instances[0].p is None
+    assert stack.BWeiss.instances[1].p is None
+    assert stack.BWeiss.instances[0].w is stack.WLoc.instances[0]
+    assert stack.BWeiss.instances[1].w is stack.WLoc.instances[1]
     np.testing.assert_allclose(stack.BWeiss.instances[2].p, 0.4)
     np.testing.assert_allclose(stack.BWeiss.instances[3].p, 0.5)
     assert stack.GWLoc.instances[2].result.pol.projection_calls == []
     assert stack.GWLoc.instances[3].result.pol.projection_calls == []
-    for hyb, hartree in zip(stack.Hyb.instances[:2], [50.0, 60.0]):
-        np.testing.assert_allclose(hyb.kwargs["sigh"], hartree)
-        np.testing.assert_allclose(hyb.kwargs["sigf"], 5.0)
-        np.testing.assert_allclose(hyb.kwargs["sigc"], 6.0)
+    for index, hyb in enumerate(stack.Hyb.instances[:2]):
+        for component in ("sigh", "sigf", "sigc"):
+            assert hyb.kwargs[component] is None
+        assert hyb.kwargs["green"] is stack.GLoc.instances[index].f
     np.testing.assert_allclose(stack.Hyb.instances[2].kwargs["sigh"], 2.0)
     np.testing.assert_allclose(stack.Hyb.instances[2].kwargs["sigf"], 3.0)
     np.testing.assert_allclose(stack.Hyb.instances[2].kwargs["sigc"], 4.0)
@@ -1044,14 +1081,17 @@ def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
         # HFLoc must still see the local Green function before lattice update.
         assert hf_loc.kwargs["gloc"] is stack.GLoc.instances[index]
         if iteration == 1:
-            assert eimp.kwargs["hloc"] is hf_loc.result.sigh.hloc
+            for component in ("sigh", "sigf", "hloc", "floc"):
+                assert eimp.kwargs[component] is None
+            assert eimp.kwargs["mu"] == stack.G.instances[0].mu
         else:
             with h5py.File(eimp.kwargs["hdf5file"], "r") as handle:
                 previous = handle[
                     f"{eimp.kwargs['group']}/SigHImp/sighimp.{iteration - 1}.{key}"
                 ][()]
             np.testing.assert_allclose(eimp.kwargs["hloc"], previous)
-        assert eimp.kwargs["floc"] is hf_loc.result.sigf.floc
+            assert eimp.kwargs["floc"] is hf_loc.result.sigf.floc
+            assert eimp.kwargs["mu"] == stack.G.instances[iteration].mu
         assert eimp.saved == [("eimp", (), {})]
         hyb = stack.Hyb.instances[index]
         assert hyb.kwargs["eimp"] is eimp.e
@@ -1063,9 +1103,16 @@ def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
         np.testing.assert_allclose(
             dc["sigimp"], -stack.GWLoc.instances[index].result.siggwc.f
         )
-        np.testing.assert_allclose(seed["sigfimp"], hyb.kwargs["sigf"])
-        np.testing.assert_allclose(seed["sigimp"], hyb.kwargs["sigc"])
+        if iteration == 1:
+            np.testing.assert_allclose(seed["sigfimp"], hf_loc.result.sigf.floc)
+            np.testing.assert_allclose(
+                seed["sigimp"], stack.GWLoc.instances[index].result.siggwc.f
+            )
+        else:
+            np.testing.assert_allclose(seed["sigfimp"], hyb.kwargs["sigf"])
+            np.testing.assert_allclose(seed["sigimp"], hyb.kwargs["sigc"])
         fweiss = stack.cf_mod.FWeiss.instances[index]
+        assert fweiss.kwargs["mu"] == eimp.kwargs["mu"]
         assert fweiss.kwargs["eimp"] is eimp
         assert fweiss.kwargs["hyb"] is hyb
         assert stack.ImpurityAction.instances[index].kwargs["fweiss"] is fweiss

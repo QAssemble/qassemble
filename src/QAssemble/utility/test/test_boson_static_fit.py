@@ -27,6 +27,23 @@ def fixtures():
     return dlr,crystal,projector
 
 
+def test_bweiss_bare_start_has_zero_dynamic_interaction_after_mixing(tmp_path):
+    dlr, crystal, projector = fixtures()
+    v = np.full((1, 1, 1, 1), 4.0)
+    w = SimpleNamespace(f=np.repeat(v[..., None], len(dlr.nu), axis=4))
+    bath = BWeiss(
+        crystal, dlr, projector, '1', vloc=SimpleNamespace(vproj={'1': v}),
+        w=w, p=None, static_fit=True, hdf5file=str(tmp_path / 'bare.h5'),
+        group='gwedmft', iteration=1,
+    )
+    bath.Mixing(dict(mix=.5, mixing_method='linear', npulay=5))
+
+    assert np.all(np.isfinite(bath.cf_uniform))
+    np.testing.assert_allclose(bath.cf_uniform, 0.0, atol=1e-12)
+    np.testing.assert_allclose(bath._as_dyn_dict('1')['1'], 0.0, atol=1e-12)
+    np.testing.assert_allclose(bath.f_to_solver_uniform, 4.0, atol=1e-12)
+
+
 @pytest.mark.parametrize("static", [0.,0.05])
 def test_static_tail_matches_full_reference(static):
     dlr,crystal,projector=fixtures()

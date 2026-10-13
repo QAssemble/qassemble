@@ -1271,6 +1271,8 @@ class CorrelationFunction(object):
 
                 dc_h, dc_f, _ = dc_by_key[key]
                 bath_h, bath_f, bath_c = sigma_seed_by_key[key]
+                # The first impurity bath shares the bare G/W used by GW and DC.
+                bath_mu = green.mu if iteration == 1 else green_next.mu
                 # The impurity Dyson equation keeps the full impurity self-energy,
                 # so its Hartree term is removed from the impurity level instead.
                 eimp = EImp(
@@ -1278,11 +1280,11 @@ class CorrelationFunction(object):
                     projector=projector,
                     key=key,
                     hamtb=self.niham.k,
-                    sigh=hf_result.sigh.k,
-                    sigf=hf_result.sigf.k,
-                    hloc=bath_h,
-                    floc=dc_f,
-                    mu=green_next.mu,
+                    sigh=None if iteration == 1 else hf_result.sigh.k,
+                    sigf=None if iteration == 1 else hf_result.sigf.k,
+                    hloc=None if iteration == 1 else bath_h,
+                    floc=None if iteration == 1 else dc_f,
+                    mu=bath_mu,
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iteration,
@@ -1294,11 +1296,11 @@ class CorrelationFunction(object):
                     dlr=self.dlr,
                     projector=projector,
                     key=key,
-                    green=gloc.f,
+                    green=gloc_by_key[key].f if iteration == 1 else gloc.f,
                     eimp=eimp.e,
-                    sigh=bath_h,
-                    sigf=bath_f,
-                    sigc=bath_c,
+                    sigh=None if iteration == 1 else bath_h,
+                    sigf=None if iteration == 1 else bath_f,
+                    sigc=None if iteration == 1 else bath_c,
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iteration,
@@ -1311,7 +1313,7 @@ class CorrelationFunction(object):
                     key=key,
                     eimp=eimp,
                     hyb=hyb,
-                    mu=green_next.mu,
+                    mu=bath_mu,
                     hdf5file=hdf5file,
                     group=group,
                 )
@@ -1321,8 +1323,8 @@ class CorrelationFunction(object):
                     projector=projector,
                     key=key,
                     vloc=self.vbare.vloc,
-                    w=wloc,
-                    p=p_seed_by_key[key],
+                    w=wloc_by_key[key] if iteration == 1 else wloc,
+                    p=None if iteration == 1 else p_seed_by_key[key],
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iteration,
