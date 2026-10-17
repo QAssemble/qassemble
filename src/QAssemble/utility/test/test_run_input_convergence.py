@@ -221,3 +221,41 @@ def test_input_ignores_obsolete_sigimp_smoothing_options(monkeypatch, tmp_path):
         "SigImpSmoothing", "sigimp_smoothing",
         "SigImpSmoothingWidth", "sigimp_smoothing_width",
     }.intersection(runner.control["run"])
+
+
+@pytest.mark.parametrize("shortcut,name", [("ToleranceG", "G"), ("TolerenceG", "G"), ("ToleranceW", "W")])
+def test_gwedmft_tolerance_shortcut_uses_lattice_name(monkeypatch, tmp_path, shortcut, name):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_input(tmp_path / "input.ini", f"'Method': 'gw+edmft', '{shortcut}': 1e-6,")
+    runner = object.__new__(Run)
+    runner.ReadInput()
+    assert runner.control["run"][f"tol_d{name}_abs"] == 1e-6
+    assert runner.control["run"][f"tol_d{name}_rel"] == 1e-6
+    for key in ("tol_dGLoc_abs", "tol_dWLoc_abs", "tol_GLoc_GImp_abs"):
+        assert key not in runner.control["run"]
+
+
+@pytest.mark.parametrize("name", ["G", "W"])
+@pytest.mark.parametrize("kind", ["abs", "rel"])
+def test_gwedmft_explicit_lattice_tolerance_overrides_shortcuts(monkeypatch, tmp_path, caplog, name, kind):
+    monkeypatch.chdir(tmp_path)
+    key = f"tol_d{name}_{kind}"
+    _write_minimal_input(tmp_path / "input.ini",
+                         f"'Method': 'gw+edmft', 'ToleranceG': 1e-6, 'ToleranceW': 2e-6, '{key}': 3e-6,")
+    runner = object.__new__(Run)
+    runner.ReadInput()
+    assert runner.control["run"][key] == 3e-6
+    other_kind = "rel" if kind == "abs" else "abs"
+    assert runner.control["run"][f"tol_d{name}_{other_kind}"] == (1e-6 if name == "G" else 2e-6)
+    assert f"'{key}' is deprecated" not in caplog.text
+
+
+@pytest.mark.parametrize("method", ["dmft", "edmft"])
+def test_local_methods_keep_legacy_g_tolerance_warning(monkeypatch, tmp_path, caplog, method):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_input(tmp_path / "input.ini",
+                         f"'Method': '{method}', 'ToleranceG': 1e-6, 'tol_dG_abs': 3e-6,")
+    runner = object.__new__(Run)
+    runner.ReadInput()
+    assert runner.control["run"]["tol_dGLoc_abs"] == 1e-6
+    assert "'tol_dG_abs' is deprecated" in caplog.text

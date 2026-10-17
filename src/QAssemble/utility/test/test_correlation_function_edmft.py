@@ -24,6 +24,15 @@ class _SavedObject:
 
     def Save(self, name, *args, **kwargs):
         self.saved.append((name, args, kwargs))
+        if hasattr(self, "_io"):
+            settings, subgroup, field = self._io
+            suffix = f".{settings['key']}" if "key" in settings else ""
+            with h5py.File(settings["hdf5file"], "a") as handle:
+                group = handle.require_group(f"{settings['group']}/{subgroup}")
+                dataset = f"{name}.{settings['iteration']}{suffix}"
+                if dataset in group:
+                    del group[dataset]
+                group.create_dataset(dataset, data=kwargs.get("obj", getattr(self, field)))
 
     def Mixing(self, **kwargs):
         self.mixing_calls.append(kwargs)
@@ -45,10 +54,14 @@ class _FakeConvergence:
         self.cross_checks = []
         self.self_hdf5_checks = []
         self.cross_hdf5_checks = []
+        self.seed_prev_calls = []
         self.diagnostics = None
 
     def Start(self):
         pass
+
+    def seed_prev(self, name, value, kind):
+        self.seed_prev_calls.append((name, value, kind))
 
     def StartIter(self, iter, ready_after=None):
         self.iter = iter
@@ -72,6 +85,8 @@ class _FakeConvergence:
     def Commit(self, iter, will_continue):
         return iter >= self.converge_after, {
             "self": {
+                "G": {"abs": 1.25},
+                "W": {"abs": 2.5},
                 "GLoc": {"abs": 0.0},
                 "mu": {"abs": 0.0},
                 "WLoc": {"abs": 0.0},
@@ -106,6 +121,7 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=(), hdf5_offset=0.0):
 
         def __init__(self, *args, **kwargs):
             FakeG.instances.append(self)
+            self.impurity_count = len(FakeImpurityAction.instances)
             self.args = args
             self.kwargs = kwargs
             self.kf = np.asarray([len(FakeG.instances)], dtype=np.complex128)
@@ -284,10 +300,17 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=(), hdf5_offset=0.0):
             self.kwargs = kwargs
 
         def __call__(self):
-            return SimpleNamespace(
-                sigh=_SavedObject(k=np.asarray([10.0])),
-                sigf=_SavedObject(k=np.asarray([20.0])),
+            iteration = self.kwargs["iteration"]
+            self.result = SimpleNamespace(
+                sigh=_SavedObject(k=np.asarray([10.0 + 100.0 * iteration]),
+                                  _io=(self.kwargs, "SigH", "k")),
+                sigf=_SavedObject(k=np.asarray([20.0 + 100.0 * iteration]),
+                                  _io=(self.kwargs, "SigF", "k")),
             )
+            if iteration % 50 == 0 or iteration == 1:
+                self.result.sigh.Save("sigh.k")
+                self.result.sigf.Save("sigf.k")
+            return self.result
 
     class FakeGW:
         instances = []
@@ -315,7 +338,8 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=(), hdf5_offset=0.0):
                     50.0 + 100.0 * (self.kwargs["iteration"] - 1)
                     + 10.0 * (int(self.kwargs["key"]) - 1)
                 ])),
-                sigf=_SavedObject(floc=np.asarray([5.0])),
+                sigf=_SavedObject(floc=np.asarray([5.0 + 100.0 * (self.kwargs["iteration"] - 1)]),
+                                  _io=(self.kwargs, "SigFLoc", "floc")),
             )
             return self.result
 
@@ -368,6 +392,8 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=(), hdf5_offset=0.0):
             iter_no = float(self.kwargs["iteration"])
             key_no = float(self.kwargs["key"])
             key_offset = 10.0 * (key_no - 1.0)
+            if self.kwargs["group"] == "gwedmft":
+                key_offset += 1000.0 * (iter_no - 1)
             result = SimpleNamespace(
                 ctqmc=SimpleNamespace(),
                 diagnostics={"sign": iter_no, "nimp": iter_no},
@@ -378,7 +404,7 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=(), hdf5_offset=0.0):
                 chi=_SavedObject(f=np.asarray([5.0])),
                 pimp=_SavedObject(
                     f=np.ones((1, 1, 1, 1, 2), dtype=np.complex128)
-                    * (0.3 + 0.1 * key_no)
+                    * (0.3 + 0.1 * key_no + (1000.0 * (iter_no - 1) if self.kwargs["group"] == "gwedmft" else 0.0))
                 ),
                 wimp=_SavedObject(
                     f=np.ones((1, 1, 1, 1, 2), dtype=np.complex128) * 0.6
@@ -720,6 +746,7 @@ def test_edmft_uses_initial_dynamic_bath_and_skips_first_convergence(
     assert corr.conv.self_hdf5_checks == []
     assert corr.conv.cross_checks == []
     assert corr.conv.cross_hdf5_checks == []
+    assert corr.conv.self_hdf5_checks == []
     assert not hasattr(corr, "gloc")
     assert not hasattr(corr, "wloc")
     assert corr.w is stack.W.instances[1]
@@ -858,85 +885,93 @@ def test_run_dispatch_calls_edmft(monkeypatch):
     assert called == [runner.control]
 
 
-def test_gwedmft_composes_gw_dc_and_impurity_without_quantity_dicts(
-    monkeypatch,
-    tmp_path,
-):
-    stack = _install_fake_edmft_stack(monkeypatch)
+def test_gwedmft_composes_gw_dc_and_impurity_without_quantity_dicts(monkeypatch, tmp_path, caplog):
+    stack = _install_fake_edmft_stack(monkeypatch, hdf5_offset=100.0)
     corr = _edmft_correlation_object(stack.cf_mod, tmp_path, nscf=1)
+    with caplog.at_level("INFO", logger="QAssemble"):
+        corr.GWEDMFT()
+    assert "dG=1.250e+00/dW=2.500e+00" in caplog.text
+    assert "gcheck=" not in caplog.text
+    assert "GLoc-GImp" not in caplog.text and "WLoc-WImp" not in caplog.text
 
-    corr.GWEDMFT()
+    bare, pre, updated = stack.G.instances
+    bare_w, pre_w, updated_w = stack.W.instances
+    pre_hf, hf = stack.HF.instances
+    pre_gw, gw = stack.GW.instances
+    assert pre_hf.kwargs["iteration"] == pre_gw.kwargs["iteration"] == 0
+    assert pre_hf.kwargs["mix"] is pre_gw.kwargs["mix"] is None
+    assert pre_hf.kwargs["occ"] is bare.occ
+    assert pre_gw.kwargs["g"] is bare
+    assert pre_gw.kwargs["w"] is bare_w
+    assert bare_w.is_bare
+    assert hf.kwargs["iteration"] == gw.kwargs["iteration"] == 1
+    assert hf.kwargs["mix"] == gw.kwargs["mix"] == 0.5
+    assert hf.kwargs["occ"] is pre.occ
+    assert gw.kwargs["g"] is pre and gw.kwargs["w"] is pre_w
+    assert not stack.SigC.instances[0].embedded
+    assert not stack.PolC.instances[0].embedded
+    assert pre.impurity_count == 0 and updated.impurity_count == 1
+    assert ("gkf", (), {}) in pre.saved
+    assert ("wkf", (), {}) in pre_w.saved
+    assert stack.GLoc.instances[0].kwargs["green"] is pre.kf
+    assert stack.WLoc.instances[1].kwargs["wlat"] is pre_w.kf
 
     hf_dc = stack.HFLoc.instances[0].result
     gw_dc = stack.GWLoc.instances[0].result
+    assert stack.HFLoc.instances[0].kwargs["gloc"] is stack.GLoc.instances[0]
+    assert stack.GWLoc.instances[0].kwargs["wloc"] is stack.WLoc.instances[1]
     assert hf_dc.sigh.mixing_calls == []
-    for obj, component, value in (
-        (hf_dc.sigf, "sigfdc", hf_dc.sigf.floc),
-        (gw_dc.siggwc, "siggwcdc", gw_dc.siggwc.f),
-        (gw_dc.pol, "pdc", gw_dc.pol.f),
-    ):
+    for obj, value in ((hf_dc.sigf, hf_dc.sigf.floc), (gw_dc.siggwc, gw_dc.siggwc.f),
+                       (gw_dc.pol, gw_dc.pol.f)):
         assert len(obj.mixing_calls) == 1
         call = obj.mixing_calls[0]
-        assert call["iter"] == 1
-        assert call["mix"] == 0.5
-        assert call["component"] == component
-        assert call["method"] == "pulay"
-        assert call["npulay"] == 5
+        assert call["iter"] == 1 and call["mix"] == 0.5 and call["npulay"] == 5
         np.testing.assert_allclose(call["value"], value)
 
-    sigc = stack.SigC.instances[0]
-    assert sigc.kwargs["sigh"] == pytest.approx(np.asarray([10.0]))
-    assert sigc.kwargs["sigf"] == pytest.approx(np.asarray([20.0]))
-    assert sigc.kwargs["siggwc"] == pytest.approx(np.asarray([30.0]))
+    sigc = stack.SigC.instances[1]
+    np.testing.assert_allclose(sigc.kwargs["sigh"], 110.0)
+    np.testing.assert_allclose(sigc.kwargs["sigf"], 120.0)
     assert len(sigc.embedded) == 2
-    assert "sighimp" not in sigc.embedded[0]
+    assert all("sighimp" not in item for item in sigc.embedded)
     np.testing.assert_allclose(sigc.embedded[0]["sigfimp"], -5.0)
     np.testing.assert_allclose(sigc.embedded[0]["sigimp"], -6.0)
-    assert "sighimp" not in sigc.embedded[1]
-    np.testing.assert_allclose(sigc.embedded[1]["sigfimp"], 5.0)
-    np.testing.assert_allclose(sigc.embedded[1]["sigimp"], 6.0)
+    # Read the same iteration's persisted mixed outputs, not the returned objects.
+    np.testing.assert_allclose(sigc.embedded[1]["sigfimp"], 103.0)
+    np.testing.assert_allclose(sigc.embedded[1]["sigimp"], 104.0)
+    polc = stack.PolC.instances[1]
+    assert not hasattr(polc.gw, "pimp")
+    np.testing.assert_allclose(polc.dc[0].f, 0.2)
+    np.testing.assert_allclose(polc.embedded[0][0], 100.4)
 
-    (eimp,) = stack.cf_mod.EImp.instances
-    for component in ("sigh", "sigf", "hloc", "floc"):
-        assert eimp.kwargs[component] is None
-    assert eimp.kwargs["mu"] == stack.G.instances[0].mu
-    assert len(stack.HFLoc.instances) == 1
-
+    eimp = stack.cf_mod.EImp.instances[0]
+    assert eimp.saved == [("eimp", (), {})]
+    np.testing.assert_allclose(eimp.kwargs["sigh"], 10.0)
+    np.testing.assert_allclose(eimp.kwargs["sigf"], 20.0)
+    assert eimp.kwargs["hloc"] is hf_dc.sigh.hloc
+    assert eimp.kwargs["floc"] is hf_dc.sigf.floc
+    assert eimp.kwargs["mu"] == pre.mu
     hyb = stack.Hyb.instances[0]
-    assert hyb.kwargs["eimp"] is eimp.e
-    fweiss = stack.cf_mod.FWeiss.instances[0]
-    assert fweiss.kwargs["eimp"] is eimp
-    assert fweiss.kwargs["hyb"] is hyb
-    assert stack.ImpurityAction.instances[0].kwargs["fweiss"] is fweiss
-    for component in ("sigh", "sigf", "sigc"):
-        assert hyb.kwargs[component] is None
     assert hyb.kwargs["green"] is stack.GLoc.instances[0].f
-    assert fweiss.kwargs["mu"] == stack.G.instances[0].mu
-
-    polc = stack.PolC.instances[0]
-    assert hasattr(polc.gw, "kf")
-    assert polc.dc[0] is not None
-    assert polc.embedded[0][0] is polc.dc[0]
-    np.testing.assert_allclose(polc.embedded[0][0].f, 0.2)
-
-    np.testing.assert_allclose(
-        stack.GLoc.instances[1].kwargs["green"], stack.G.instances[1].kf
-    )
-    np.testing.assert_allclose(
-        stack.WLoc.instances[1].kwargs["wlat"], stack.W.instances[1].kf
-    )
-
+    assert hyb.kwargs["sigh"] is hf_dc.sigh.hloc
+    assert hyb.kwargs["sigf"] is hf_dc.sigf.floc
+    assert hyb.kwargs["sigc"] is gw_dc.siggwc.f
+    fweiss = stack.cf_mod.FWeiss.instances[0]
+    assert hyb.kwargs["eimp"] is eimp.e
+    assert fweiss.kwargs["eimp"] is eimp and fweiss.kwargs["hyb"] is hyb
+    assert fweiss.kwargs["mu"] == pre.mu
+    assert stack.ImpurityAction.instances[0].kwargs["fweiss"] is fweiss
+    assert stack.BWeiss.instances[0].w is stack.WLoc.instances[0]
+    assert stack.BWeiss.instances[0].p is None
+    assert stack.WLoc.instances[0].kwargs["causal"] is False
+    assert stack.WLoc.instances[1].kwargs["causal"] is True
+    assert stack.GLoc.instances[1].kwargs["green"] is updated.kf
+    assert stack.WLoc.instances[2].kwargs["wlat"] is updated_w.kf
+    assert updated.kwargs["mu_reference"] == pre.mu
+    assert corr.green is updated and corr.w is updated_w
+    assert corr.pol is polc and corr.sigc is sigc
     assert not any(name.endswith("_by_key") for name in vars(corr))
-    assert not hasattr(corr, "impurity_state")
-    assert corr.green is stack.G.instances[-1]
-    assert corr.w is stack.W.instances[-1]
-    assert corr.pol is polc
-    assert corr.sigc is sigc
 
-
-def test_gwedmft_uses_mixed_non_hartree_dc_in_lattice_and_bath(
-    monkeypatch, tmp_path
-):
+def test_gwedmft_uses_mixed_non_hartree_dc_in_lattice_and_bath(monkeypatch, tmp_path):
     stack = _install_fake_edmft_stack(monkeypatch)
     original_hf_call = stack.HFLoc.__call__
     original_gw_call = stack.GWLoc.__call__
@@ -955,175 +990,124 @@ def test_gwedmft_uses_mixed_non_hartree_dc_in_lattice_and_bath(
 
     monkeypatch.setattr(stack.HFLoc, "__call__", mixed_hf_call)
     monkeypatch.setattr(stack.GWLoc, "__call__", mixed_gw_call)
-
     corr = _edmft_correlation_object(stack.cf_mod, tmp_path, nscf=1)
     corr.GWEDMFT()
-
-    sigc = stack.SigC.instances[0]
+    sigc = stack.SigC.instances[1]
     assert stack.HFLoc.instances[0].result.sigh.mixing_calls == []
-    assert "sighimp" not in sigc.embedded[0]
+    assert all("sighimp" not in item for item in sigc.embedded)
     np.testing.assert_allclose(sigc.embedded[0]["sigfimp"], -7.0)
     np.testing.assert_allclose(sigc.embedded[0]["sigimp"], -8.0)
-    assert "sighimp" not in sigc.embedded[1]
-    np.testing.assert_allclose(sigc.embedded[1]["sigfimp"], 7.0)
-    np.testing.assert_allclose(sigc.embedded[1]["sigimp"], 8.0)
-
-    for eimp in stack.cf_mod.EImp.instances:
-        for component in ("sigh", "sigf", "hloc", "floc"):
-            assert eimp.kwargs[component] is None
-        assert eimp.kwargs["mu"] == stack.G.instances[0].mu
+    np.testing.assert_allclose(sigc.embedded[1]["sigfimp"], 3.0)
+    np.testing.assert_allclose(sigc.embedded[1]["sigimp"], 4.0)
+    eimp = stack.cf_mod.EImp.instances[0]
+    np.testing.assert_allclose(eimp.kwargs["hloc"], 50.0)
+    np.testing.assert_allclose(eimp.kwargs["floc"], 7.0)
     hyb = stack.Hyb.instances[0]
-    for component in ("sigh", "sigf", "sigc"):
-        assert hyb.kwargs[component] is None
-    assert hyb.kwargs["green"] is stack.GLoc.instances[0].f
-    np.testing.assert_allclose(stack.PolC.instances[0].dc[0].f, 0.25)
+    np.testing.assert_allclose(hyb.kwargs["sigf"], 7.0)
+    np.testing.assert_allclose(hyb.kwargs["sigc"], 8.0)
+    np.testing.assert_allclose(stack.PolC.instances[1].dc[0].f, 0.25)
+    with h5py.File(corr.hdf5path, "r") as handle:
+        np.testing.assert_allclose(handle["gwedmft/SigH/sigh_mixed.k.1"][()], 110.0)
+        np.testing.assert_allclose(handle["gwedmft/SigF/sigf_mixed.k.1"][()], 120.0)
+        np.testing.assert_allclose(handle["gwedmft/SigFLoc/sigfdc.1.1"][()], 7.0)
 
-
-def test_gwedmft_builds_bosonic_weiss_from_previous_impurity_polarization(
-    monkeypatch,
-    tmp_path,
-):
+def test_gwedmft_builds_bosonic_weiss_from_previous_impurity_polarization(monkeypatch, tmp_path):
     stack = _install_fake_edmft_stack(monkeypatch, hdf5_offset=100.0)
     conv = _FakeConvergence(converge_after=2)
-    corr = _edmft_correlation_object(
-        stack.cf_mod,
-        tmp_path,
-        nscf=2,
-        conv=conv,
-    )
-
+    corr = _edmft_correlation_object(stack.cf_mod, tmp_path, nscf=2, conv=conv)
     corr.GWEDMFT()
-
     assert stack.BWeiss.instances[0].p is None
     assert stack.BWeiss.instances[0].w is stack.WLoc.instances[0]
     assert stack.BWeiss.instances[1].w is stack.WLoc.instances[2]
     np.testing.assert_allclose(stack.BWeiss.instances[1].p, 100.4)
     assert stack.GWLoc.instances[0].result.pol.projection_calls == []
     assert stack.GWLoc.instances[1].result.pol.projection_calls == []
-    np.testing.assert_allclose(stack.PolC.instances[1].dc[0].f, 0.2)
     first_hyb, second_hyb = stack.Hyb.instances
-    for component in ("sigh", "sigf", "sigc"):
-        assert first_hyb.kwargs[component] is None
     assert first_hyb.kwargs["green"] is stack.GLoc.instances[0].f
-    assert second_hyb.kwargs["green"] is stack.GLoc.instances[2].f
-    np.testing.assert_allclose(second_hyb.kwargs["sigh"], 102.0)
-    np.testing.assert_allclose(second_hyb.kwargs["sigf"], 103.0)
-    np.testing.assert_allclose(second_hyb.kwargs["sigc"], 104.0)
+    assert second_hyb.kwargs["green"] is stack.GLoc.instances[1].f
+    for component, expected in (("sigh", 102.0), ("sigf", 103.0), ("sigc", 104.0)):
+        np.testing.assert_allclose(second_hyb.kwargs[component], expected)
     second_eimp = stack.cf_mod.EImp.instances[1]
-    np.testing.assert_allclose(second_eimp.kwargs["hloc"], 102.0)
-    assert stack.PolC.instances[0].embedded[0][0] is stack.PolC.instances[0].dc[0]
-    np.testing.assert_allclose(stack.PolC.instances[1].embedded[0][0], 100.4)
+    for component, expected in (("sigh", 110.0), ("sigf", 120.0), ("hloc", 102.0), ("floc", 5.0)):
+        np.testing.assert_allclose(second_eimp.kwargs[component], expected)
+    assert second_eimp.kwargs["mu"] == stack.G.instances[2].mu
+    np.testing.assert_allclose(stack.SigC.instances[2].embedded[1]["sigfimp"], 1103.0)
+    np.testing.assert_allclose(stack.SigC.instances[2].embedded[1]["sigimp"], 1104.0)
+    for index, polc in enumerate(stack.PolC.instances[1:]):
+        np.testing.assert_allclose(polc.dc[0].f, 0.2)
+        np.testing.assert_allclose(polc.embedded[0][0], 100.4 + 1000.0 * index)
     assert conv.start_iters == [1, 2]
-    assert conv.self_hdf5_checks[0][1]["current"] == "gloc.1"
-    assert conv.self_hdf5_checks[0][1]["previous"] == "gloc.0"
-    assert conv.self_hdf5_checks[2][1]["current"] == "gloc.2"
-    assert conv.self_hdf5_checks[2][1]["previous"] == "gloc.1"
-    assert conv.cross_hdf5_checks[0][1]["stem_a"] == "gloc.1"
-    assert conv.cross_hdf5_checks[0][1]["stem_b"] == "gimp.1"
+    assert conv.self_hdf5_checks == []
+    assert [name for name, _, _ in conv.self_checks] == ["G", "W", "mu"] * 2
+    assert conv.cross_hdf5_checks == []
+    assert conv.cross_checks == []
+    lattice_checks = [(name, value, kind) for name, value, kind in conv.self_checks
+                      if name in ("G", "W")]
+    assert [name for name, _, _ in lattice_checks] == ["G", "W"] * 2
+    for index in range(2):
+        assert lattice_checks[2 * index][1] is stack.G.instances[index + 2].kf
+        assert lattice_checks[2 * index + 1][1] is stack.W.instances[index + 2].kf
+    assert all(kind == "array" for _, _, kind in lattice_checks)
+    assert [name for name, _, _ in conv.seed_prev_calls] == ["G", "W"]
+    assert conv.seed_prev_calls[0][1] is stack.G.instances[1].kf
+    assert conv.seed_prev_calls[1][1] is stack.W.instances[1].kf
+    assert all(kind == "array" for _, _, kind in conv.seed_prev_calls)
 
-
-def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(
-    monkeypatch,
-    tmp_path,
-):
+def test_gwedmft_runs_each_problem_without_impurity_quantity_dicts(monkeypatch, tmp_path):
     stack = _install_fake_edmft_stack(monkeypatch)
-    corr = _edmft_correlation_object(
-        stack.cf_mod,
-        tmp_path,
-        nscf=2,
-        conv=_FakeConvergence(converge_after=2),
-    )
+    corr = _edmft_correlation_object(stack.cf_mod, tmp_path, nscf=2,
+                                    conv=_FakeConvergence(converge_after=2))
     corr.control["impurity"] = {
         "impdict": {"1": [[(0, 0)]], "2": [[(0, 0)]]},
-        "equiv": {
-            "1": np.eye(1, dtype=int),
-            "2": np.eye(1, dtype=int),
-        },
+        "equiv": {"1": np.eye(1, dtype=int), "2": np.eye(1, dtype=int)},
     }
-
     corr.GWEDMFT()
-
-    assert [item.kwargs["key"] for item in stack.GLoc.instances] == [
-        "1", "2", "1", "2", "1", "2"
-    ]
-    assert [item.kwargs["key"] for item in stack.HFLoc.instances] == [
-        "1", "2", "1", "2"
-    ]
-    assert [item.kwargs["key"] for item in stack.GWLoc.instances] == [
-        "1", "2", "1", "2"
-    ]
-    assert [item.kwargs["key"] for item in stack.ImpurityAction.instances] == [
-        "1", "2", "1", "2"
-    ]
-    assert stack.BWeiss.instances[0].p is None
-    assert stack.BWeiss.instances[1].p is None
-    assert stack.BWeiss.instances[0].w is stack.WLoc.instances[0]
-    assert stack.BWeiss.instances[1].w is stack.WLoc.instances[1]
-    np.testing.assert_allclose(stack.BWeiss.instances[2].p, 0.4)
-    np.testing.assert_allclose(stack.BWeiss.instances[3].p, 0.5)
-    assert stack.GWLoc.instances[2].result.pol.projection_calls == []
-    assert stack.GWLoc.instances[3].result.pol.projection_calls == []
-    for index, hyb in enumerate(stack.Hyb.instances[:2]):
-        for component in ("sigh", "sigf", "sigc"):
-            assert hyb.kwargs[component] is None
-        assert hyb.kwargs["green"] is stack.GLoc.instances[index].f
-    np.testing.assert_allclose(stack.Hyb.instances[2].kwargs["sigh"], 2.0)
-    np.testing.assert_allclose(stack.Hyb.instances[2].kwargs["sigf"], 3.0)
-    np.testing.assert_allclose(stack.Hyb.instances[2].kwargs["sigc"], 4.0)
-    np.testing.assert_allclose(stack.Hyb.instances[3].kwargs["sigh"], 12.0)
-    np.testing.assert_allclose(stack.Hyb.instances[3].kwargs["sigf"], 13.0)
-    np.testing.assert_allclose(stack.Hyb.instances[3].kwargs["sigc"], 14.0)
-    levels = stack.cf_mod.EImp.instances
-    assert len(levels) == 4
-    for index, eimp in enumerate(levels):
-        hf_loc = stack.HFLoc.instances[index]
-        iteration, key = hf_loc.kwargs["iteration"], hf_loc.kwargs["key"]
-        # HFLoc must still see the local Green function before lattice update.
-        assert hf_loc.kwargs["gloc"] is stack.GLoc.instances[index]
-        if iteration == 1:
-            for component in ("sigh", "sigf", "hloc", "floc"):
-                assert eimp.kwargs[component] is None
-            assert eimp.kwargs["mu"] == stack.G.instances[0].mu
-        else:
-            with h5py.File(eimp.kwargs["hdf5file"], "r") as handle:
-                previous = handle[
-                    f"{eimp.kwargs['group']}/SigHImp/sighimp.{iteration - 1}.{key}"
-                ][()]
-            np.testing.assert_allclose(eimp.kwargs["hloc"], previous)
-            assert eimp.kwargs["floc"] is hf_loc.result.sigf.floc
-            assert eimp.kwargs["mu"] == stack.G.instances[iteration].mu
-        assert eimp.saved == [("eimp", (), {})]
+    assert [item.impurity_count for item in stack.G.instances] == [0, 0, 2, 4]
+    assert [item.kwargs["key"] for item in stack.GLoc.instances] == ["1", "2"] * 3
+    for cls in (stack.HFLoc, stack.GWLoc, stack.ImpurityAction):
+        assert [item.kwargs["key"] for item in cls.instances] == ["1", "2"] * 2
+    assert not stack.SigC.instances[0].embedded
+    assert not stack.PolC.instances[0].embedded
+    for index, eimp in enumerate(stack.cf_mod.EImp.instances):
+        iteration, key = index // 2 + 1, str(index % 2 + 1)
+        hf_dc = stack.HFLoc.instances[index].result
+        gw_dc = stack.GWLoc.instances[index].result
         hyb = stack.Hyb.instances[index]
-        assert hyb.kwargs["eimp"] is eimp.e
-        assert hyb.kwargs["sigh"] is eimp.kwargs["hloc"]
-        dc, seed = stack.SigC.instances[iteration - 1].embedded[
-            2 * (index % 2):2 * (index % 2) + 2
-        ]
-        np.testing.assert_allclose(dc["sigfimp"], -hf_loc.result.sigf.floc)
-        np.testing.assert_allclose(
-            dc["sigimp"], -stack.GWLoc.instances[index].result.siggwc.f
-        )
+        assert stack.HFLoc.instances[index].kwargs["gloc"] is stack.GLoc.instances[index]
+        assert hyb.kwargs["green"] is stack.GLoc.instances[index].f
+        assert eimp.kwargs["mu"] == stack.G.instances[iteration].mu
+        np.testing.assert_allclose(eimp.kwargs["sigh"], 10.0 + 100.0 * (iteration - 1))
+        np.testing.assert_allclose(eimp.kwargs["sigf"], 20.0 + 100.0 * (iteration - 1))
         if iteration == 1:
-            np.testing.assert_allclose(seed["sigfimp"], hf_loc.result.sigf.floc)
-            np.testing.assert_allclose(
-                seed["sigimp"], stack.GWLoc.instances[index].result.siggwc.f
-            )
+            assert eimp.kwargs["hloc"] is hf_dc.sigh.hloc
+            assert eimp.kwargs["floc"] is hf_dc.sigf.floc
+            assert hyb.kwargs["sigh"] is hf_dc.sigh.hloc
+            assert hyb.kwargs["sigf"] is hf_dc.sigf.floc
+            assert hyb.kwargs["sigc"] is gw_dc.siggwc.f
+            assert stack.BWeiss.instances[index].p is None
+            assert stack.BWeiss.instances[index].w is stack.WLoc.instances[index]
         else:
-            np.testing.assert_allclose(seed["sigfimp"], hyb.kwargs["sigf"])
-            np.testing.assert_allclose(seed["sigimp"], hyb.kwargs["sigc"])
+            offset = 10.0 * (int(key) - 1)
+            np.testing.assert_allclose(eimp.kwargs["hloc"], 2.0 + offset)
+            np.testing.assert_allclose(eimp.kwargs["floc"], 5.0)
+            for component, expected in (("sigh", 2.0), ("sigf", 3.0), ("sigc", 4.0)):
+                np.testing.assert_allclose(hyb.kwargs[component], expected + offset)
+            assert stack.BWeiss.instances[index].w is stack.WLoc.instances[index + 2]
+            np.testing.assert_allclose(stack.BWeiss.instances[index].p, 0.3 + 0.1 * int(key))
+        dc, imp = stack.SigC.instances[iteration].embedded[(index % 2) * 2:(index % 2) * 2 + 2]
+        np.testing.assert_allclose(dc["sigfimp"], -hf_dc.sigf.floc)
+        np.testing.assert_allclose(dc["sigimp"], -gw_dc.siggwc.f)
+        offset = 10.0 * (int(key) - 1)
+        np.testing.assert_allclose(imp["sigfimp"], 3.0 + 1000.0 * (iteration - 1) + offset)
+        np.testing.assert_allclose(imp["sigimp"], 4.0 + 1000.0 * (iteration - 1) + offset)
+        assert "sighimp" not in dc and "sighimp" not in imp
         fweiss = stack.cf_mod.FWeiss.instances[index]
+        assert fweiss.kwargs["eimp"] is eimp and fweiss.kwargs["hyb"] is hyb
         assert fweiss.kwargs["mu"] == eimp.kwargs["mu"]
-        assert fweiss.kwargs["eimp"] is eimp
-        assert fweiss.kwargs["hyb"] is hyb
         assert stack.ImpurityAction.instances[index].kwargs["fweiss"] is fweiss
-    assert len(stack.SigC.instances[0].embedded) == 4
-    assert all(
-        "sighimp" not in entry
-        for sigc in stack.SigC.instances for entry in sigc.embedded
-    )
-    assert len(stack.PolC.instances[0].embedded) == 2
+    assert all(len(sigc.embedded) == 4 for sigc in stack.SigC.instances[1:])
+    assert all(len(polc.embedded) == 2 for polc in stack.PolC.instances[1:])
     assert not any(name.endswith("_by_key") for name in vars(corr))
-
 
 @pytest.mark.parametrize("missing_attr", ["pimp", "wimp", "sigimp"])
 def test_gwedmft_requires_complete_impurity_pipeline(
@@ -1136,6 +1120,95 @@ def test_gwedmft_requires_complete_impurity_pipeline(
 
     with pytest.raises(RuntimeError, match=f"no {missing_attr}"):
         corr.GWEDMFT()
+
+
+def test_gwedmft_resume_uses_previous_bath_ledger_without_prerun(monkeypatch, tmp_path):
+    stack = _install_fake_edmft_stack(monkeypatch)
+    corr = _edmft_correlation_object(stack.cf_mod, tmp_path, nscf=2,
+                                    conv=_FakeConvergence(converge_after=2))
+    corr.control["run"]["mode"] = "Restart"
+    with h5py.File(corr.hdf5path, "w") as handle:
+        handle.require_group("gwedmft").attrs["static_convention"] = 4
+        for subgroup, name, value in (
+            ("SigH", "sigh_mixed.k.1", [110.0]),
+            ("SigF", "sigf_mixed.k.1", [120.0]),
+            ("SigFLoc", "sigfdc.1.1", [7.0]),
+            ("SigHImp", "sighimp.1.1", [102.0]),
+            ("SigFImp", "sigfimp.1.1", [103.0]),
+            ("SigCImp", "sigimp.1.1", [104.0]),
+            ("PImp", "pimp.1.1", np.full((1, 1, 1, 1, 2), 100.4)),
+        ):
+            handle.require_group(f"gwedmft/{subgroup}").create_dataset(name, data=value)
+    monkeypatch.setattr(stack.cf_mod.IO, "LastCompleteIteration", lambda *args: 1)
+    def restore_green(obj, *args):
+        obj.kf = np.full_like(obj.kf, 77.0)
+        obj.mu = 2.5
+        return obj
+
+    def restore_wlat(obj, *args):
+        obj.kf = np.full_like(obj.kf, 88.0)
+        return obj
+
+    monkeypatch.setattr(corr, "_restore_green", restore_green)
+    monkeypatch.setattr(corr, "_restore_wlat", restore_wlat)
+    monkeypatch.setattr(corr.conv, "Resume", lambda *args: None, raising=False)
+    corr.GWEDMFT()
+    seeds = {name: (value, kind) for name, value, kind in corr.conv.seed_prev_calls}
+    assert set(seeds) == {"mu", "G", "W"}
+    assert seeds["G"][0] is stack.G.instances[0].kf
+    assert seeds["W"][0] is stack.W.instances[0].kf
+    np.testing.assert_allclose(seeds["G"][0], 77.0)
+    np.testing.assert_allclose(seeds["W"][0], 88.0)
+    assert seeds["G"][1] == seeds["W"][1] == "array"
+    assert corr.conv.cross_hdf5_checks == []
+    assert [call.kwargs["iteration"] for call in stack.HF.instances] == [2]
+    assert [call.kwargs["iteration"] for call in stack.GW.instances] == [2]
+    assert len(stack.SigC.instances) == len(stack.PolC.instances) == 1
+    eimp = stack.cf_mod.EImp.instances[0]
+    for component, value in (("sigh", 110.0), ("sigf", 120.0), ("hloc", 102.0), ("floc", 7.0)):
+        np.testing.assert_allclose(eimp.kwargs[component], value)
+    assert eimp.kwargs["mu"] == stack.G.instances[0].mu
+    hyb = stack.Hyb.instances[0]
+    for component, value in (("sigh", 102.0), ("sigf", 103.0), ("sigc", 104.0)):
+        np.testing.assert_allclose(hyb.kwargs[component], value)
+    assert hyb.kwargs["green"] is stack.GLoc.instances[0].f
+    assert stack.BWeiss.instances[0].w is stack.WLoc.instances[0]
+    np.testing.assert_allclose(stack.BWeiss.instances[0].p, 100.4)
+    # The updated Dyson equation uses iteration 2, while the bath used iteration 1.
+    np.testing.assert_allclose(stack.SigC.instances[0].embedded[1]["sigfimp"], 1003.0)
+    np.testing.assert_allclose(stack.SigC.instances[0].embedded[1]["sigimp"], 1004.0)
+    np.testing.assert_allclose(stack.PolC.instances[0].embedded[0][0], 1000.4)
+
+
+def test_gwedmft_hf_ledger_with_dc_seed_has_no_constant_hybridization_tail():
+    dlr = DLR(dict(beta=20.0, cutoff=100.0))
+    crystal = SimpleNamespace(ns=1)
+    projector = SimpleNamespace(
+        fprojector={"1": np.ones((1, 1, 1))},
+        equiv={"1": np.ones((1, 1), dtype=int)},
+    )
+    center, hopping, mu = 0.6, 0.4, -1.0281
+    h0 = np.asarray([center - hopping, center + hopping]).reshape(1, 1, 1, 2)
+    sigh, sigf = np.full_like(h0, 0.8), np.full_like(h0, -0.3)
+    dc_h, dc_f = np.full((1, 1, 1), 0.7), np.full((1, 1, 1), -0.2)
+    iw = 1j * dlr.omega
+    dc_c = (0.09 / (iw + 1.4)).reshape(1, 1, 1, -1)
+    green = np.mean(1.0 / (iw[None, :] + mu - h0.ravel()[:, None]
+                           - 0.8 + 0.3 - dc_c.ravel()), axis=0).reshape(1, 1, 1, -1)
+    eimp = EImp(crystal, projector, "1", hamtb=h0, sigh=sigh, sigf=sigf,
+                hloc=dc_h, floc=dc_f, mu=mu)
+    hyb = Hyb(crystal, dlr, projector, "1", green=green, eimp=eimp.e,
+              sigh=dc_h, sigf=dc_f, sigc=dc_c)
+    fweiss = FWeiss(crystal, dlr, projector, "1", eimp=eimp, hyb=hyb, mu=mu)
+    np.testing.assert_allclose(eimp.e, center - mu, atol=1e-12)
+    ctqmc = object.__new__(CTQMC)
+    ctqmc.key, ctqmc.dlr, ctqmc.fweiss = "1", dlr, fweiss
+    ctqmc._validate_hybridization_tail(iteration=1)
+    coeff = Fourier.FermionTailCoefficients(
+        dlr.MatsubaraFermionUniform(), fweiss.h.ravel(),
+        tail_points=min(24, len(dlr.MatsubaraFermionUniform())),
+    )
+    assert abs(coeff[0]) < 1e-4
 
 
 def test_run_dispatch_calls_gwedmft(monkeypatch):
@@ -1159,7 +1232,7 @@ def test_run_dispatch_calls_gwedmft(monkeypatch):
 
 
 @pytest.mark.parametrize("mode", ["Auto", "Restart"])
-@pytest.mark.parametrize("convention", [None, 1, 2, 4])
+@pytest.mark.parametrize("convention", [None, 1, 2, 3])
 def test_gwedmft_rejects_previous_static_convention_without_mutation(monkeypatch, tmp_path, mode, convention):
     stack = _install_fake_edmft_stack(monkeypatch)
     corr = _edmft_correlation_object(stack.cf_mod, tmp_path)
@@ -1184,7 +1257,7 @@ def test_gwedmft_records_new_static_convention_and_accepts_resume(monkeypatch, t
     corr.control["run"]["mode"] = mode
     corr.GWEDMFT()
     with h5py.File(corr.hdf5path, "r") as handle:
-        assert handle["gwedmft"].attrs["static_convention"] == 3
+        assert handle["gwedmft"].attrs["static_convention"] == 4
     # Emulate a fully completed checkpoint; no numerical work remains to resume.
     monkeypatch.setattr(stack.cf_mod.IO, "LastCompleteIteration", lambda *args: 1)
     monkeypatch.setattr(corr, "_restore_green", lambda obj, *args: obj)
@@ -1204,7 +1277,7 @@ def test_gwedmft_rewinds_static_fallback_pairs_before_wloc(monkeypatch, tmp_path
     shape = (1, 1, 1, 1, 2)
     with h5py.File(corr.hdf5path, "a") as handle:
         root = handle.require_group("gwedmft")
-        root.attrs["static_convention"] = 3
+        root.attrs["static_convention"] = 4
         for subgroup, stem, value, static in (("WLoc", "wloc", 2., .04), ("BWeiss", "bweiss", 4., .05)):
             group = root.require_group(subgroup)
             if resume:
@@ -1243,8 +1316,8 @@ def test_gwedmft_static_gw_dc_is_added_before_dc_mixing(monkeypatch, tmp_path):
     old_gloc_init = stack.GLoc.__init__
     def wloc_init(self, *args, **kwargs):
         old_wloc_init(self, *args, **kwargs)
-        assert kwargs['causal'] is True
-        self.cstatic = np.asarray([0.25])
+        if kwargs['causal']:
+            self.cstatic = np.asarray([0.25])
     def gloc_init(self, *args, **kwargs):
         old_gloc_init(self, *args, **kwargs)
         self.occ = np.asarray([2.0])
@@ -1260,6 +1333,7 @@ def test_gwedmft_static_gw_dc_is_added_before_dc_mixing(monkeypatch, tmp_path):
     assert len(contractions)==1
     np.testing.assert_array_equal(contractions[0][1],stack.GLoc.instances[0].occ)
     dc=stack.GWLoc.instances[0].result.siggwc
+    assert stack.GWLoc.instances[0].kwargs['wloc'].kwargs['causal'] is True
     np.testing.assert_allclose(dc.mixing_calls[0]['value'],5.5)
     saved=[kwargs['obj'] for name,args,kwargs in dc.saved if name=='siggwcloc_static']
     assert len(saved)==1

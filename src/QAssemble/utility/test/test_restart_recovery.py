@@ -15,13 +15,16 @@ from QAssemble.utility.Mixing import Mixing
 
 def _complete(handle, iteration, keys):
     paths = [f"gwedmft/G/gkf.{iteration}", f"gwedmft/G/mu.{iteration}",
-             f"gwedmft/W/wkf.{iteration}"]
+             f"gwedmft/W/wkf.{iteration}",
+             f"gwedmft/SigH/sigh_mixed.k.{iteration}",
+             f"gwedmft/SigF/sigf_mixed.k.{iteration}"]
     for key in keys:
         paths += [f"gwedmft/{group}/{stem}.{iteration}.{key}" for group, stem in (
             ("GLoc", "gloc"), ("WLoc", "wloc"), ("GImp", "gimp"),
             ("SigHImp", "sighimp"), ("SigFImp", "sigfimp"),
             ("SigCImp", "sigimp"), ("Chi", "chi"), ("PImp", "pimp"),
             ("WImp", "wimp"),
+            ("SigFLoc", "sigfdc"),
         )]
     for path in paths:
         parent, name = path.rsplit("/", 1)
@@ -53,6 +56,16 @@ def test_torn_ctqmc_output_does_not_count(tmp_path):
         _complete(handle, 2, ["a"])
         del handle["gwedmft/GImp/gimp.2.a"]
     assert IO.LastCompleteIteration(path, "gwedmft", ["a"], 2) == 1
+
+
+@pytest.mark.parametrize("missing", ["SigH/sigh_mixed.k.2", "SigF/sigf_mixed.k.2", "SigFLoc/sigfdc.2.b"])
+def test_last_complete_iteration_requires_bath_ledger(tmp_path, missing):
+    path = tmp_path / "glob.h5"
+    with h5py.File(path, "w") as handle:
+        for iteration in (1, 2):
+            _complete(handle, iteration, ["a", "b"])
+        del handle[f"gwedmft/{missing}"]
+    assert IO.LastCompleteIteration(path, "gwedmft", ["a", "b"], 2) == 1
 
 
 def _mix(path, component, iteration, value):

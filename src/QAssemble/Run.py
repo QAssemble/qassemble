@@ -258,20 +258,19 @@ class Run:
                 continue
             if k.startswith("tol_"):
                 control["run"][k] = v
+        gwedmft = control["run"]["method"] == "gw+edmft"
+        g_tol_keys = (("tol_dG_abs", "tol_dG_rel") if gwedmft else
+                      ("tol_dGLoc_abs", "tol_dGLoc_rel", "tol_GLoc_GImp_abs"))
+        w_tol_keys = (("tol_dW_abs", "tol_dW_rel") if gwedmft else
+                      ("tol_dWLoc_abs", "tol_dWLoc_rel"))
         for shortcut in ("TolerenceG", "ToleranceG"):
             if shortcut in ini:
-                gtol = ini[shortcut]
-                for key in (
-                    "tol_dGLoc_abs",
-                    "tol_dGLoc_rel",
-                    "tol_GLoc_GImp_abs",
-                ):
-                    control["run"].setdefault(key, gtol)
+                for key in g_tol_keys:
+                    control["run"].setdefault(key, ini[shortcut])
                 break
         if "ToleranceW" in ini:
-            wtol = ini["ToleranceW"]
-            for key in ("tol_dWLoc_abs", "tol_dWLoc_rel"):
-                control["run"].setdefault(key, wtol)
+            for key in w_tol_keys:
+                control["run"].setdefault(key, ini["ToleranceW"])
         if "convergence_hdf5_group" in ini:
             control["run"]["convergence_hdf5_group"] = ini["convergence_hdf5_group"]
         _LEGACY_TOL_KEYS = {
@@ -291,6 +290,8 @@ class Run:
                     f"Use {hint} in the Control section instead."
                 )
         for old, hint in _LEGACY_TOL_KEYS.items():
+            if gwedmft and old in ("tol_dG_abs", "tol_dG_rel"):
+                continue
             if old in ini:
                 logger.warning(
                     f"input.ini Control key '{old}' is deprecated. "

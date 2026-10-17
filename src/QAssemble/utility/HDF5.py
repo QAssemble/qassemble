@@ -49,6 +49,8 @@ class IO:
                         f"{group}/G/gkf.{iteration}",
                         f"{group}/G/mu.{iteration}",
                         f"{group}/W/wkf.{iteration}",
+                        f"{group}/SigH/sigh_mixed.k.{iteration}",
+                        f"{group}/SigF/sigf_mixed.k.{iteration}",
                     ]
                     for key in keys:
                         paths.extend(
@@ -59,6 +61,7 @@ class IO:
                                 ("SigFImp", "sigfimp"), ("SigCImp", "sigimp"),
                                 ("Chi", "chi"), ("PImp", "pimp"),
                                 ("WImp", "wimp"),
+                                ("SigFLoc", "sigfdc"),
                             )
                         )
                     if not all(path in handle and isinstance(handle[path], h5py.Dataset)
