@@ -644,6 +644,11 @@ class BLocDyn(object):
                 highzero=True, oddzero=oddzero,
             ) + high[..., None]
 
+        # ponytail: no-causal experiment branch; keep the c0 split and DLR fit, skip the QP.
+        self._projection_cstatic = np.asfortranarray(high)
+        self._projection_c2 = np.asfortranarray(-moment[..., 1])
+        return np.asfortranarray(arr)
+
         proj_nu = np.asarray(self.dlr.nu, dtype=np.float64)
         projector = CausalBosonProjector(
             d=self.dlr.dB,
