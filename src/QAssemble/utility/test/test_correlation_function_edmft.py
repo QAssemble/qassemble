@@ -1128,7 +1128,7 @@ def test_gwedmft_resume_uses_previous_bath_ledger_without_prerun(monkeypatch, tm
                                     conv=_FakeConvergence(converge_after=2))
     corr.control["run"]["mode"] = "Restart"
     with h5py.File(corr.hdf5path, "w") as handle:
-        handle.require_group("gwedmft").attrs["static_convention"] = 4
+        handle.require_group("gwedmft").attrs["static_convention"] = 5
         for subgroup, name, value in (
             ("SigH", "sigh_mixed.k.1", [110.0]),
             ("SigF", "sigf_mixed.k.1", [120.0]),
@@ -1257,7 +1257,7 @@ def test_gwedmft_records_new_static_convention_and_accepts_resume(monkeypatch, t
     corr.control["run"]["mode"] = mode
     corr.GWEDMFT()
     with h5py.File(corr.hdf5path, "r") as handle:
-        assert handle["gwedmft"].attrs["static_convention"] == 4
+        assert handle["gwedmft"].attrs["static_convention"] == 5
     # Emulate a fully completed checkpoint; no numerical work remains to resume.
     monkeypatch.setattr(stack.cf_mod.IO, "LastCompleteIteration", lambda *args: 1)
     monkeypatch.setattr(corr, "_restore_green", lambda obj, *args: obj)
@@ -1277,7 +1277,7 @@ def test_gwedmft_rewinds_static_fallback_pairs_before_wloc(monkeypatch, tmp_path
     shape = (1, 1, 1, 1, 2)
     with h5py.File(corr.hdf5path, "a") as handle:
         root = handle.require_group("gwedmft")
-        root.attrs["static_convention"] = 4
+        root.attrs["static_convention"] = 5
         for subgroup, stem, value, static in (("WLoc", "wloc", 2., .04), ("BWeiss", "bweiss", 4., .05)):
             group = root.require_group(subgroup)
             if resume:

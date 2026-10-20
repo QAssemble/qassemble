@@ -963,14 +963,14 @@ class CorrelationFunction(object):
         mode = self.control["run"].get("mode", "FromScratch")
         if mode in ("Auto", "Restart") and os.path.exists(hdf5file):
             with h5py.File(hdf5file, "r") as handle:
-                if group in handle and handle[group].attrs.get("static_convention") != 4:
+                if group in handle and handle[group].attrs.get("static_convention") != 5:
                     raise RuntimeError(
                         "GW+EDMFT previous static convention checkpoint: fresh start "
-                        "required with a new output prefix (static_convention=4). "
+                        "required with a new output prefix (static_convention=5). "
                         "이전 규약 checkpoint, fresh start 필요."
                     )
         with h5py.File(hdf5file, "a") as handle:
-            handle.require_group(group).attrs["static_convention"] = 4
+            handle.require_group(group).attrs["static_convention"] = 5
         resume = (IO.LastCompleteIteration(hdf5file, group, problem_keys, itermax)
                   if mode in ("Auto", "Restart") else 0)
         if mode in ("Auto", "Restart"):
@@ -1109,7 +1109,7 @@ class CorrelationFunction(object):
                 hdf5file=hdf5file,
                 group=group,
                 iteration=resume,
-                causal=True,
+                causal=False,
             )
             wloc.Save("wloc")
             wloc_by_key[key] = wloc
@@ -1309,7 +1309,7 @@ class CorrelationFunction(object):
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iteration,
-                    static_fit=True,
+                    static_fit=False,
                 )
                 bweiss.Save("bweiss")
                 impurity_result = ImpurityAction(
@@ -1403,7 +1403,7 @@ class CorrelationFunction(object):
                     hdf5file=hdf5file,
                     group=group,
                     iteration=iteration,
-                    causal=True,
+                    causal=False,
                 )
                 wloc.Save("wloc")
                 gloc_next_by_key[key] = gloc
