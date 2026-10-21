@@ -557,9 +557,9 @@ class BLocDyn(object):
         ``highzero=True`` the constant is excluded from the tail fit and the
         ``c0`` split is skipped, so the projected output strictly decays
         (response functions such as chi). If hard moment constraints fail, the
-        QP retries with elastic moments. Solver failure uses previous-iteration
-        data when supplied,
-        otherwise a clipped fit (or the raw channel if that fit degenerates).
+        QP retries without moment equalities. Solver failure uses
+        previous-iteration data when supplied, otherwise a clipped fit (or the
+        raw channel if that fit degenerates).
         On X-only failure, previous-iteration X is combined with the current
         selected diagonals.
 
@@ -610,10 +610,10 @@ class BLocDyn(object):
 
         _log_available_solvers_once()
 
-        # Estimate physical moments on the input grid before any interpolation,
-        # then pass [high, moment...] explicitly to the projector.  The fit
-        # sigmas drive the elastic moment penalties so noisy moment estimates
-        # can never make the QP infeasible.
+        # Estimate physical moments on the input grid before interpolation,
+        # then pass [high, moment...] explicitly to the projector. Tail-fit
+        # sigmas remain forwarded for compatibility; failed hard constraints
+        # are dropped before retrying with only the coefficient sign.
         raw = arr
 
         # For uniform input, interpolate the data onto the DLR basis.  The

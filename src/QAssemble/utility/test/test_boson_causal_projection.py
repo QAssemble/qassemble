@@ -644,45 +644,118 @@ def test_boson_uniform_expansion_uses_transposed_conjugate():
     np.testing.assert_allclose(converted, model(nu_dlr), atol=1.0e-8)
 
 
-def test_boson_infeasible_moment_hard_raises_elastic_succeeds():
+@pytest.mark.parametrize("moment_sigma", [None, [1.0e-20, 1.0e-20], [0.1, 5.0]])
+def test_boson_infeasible_moment_drops_to_relaxed(monkeypatch, moment_sigma):
     dlr = _boson_dlr()
     verifier = _BosonVerifier(dlr)
-    base = _causal_coefficients(verifier)
-    target = verifier.reconstruct(base)
-
+    target = verifier.reconstruct(_causal_coefficients(verifier))
     boson = _boson(dlr)
-    # Physical c2 < 0 maps to an internal m2 > 0, which the sign-constrained
-    # weights (A_l <= 0) can never satisfy: the hard equality is infeasible.
+    # Compare the same QP; disabled moments can otherwise certify this input.
+    monkeypatch.setattr(boson, "_causal_certificate", lambda *args: None)
+    # This physical c2 maps to m2 > 0, outside the nonpositive-weight cone.
     infeasible_tail = np.array([0.0, 0.0, -0.5, 0.0])
-    # hard path (no sigma): still infeasible -> raises
-    with pytest.raises(RuntimeError):
-        boson.project(target, tail_coeffs=infeasible_tail)
-
-    # elastic path: the tail sigmas turn the equality into an exact L1
-    # penalty, so the QP always finds a causal solution.  A garbage moment
-    # estimate comes with a comparably large sigma (that is what the noisy
-    # tail fit reports — the data's own m2 is ~-6.5 here, so a fit claiming
-    # -0.5 carries an O(5) uncertainty), keeping mu = 1/sigma moderate.
-    tail_sigma = np.array([0.0, 0.1, 5.0, 0.0])
-    projected = ProjectBosonComponentWithFallback(
-        boson, target, infeasible_tail, tail_sigma=tail_sigma
-    )
-    assert projected.shape == target.shape
-    assert np.all(np.isfinite(projected))
+    with pytest.warns(RuntimeWarning, match="hard moment constraint infeasible; dropped") as caught:
+        projected = boson.project(
+            target, tail_coeffs=infeasible_tail, moment_sigma=moment_sigma
+        )
+    assert len(caught) == 1
+    assert "target m2=" in str(caught[0].message)
+    assert "achieved m2=" in str(caught[0].message)
     validation = boson.last_validation
-    assert validation["elastic"] is True
+    assert validation["moment_constraint"] == "relaxed"
+    assert validation["elastic"] is False
+    assert validation["equality_slack"] is None
+    assert validation["moment_sigma"] is None
+    assert validation["moment_residual_sigma"] is None
     assert validation["valid"] is True
     assert validation["clipped"] is False
-    # output stays causal (sign -1: all pole weights nonpositive)
     assert validation["coefficient_violation"] <= validation["effective_tol"]
-    # the slack records the (unreachable) distance to the causal moment cone:
-    # m2_target = +0.5 while any causal solution has m2 <= 0
-    assert validation["equality_slack"] is not None
-    assert validation["equality_slack"][0] < 0.0
-    # the causal data is still tracked far better than any clipped/raw
-    # fallback would manage; exact statistical weighting is data-dependent
-    relative = np.linalg.norm(projected - target) / np.linalg.norm(target)
-    assert relative < 0.5
+    assert validation["moment_residual"] > validation["effective_tol"]
+    direct = boson.project(target, tail_coeffs=infeasible_tail, enforce_moments=False)
+    np.testing.assert_allclose(projected, direct, rtol=1.0e-12, atol=1.0e-12)
+    assert boson.last_validation["moment_constraint"] == "disabled"
+
+
+@pytest.mark.parametrize("force_qp", [False, True])
+def test_boson_feasible_moment_stays_hard_with_or_without_sigma(monkeypatch, force_qp):
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    boson = _boson(dlr)
+    coefficients = -np.ones(boson.rank)
+    target = verifier.reconstruct(coefficients)
+    tail = _causal_tail_coeffs(verifier, coefficients)
+    if force_qp:
+        monkeypatch.setattr(boson, "_causal_certificate", lambda *args: None)
+    projected = []
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", RuntimeWarning)
+        for sigma in (None, [1.0e-20, 1.0e-20]):
+            projected.append(boson.project(target, tail_coeffs=tail, moment_sigma=sigma))
+            validation = boson.last_validation
+            assert validation["moment_constraint"] == "hard"
+            assert validation["valid"] is True
+            assert validation["moment_residual"] <= validation["effective_tol"]
+            assert validation["skipped"] is (not force_qp)
+    assert not caught
+    np.testing.assert_array_equal(projected[0], projected[1])
+
+
+@pytest.mark.parametrize("hard_candidate", [None, "inaccurate"])
+def test_boson_retries_rejected_hard_candidate_without_changing_objective(monkeypatch, hard_candidate):
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    boson = _boson(dlr)
+    coefficients = _causal_coefficients(verifier)
+    target = verifier.reconstruct(coefficients)
+    scale = boson._scale(target)
+    calls = []
+
+    def solve(*args):
+        calls.append(args)
+        if len(calls) == 1:
+            return None if hard_candidate is None else np.zeros(boson.rank)
+        return coefficients / scale
+
+    monkeypatch.setattr(boson, "_solve_qp", solve)
+    with pytest.warns(RuntimeWarning, match="hard moment constraint infeasible; dropped") as caught:
+        projected = boson.project(target, tail_coeffs=[0.0, 0.0, -0.5, 0.0])
+    assert len(caught) == 1
+    assert len(calls) == 2
+    assert all(hard is relaxed for hard, relaxed in zip(calls[0][:4], calls[1][:4]))
+    assert calls[0][4] is not None and calls[0][5] is not None
+    assert calls[1][4:6] == (None, None)
+    assert calls[0][6] == calls[1][6]
+    np.testing.assert_allclose(projected, target)
+    assert boson.last_validation["moment_constraint"] == "relaxed"
+    assert boson.last_validation["valid"] is True
+
+
+@pytest.mark.parametrize("raise_on_failure", [False, True])
+def test_boson_relaxed_solver_failure_keeps_raise_or_clipped_fallback(monkeypatch, raise_on_failure):
+    dlr = _boson_dlr()
+    verifier = _BosonVerifier(dlr)
+    boson = _boson(dlr, raise_on_failure=raise_on_failure)
+    target = verifier.reconstruct(_causal_coefficients(verifier))
+    calls = []
+
+    def solve(*args):
+        calls.append(args)
+        return np.zeros(boson.rank) if len(calls) == 1 else None
+
+    monkeypatch.setattr(boson, "_solve_qp", solve)
+    if raise_on_failure:
+        with pytest.raises(RuntimeError, match="failed for all configured solvers"):
+            boson.project(target, tail_coeffs=[0.0, 0.0, -0.5, 0.0])
+    else:
+        with pytest.warns(RuntimeWarning, match="clipped fallback") as caught:
+            projected = boson.project(target, tail_coeffs=[0.0, 0.0, -0.5, 0.0])
+        assert len(caught) == 2
+        assert boson.last_validation["clipped"] is True
+        assert boson.last_validation["moment_constraint"] == "relaxed"
+        assert boson.last_validation["valid"] is True
+        assert np.all(np.isfinite(projected))
+    assert len(calls) == 2
+    assert calls[1][4:6] == (None, None)
 
 
 def test_boson_nondecaying_offset_is_split_and_dropped():

@@ -701,11 +701,12 @@ class CausalBosonProjector:
         (the sign constraint alone can be incompatible with an off-diagonal
         moment target); moment residuals are then recorded as diagnostics only.
 
-        ``moment_sigma`` (unscaled one-sigma uncertainties ``[sigma_c1,
-        sigma_c2]`` of the physical tail fit — the sign flip to the internal
-        m1/m2 convention leaves sigma unchanged) enables the elastic retry:
-        when the hard moment equalities fail, they are softened into an exact
-        L1 penalty with ``mu = 1/sigma`` so the QP can never be infeasible.
+        Hard moment equalities are tried first. If no candidate satisfies
+        them within tolerance, the QP is retried with only the coefficient
+        sign constraint and the same objective. ``moment_sigma`` (unscaled
+        one-sigma uncertainties ``[sigma_c1, sigma_c2]`` of the physical tail
+        fit) is validated for compatibility but does not affect projection;
+        it only changes the moment verdict in ``check``.
 
         A non-decaying component surviving the ``c0`` subtraction (CTQMC noise
         entering through the Dyson equation) is measured against ``tail_tol``;
@@ -715,7 +716,7 @@ class CausalBosonProjector:
         the output always decays).  The dropped magnitude is reported via a
         ``RuntimeWarning`` and ``last_validation["c0_dropped"]``.
 
-        Last resort: if every solver crashes (hard and elastic), the
+        Last resort: if every solver crashes (hard and relaxed), the
         regularized-fit clipped fallback returns a guaranteed-causal channel
         instead of the raw non-causal data.
         """
@@ -739,8 +740,11 @@ class CausalBosonProjector:
         )
         if moment_sigma is not None:
             self._moment_penalty(self._moment_vector(moment_target), moment_sigma, scale_val, 0.0)
+        moment_constraint = "hard" if enforce_moments else "disabled"
         if self._is_zero_input(target_vec, tail_coeffs, moments):
-            return self._zero_output()
+            output = self._zero_output()
+            self.last_validation["moment_constraint"] = moment_constraint
+            return output
         target_dec = target_scaled - c0
         tail_ratio = self._validate_target(target_dec)
         if tail_ratio <= self.tail_tol:
@@ -748,20 +752,15 @@ class CausalBosonProjector:
             if certificate is not None:
                 candidate, residual, tolerance = certificate
                 coefficients = candidate * scale_val
-                sigma = None
-                if moment_sigma is not None and enforce_moments:
-                    sigma, _ = self._moment_penalty(
-                        self._moment_vector(moment_target), moment_sigma, scale_val, residual
-                    )
-                    sigma = sigma * scale_val
                 self.last_coefficients = coefficients
                 self.last_validation = self._validate(
                     coefficients, target_vec - c0 * scale_val,
                     self._moment_vector(moment_target) * scale_val,
                     node_residual=residual, skipped=True, c0=c0 * scale_val,
                     constraint_tol=tolerance, enforce_moments=enforce_moments,
-                    moment_sigma_unscaled=sigma, tail_ratio=tail_ratio,
+                    tail_ratio=tail_ratio,
                 )
+                self.last_validation["moment_constraint"] = moment_constraint
                 self.last_validation["skip_reason"] = "causal_certificate"
                 if np.array_equal(self.fit_omega, self.output_omega):
                     return target_vec.copy()
@@ -784,7 +783,7 @@ class CausalBosonProjector:
         _, node_residual = self._fit_coefficients(target_dec)
         eff_tol, tol_scaled = self._effective_tol(node_residual, scale_val)
 
-        p, q, p_scale = self._objective(target_dec)
+        p, q, _ = self._objective(target_dec)
         g = csc_matrix(-self.coefficient_sign * np.eye(self.rank))
         h = np.zeros(self.rank, dtype=float)
         if enforce_moments:
@@ -794,35 +793,14 @@ class CausalBosonProjector:
             a = None
             b = None
 
-        sigma_scaled = None
-        mu = None
-        if moment_sigma is not None and a is not None:
-            sigma_scaled, mu = self._moment_penalty(
-                b, moment_sigma, scale_val, node_residual
-            )
-
-        equality_slack = None
         clipped = False
-        elastic_used = False
         solution = self._solve_qp(p, q, g, h, a, b, tol_scaled)
         hard_ok = solution is not None and self._solution_ok(
             solution, g, h, a, b, tol_scaled
         )
-        if not hard_ok and mu is not None:
-            # hard moments infeasible (or solvers rejected them): elastic
-            # exact-L1 retry — its feasible set is never empty.
-            p_e, q_e, g_e, h_e, a_e, b_e = CausalProjection._elastic_extend(
-                p, q, g, h, a, b, mu / p_scale, self.rank
-            )
-            sol_ext = self._solve_qp(p_e, q_e, g_e, h_e, a_e, b_e, tol_scaled)
-            if sol_ext is not None:
-                m_rows = b.size
-                solution = np.asarray(sol_ext[: self.rank], dtype=float)
-                equality_slack = (
-                    sol_ext[self.rank : self.rank + m_rows]
-                    - sol_ext[self.rank + m_rows :]
-                ) * scale_val
-                elastic_used = True
+        if not hard_ok and enforce_moments:
+            solution = self._solve_qp(p, q, g, h, None, None, tol_scaled)
+            moment_constraint = "relaxed"
         if solution is None:
             # every solver crashed on every attempt.  With raise_on_failure the
             # error propagates (ProjectBosonComponentWithFallback catches it
@@ -858,16 +836,22 @@ class CausalBosonProjector:
             skipped=False,
             c0=c0_unscaled,
             constraint_tol=eff_tol,
-            enforce_moments=enforce_moments,
-            moment_sigma_unscaled=(
-                sigma_scaled * scale_val if sigma_scaled is not None else None
-            ),
-            elastic=elastic_used,
-            equality_slack=equality_slack,
+            enforce_moments=moment_constraint == "hard",
+            moment_sigma_unscaled=None,
             clipped=clipped,
             c0_dropped=c0_dropped,
             tail_ratio=tail_ratio,
         )
+        self.last_validation["moment_constraint"] = moment_constraint
+        if moment_constraint == "relaxed":
+            target_m2 = moment_target["m2"] * scale_val
+            achieved_m2 = float((self.moment_rows @ coefficients)[-1])
+            warnings.warn(
+                "hard moment constraint infeasible; dropped "
+                f"(target m2={target_m2:.6e}, achieved m2={achieved_m2:.6e})",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         if self.raise_on_failure and not bool(self.last_validation["valid"]):
             raise RuntimeError(
                 "bosonic causal projection returned a constraint-violating "
@@ -1417,11 +1401,12 @@ def ProjectBosonComponentWithFallback(
     fallback_channel: np.ndarray | None = None,
     zero_ratio: float = 1.0e-3,
 ) -> np.ndarray:
-    """Project one bosonic channel through the single elastic path.
+    """Project one bosonic channel with hard-then-relaxed moment constraints.
 
     ``tail_sigma`` (the 4-vector of tail fit sigmas ``[sigma_c0 .. sigma_c3]``)
-    supplies the elastic moment penalties; with it the QP is never infeasible,
-    so the historical ``enforce_moments=False`` retry cascade is gone.
+    is forwarded for compatibility and validated by the projector. If hard
+    moments fail, the projector drops their equalities and retries the same
+    objective with only the coefficient sign constraint.
 
     If the projector still fails (every solver crashed and even its internal
     clipped fallback raised), the failure priority is:
