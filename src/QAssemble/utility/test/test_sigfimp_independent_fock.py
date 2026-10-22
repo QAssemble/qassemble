@@ -148,7 +148,10 @@ def test_postprocessing_routes_independent_fock_only_for_gwedmft(monkeypatch, tm
     calls = []
 
     def output(**kwargs):
-        return SimpleNamespace(occ=rho, Mixing=lambda: None, Save=lambda *args: None)
+        return SimpleNamespace(
+            occ=rho, hf=np.zeros_like(rho), Mixing=lambda: None,
+            Save=lambda *args, **kwargs: None,
+        )
 
     def fock(**kwargs):
         calls.append(kwargs)

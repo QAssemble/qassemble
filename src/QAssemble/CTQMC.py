@@ -202,7 +202,8 @@ class CTQMC(object):
         for iorb in range(diag_n):
             for js in range(arr.shape[2]):
                 vals = arr[iorb, iorb, js, :nwin]
-                max_pos_imag = max(max_pos_imag, float(np.nanmax(vals.imag)))
+                if not np.isnan(vals.imag).all():
+                    max_pos_imag = max(max_pos_imag, float(np.nanmax(vals.imag)))
                 if vals.size >= 3:
                     d2 = np.diff(vals, n=2)
                     d2_re = np.abs(d2.real)
@@ -230,32 +231,6 @@ class CTQMC(object):
             "max_positive_imag": float(max_pos_imag),
         }
 
-    def _previous_guard_metrics(self, iter : int) -> dict:
-        if self.hdf5file is None or self.group is None or iter <= 1:
-            return {}
-        path = f"{self.group}/SigImpGuard/{self.key}/metrics.{iter - 1}"
-        try:
-            with h5py.File(self.hdf5file, "r") as handle:
-                if path not in handle:
-                    return {}
-                return {name: handle[path].attrs[name] for name in handle[path].attrs}
-        except OSError:
-            return {}
-
-    def _has_previous_impurity_output(self, iter : int) -> bool:
-        if self.hdf5file is None or self.group is None or iter <= 1:
-            return False
-        paths = (
-            f"{self.group}/SigHImp/sighimp.{iter - 1}.{self.key}",
-            f"{self.group}/SigFImp/sigfimp.{iter - 1}.{self.key}",
-            f"{self.group}/SigCImp/sigimp.{iter - 1}.{self.key}",
-        )
-        try:
-            with h5py.File(self.hdf5file, "r") as handle:
-                return all(path in handle for path in paths)
-        except OSError:
-            return False
-
     def _evaluate_sigimp_guard(self, iter : int, sigma_grid : np.ndarray, err_grid=None) -> dict:
         enabled = self._control_bool("SigImpGuard", "sigimp_guard", default=True)
         mode = self._control_string(
@@ -264,22 +239,15 @@ class CTQMC(object):
         im_tol = self._control_float(
             "SigImpGuardImTol", "sigimp_guard_im_tol", default=1.0e-10
         )
-        rough_factor = self._control_float(
-            "SigImpGuardRoughnessFactor",
-            "sigimp_guard_roughness_factor",
-            default=10.0,
-        )
-        err_factor = self._control_float(
-            "SigImpGuardErrorFactor", "sigimp_guard_error_factor", default=10.0
-        )
-
         metrics = self._sigimp_guard_metrics(sigma_grid, err_grid=err_grid)
         diagnostics = dict(metrics)
         diagnostics.update({
             "guard_enabled": bool(enabled),
             "guard_status": "accepted",
             "guard_reason": "ok",
+            "broken": [],
             "used_fallback": False,
+            "fallback_source": "",
             "previous_iteration": int(iter) - 1 if iter > 1 else -1,
         })
         if not enabled or mode == "off":
@@ -288,31 +256,74 @@ class CTQMC(object):
             return diagnostics
 
         reasons = []
-        if not metrics["finite"]:
-            reasons.append("nonfinite")
-        if metrics["max_positive_imag"] > im_tol:
-            reasons.append("positive_imag")
-
-        prev = self._previous_guard_metrics(iter)
-        eps = 1.0e-30
-        if prev:
-            prev_rough = float(prev.get("raw_roughness", np.nan))
-            if np.isfinite(prev_rough) and prev_rough > eps:
-                if metrics["raw_roughness"] > rough_factor * prev_rough:
-                    reasons.append("roughness_ratio")
-
-            for name in ("err_mean", "err_max"):
-                prev_err = float(prev.get(name, np.nan))
-                curr_err = float(metrics.get(name, np.nan))
-                if np.isfinite(prev_err) and np.isfinite(curr_err) and prev_err > eps:
-                    if curr_err > err_factor * prev_err:
-                        reasons.append(f"{name}_ratio")
+        diagonal = np.diag(self.projector.equiv[self.key])
+        for ind in np.unique(diagonal[diagonal > 0]):
+            positions = np.flatnonzero(diagonal == ind)
+            for js in range(self.crystal.ns):
+                vals = sigma_grid[positions, positions, js, :]
+                if not np.all(np.isfinite(vals)):
+                    reason = "nonfinite"
+                elif np.max(vals.imag) > im_tol:
+                    reason = "positive_imag"
+                else:
+                    continue
+                diagnostics["broken"].append((int(ind), js))
+                if reason not in reasons:
+                    reasons.append(reason)
 
         if reasons:
             diagnostics["guard_status"] = "failed"
             diagnostics["guard_reason"] = ",".join(reasons)
-            diagnostics["used_fallback"] = self._has_previous_impurity_output(iter)
         return diagnostics
+
+    def _replace_broken_sigma(
+        self, iter : int, sigma_input : dict, sigma_grid : np.ndarray, diag : dict
+    ) -> None:
+        if not diag["broken"]:
+            return
+        previous = None
+        source = "zero"
+        if (
+            iter > 1 and self.hdf5file is not None and self.group is not None
+            and os.path.exists(self.hdf5file)
+        ):
+            with h5py.File(self.hdf5file, "r") as handle:
+                base = f"{self.group}/SigCImp"
+                for name, path in (
+                    ("sigimp_input", f"{base}/sigimp_input.{iter - 1}.{self.key}"),
+                    ("sigimp_mixed", f"{base}/sigimp.{iter - 1}.{self.key}_uniform"),
+                ):
+                    if path in handle:
+                        previous = np.asarray(handle[path][()], dtype=np.complex128)
+                        source = name
+                        break
+        if previous is not None and previous.shape != sigma_grid.shape:
+            raise ValueError(
+                f"SigImp guard {source} shape mismatch for key={self.key}, "
+                f"iter={iter}: expected {sigma_grid.shape}, got {previous.shape}"
+            )
+        if source == "sigimp_mixed":
+            logger.warning(
+                "[sigimp-guard] key=%s iter=%s: legacy restart has no "
+                "sigimp_input; using previous mixed sigimp_uniform",
+                self.key, iter,
+            )
+
+        equiv = np.asarray(self.projector.equiv[self.key], dtype=int)
+        for ind, js in diag["broken"]:
+            # Keep current HF moments paired with the current density; replace only Sigma_c.
+            m0 = complex(sigma_input[str(ind)]["moments"][0])
+            iorb = np.flatnonzero(np.diag(equiv) == ind)[0]
+            value = m0 if previous is None else m0 + previous[iorb, iorb, js, :]
+            for ii, jj in Common.FindPositions(equiv, ind):
+                sigma_grid[ii, jj, js, :] = value
+            logger.warning(
+                "[sigimp-guard] key=%s iter=%s class=%s spin=%s: "
+                "replaced Sigma_c input from %s reason=%s",
+                self.key, iter, ind, js, source, diag["guard_reason"],
+            )
+        diag["used_fallback"] = previous is not None
+        diag["fallback_source"] = source
 
     def _smooth_sigma_grid(self, sigma_grid : np.ndarray) -> np.ndarray:
         try:
@@ -327,76 +338,6 @@ class CTQMC(object):
         # Full uses the solver's green Matsubara cutoff (params.json).
         cutoff = float(self.dlr.cutoff) / 100
         return broadener(omega, sigma_grid, 0.05, 1.0 / float(self.dlr.beta), cutoff)
-
-    def _read_previous_impurity_output(self, iter : int):
-        if not self._has_previous_impurity_output(iter):
-            return None
-        with h5py.File(self.hdf5file, "r") as handle:
-            prev = int(iter) - 1
-            base = str(self.group)
-            sigh = np.asarray(
-                handle[f"{base}/SigHImp/sighimp.{prev}.{self.key}"][()],
-                dtype=np.complex128,
-            )
-            sigf = np.asarray(
-                handle[f"{base}/SigFImp/sigfimp.{prev}.{self.key}"][()],
-                dtype=np.complex128,
-            )
-            sigc = np.asarray(
-                handle[f"{base}/SigCImp/sigimp.{prev}.{self.key}"][()],
-                dtype=np.complex128,
-            )
-            uniform_path = f"{base}/SigCImp/sigimp.{prev}.{self.key}_uniform"
-            sigc_uniform = None
-            if uniform_path in handle:
-                sigc_uniform = np.asarray(handle[uniform_path][()], dtype=np.complex128)
-        if sigc_uniform is None and hasattr(self.dlr, "MatsubaraDLR2UniformGrid"):
-            sigc_uniform = self.dlr.MatsubaraDLR2UniformGrid(sigc, sign=-1)
-        return {
-            "sigh": np.asfortranarray(sigh),
-            "sigf": np.asfortranarray(sigf),
-            "sigc": np.asfortranarray(sigc),
-            "sigc_uniform": np.asfortranarray(sigc_uniform)
-            if sigc_uniform is not None else None,
-        }
-
-    def _make_fallback_impurity_objects(self, previous : dict, iter : int) -> None:
-        self.sighimp = SigHImp.__new__(SigHImp)
-        self.sighimp.crystal = self.crystal
-        self.sighimp.projector = self.projector
-        self.sighimp.key = self.key
-        self.sighimp.h = previous["sigh"]
-        self.sighimp.s = previous["sigh"]
-        self.sighimp.hdf5file = self.hdf5file
-        self.sighimp.group = self.group
-        self.sighimp.subgroup = "SigHImp"
-        self.sighimp.iteration = iter
-
-        self.sigfimp = SigFImp.__new__(SigFImp)
-        self.sigfimp.crystal = self.crystal
-        self.sigfimp.projector = self.projector
-        self.sigfimp.key = self.key
-        self.sigfimp.s = previous["sigf"]
-        self.sigfimp.hdf5file = self.hdf5file
-        self.sigfimp.group = self.group
-        self.sigfimp.subgroup = "SigFImp"
-        self.sigfimp.iteration = iter
-
-        self.sigimp = SigCImp.__new__(SigCImp)
-        self.sigimp.crystal = self.crystal
-        self.sigimp.dlr = self.dlr
-        self.sigimp.projector = self.projector
-        self.sigimp.key = self.key
-        self.sigimp.f = previous["sigc"]
-        self.sigimp.f_uniform = previous["sigc_uniform"]
-        self.sigimp.hdf5file = self.hdf5file
-        self.sigimp.group = self.group
-        self.sigimp.subgroup = "SigCImp"
-        self.sigimp.iteration = iter
-        try:
-            self.sigimp.t = self.sigimp.F2T(self.sigimp.f)
-        except Exception:
-            self.sigimp.t = None
 
     def _resolve_sighimp_vloc(self, key):
         if self.bweiss.f is None:
@@ -435,6 +376,8 @@ class CTQMC(object):
         with h5py.File(self.hdf5file, "a") as handle:
             group = IO.Group(handle, self.group, "SigImpGuard", self.key, f"metrics.{iter}")
             for name, value in diagnostics.items():
+                if name == "broken":
+                    value = ",".join(f"{ind}/{js}" for ind, js in value)
                 if isinstance(value, (bool, np.bool_)):
                     group.attrs[name] = int(value)
                 elif isinstance(value, (int, float, np.integer, np.floating)):
@@ -714,75 +657,62 @@ class CTQMC(object):
             # Smooth before the causality guard, as FullGWEDMFT does
             # (impurity_postprocessing -> write_sctqmc).
             sigma_grid = self._smooth_sigma_grid(sigma_grid)
-            sigma_input = self._sigma_array_to_ctqmc_dict(equiv, sigma_input, sigma_grid)
             err_grid = self._read_sigma_error_grid(equiv)
             guard_diag = self._evaluate_sigimp_guard(
                 iter, sigma_grid, err_grid=err_grid
             )
+            if guard_diag["broken"]:
+                self._replace_broken_sigma(iter, sigma_input, sigma_grid, guard_diag)
+            sigma_input = self._sigma_array_to_ctqmc_dict(equiv, sigma_input, sigma_grid)
             vloc, sighimp_vloc_source = self._resolve_sighimp_vloc(key)
             guard_diag["sighimp_vloc_source"] = sighimp_vloc_source
 
-            if guard_diag["guard_status"] == "failed":
-                previous = self._read_previous_impurity_output(iter)
-                if previous is None:
-                    self._write_sigimp_guard_diagnostics(iter, guard_diag)
-                    raise RuntimeError(
-                        f"SigImp guard failed for key={key}, iter={iter} "
-                        f"({guard_diag['guard_reason']}) and no previous "
-                        "accepted impurity self-energy is available"
-                    )
-                guard_diag["used_fallback"] = True
-                self._make_fallback_impurity_objects(previous, iter)
-                logger.warning(
-                    f"[sigimp-guard] key={key} iter={iter}: "
-                    f"fallback_previous reason={guard_diag['guard_reason']}"
-                )
-            else:
-                self.sighimp = SigHImp(
-                    crystal=self.crystal,
-                    projector=self.projector,
-                    key=key,
-                    occ=self.gimp.occ,
-                    vloc=vloc,
-                    control=self.control,
-                    hdf5file=self.hdf5file,
-                    group=self.group,
-                    iteration=iter,
-                )
-                # EDMFT retains the HF complement. GW+EDMFT contracts bare V
-                # with the DLR impurity density and mixes Fock independently.
-                self.sighimp.Mixing()
-                fock_inputs = {}
-                if self.control.get("method") == "gw+edmft":
-                    fock_inputs = {
-                        "occ": self.gimp.occ,
-                        "vloc": self.bweiss.vloc.vproj[key],
-                    }
-                self.sigfimp = SigFImp(
-                    crystal=self.crystal,
-                    projector=self.projector,
-                    key=key,
-                    sigma=sigma_input,
-                    sigh=self.sighimp,
-                    control=self.control,
-                    hdf5file=self.hdf5file,
-                    group=self.group,
-                    iteration=iter,
-                    **fock_inputs,
-                )
-                self.sigfimp.Mixing()
-                self.sigimp = SigCImp(
-                    crystal=self.crystal,
-                    dlr=self.dlr,
-                    projector=self.projector,
-                    key=key,
-                    sigma=sigma_input,
-                    control=self.control,
-                    hdf5file=self.hdf5file,
-                    group=self.group,
-                    iteration=iter,
-                )
-                self.sigimp.Mixing()
+            self.sighimp = SigHImp(
+                crystal=self.crystal,
+                projector=self.projector,
+                key=key,
+                occ=self.gimp.occ,
+                vloc=vloc,
+                control=self.control,
+                hdf5file=self.hdf5file,
+                group=self.group,
+                iteration=iter,
+            )
+            # EDMFT retains the HF complement. GW+EDMFT contracts bare V
+            # with the DLR impurity density and mixes Fock independently.
+            self.sighimp.Mixing()
+            fock_inputs = {}
+            if self.control.get("method") == "gw+edmft":
+                fock_inputs = {
+                    "occ": self.gimp.occ,
+                    "vloc": self.bweiss.vloc.vproj[key],
+                }
+            self.sigfimp = SigFImp(
+                crystal=self.crystal,
+                projector=self.projector,
+                key=key,
+                sigma=sigma_input,
+                sigh=self.sighimp,
+                control=self.control,
+                hdf5file=self.hdf5file,
+                group=self.group,
+                iteration=iter,
+                **fock_inputs,
+            )
+            self.sigfimp.Mixing()
+            self.sigimp = SigCImp(
+                crystal=self.crystal,
+                dlr=self.dlr,
+                projector=self.projector,
+                key=key,
+                sigma=sigma_input,
+                control=self.control,
+                hdf5file=self.hdf5file,
+                group=self.group,
+                iteration=iter,
+            )
+            self.sigimp.Save("sigimp_input", obj=sigma_grid - self.sigimp.hf[..., np.newaxis])
+            self.sigimp.Mixing()
             self._write_sigimp_guard_diagnostics(iter, guard_diag)
 
             if self._use_dyn():
