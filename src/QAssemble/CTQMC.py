@@ -201,9 +201,10 @@ class CTQMC(object):
         diag_n = min(arr.shape[0], arr.shape[1])
         for iorb in range(diag_n):
             for js in range(arr.shape[2]):
-                vals = arr[iorb, iorb, js, :nwin]
+                vals = arr[iorb, iorb, js, :]
                 if not np.isnan(vals.imag).all():
                     max_pos_imag = max(max_pos_imag, float(np.nanmax(vals.imag)))
+                vals = vals[:nwin]
                 if vals.size >= 3:
                     d2 = np.diff(vals, n=2)
                     d2_re = np.abs(d2.real)
@@ -256,14 +257,16 @@ class CTQMC(object):
             return diagnostics
 
         reasons = []
-        diagonal = np.diag(self.projector.equiv[self.key])
-        for ind in np.unique(diagonal[diagonal > 0]):
-            positions = np.flatnonzero(diagonal == ind)
+        equiv = np.asarray(self.projector.equiv[self.key], dtype=int)
+        for ind in np.unique(equiv[equiv > 0]):
+            positions = Common.FindPositions(equiv, ind)
+            rows, cols = zip(*positions)
+            diagonal = [ii for ii, jj in positions if ii == jj]
             for js in range(self.crystal.ns):
-                vals = sigma_grid[positions, positions, js, :]
+                vals = sigma_grid[rows, cols, js, :]
                 if not np.all(np.isfinite(vals)):
                     reason = "nonfinite"
-                elif np.max(vals.imag) > im_tol:
+                elif diagonal and np.max(sigma_grid[diagonal, diagonal, js, :].imag) > im_tol:
                     reason = "positive_imag"
                 else:
                     continue
@@ -313,9 +316,10 @@ class CTQMC(object):
         for ind, js in diag["broken"]:
             # Keep current HF moments paired with the current density; replace only Sigma_c.
             m0 = complex(sigma_input[str(ind)]["moments"][0])
-            iorb = np.flatnonzero(np.diag(equiv) == ind)[0]
-            value = m0 if previous is None else m0 + previous[iorb, iorb, js, :]
-            for ii, jj in Common.FindPositions(equiv, ind):
+            positions = Common.FindPositions(equiv, ind)
+            ii, jj = positions[0]
+            value = m0 if previous is None else m0 + previous[ii, jj, js, :]
+            for ii, jj in positions:
                 sigma_grid[ii, jj, js, :] = value
             logger.warning(
                 "[sigimp-guard] key=%s iter=%s class=%s spin=%s: "

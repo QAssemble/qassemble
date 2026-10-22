@@ -116,31 +116,98 @@ def test_sigimp_guard_roughness_and_error_are_diagnostic_only(tmp_path):
 def test_sigimp_guard_checks_all_frequencies(tmp_path):
     ctqmc = _fake_ctqmc(tmp_path)
     sigma = np.full((1, 1, 1, 100), -0.1j)
+    low_frequency_metrics = ctqmc._sigimp_guard_metrics(sigma)
     sigma[..., 90] = 0.01j
 
     diag = ctqmc._evaluate_sigimp_guard(1, sigma)
 
     assert diag["guard_status"] == "failed"
     assert diag["broken"] == [(1, 0)]
+    assert diag["max_positive_imag"] == 0.01
+    for name in ("raw_roughness_re", "raw_roughness_im", "raw_roughness"):
+        assert diag[name] == low_frequency_metrics[name] == 0.0
 
 
 def test_sigimp_guard_checks_unique_diagonal_classes_per_spin(tmp_path):
     ctqmc = _fake_ctqmc(tmp_path, equiv=[[1, 3, 0], [3, 2, 0], [0, 0, 2]], ns=2)
     sigma = np.zeros((3, 3, 2, 3), dtype=complex)
-    sigma[0, 1] = np.nan
-    sigma[1, 0] = 1j
+    sigma[0, 1, 0] = np.nan
+    sigma[1, 0, 0] = 1j
+    sigma[0, 1, 1] = sigma[1, 0, 1] = 0.2j
     sigma[1, 1, 1] = sigma[2, 2, 1] = 0.1j
 
     diag = ctqmc._evaluate_sigimp_guard(1, sigma)
 
-    assert diag["broken"] == [(2, 1)]
-    assert diag["guard_reason"] == "positive_imag"
+    assert diag["broken"] == [(2, 1), (3, 0)]
+    assert diag["guard_reason"] == "positive_imag,nonfinite"
     unchanged = sigma.copy()
-    ctqmc._replace_broken_sigma(1, {"2": {"moments": [7.0]}}, sigma, diag)
+    sigma_input = {"2": {"moments": [7.0]}, "3": {"moments": [0.75]}}
+    ctqmc._replace_broken_sigma(1, sigma_input, sigma, diag)
     np.testing.assert_array_equal(sigma[[1, 2], [1, 2], 1], 7.0)
+    np.testing.assert_array_equal(sigma[[0, 1], [1, 0], 0], 0.75)
+    assert sigma[0, 0].tobytes() == unchanged[0, 0].tobytes()
+    assert sigma[[1, 2], [1, 2], 0].tobytes() == unchanged[[1, 2], [1, 2], 0].tobytes()
+    assert sigma[[0, 1], [1, 0], 1].tobytes() == unchanged[[0, 1], [1, 0], 1].tobytes()
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+@pytest.mark.parametrize("position", [(0, 1), (1, 0)])
+def test_sigimp_guard_zeros_offdiagonal_nonfinite_class_on_first_iteration(
+    tmp_path, value, position
+):
+    ctqmc = _fake_ctqmc(tmp_path, equiv=[[1, 3], [3, 2]], ns=2)
+    sigma = np.full((2, 2, 2, 100), 2.0 - 0.1j)
+    sigma[0, 1] = sigma[1, 0] = 0.75 + 0.2j
+    ii, jj = position
+    sigma[ii, jj, 1, 90] = value
+    unchanged = sigma.copy()
+    diag = ctqmc._evaluate_sigimp_guard(1, sigma)
+
+    assert diag["broken"] == [(3, 1)]
+    assert diag["guard_reason"] == "nonfinite"
+    ctqmc._replace_broken_sigma(1, {"3": {"moments": [0.75]}}, sigma, diag)
+
+    np.testing.assert_array_equal(sigma[[0, 1], [1, 0], 1], 0.75)
+    np.testing.assert_array_equal(sigma[[0, 1], [1, 0], 1] - 0.75, 0.0)
+    assert sigma[[0, 1], [0, 1]].tobytes() == unchanged[[0, 1], [0, 1]].tobytes()
     assert sigma[:, :, 0].tobytes() == unchanged[:, :, 0].tobytes()
-    assert sigma[0, 1].tobytes() == unchanged[0, 1].tobytes()
-    assert sigma[1, 0].tobytes() == unchanged[1, 0].tobytes()
+    assert diag["fallback_source"] == "zero"
+    assert diag["used_fallback"] is False
+
+
+def test_sigimp_guard_replaces_offdiagonal_class_from_previous_raw_input(tmp_path):
+    ctqmc = _fake_ctqmc(tmp_path, equiv=[[1, 3], [3, 2]], ns=2)
+    sigma = np.full((2, 2, 2, 3), 2.0 - 0.1j)
+    sigma[1, 0, 1, 0] = np.nan
+    unchanged = sigma.copy()
+    previous = np.zeros_like(sigma)
+    previous[0, 1, 1] = [0.125 - 0.25j, 0.25 - 0.125j, 0.5 - 0.0625j]
+    previous[1, 0, 1] = 99.0 - 1j
+    _write_previous_sigma(ctqmc, previous)
+    diag = ctqmc._evaluate_sigimp_guard(2, sigma)
+
+    assert diag["broken"] == [(3, 1)]
+    ctqmc._replace_broken_sigma(2, {"3": {"moments": [0.75]}}, sigma, diag)
+
+    for ii, jj in ((0, 1), (1, 0)):
+        np.testing.assert_array_equal(sigma[ii, jj, 1], 0.75 + previous[0, 1, 1])
+    assert sigma[[0, 1], [0, 1]].tobytes() == unchanged[[0, 1], [0, 1]].tobytes()
+    assert sigma[:, :, 0].tobytes() == unchanged[:, :, 0].tobytes()
+    assert diag["fallback_source"] == "sigimp_input"
+    assert diag["used_fallback"] is True
+
+
+@pytest.mark.parametrize("equiv", [[[1, 3], [3, 2]], [[1, 1], [1, 2]]])
+def test_sigimp_guard_accepts_positive_offdiagonal_imaginary_part(tmp_path, equiv):
+    ctqmc = _fake_ctqmc(tmp_path, equiv=equiv, ns=2)
+    sigma = np.full((2, 2, 2, 3), -0.1j)
+    sigma[0, 1] = sigma[1, 0] = 0.2j
+
+    diag = ctqmc._evaluate_sigimp_guard(1, sigma)
+
+    assert diag["guard_status"] == "accepted"
+    assert diag["guard_reason"] == "ok"
+    assert diag["broken"] == []
 
 
 @pytest.mark.parametrize("control", [{"SigImpGuard": False}, {"SigImpGuardMode": "off"}])
