@@ -1,6 +1,19 @@
 import math
+from types import SimpleNamespace
+
+import numpy as np
 
 from QAssemble.FLatDyn import G
+from QAssemble.utility.DLR import DLR
+
+
+def test_common_lambda_and_global_mu_bracket_use_energy_cutoff():
+    dlr = DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1e-12})
+    assert dlr.lambF == dlr.lambB == 160.0
+    owner = SimpleNamespace(dlr=dlr, sigmah=None)
+    assert G._global_mu_bracket(owner) == (-8.0, 8.0, 0.0, 0.0)
+    owner.sigmah = np.diag([2.0, 4.0])[:, :, None, None]
+    assert G._global_mu_bracket(owner) == (-6.5, 12.5, 3.0, 1.0)
 
 
 def test_reference_nearest_selects_root_closest_to_previous_mu():

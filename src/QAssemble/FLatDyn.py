@@ -1211,8 +1211,8 @@ class G(FLatDyn):
             shift_est = float(np.mean(diag))
             shift_spread = float(np.max(np.abs(diag - shift_est)))
         safety = 1.5
-        mumin = self.dlr.omega[0] + shift_est - safety * shift_spread
-        mumax = self.dlr.omega[-1] + shift_est + safety * shift_spread
+        mumin = -self.dlr.cutoff + shift_est - safety * shift_spread
+        mumax = self.dlr.cutoff + shift_est + safety * shift_spread
         return float(mumin), float(mumax), shift_est, shift_spread
 
     def _solve_global_mu(self):
