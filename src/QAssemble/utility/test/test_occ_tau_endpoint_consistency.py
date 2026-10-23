@@ -105,7 +105,7 @@ def test_occupation_error_stays_within_the_expected_band():
     magnitude so a change in the DLR grid or the endpoint choice shows up.
     """
     beta, cutoff = 100.0, 50.0
-    lambF = (beta / np.pi * cutoff - 1) / 2
+    lambF = beta * cutoff
     dF = dlr(lamb=lambF, eps=1e-10, dense_imfreq=False)
     tau = dF.get_tau(beta)
 
