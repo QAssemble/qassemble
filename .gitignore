@@ -17,3 +17,5 @@ analysis_plots
 src/QAssemble/graphify-out
 *.egg-info/
 *graphify-out
+pycppdlr/build/
+!pycppdlr/tests/
