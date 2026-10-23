@@ -302,6 +302,7 @@ class Run:
         control["ft"]["T"] = T
         control["ft"]["beta"] = beta
         control["ft"]["cutoff"] = cutoff
+        control["ft"]["symmetry"] = ini.get("BosonSymmetry", True)
 
         self.control = control
 

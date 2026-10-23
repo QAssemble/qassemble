@@ -17,7 +17,8 @@ from QAssemble.utility.Fourier import Fourier
 
 
 def _boson_dlr():
-    return DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1.0e-12})
+    # The single-pole causal QP does not support K+ normalization.
+    return DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1.0e-12, "symmetry": False})
 
 
 def _single_band_crystal():
@@ -1340,7 +1341,7 @@ def test_certificate_ignores_only_disabled_moments(monkeypatch):
 
 
 def test_rank_deficient_dlr_certificate_never_falsely_skips():
-    dlr = DLR({'beta':20., 'cutoff':8., 'eps':1e-8})
+    dlr = DLR({'beta':20., 'cutoff':8., 'eps':1e-8, 'symmetry':False})
     p = _boson(dlr)
     assert np.linalg.matrix_rank(np.vstack([p.kernel.real, p.kernel.imag])) < p.rank
     coeff = -np.ones(p.rank)

@@ -27,7 +27,8 @@ from QAssemble.BLatDyn import BLatDyn
 
 
 def _dlr():
-    return DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1.0e-12})
+    # This regression specifically checks pydlr's bosonic correction.
+    return DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1.0e-12, "symmetry": False})
 
 
 def _crystal():

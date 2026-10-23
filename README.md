@@ -203,7 +203,8 @@ QAssemble/
 | `Control` | `NSCF` | Max SCF iterations |
 | `Control` | `Mix` | Mixing parameter for self-consistency |
 | `Control` | `T` | Temperature in Kelvin |
-| `Control` | `MatsubaraCutOff` | Matsubara frequency cutoff |
+| `Control` | `MatsubaraCutOff` | Energy cutoff; both DLR bandwidths use `Lambda = beta * MatsubaraCutOff` |
+| `Control` | `BosonSymmetry` | Default `True`: real, reflection-even K+ boson DLR; `False`: pydlr boson basis |
 | `Control` | `ConstantW` | Constant W parameter for GW |
 | `Crystal` | `RVec` | 3x3 lattice vectors |
 | `Crystal` | `Basis` | Basis atom positions and orbital counts |
@@ -215,3 +216,13 @@ QAssemble/
 | `Hamiltonian` | `Hopping` | One-body hopping terms |
 | `Hamiltonian` | `Onsite` | On-site energy terms |
 | `Hamiltonian` | `Parameter` | Coulomb parameterization: `"SlaterKanamori"`, `"Slater"`, `"Kanamori"` |
+
+The common DLR bandwidth and `BosonSymmetry` change the sampling nodes. Start
+with a new `Prefix`: existing HDF5 data and mixing history are not migrated.
+`BosonSymmetry=False` opts out of K+ but still uses the new common bandwidth.
+
+K+ represents each bosonic channel as real and even. Mirror pairs are averaged
+before coefficient recovery; odd or imaginary residuals above
+`max(100 * eps, 1e-10)` produce a warning. Use `BosonSymmetry=False` when this
+assumption does not apply, including general complex or odd channels. The
+single-pole bosonic causal QP also requires `BosonSymmetry=False`.
