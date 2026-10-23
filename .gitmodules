@@ -1,0 +1,3 @@
+[submodule "cppdlr"]
+	path = cppdlr
+	url = https://github.com/flatironinstitute/cppdlr.git
