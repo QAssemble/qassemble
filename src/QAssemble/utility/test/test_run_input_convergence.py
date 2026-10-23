@@ -41,6 +41,16 @@ def _write_minimal_input(path, control_extra):
     )
 
 
+@pytest.mark.parametrize("extra,expected", [("", True), ("'BosonSymmetry': False,", False),
+                                           ("'BosonSymmetry': True,", True)])
+def test_input_boson_symmetry(monkeypatch, tmp_path, extra, expected):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_input(tmp_path / "input.ini", extra)
+    runner = object.__new__(Run)
+    runner.ReadInput()
+    assert runner.control["ft"]["symmetry"] is expected
+
+
 @pytest.mark.parametrize(
     ("extra", "expected"),
     [

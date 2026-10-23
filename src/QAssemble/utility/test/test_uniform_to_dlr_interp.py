@@ -7,8 +7,8 @@ from QAssemble.BLocDyn import BLocDyn
 from QAssemble.utility.DLR import DLR
 
 
-def _dlr():
-    return DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1.0e-12})
+def _dlr(symmetry=True):
+    return DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1.0e-12, "symmetry": symmetry})
 
 
 def _eval(d, coeff, freqs, xi):
@@ -74,7 +74,7 @@ def test_fermion_clean_roundtrip_is_exact_1d():
 def test_boson_clean_roundtrip_is_exact_1d():
     dlr = _dlr()
     rng = np.random.default_rng(1)
-    coeff = -np.abs(rng.standard_normal(len(dlr.nu)))
+    coeff = -np.abs(rng.standard_normal(dlr.dB.rank))
 
     exact = _eval(dlr.dB, coeff, dlr.nu, xi=1)
     uniform = _eval(dlr.dB, coeff, dlr.MatsubaraBosonUniformFull(Emax=np.max(np.abs(dlr.nu))), xi=1)
@@ -107,12 +107,12 @@ def test_fermion_4d_wrapper_clean_roundtrip_with_asymmetric_matrix():
 def test_boson_5d_wrapper_clean_roundtrip():
     dlr = _dlr()
     nu_u = dlr.MatsubaraBosonUniformFull(Emax=np.max(np.abs(dlr.nu)))
-    rank = len(dlr.nu)
+    rank = dlr.dB.rank
     rng = np.random.default_rng(3)
     norb = 2
 
     arr = np.zeros((norb, norb, 1, 1, len(nu_u)), dtype=np.complex128)
-    exact = np.zeros((norb, norb, 1, 1, rank), dtype=np.complex128)
+    exact = np.zeros((norb, norb, 1, 1, len(dlr.nu)), dtype=np.complex128)
     for i in range(norb):
         for j in range(norb):
             coeff = -np.abs(rng.standard_normal(rank)) * (1.0 + 0.3 * (i * norb + j))
@@ -120,18 +120,18 @@ def test_boson_5d_wrapper_clean_roundtrip():
             exact[i, j, 0, 0, :] = _eval(dlr.dB, coeff, dlr.nu, xi=1)
 
     back = dlr.MatsubaraUniformGrid2DLR(arr, omega=dlr.MatsubaraBosonUniformFull(Emax=np.max(np.abs(dlr.nu))), sign=1)
-    assert back.shape == (norb, norb, 1, 1, rank)
+    assert back.shape == (norb, norb, 1, 1, len(dlr.nu))
     assert np.linalg.norm(back - exact) / np.linalg.norm(exact) < 1.0e-12
 
 
 def test_boson_5d_dlr_to_uniform_grid_batches_corr_axis():
     dlr = _dlr()
     nu_u = dlr.MatsubaraBosonUniform()
-    rank = len(dlr.nu)
+    rank = dlr.dB.rank
     rng = np.random.default_rng(4)
     norb = 2
 
-    arr = np.zeros((norb, norb, 1, 1, rank), dtype=np.complex128)
+    arr = np.zeros((norb, norb, 1, 1, len(dlr.nu)), dtype=np.complex128)
     expected = np.zeros((norb, norb, 1, 1, len(nu_u)), dtype=np.complex128)
     for i in range(norb):
         for j in range(norb):
@@ -240,28 +240,32 @@ def test_frequency_kernel_matches_matsubara_from_dlr(production_dlr, sign):
     d = dlr.dF if sign == -1 else dlr.dB
     freq = dlr.omega if sign == -1 else dlr.nu
     rng = np.random.default_rng(51)
-    coefficients = rng.standard_normal((len(freq), 3)) + 1j * rng.standard_normal((len(freq), 3))
-    kernel = d.eval_dlr_freq(np.eye(len(freq)), 1j * freq, dlr.beta, xi=sign)
+    rank = d.get_dlr_frequencies().size
+    coefficients = rng.standard_normal((rank, 3)) + 1j * rng.standard_normal((rank, 3))
+    kernel = d.eval_dlr_freq(np.eye(rank), 1j * freq, dlr.beta, xi=sign)
     expected = d.matsubara_from_dlr(coefficients, dlr.beta, xi=sign)
     np.testing.assert_allclose(kernel @ coefficients, expected, rtol=1.0e-12, atol=1.0e-12)
 
 
 @pytest.mark.parametrize("sign", [-1, 1])
 @pytest.mark.parametrize("ndim", [1, 2, 3])
-def test_uniform_fit_matches_direct_lstsq_and_preserves_shape(sign, ndim):
-    dlr = _dlr()
+@pytest.mark.parametrize("symmetry", [False, True])
+def test_uniform_fit_matches_direct_lstsq_and_preserves_shape(sign, ndim, symmetry):
+    dlr = _dlr(symmetry)
     d = dlr.dF if sign == -1 else dlr.dB
     freq = dlr.omega if sign == -1 else dlr.nu
     grid = (dlr.MatsubaraFermionUniformFull if sign == -1
             else dlr.MatsubaraBosonUniformFull)(Emax=np.max(np.abs(freq)))
     rng = np.random.default_rng(11)
     shape = [(grid.size,), (grid.size, 3), (grid.size, 2, 3)][ndim - 1]
-    kernel = d.eval_dlr_freq(np.eye(freq.size), 1j * grid, dlr.beta, xi=sign)
-    source_coefficients = rng.standard_normal((freq.size, int(np.prod(shape[1:]))))
-    source_coefficients = source_coefficients + 1j * rng.standard_normal(source_coefficients.shape)
+    rank = d.get_dlr_frequencies().size
+    kernel = d.eval_dlr_freq(np.eye(rank), 1j * grid, dlr.beta, xi=sign)
+    source_coefficients = rng.standard_normal((rank, int(np.prod(shape[1:]))))
+    if sign == -1 or not symmetry:
+        source_coefficients = source_coefficients + 1j * rng.standard_normal(source_coefficients.shape)
     uniform = (kernel @ source_coefficients).reshape(shape)
     coefficients = np.linalg.lstsq(kernel, uniform.reshape(grid.size, -1), rcond=None)[0]
-    kernel_nodes = d.eval_dlr_freq(np.eye(freq.size), 1j * freq, dlr.beta, xi=sign)
+    kernel_nodes = d.eval_dlr_freq(np.eye(rank), 1j * freq, dlr.beta, xi=sign)
     expected = (kernel_nodes @ coefficients).reshape(freq.size, *shape[1:])
     actual = dlr.MatsubaraUniform2DLR(uniform, omega=grid, sign=sign)
     assert actual.shape == expected.shape
@@ -398,7 +402,7 @@ def test_boson_positive_only_symmetric_default_with_and_without_zero(include_zer
     dlr = _dlr()
     bloc = BLocDyn(None, dlr, None)
     nu_pos = dlr.MatsubaraBosonUniform(Emax=np.max(np.abs(dlr.nu))) if include_zero else _boson_positive_grid(dlr, include_zero=False)
-    rank = len(dlr.nu)
+    rank = dlr.dB.rank
     rng = np.random.default_rng(104 + int(include_zero))
     norb = 2
 
@@ -419,7 +423,7 @@ def test_boson_positive_only_hermitian_true_offdiagonal_swaps_orbitals():
     dlr = _dlr()
     bloc = BLocDyn(None, dlr, None)
     nu_pos = dlr.MatsubaraBosonUniform(Emax=np.max(np.abs(dlr.nu)))
-    rank = len(dlr.nu)
+    rank = dlr.dB.rank
     rng = np.random.default_rng(106)
     norb = 2
 
@@ -439,7 +443,7 @@ def test_boson_positive_only_hermitian_true_offdiagonal_swaps_orbitals():
 def test_boson_grid_wrapper_positive_only_and_full_outputs_are_identical():
     dlr = _dlr()
     nu_pos = dlr.MatsubaraBosonUniform(Emax=np.max(np.abs(dlr.nu)))
-    rank = len(dlr.nu)
+    rank = dlr.dB.rank
     rng = np.random.default_rng(108)
     norb = 2
 

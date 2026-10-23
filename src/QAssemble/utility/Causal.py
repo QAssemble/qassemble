@@ -11,7 +11,7 @@ from qpsolvers import SolverNotFound, solve_qp
 from scipy.sparse import csc_matrix
 
 from .Common import Common
-from .DLR import DLR
+from .DLR import DLR, SymmetricBosonDLR
 from .Fourier import Fourier
 
 
@@ -573,6 +573,10 @@ class CausalBosonProjector:
         moment_sigma_safety: float = 3.0,
         raise_on_failure: bool = True,
     ) -> None:
+        if isinstance(d, SymmetricBosonDLR):
+            raise NotImplementedError(
+                "CausalBosonProjector does not support K+; use BosonSymmetry=False"
+            )
         if coefficient_sign not in (-1, 1):
             raise ValueError("coefficient_sign must be -1 or +1")
         if beta <= 0.0 or not np.isfinite(beta):
