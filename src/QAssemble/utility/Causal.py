@@ -11,7 +11,7 @@ from qpsolvers import SolverNotFound, solve_qp
 from scipy.sparse import csc_matrix
 
 from .Common import Common
-from .DLR import DLR, SymmetricBosonDLR
+from .DLR import DLR
 from .Fourier import Fourier
 
 
@@ -547,7 +547,7 @@ class CausalBosonProjector:
 
     This is the scalar bosonic projector used by ``CausalProjector``.  It mirrors
     the pole-QP construction from ``causal_boson.py`` but reuses the caller's
-    existing bosonic DLR object instead of creating a new ``pydlr.dlr`` basis.
+    existing bosonic DLR object instead of creating a new basis.
     """
 
     DEFAULT_SOLVERS = CausalProjection.DEFAULT_SOLVERS
@@ -573,9 +573,9 @@ class CausalBosonProjector:
         moment_sigma_safety: float = 3.0,
         raise_on_failure: bool = True,
     ) -> None:
-        if isinstance(d, SymmetricBosonDLR):
+        if getattr(d, "symmetrize", False):
             raise NotImplementedError(
-                "CausalBosonProjector does not support K+; use BosonSymmetry=False"
+                "CausalBosonProjector does not support symmetric cppdlr; use BosonSymmetry=False"
             )
         if coefficient_sign not in (-1, 1):
             raise ValueError("coefficient_sign must be -1 or +1")
@@ -1908,7 +1908,7 @@ class CausalFermionProjector:
         self.last_validation = {}
 
     def _basis_freq(self, z: np.ndarray) -> np.ndarray:
-        # pydlr applies a hidden .conj() inside eval_dlr_freq, so the kernel
+        # The adapter retains pydlr's .conj() in eval_dlr_freq, so the kernel
         # must be assembled from unit coefficient vectors, never by hand.
         z = np.asarray(z, dtype=np.complex128)
         basis = np.empty((z.size, self.rank), dtype=np.complex128)
