@@ -30,10 +30,10 @@ import inspect
 from types import SimpleNamespace
 
 import numpy as np
-from pydlr import dlr
 
 from QAssemble.FLatDyn import G
 from QAssemble.FLocDyn import GImp, GLoc
+from QAssemble.utility.DLR import CppdlrDLR
 
 
 class _IdentityFermionDLR:
@@ -106,7 +106,7 @@ def test_occupation_error_stays_within_the_expected_band():
     """
     beta, cutoff = 100.0, 50.0
     lambF = beta * cutoff
-    dF = dlr(lamb=lambF, eps=1e-10, dense_imfreq=False)
+    dF = CppdlrDLR(lamb=lambF, eps=1e-10)
     tau = dF.get_tau(beta)
 
     gap = beta - tau[-1]

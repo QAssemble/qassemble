@@ -27,7 +27,7 @@ from QAssemble.BLatDyn import BLatDyn
 
 
 def _dlr():
-    # This regression specifically checks pydlr's bosonic correction.
+    # This regression specifically checks the unsymmetrized bosonic transform.
     return DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1.0e-12, "symmetry": False})
 
 
@@ -48,8 +48,7 @@ def _known_bf_2d(dlr, nbatch, seed):
     rank = dlr.dB.rank
     rng = np.random.default_rng(seed)
     G = rng.standard_normal((rank, nbatch)) * np.exp(-np.arange(rank)[:, None])
-    # evaluate on the DLR nu grid: bf = beta * (T_qx * corr_x) @ G
-    return dlr.beta * (dlr.dB.T_qx * dlr.dB.bosonic_corr_x[None, :]) @ G
+    return dlr.dB.matsubara_from_dlr(G, dlr.beta)
 
 
 # ---------------------------------------------------------------------------

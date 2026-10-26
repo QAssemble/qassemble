@@ -14,7 +14,6 @@ dependencies = [
     "h5py",
     "mpi4py",
     "matplotlib",
-    "pydlr",
     "cvxpy",
     "sympy",
     "pymatgen",

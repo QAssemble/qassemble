@@ -48,14 +48,8 @@ if os.path.join(_REPO, "src") not in sys.path:
 # reconstruction schemes
 # --------------------------------------------------------------------------
 def coeffs_lu(d, fnode, beta):
-    """Current path: square LU solve, as pydlr ``dlr_from_matsubara`` does it.
-
-    Called with a 2D RHS directly (pydlr's wrapper rejects a 3D one, and
-    ``DLR.MatsubaraUniform2DLR`` flattens for the same reason).
-    """
-    from scipy.linalg import lu_solve
-
-    c = lu_solve((d.dF.dlrmf2cf, d.dF.mf2cfpiv), fnode[:, None] / beta)
+    """Native node solve through the backend's public interface."""
+    c = d.dF.dlr_from_matsubara(fnode[:, None], beta)
     return np.asarray(c).reshape(-1)
 
 
@@ -74,8 +68,8 @@ def design_matrix(d, w, beta):
 def coeffs_svd(d, fnode, beta, rcond):
     """(a) Truncated-SVD least squares in place of the square LU solve.
 
-    ``dlrmf2cf`` is already LU-factored, so the design matrix is rebuilt from
-    the DLR poles and solved in a rank-truncated sense.  Modes below ``rcond``
+    Rebuild the design matrix from the public DLR poles and solve in a
+    rank-truncated sense. Modes below ``rcond``
     are exactly the ones whose coefficients blow up under the square solve.
     """
     A = design_matrix(d, d.omega, beta)

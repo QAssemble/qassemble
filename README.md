@@ -1,13 +1,13 @@
 # QAssemble
 
-**QAssemble** is a pure-Python quantum simulation package for calculating electronic properties of materials using free energy functional approaches. Built entirely with the Python standard library and a minimal set of well-established scientific packages — no compiled extensions or domain-specific frameworks required.
+**QAssemble** is a Python quantum simulation package for calculating electronic properties of materials using free energy functional approaches. DLR transforms use the bundled cppdlr Python binding; EDMFT also uses a separately built C++ CTQMC solver.
 
 ## Why Pure Python?
 
 QAssemble is intentionally implemented in **pure Python**, meaning:
 
-- No C/C++/Fortran extensions beyond what NumPy/SciPy already provide
-- No proprietary or hard-to-install domain-specific libraries
+- Physics algorithms are implemented in Python with NumPy/SciPy
+- DLR nodes and transforms use the native cppdlr backend through `pycppdlr`
 - Readable, hackable source code — every algorithm is visible and modifiable
 - Easy to install, easy to extend, and easy to understand
 
@@ -38,7 +38,7 @@ QAssemble is intentionally implemented in **pure Python**, meaning:
 | [h5py](https://www.h5py.org/) | HDF5-based data storage |
 | [mpi4py](https://mpi4py.readthedocs.io/) | MPI parallelization |
 | [Matplotlib](https://matplotlib.org/) | Plotting |
-| [pydlr](https://github.com/flatironinstitute/libdlr) | Discrete Lehmann Representation |
+| [pycppdlr](pycppdlr/README.md) | Native cppdlr DLR nodes and transforms; build from this checkout |
 | [SymPy](https://www.sympy.org/) | Wigner 3j symbols and Gaunt coefficients |
 | [pymatgen](https://pymatgen.org/) | Crystal structure utilities |
 
@@ -49,8 +49,16 @@ QAssemble is intentionally implemented in **pure Python**, meaning:
 ```bash
 git clone https://github.com/Mo-Seong-Jun/QAssemble.git
 cd QAssemble
+git submodule update --init cppdlr
+pip install ./pycppdlr
 pip install .
 ```
+
+Build `pycppdlr` first in the same Python environment. It is a local package,
+so QAssemble does not list it as a dependency fetched from PyPI. The binding
+requires CMake, a C++23 compiler, OpenMP, OpenBLAS, MPI and HDF5; see the
+[validated macOS build command and prerequisites](pycppdlr/README.md#build-on-macos-arm64).
+QAssemble no longer requires `pydlr` at runtime or for its utility tests.
 
 ### Editable install (for development)
 
@@ -204,7 +212,7 @@ QAssemble/
 | `Control` | `Mix` | Mixing parameter for self-consistency |
 | `Control` | `T` | Temperature in Kelvin |
 | `Control` | `MatsubaraCutOff` | Energy cutoff; both DLR bandwidths use `Lambda = beta * MatsubaraCutOff` |
-| `Control` | `BosonSymmetry` | Default `True`: real, reflection-even K+ boson DLR; `False`: pydlr boson basis |
+| `Control` | `BosonSymmetry` | Default `True`: cppdlr symmetric boson basis with real/even projection; `False`: cppdlr unsymmetrized boson basis |
 | `Control` | `ConstantW` | Constant W parameter for GW |
 | `Crystal` | `RVec` | 3x3 lattice vectors |
 | `Crystal` | `Basis` | Basis atom positions and orbital counts |
@@ -217,12 +225,18 @@ QAssemble/
 | `Hamiltonian` | `Onsite` | On-site energy terms |
 | `Hamiltonian` | `Parameter` | Coulomb parameterization: `"SlaterKanamori"`, `"Slater"`, `"Kanamori"` |
 
-The common DLR bandwidth and `BosonSymmetry` change the sampling nodes. Start
-with a new `Prefix`: existing HDF5 data and mixing history are not migrated.
-`BosonSymmetry=False` opts out of K+ but still uses the new common bandwidth.
+The cppdlr backend changes the sampling nodes for both statistics, including
+`BosonSymmetry=False`. Start with a new `Prefix`: existing pydlr/K+ HDF5 data
+and mixing history cannot be reused and are not migrated.
 
-K+ represents each bosonic channel as real and even. Mirror pairs are averaged
-before coefficient recovery; odd or imaginary residuals above
+`BosonSymmetry=True` represents each bosonic channel as real and even. Mirror
+samples and recovered pole coefficients are pair-averaged; odd or imaginary residuals above
 `max(100 * eps, 1e-10)` produce a warning. Use `BosonSymmetry=False` when this
 assumption does not apply, including general complex or odd channels. The
 single-pole bosonic causal QP also requires `BosonSymmetry=False`.
+
+The adapter clamps `eps` to at least `1e-14`. Native symmetrization is
+experimental and this clamp is not an accuracy guarantee. At `Lambda=50000`,
+`eps=1e-14`, an even two-pole-pair diagnostic gave frequency-to-tau relative
+error `1.79e-11` after parity projection (previous K+: `1.33e-13`), above the
+unchanged `1e-12` target. See [migration validation](docs/Cppdlr_backend_migration.md).

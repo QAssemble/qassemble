@@ -1,82 +1,55 @@
 import logging
 
 import numpy as np
-from pydlr import dlr
 from .Common import Common
 
 logger = logging.getLogger("QAssemble")
 
 
-class SymmetricBosonDLR:
-    """Real, reflection-even K+ sector; all trailing data axes are preserved.
+class CppdlrDLR:
+    """cppdlr transforms with QAssemble's pydlr coefficient/axis conventions.
 
-    Poles are dimensionless and nonnegative. Time/frequency samples expose
-    both mirror partners, but coefficients have only ``rank`` entries.
-    Odd or imaginary data are projected out; use symmetry=False for channels
-    outside the element-wise real/even assumption. Causal QP is unsupported.
+    Public nodes are ascending and tau is absolute. Coefficients are the
+    negative of native cppdlr coefficients. Symmetric bosons additionally
+    project onto the element-wise real, reflection-even sector.
     """
 
-    def __init__(self, lamb, eps=1e-15):
-        from pydlr.kernel import kernel_discretization
-        from scipy.linalg import lu_factor, qr
+    def __init__(self, lamb, eps=1e-15, xi=-1, symmetrize=False):
+        from pycppdlr import Basis
 
-        if not np.isfinite(lamb) or lamb <= 0:
-            raise ValueError("lamb must be finite and positive")
+        if xi not in (-1, 1):
+            raise ValueError("xi must be -1 for fermions or 1 for bosons")
         if not np.isfinite(eps) or not 0 < eps < 1:
             raise ValueError("eps must lie between zero and one")
-        self.lamb, self.eps, self.xi = float(lamb), float(eps), 1
-        _, tau, poles = kernel_discretization(lamb)
-        tau = tau[tau <= 0.5]
-        poles = np.r_[0.0, poles[poles > 0]]
-        _, r, piv = qr(self._time_kernel(tau, poles), mode="economic", pivoting=True)
-        diagonal = np.abs(np.diag(r))
-        self.rank = int(np.count_nonzero(diagonal > eps * diagonal[0]))
-        self.dlrrf = np.sort(poles[piv[:self.rank]])
+        self.lamb, self.eps, self.xi = float(lamb), max(float(eps), 1e-14), xi
+        self.symmetrize = bool(symmetrize)
+        self.basis = Basis(self.lamb, self.eps,
+                           statistic="fermion" if xi == -1 else "boson",
+                           symmetrize=self.symmetrize)
+        self.rank = self.basis.rank
+        self.dlrrf = self.basis.rf.copy()
+        self._tau_order = np.argsort(self.basis.u)
+        self._tau_inverse = np.argsort(self._tau_order)
+        self._freq_order = np.argsort(self.basis.n)
+        self._freq_inverse = np.argsort(self._freq_order)
+        self.dlrit = self.basis.u[self._tau_order]
+        self.dlrmf = self.basis.n[self._freq_order]
+        if self.symmetrize:
+            self.tau_mirror = np.arange(self.dlrit.size - 1, -1, -1)
+            self.frequency_mirror = np.arange(self.dlrmf.size - 1, -1, -1)
 
-        _, _, piv = qr(self._time_kernel(tau, self.dlrrf).T,
-                       mode="economic", pivoting=True)
-        selected_tau = np.sort(tau[piv[:self.rank]])
-        self.dlrit = np.unique(np.r_[selected_tau, 1 - selected_tau])
-        self.tau_mirror = np.arange(self.dlrit.size - 1, -1, -1)
-        self._tau_rows = np.searchsorted(self.dlrit, selected_tau)
-        self._tau_lu = lu_factor(self._time_kernel(selected_tau, self.dlrrf))
+    def get_tau(self, beta):
+        return beta * self.dlrit
 
-        # Sparse integer panels cover the same scale as pydlr without O(lamb) rows.
-        panels = max(2, int(np.ceil(np.log2(max(lamb / self.rank, 1)))) + 1)
-        start, candidates = 1, [np.array([0], dtype=int)]
-        for panel in range(panels):
-            step = 2**panel
-            candidates.append(start + step * np.arange(self.rank))
-            start += step * self.rank
-        candidates = np.concatenate(candidates)
-        kernel = self._frequency_kernel(2j * np.pi * candidates, 1.0)
-        _, _, piv = qr(kernel.T, mode="economic", pivoting=True)
-        selected_n = np.sort(candidates[piv[:self.rank]])
-        self.dlrmf = np.unique(np.r_[-selected_n, selected_n])
-        self.frequency_mirror = np.arange(self.dlrmf.size - 1, -1, -1)
-        self._frequency_rows = np.searchsorted(self.dlrmf, selected_n)
-        self._frequency_lu = lu_factor(
-            self._frequency_kernel(2j * np.pi * selected_n, 1.0)
-        )
+    def get_matsubara_frequencies(self, beta):
+        return 1j * np.pi / beta * (2 * self.dlrmf + (self.xi == -1))
 
-    @staticmethod
-    def _time_kernel(tau, poles):
-        tau = np.asarray(tau)[:, None]
-        poles = np.asarray(poles)[None, :]
-        return (np.exp(-tau * poles) + np.exp(-(1 - tau) * poles)) / (1 + np.exp(-poles))
+    def get_dlr_frequencies(self):
+        return self.dlrrf
 
-    def _frequency_kernel(self, z, beta):
-        z = np.asarray(z, dtype=complex)
-        if z.ndim != 1 or not np.all(np.isfinite(z)) or np.any(z.real != 0):
-            raise ValueError("K+ frequencies must be finite imaginary Matsubara points")
-        w = beta * z.imag
-        poles = self.dlrrf
-        out = np.zeros((z.size, self.rank))
-        nz = poles > 0
-        out[:, nz] = (beta * 2 * poles[nz] * np.tanh(poles[nz] / 2)
-                      / (w[:, None]**2 + poles[None, nz]**2))
-        out[np.ix_(w == 0, ~nz)] = beta
-        return out
+    def _check_xi(self, xi):
+        if xi is not None and xi != self.xi:
+            raise ValueError("xi must match the basis statistic")
 
     def _project_even(self, values, mirror, domain):
         values = np.asarray(values)
@@ -90,58 +63,89 @@ class SymmetricBosonDLR:
         threshold = max(100 * self.eps, 1e-10)
         if odd > threshold or imaginary > threshold:
             logger.warning(
-                "K+ %s projection: odd residual %.6e, imaginary residual %.6e "
+                "Boson %s projection: odd residual %.6e, imaginary residual %.6e "
                 "(threshold %.6e); element-wise real/even assumption violated",
                 domain, odd, imaginary, threshold,
             )
         return 0.5 * (values.real + values[mirror].real)
 
-    @staticmethod
-    def _apply(kernel, coefficients):
+    def _coefficients(self, coefficients):
         coefficients = np.asarray(coefficients)
-        if coefficients.ndim == 0 or coefficients.shape[0] != kernel.shape[1]:
-            raise ValueError(f"coefficients must have {kernel.shape[1]} rows")
-        return np.einsum("nx,x...->n...", kernel, coefficients)
+        if coefficients.ndim == 0 or coefficients.shape[0] != self.rank:
+            raise ValueError(f"coefficients must have {self.rank} rows")
+        if not np.all(np.isfinite(coefficients)):
+            raise ValueError("coefficients must be finite")
+        if self.symmetrize and self.xi == 1:
+            # Native LU/GELSS can break parity even after projecting the samples.
+            return 0.5 * (coefficients.real + coefficients[::-1].real)
+        return coefficients
 
     @staticmethod
-    def _solve(lu, values):
-        from scipy.linalg import lu_solve
+    def _transpose(values):
+        return values.swapaxes(1, 2) if values.ndim == 3 else values
 
-        shape = values.shape
-        return lu_solve(lu, values.reshape(shape[0], -1)).reshape(shape)
-
-    def get_tau(self, beta):
-        return beta * self.dlrit
-
-    def get_matsubara_frequencies(self, beta):
-        return 2j * np.pi / beta * self.dlrmf
-
-    def get_dlr_frequencies(self):
-        return self.dlrrf
+    @staticmethod
+    def _samples(values, rows):
+        values = np.asarray(values)
+        if values.ndim == 0 or values.shape[0] != rows:
+            raise ValueError(f"data must have {rows} rows")
+        return values
 
     def dlr_from_tau(self, values):
-        even = self._project_even(values, self.tau_mirror, "tau")
-        return self._solve(self._tau_lu, even[self._tau_rows])
+        values = self._samples(values, self.dlrit.size)
+        if self.symmetrize and self.xi == 1:
+            values = self._project_even(values, self.tau_mirror, "tau")
+        return self._coefficients(-self.basis.tau_to_coef(values[self._tau_inverse]))
 
     def tau_from_dlr(self, coefficients):
-        return self._apply(self._time_kernel(self.dlrit, self.dlrrf), coefficients)
+        return self.basis.coef_to_tau(-self._coefficients(coefficients))[self._tau_order]
 
     def eval_dlr_tau(self, coefficients, tau, beta):
-        return self._apply(self._time_kernel(np.asarray(tau) / beta, self.dlrrf), coefficients)
+        if not np.isfinite(beta) or beta <= 0:
+            raise ValueError("beta must be finite and positive")
+        u = np.atleast_1d(np.asarray(tau)) / beta
+        if (u.ndim != 1 or np.iscomplexobj(u) or not np.all(np.isfinite(u))
+                or np.any((u < 0) | (u > 1))):
+            raise ValueError("tau must contain finite 1D absolute times in [0, beta]")
+        relative = np.where((u > 0.5) & (u != 1), u - 1, u)
+        return self.basis.eval_tau(-self._coefficients(coefficients), relative)
 
-    def dlr_from_matsubara(self, values, beta, xi=1):
-        if xi != 1:
-            raise ValueError("K+ supports only bosons (xi=1)")
-        even = self._project_even(values, self.frequency_mirror, "Matsubara")
-        return self._solve(self._frequency_lu, even[self._frequency_rows] / beta)
+    def dlr_from_matsubara(self, values, beta, xi=None):
+        self._check_xi(xi)
+        values = self._samples(values, self.dlrmf.size)
+        if self.symmetrize and self.xi == 1:
+            values = self._project_even(values, self.frequency_mirror, "Matsubara")
+        return self._coefficients(-self.basis.freq_to_coef(values[self._freq_inverse], beta))
 
-    def matsubara_from_dlr(self, coefficients, beta, xi=1):
-        return self.eval_dlr_freq(coefficients, self.get_matsubara_frequencies(beta), beta, xi)
+    def matsubara_from_dlr(self, coefficients, beta, xi=None):
+        self._check_xi(xi)
+        out = self.basis.coef_to_freq(-self._coefficients(coefficients), beta)[self._freq_order]
+        if self.symmetrize and self.xi == 1:
+            out = out.real
+        return self._transpose(out)
 
-    def eval_dlr_freq(self, coefficients, z, beta, xi=1):
-        if xi != 1:
-            raise ValueError("K+ supports only bosons (xi=1)")
-        return self._apply(self._frequency_kernel(z, beta), coefficients)
+    def eval_dlr_freq(self, coefficients, z, beta, xi=None):
+        self._check_xi(xi)
+        if not np.isfinite(beta) or beta <= 0:
+            raise ValueError("beta must be finite and positive")
+        z = np.atleast_1d(np.asarray(z, dtype=complex))
+        if z.ndim != 1 or not np.all(np.isfinite(z)):
+            raise ValueError("z must contain finite 1D frequencies")
+        coefficients = self._coefficients(coefficients)
+        n = (beta * z.imag / np.pi - (self.xi == -1)) / 2
+        mirror_n = -np.rint(n) - (self.xi == -1)
+        if (np.all(z.real == 0) and np.allclose(n, np.rint(n), rtol=0, atol=1e-9)
+                and np.all((mirror_n >= -1073741824) & (mirror_n <= 1073741823))):
+            # pydlr evaluates 1/(z+w/beta), then conjugates the entire result.
+            out = self.basis.eval_freq(-coefficients, mirror_n, beta)
+            if self.symmetrize and self.xi == 1:
+                out = out.real
+        else:
+            kernel = 1 / (z[:, None] + self.dlrrf[None, :] / beta)
+            if self.xi == 1:
+                kernel *= np.tanh(self.dlrrf / 2)[None, :]
+            out = np.einsum("zx,x...->z...", kernel, coefficients)
+        return self._transpose(out).conj()
 
 
 class DLR(object):
@@ -163,9 +167,8 @@ class DLR(object):
         self.lambF = self.lambB = self.beta * self.cutoff
         self.symmetry = ft.get("symmetry", True)
         
-        dF = dlr(lamb=self.lambF, eps=self.eps, dense_imfreq=False)
-        dB = (SymmetricBosonDLR(self.lambB, self.eps) if self.symmetry else
-              dlr(lamb=self.lambB, eps=self.eps, xi=1, dense_imfreq=False))
+        dF = CppdlrDLR(self.lambF, self.eps, -1, False)
+        dB = CppdlrDLR(self.lambB, self.eps, 1, self.symmetry)
         
 
         self.dF = dF
@@ -563,59 +566,20 @@ class DLR(object):
         return ftau
 
     def BT2F(self, btau: np.ndarray):
-        """1D btau -> 1D bf (Boson, tau -> Matsubara)"""
-        if self.symmetry:
-            return self.dB.matsubara_from_dlr(self.dB.dlr_from_tau(btau), self.beta)
-        from scipy.linalg import lu_solve
-        bxx = lu_solve((self.dB.dlrit2cf, self.dB.it2cfpiv), btau)
-        bf = self.beta * np.dot(self.dB.T_qx * self.dB.bosonic_corr_x[None, :], bxx)
-        return bf
+        """Boson tau -> Matsubara through the shared native transform."""
+        return self.dB.matsubara_from_dlr(self.dB.dlr_from_tau(btau), self.beta)
 
     def BF2T(self, bf: np.ndarray):
-        """1D bf -> 1D btau (Boson, Matsubara -> tau)"""
-        if self.symmetry:
-            return self.dB.tau_from_dlr(self.dB.dlr_from_matsubara(bf, self.beta))
-        from scipy.linalg import lu_solve
-        bxx = lu_solve((self.dB.dlrmf2cf, self.dB.mf2cfpiv), bf / self.beta)
-        bxx /= self.dB.bosonic_corr_x
-        btau = np.dot(self.dB.T_lx, bxx)
-        return btau
+        """Boson Matsubara -> tau, preserving batch axes."""
+        return self.dB.tau_from_dlr(self.dB.dlr_from_matsubara(bf, self.beta))
 
     def BatchBF2T(self, bf_2d: np.ndarray) -> np.ndarray:
-        """(nfreq_dlr, batch) boson Matsubara -> (ntau_dlr, batch) tau.
-
-        Batched form of :meth:`BF2T`: solve DLR coefficients on the DLR
-        Matsubara grid, apply the bosonic correction (pydlr's
-        ``dlr_from_matsubara`` divide for xi=1, here broadcast over the batch
-        axis), then map to the DLR tau grid via ``T_lx``.  Shared core for the
-        ``F2T`` methods on ``BLocDyn`` / ``BLatDyn`` so the bosonic correction
-        can not diverge between them.
-        """
-        if self.symmetry:
-            return self.BF2T(bf_2d)
-        from scipy.linalg import lu_solve
-        bf_2d = np.asarray(bf_2d, dtype=np.complex128)
-        G_xaa = lu_solve((self.dB.dlrmf2cf, self.dB.mf2cfpiv), bf_2d / self.beta)
-        G_xaa /= self.dB.bosonic_corr_x[:, None]
-        return np.tensordot(self.dB.T_lx, G_xaa, axes=(1, 0))
+        """(nfreq_dlr, batch) boson Matsubara -> (ntau_dlr, batch) tau."""
+        return self.BF2T(bf_2d)
 
     def BatchBT2F(self, btau_2d: np.ndarray) -> np.ndarray:
-        """(ntau_dlr, batch) boson tau -> (nfreq_dlr, batch) Matsubara.
-
-        Batched inverse of :meth:`BatchBF2T` / batched form of :meth:`BT2F`:
-        solve DLR coefficients on the DLR tau grid, then map to the DLR
-        Matsubara grid via ``T_qx`` with the bosonic correction folded in (the
-        multiply that inverts ``BatchBF2T``'s divide).  Shared core for the
-        ``T2F`` methods on ``BLocDyn`` / ``BLatDyn``.
-        """
-        if self.symmetry:
-            return self.BT2F(btau_2d)
-        from scipy.linalg import lu_solve
-        btau_2d = np.asarray(btau_2d, dtype=np.complex128)
-        fxx = lu_solve((self.dB.dlrit2cf, self.dB.it2cfpiv), btau_2d)
-        return self.beta * np.tensordot(
-            self.dB.T_qx * self.dB.bosonic_corr_x[None, :], fxx, axes=(1, 0)
-        )
+        """(ntau_dlr, batch) boson tau -> (nfreq_dlr, batch) Matsubara."""
+        return self.BT2F(btau_2d)
 
     def TauDLR2Uniform(self, ftau: np.ndarray):
         ntau = len(ftau)
@@ -651,15 +615,6 @@ class DLR(object):
         tau = np.linspace(self.beta - 1, self.beta, num=1000)
 
         fout = (self.dF.eval_dlr_tau(fxx, tau, beta=self.beta)).T
-
-        return fout
-
-    def TauUniform2DLR(self, ftau: np.ndarray):
-        # shape = ftau.shape
-        tau = self.TauUniform()
-        fxx = self.dF.lstsq_dlr_from_tau(tau_i=tau, G_iaa=ftau.T, beta=self.beta)
-
-        fout = (self.dF.tau_from_dlr(G_xaa=fxx)).T
 
         return fout
 
@@ -778,7 +733,7 @@ class DLR(object):
         d = self.dF if sign == -1 else self.dB
         eye = np.eye(d.get_dlr_frequencies().size)
         if sign == 1 and self.symmetry:
-            # A real K+ fit keeps the full signed-grid data-fit objective.
+            # The real/even fit keeps the full signed-grid data-fit objective.
             mirror = np.searchsorted(x_src, -x_src)
             paired = mirror < x_src.size
             paired[paired] &= np.isclose(x_src[mirror[paired]], -x_src[paired], rtol=1e-12, atol=1e-12)
@@ -810,18 +765,8 @@ class DLR(object):
 
     @staticmethod
     def _matsubara_nodes_to_coefficients(d, values: np.ndarray, beta: float, sign: int):
-        """Solve the DLR-node LU system without changing trailing axes."""
-        from scipy.linalg import lu_solve
-
-        values = np.asarray(values, dtype=np.complex128)
-        if isinstance(d, SymmetricBosonDLR):
-            return d.dlr_from_matsubara(values, beta, xi=sign)
-        coefficients = lu_solve(
-            (d.dlrmf2cf, d.mf2cfpiv), values.reshape(values.shape[0], -1) / beta
-        )
-        if sign == 1:
-            coefficients = coefficients / d.bosonic_corr_x[:, None]
-        return coefficients.reshape(values.shape)
+        """Recover coefficients without changing trailing axes."""
+        return d.dlr_from_matsubara(values, beta, xi=sign)
 
     @staticmethod
     def _interp_to_grid(
@@ -839,7 +784,7 @@ class DLR(object):
         DLR->uniform direction.  ``ff`` has shape ``(nfreq_src, bi, bj)`` on the
         ascending source grid ``x_src``; real and imaginary parts are
         interpolated independently onto ``x_target`` and the result is returned
-        **element-wise with no matrix-axis transpose** — the downstream pydlr
+        **element-wise with no matrix-axis transpose** — the downstream adapter
         transforms (``dlr_from_matsubara`` / ``matsubara_from_dlr``) apply the
         single ``(a, b)`` transpose.
 
@@ -956,7 +901,7 @@ class DLR(object):
 
     def T2mT(self, ftau: np.ndarray, tau: np.ndarray = None) -> np.ndarray:
         if self.symmetry:
-            # G on the boson time grid is not a boson: never fit it in K+.
+            # G on the boson time grid is fermionic: use the mirror permutation.
             if tau is None:
                 return -np.asarray(ftau)[self.dB.tau_mirror]
             tau = np.asarray(tau)

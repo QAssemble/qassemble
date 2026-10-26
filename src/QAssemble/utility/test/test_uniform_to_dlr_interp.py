@@ -242,6 +242,9 @@ def test_frequency_kernel_matches_matsubara_from_dlr(production_dlr, sign):
     rng = np.random.default_rng(51)
     rank = d.get_dlr_frequencies().size
     coefficients = rng.standard_normal((rank, 3)) + 1j * rng.standard_normal((rank, 3))
+    if sign == 1 and d.symmetrize:
+        # The symmetric backend evaluates only real/even pole-pair coefficients.
+        coefficients = .5 * (coefficients.real + coefficients[::-1].real)
     kernel = d.eval_dlr_freq(np.eye(rank), 1j * freq, dlr.beta, xi=sign)
     expected = d.matsubara_from_dlr(coefficients, dlr.beta, xi=sign)
     np.testing.assert_allclose(kernel @ coefficients, expected, rtol=1.0e-12, atol=1.0e-12)
