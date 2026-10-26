@@ -567,11 +567,17 @@ class DLR(object):
 
     def BT2F(self, btau: np.ndarray):
         """Boson tau -> Matsubara through the shared native transform."""
-        return self.dB.matsubara_from_dlr(self.dB.dlr_from_tau(btau), self.beta)
+        return np.asarray(
+            self.dB.matsubara_from_dlr(self.dB.dlr_from_tau(btau), self.beta),
+            dtype=np.complex128,
+        )
 
     def BF2T(self, bf: np.ndarray):
         """Boson Matsubara -> tau, preserving batch axes."""
-        return self.dB.tau_from_dlr(self.dB.dlr_from_matsubara(bf, self.beta))
+        return np.asarray(
+            self.dB.tau_from_dlr(self.dB.dlr_from_matsubara(bf, self.beta)),
+            dtype=np.complex128,
+        )
 
     def BatchBF2T(self, bf_2d: np.ndarray) -> np.ndarray:
         """(nfreq_dlr, batch) boson Matsubara -> (ntau_dlr, batch) tau."""

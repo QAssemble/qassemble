@@ -150,7 +150,10 @@ def test_local_and_lattice_batch_roundtrip_and_w_on_fermion_tau(symmetric_dlr, l
     fermion = FLatDyn if lattice else FLocDyn
     tau = boson.F2T(owner, freq)
     assert tau.shape == (*shape, len(d.tauB))
-    np.testing.assert_allclose(boson.T2F(owner, tau), freq, atol=1e-12, rtol=0)
+    assert tau.dtype == np.complex128
+    back = boson.T2F(owner, tau)
+    assert back.dtype == np.complex128
+    np.testing.assert_allclose(back, freq, atol=1e-12, rtol=0)
     on_fermion_tau = fermion.TauB2TauF(owner, tau)
     expected = np.moveaxis(d.dB.eval_dlr_tau(coefficients, d.tauF, d.beta), 0, -1)
     np.testing.assert_allclose(on_fermion_tau, expected, atol=1e-12, rtol=0)
