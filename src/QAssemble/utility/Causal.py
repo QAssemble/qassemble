@@ -573,7 +573,7 @@ class CausalBosonProjector:
         moment_sigma_safety: float = 3.0,
         raise_on_failure: bool = True,
     ) -> None:
-        if getattr(d, "symmetrize", False):
+        if getattr(d, "paired", False):
             raise NotImplementedError(
                 "CausalBosonProjector does not support symmetric cppdlr; use BosonSymmetry=False"
             )

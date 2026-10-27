@@ -7,7 +7,7 @@ from pycppdlr import PairedBoson
 from QAssemble.utility.DLR import CppdlrDLR
 
 
-@pytest.fixture(scope="module", params=[(-1, False), (1, False), (1, True)])
+@pytest.fixture(scope="module", params=[(-1, False), (-1, True), (1, False), (1, True)])
 def basis(request):
     xi, symmetry = request.param
     return CppdlrDLR(100, 1e-14, xi, symmetry)
@@ -40,7 +40,7 @@ def frequency_values(z, poles, weights, beta, xi, *, evaluation=False):
 
 def expanded_coefficients(basis, coefficients):
     poles = basis.dlrrf
-    if not basis.symmetrize:
+    if not basis.paired:
         return poles, coefficients
     positive = poles > 0
     return (np.r_[poles, -poles[positive]],
@@ -49,7 +49,7 @@ def expanded_coefficients(basis, coefficients):
 
 def analytic_data(basis):
     residue = np.array([[1., .2 + .17j], [.2 - .17j, .7]])
-    if basis.symmetrize:
+    if basis.paired:
         poles = np.array([-37.1, -.913, .913, 37.1])
         weights = -np.array([.7, .3, .3, .7])[:, None, None] * residue.real
     else:
@@ -76,7 +76,7 @@ def test_analytic_multipole_matrix_transforms_and_evaluation(basis):
                                    time_values(uniform_tau / beta, poles, weights), atol=1e-12, rtol=0)
         expected = frequency_values(uniform_z, poles, weights, beta, basis.xi, evaluation=True)
         np.testing.assert_allclose(basis.eval_dlr_freq(c, uniform_z, beta), expected, atol=1e-12, rtol=0)
-        if basis.symmetrize:
+        if basis.paired:
             np.testing.assert_array_equal(c.imag, 0)
             np.testing.assert_array_equal(basis.matsubara_from_dlr(c, beta).imag, 0)
             values = basis.eval_dlr_tau(c, uniform_tau, beta)
@@ -90,7 +90,7 @@ def test_unit_coefficients_preserve_axes_sign_and_legacy_frequency_conventions(b
     amplitude = (1 + np.arange(count).reshape(shape)) / count * (.7 + .2j)
     c = np.zeros((basis.rank, *shape), dtype=complex)
     c[3] = -amplitude
-    if basis.symmetrize:
+    if basis.paired:
         c = c.real
     poles, expanded = expanded_coefficients(basis, c)
     expected_tau = time_values(basis.dlrit, poles, expanded)
@@ -99,7 +99,7 @@ def test_unit_coefficients_preserve_axes_sign_and_legacy_frequency_conventions(b
     np.testing.assert_allclose(basis.matsubara_from_dlr(c, beta), expected_freq, atol=1e-14, rtol=0)
     off_axis = np.array([-.3 + .13j, .7 + .2j])
     points = [basis.get_matsubara_frequencies(beta)]
-    if basis.symmetrize:
+    if basis.paired:
         with pytest.raises(ValueError, match="Matsubara"):
             basis.eval_dlr_freq(c, off_axis, beta)
     else:
@@ -118,7 +118,7 @@ def test_native_node_order_and_beta_scaling(basis):
         basis.basis.coef_to_tau(-c)[basis._tau_order], atol=0, rtol=0)
     np.testing.assert_allclose(basis.matsubara_from_dlr(c, 2),
         2 * basis.matsubara_from_dlr(c, 1), atol=0, rtol=0)
-    if basis.symmetrize:
+    if basis.paired:
         assert isinstance(basis.basis, PairedBoson)
         assert len(basis.dlrit) in (2*basis.rank-1, 2*basis.rank)
         assert len(basis.dlrmf) == 2*basis.rank-1
@@ -151,7 +151,7 @@ def test_absolute_tau_right_endpoint_is_preserved(basis):
 def test_frequency_outside_native_index_range_uses_complex_kernel(basis):
     c = -np.ones(basis.rank)
     z = 1j * np.pi * (2 * np.array([-2**31, 2**31], dtype=float) + (basis.xi == -1))
-    if basis.symmetrize:
+    if basis.paired:
         with pytest.raises(ValueError, match="Matsubara"):
             basis.eval_dlr_freq(c, z, 1)
     else:
@@ -179,7 +179,7 @@ def test_node_transforms_delegate_to_native_solvers(basis, monkeypatch):
 def test_complex_frequency_evaluation_retains_legacy_antilinearity(basis):
     c = -np.ones((basis.rank, 2, 2))
     z = np.array([-.3 + .2j, .7 + .1j])
-    if basis.symmetrize:
+    if basis.paired:
         with pytest.raises(ValueError, match="Matsubara"):
             basis.eval_dlr_freq(1j*c, z, 2)
         np.testing.assert_array_equal(basis.matsubara_from_dlr(1j*c, 2), 0)
@@ -190,9 +190,32 @@ def test_complex_frequency_evaluation_retains_legacy_antilinearity(basis):
                                    1j*basis.matsubara_from_dlr(c, 2), atol=1e-14, rtol=0)
 
 
-def test_symmetric_fermion_adapter_is_rejected():
-    with pytest.raises(ValueError, match="bosons"):
-        CppdlrDLR(100, 1e-14, xi=-1, symmetrize=True)
+def test_symmetric_fermion_nodes_and_hermitian_transform():
+    d = CppdlrDLR(100, 1e-14, xi=-1, symmetrize=True)
+    assert d.symmetrize and not d.paired
+    np.testing.assert_array_equal(2*d.dlrmf + 1, -(2*d.dlrmf[::-1] + 1))
+    np.testing.assert_allclose(d.dlrit, 1-d.dlrit[::-1], atol=1e-14, rtol=0)
+    np.testing.assert_allclose(d.dlrrf, -d.dlrrf[::-1], atol=1e-14, rtol=0)
+    poles, weights = analytic_data(d)
+    frequency = frequency_values(d.get_matsubara_frequencies(7.3), poles, weights, 7.3, -1)
+    np.testing.assert_allclose(frequency, frequency[::-1].swapaxes(1, 2).conj(),
+                               atol=1e-14, rtol=0)
+    c = d.dlr_from_matsubara(frequency.swapaxes(1, 2), 7.3)
+    tau = d.tau_from_dlr(c)
+    np.testing.assert_allclose(tau, tau.swapaxes(1, 2).conj(), atol=1e-12, rtol=0)
+    z = np.array([-.3 + .13j, .7 + .2j])
+    np.testing.assert_allclose(d.eval_dlr_freq(c, z, 7.3),
+        frequency_values(z, d.dlrrf, c, 7.3, -1, evaluation=True), atol=1e-12, rtol=0)
+
+
+def test_hermitian_fold_keeps_original_positive_samples():
+    from QAssemble.utility.DLR import DLR
+
+    x = np.array([-3., -1., 1., 3.])
+    values = np.array([10j, 20j, 30j, 40j])[:, None, None]
+    folded, actual = DLR._fold_to_nonnegative(x, values)
+    np.testing.assert_array_equal(folded, [1., 3.])
+    np.testing.assert_array_equal(actual, values[2:])
 
 
 def test_large_bandwidth_paired_accuracy_and_bounded_coefficients():

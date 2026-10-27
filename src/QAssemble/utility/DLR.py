@@ -23,12 +23,11 @@ class CppdlrDLR:
             raise ValueError("eps must lie between zero and one")
         self.lamb, self.eps, self.xi = float(lamb), max(float(eps), 1e-14), xi
         self.symmetrize = bool(symmetrize)
-        if self.symmetrize and xi != 1:
-            raise ValueError("symmetric K+ adapter requires bosons (xi=1)")
-        self.basis = (PairedBoson(self.lamb, self.eps) if self.symmetrize else
+        self.paired = self.symmetrize and xi == 1
+        self.basis = (PairedBoson(self.lamb, self.eps) if self.paired else
                       Basis(self.lamb, self.eps,
                             statistic="fermion" if xi == -1 else "boson",
-                            symmetrize=False))
+                            symmetrize=self.symmetrize))
         self.rank = self.basis.rank
         self.dlrrf = self.basis.rf.copy()
         self._tau_order = np.argsort(self.basis.u)
@@ -40,6 +39,10 @@ class CppdlrDLR:
         if self.symmetrize:
             self.tau_mirror = np.arange(self.dlrit.size - 1, -1, -1)
             self.frequency_mirror = np.arange(self.dlrmf.size - 1, -1, -1)
+            assert np.allclose(self.dlrit[self.tau_mirror], 1 - self.dlrit,
+                               rtol=0, atol=1e-14), "tau nodes are not mirror closed"
+            assert np.array_equal(self.dlrmf[self.frequency_mirror],
+                                  -self.dlrmf - (xi == -1)), "frequency nodes are not mirror closed"
 
     def get_tau(self, beta):
         return beta * self.dlrit
@@ -93,7 +96,7 @@ class CppdlrDLR:
 
     def dlr_from_tau(self, values):
         values = self._samples(values, self.dlrit.size)
-        if self.symmetrize and self.xi == 1:
+        if self.paired:
             values = self._project_even(values, self.tau_mirror, "tau")
         return self._coefficients(-self.basis.tau_to_coef(values[self._tau_inverse]))
 
@@ -113,14 +116,14 @@ class CppdlrDLR:
     def dlr_from_matsubara(self, values, beta, xi=None):
         self._check_xi(xi)
         values = self._samples(values, self.dlrmf.size)
-        if self.symmetrize and self.xi == 1:
+        if self.paired:
             values = self._project_even(values, self.frequency_mirror, "Matsubara")
         return self._coefficients(-self.basis.freq_to_coef(values[self._freq_inverse], beta))
 
     def matsubara_from_dlr(self, coefficients, beta, xi=None):
         self._check_xi(xi)
         out = self.basis.coef_to_freq(-self._coefficients(coefficients), beta)[self._freq_order]
-        if self.symmetrize and self.xi == 1:
+        if self.paired:
             out = out.real
         return self._transpose(out)
 
@@ -138,9 +141,9 @@ class CppdlrDLR:
                 and np.all((mirror_n >= -1073741824) & (mirror_n <= 1073741823))):
             # pydlr evaluates 1/(z+w/beta), then conjugates the entire result.
             out = self.basis.eval_freq(-coefficients, mirror_n, beta)
-            if self.symmetrize and self.xi == 1:
+            if self.paired:
                 out = out.real
-        elif self.symmetrize:
+        elif self.paired:
             raise ValueError("K+ frequency evaluation requires native-range Matsubara points")
         else:
             kernel = 1 / (z[:, None] + self.dlrrf[None, :] / beta)
@@ -332,7 +335,7 @@ class DLR(object):
         keep = x_all >= 0.0
         x_all, f_all = x_all[keep], f_all[..., keep]
 
-        order = np.argsort(x_all)
+        order = np.argsort(x_all, kind="stable")
         x_all, f_all = x_all[order], f_all[..., order]
 
         _, unique_idx = np.unique(np.round(x_all, 12), return_index=True)
@@ -897,7 +900,7 @@ class DLR(object):
         keep = x_all >= 0.0
         x_all, f_all = x_all[keep], f_all[keep]
 
-        order = np.argsort(x_all)
+        order = np.argsort(x_all, kind="stable")
         x_all, f_all = x_all[order], f_all[order]
 
         # A node at exactly w=0 (bosonic) appears twice after folding; so can a
