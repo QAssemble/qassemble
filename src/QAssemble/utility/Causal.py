@@ -573,7 +573,7 @@ class CausalBosonProjector:
         moment_sigma_safety: float = 3.0,
         raise_on_failure: bool = True,
     ) -> None:
-        if getattr(d, "symmetrize", False) and not reflection_symmetry:
+        if getattr(d, "paired", False) and not reflection_symmetry:
             raise ValueError(
                 "K+ basis has no odd (m1) sector; use reflection_symmetry=True"
             )
@@ -649,7 +649,7 @@ class CausalBosonProjector:
         # Positive K+ columns sum +/-omega poles; verified by the nu^2 K tail.
         self.pole_multiplicity = (
             np.where(x_nodes > 0, 2.0, 1.0)
-            if getattr(d, "symmetrize", False) else np.ones(self.rank)
+            if getattr(d, "paired", False) else np.ones(self.rank)
         )
 
         self.coefficient_sign = int(coefficient_sign)
