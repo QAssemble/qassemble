@@ -212,6 +212,7 @@ QAssemble/
 | `Control` | `Mix` | Mixing parameter for self-consistency |
 | `Control` | `T` | Temperature in Kelvin |
 | `Control` | `MatsubaraCutOff` | Energy cutoff; both DLR bandwidths use `Lambda = beta * MatsubaraCutOff` |
+| `Control` | `FermionSymmetry` | Default `True`: native cppdlr mirror-symmetric fermion nodes; `False`: unsymmetrized fermion basis |
 | `Control` | `BosonSymmetry` | Default `True`: cppdlr K+ paired kernels with real/even sample projection; `False`: cppdlr unsymmetrized boson basis |
 | `Control` | `ConstantW` | Constant W parameter for GW |
 | `Crystal` | `RVec` | 3x3 lattice vectors |
@@ -228,6 +229,13 @@ QAssemble/
 The cppdlr backend changes the sampling nodes for both statistics, including
 `BosonSymmetry=False`. Start with a new `Prefix`: existing pydlr/K+ HDF5 data
 and mixing history cannot be reused and are not migrated.
+
+`FermionSymmetry=True` selects mirror-complete fermionic poles, times, and
+Matsubara nodes (`n <-> -n-1`). It changes the grid only: no fermion coefficient
+projection or Hermitian averaging is applied. `FermionSymmetry=False` opts out.
+GW+EDMFT Auto/Restart requires the saved basis fingerprint to match beta,
+cutoff, effective tolerance, symmetry flags, ranks and node hashes. Missing
+fingerprints (including older files) or a mismatch require a new `Prefix`.
 
 `BosonSymmetry=True` represents each bosonic channel using native K+ paired
 kernels. Mirror samples are averaged before square native LU; coefficients

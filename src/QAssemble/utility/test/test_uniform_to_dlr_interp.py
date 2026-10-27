@@ -659,13 +659,15 @@ def test_fermion_dlr_to_uniform_keeps_tail_constant():
     assert np.all(got < 0.0), "tail must not change sign"
 
 
-def test_fermion_dlr_to_uniform_offdiagonal_uses_hermitian_transpose():
+@pytest.mark.parametrize("fermion_symmetry", [False, True])
+def test_fermion_dlr_to_uniform_offdiagonal_uses_hermitian_transpose(fermion_symmetry):
     """Matrix-valued folding is G(-iw) = G(iw)^dagger, not element-wise conj.
 
     This is why the fold lives in the wrapper: the flattened core has no
     orbital axes to transpose.
     """
-    dlr = _dlr()
+    dlr = DLR({"beta": 20., "cutoff": 8., "eps": 1e-12,
+               "fermion_symmetry": fermion_symmetry})
     rng = np.random.default_rng(11)
     rank = len(dlr.omega)
 
@@ -684,7 +686,7 @@ def test_fermion_dlr_to_uniform_offdiagonal_uses_hermitian_transpose():
     f_all = np.concatenate([arr, mirrored], axis=-1)
     keep = x_all >= 0.0
     x_all, f_all = x_all[keep], f_all[..., keep]
-    order = np.argsort(x_all)
+    order = np.argsort(x_all, kind="stable")
     x_all, f_all = x_all[order], f_all[..., order]
     _, unique_idx = np.unique(np.round(x_all, 12), return_index=True)
     unique_idx = np.sort(unique_idx)

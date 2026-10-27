@@ -171,8 +171,9 @@ class DLR(object):
         self.eps = ft.get("eps", 1e-15)
         self.lambF = self.lambB = self.beta * self.cutoff
         self.symmetry = ft.get("symmetry", True)
+        self.fermion_symmetry = ft.get("fermion_symmetry", True)
         
-        dF = CppdlrDLR(self.lambF, self.eps, -1, False)
+        dF = CppdlrDLR(self.lambF, self.eps, -1, self.fermion_symmetry)
         dB = CppdlrDLR(self.lambB, self.eps, 1, self.symmetry)
         
 
