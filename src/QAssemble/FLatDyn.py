@@ -1086,7 +1086,14 @@ class G(FLatDyn):
         occ = occk.sum(axis=3)/nrk
         self.occ = occ
         self.occk = occk
-        
+        tau_antiherm_max = float(np.max(np.abs(self.kt - self.kt.swapaxes(0, 1).conj())))
+        occ_antiherm_max = float(np.max(np.abs(occk - occk.swapaxes(0, 1).conj())))
+        self.mu_search_diagnostics = getattr(self, "mu_search_diagnostics", {})
+        self.mu_search_diagnostics.update(
+            tau_antiherm_max=tau_antiherm_max, occ_antiherm_max=occ_antiherm_max)
+        logger.info("[G.Occ] tau_antiherm_max=%.6e occ_antiherm_max=%.6e",
+                    tau_antiherm_max, occ_antiherm_max)
+
         self.occr = self.flatstc.K2R(occk)
         logger.info("Density matrixy calculation finish")
         return None
@@ -1470,6 +1477,8 @@ class G(FLatDyn):
                 "mu_ecut": diag.get("Ecut", np.nan),
                 "delta_mu": diag.get("delta_mu", np.nan),
                 "occupation_at_mu": diag.get("occupation_at_mu", np.nan),
+                "tau_antiherm_max": diag.get("tau_antiherm_max", np.nan),
+                "occ_antiherm_max": diag.get("occ_antiherm_max", np.nan),
                 "residual_at_mu": diag.get("residual_at_mu", np.nan),
                 "used_global_fallback": int(bool(diag.get("used_global_fallback", False))),
                 "local_root_found": int(bool(diag.get("local_root_found", False))),

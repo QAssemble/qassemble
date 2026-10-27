@@ -887,6 +887,9 @@ class GLoc(FLocDyn):
 
             occ[:, :, js] = -fout[0, :, 0].reshape(mat.shape[0], mat.shape[0])
 
+        logger.info("[GLoc.Occ] tau_antiherm_max=%.6e occ_antiherm_max=%.6e",
+                    float(np.max(np.abs(mat - mat.swapaxes(0, 1).conj()))),
+                    float(np.max(np.abs(occ - occ.swapaxes(0, 1).conj()))))
         return occ
     
     def Save(self, fn: str, scf: bool = True):
@@ -980,6 +983,9 @@ class GImp(FLocDyn):
 
             occ[:, :, js] = -fout[0, :, 0].reshape(mat.shape[0], mat.shape[0])
 
+        logger.info("[GImp.Occ] tau_antiherm_max=%.6e occ_antiherm_max=%.6e",
+                    float(np.max(np.abs(mat - mat.swapaxes(0, 1).conj()))),
+                    float(np.max(np.abs(occ - occ.swapaxes(0, 1).conj()))))
         return occ
 
     def Save(self, fn: str, obj : np.ndarray = None, scf: bool = True):

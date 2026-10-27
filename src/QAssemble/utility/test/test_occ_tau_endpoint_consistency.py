@@ -27,9 +27,12 @@ records the size of that error so a regression is visible rather than silent.
 """
 
 import inspect
+import logging
 from types import SimpleNamespace
 
+import h5py
 import numpy as np
+import pytest
 
 from QAssemble.FLatDyn import G
 from QAssemble.FLocDyn import GImp, GLoc
@@ -129,3 +132,53 @@ def test_occupation_error_stays_within_the_expected_band():
         f"endpoint may have silently reverted to beta"
     )
     assert worst < 1e-3, f"occupation error grew beyond the known band: {worst}"
+
+
+@pytest.mark.parametrize("scf", [False, True])
+def test_lattice_occ_records_antihermiticity_without_changing_data(tmp_path, caplog, scf):
+    matrix = np.array([[.8 + .1j, .2 + .3j], [.05 - .4j, .4]])
+    expected = np.stack((matrix, matrix.conj().T), axis=-1)[:, :, None, :]
+    kt = -expected[..., None].copy()
+    original = kt.copy()
+    owner = SimpleNamespace(
+        crystal=SimpleNamespace(find=[0, 1], ns=1, kpoint=[0, 1]),
+        dlr=SimpleNamespace(beta=1., dF=_IdentityFermionDLR()),
+        kt=kt, _tau_beta=.5, flatstc=SimpleNamespace(K2R=lambda value: value.copy()),
+        mu_search_diagnostics={"occupation_at_mu": 1.2},
+        hdf5file=str(tmp_path / "green.h5"), group="gwedmft", subgroup="G",
+        iteration=3, mu=2., kf=np.zeros_like(kt), CheckGroup=lambda *args: False,
+    )
+    with caplog.at_level(logging.INFO, logger="QAssemble"):
+        G.Occ(owner)
+    np.testing.assert_array_equal(owner.kt, original)
+    np.testing.assert_array_equal(owner.occk, expected)
+    np.testing.assert_array_equal(owner.occ, expected.mean(axis=-1))
+    np.testing.assert_array_equal(owner.occr, expected)
+    # The two k points cancel after averaging; diagnostics must precede that average.
+    np.testing.assert_array_equal(owner.occ, owner.occ.swapaxes(0, 1).conj())
+    diag = owner.mu_search_diagnostics
+    assert diag["tau_antiherm_max"] == pytest.approx(.2)
+    assert diag["occ_antiherm_max"] == pytest.approx(.2)
+    assert diag["occupation_at_mu"] == 1.2
+    assert "[G.Occ] tau_antiherm_max=2.000000e-01 occ_antiherm_max=2.000000e-01" in caplog.text
+    G.Save(owner, "gkf", scf=scf)
+    suffix = ".3" if scf else ""
+    with h5py.File(owner.hdf5file, "r") as handle:
+        for name in ("tau_antiherm_max", "occ_antiherm_max"):
+            assert handle[f"gwedmft/G/{name}{suffix}"][()] == pytest.approx(.2)
+        assert handle[f"gwedmft/G/occupation_at_mu{suffix}"][()] == 1.2
+
+
+@pytest.mark.parametrize("cls", [GLoc, GImp])
+def test_local_occ_logs_antihermiticity_without_projection(caplog, cls):
+    expected = np.array([[.8 + .1j, .2 + .3j], [.05 - .4j, .4]])[:, :, None]
+    mat = -expected[..., None].copy()
+    original = mat.copy()
+    owner = SimpleNamespace(dlr=SimpleNamespace(
+        tauF=np.array([.5]), beta=1., dF=_IdentityFermionDLR()))
+    with caplog.at_level(logging.INFO, logger="QAssemble"):
+        actual = cls.Occ(owner, mat)
+    np.testing.assert_array_equal(actual, expected)
+    np.testing.assert_array_equal(mat, original)
+    assert (f"[{cls.__name__}.Occ] tau_antiherm_max=2.000000e-01 "
+            "occ_antiherm_max=2.000000e-01") in caplog.text
