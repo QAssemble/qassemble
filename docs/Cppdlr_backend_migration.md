@@ -1,6 +1,8 @@
 # Native cppdlr K+ boson backend
 
 Updated 2026-10-27 from `f20a102` on `DLR_GW_EDMFT_nocausal`.
+The backend/K+ commits are now also ported to causal branch `DLR_GW_EDMFT`;
+its QP support and local validation are recorded below.
 `BosonSymmetry=True` now uses `pycppdlr.PairedBoson`; fermions and
 `BosonSymmetry=False` retain `Basis(..., symmetrize=False)`. The local binding
 must be rebuilt; see [installation](../pycppdlr/README.md).
@@ -55,7 +57,35 @@ Matsubara points in the native integer range; other complex points raise
 bosonic data. Their batched and local/lattice callers inherit this contract.
 This fixes `BLatDyn.K2R` failing when it multiplies the returned array by
 complex phases in place. `K2R` itself is unchanged. Fermionic symmetry is
-rejected by this adapter; symmetric bosonic causal QP remains unsupported.
+rejected by this adapter. K+ bosonic causal QP is supported as follows.
+
+## K+ causal QP
+
+`CausalBosonProjector` accepts K+ with `reflection_symmetry=True` only.
+`reflection_symmetry=False` raises `ValueError`: the basis cannot represent
+an odd m1 sector. Each positive-pole column already sums +/-pole images, so
+the even moment row is
+`m2[j] = multiplicity[j] * tanh(x[j]/2) * x[j]/beta`, with multiplicity 2
+for positive K+ poles and 1 for a selected zero pole. At zero, m2 is zero.
+Asymmetric columns retain multiplicity 1. The kernel, sign constraints,
+Matsubara objective, hard-then-relaxed moment policy, certificate and fallback
+paths are unchanged; all existing callers default to reflection symmetry.
+Fit and output grids remain subject to the K+ Matsubara-only contract.
+
+The independent high-frequency check uses Lambda=160, beta=20,
+eps=1e-12 and nu=2*pi*1e6/beta (314159.2653589793). For nonzero moment rows:
+
+| Basis | Rank | nu^2*K_even / single-pole moment | Max relative error vs corrected m2 |
+|---|---:|---:|---:|
+| Asymmetric | 39 | 1.0000000 | 6.48e-10 |
+| K+ | 20 | 2.0000000 | 6.48e-10 |
+
+`test_moment_row_matches_even_kernel_tail` requires rtol=1e-8, atol=0 for
+both bases; removing the multiplicity makes its K+ case fail. New tests
+cover both coefficient signs for exact causal certification and noncausal
+projection with valid hard m2/sign constraints, plus explicit odd-sector
+rejection. The old unsupported-projector test now checks the supported
+constructor and its reflection requirement. All eight focused cases pass.
 
 ## Fresh local synthetic comparison
 
@@ -143,20 +173,73 @@ Coefficient size depends on basis normalization; the off-node function metric
 is necessary alongside coefficient comparisons. The static Sigma_H analysis
 and G2 floor are outside this implementation.
 
+## Remaining static-QP diagnostics
+
+The supplied plan named `test_static_only_boson_is_split_as_c0` and
+`test_x_only_fallback_tracks_selected_static_and_leaves_no_tau_constant`
+as asymmetric numerical failures. Actual traces correct this classification:
+X-only fallback uses default `symmetry=True` and fails at the old constructor
+guard. It passes after the K+ QP fix. The second numerical failure is
+`test_boson_loc_projects_offdiagonal_lat_preserves_offdiagonal`, whose
+asymmetric constant diagonal changes at nu=0.
+
+Actual tests were run on causal baseline plus Lambda only (`1a0e70b`, cherry
+of `06144c5`) and through the cppdlr migration (`60c76dd`, through `f20a102`)
+in separate source snapshots. Of these three tests, the Lambda-only state
+has 2 passes / 1 static-only failure; the cppdlr state has the two numerical
+failures and the X-only constructor failure. A separate diagnostic freezes
+Causal.py/BLocDyn.py at `4368204` and changes only the DLR source:
+
+| DLR source | Static-only max error | Constant-diagonal max error |
+|---|---:|---:|
+| Baseline `4368204` | 8.8525e-7 | 7.0820e-7 |
+| Lambda-only `06144c5` | 5.1539e-6 | 0 |
+| cppdlr `f20a102` / K+ adapter `817b61f`, symmetry=False | 1.1159e-3 | 8.9271e-4 |
+
+For the static-only test, subtracting the supplied c0 leaves exactly zero
+dynamic data, but the QP still runs. The native asymmetric basis has a pole
+x=0.00133817 with m2-row entry 4.4768e-8 and nu=0 kernel approximately 10.
+The QP leaves coefficient -1.1159e-4 there while satisfying m2 within
+2.99e-13, producing the 1.1159e-3 output error. Thus common Lambda alone
+crosses the unchanged static-only tolerance; native nodes amplify the
+zero-objective QP residual further.
+
+For the local constant diagonals, fitted c0 is 0.9999999999999998 or
+0.4999999999999999. Existing offset removal turns the remaining constant
+roundoff into exactly zero, then the same QP mechanism produces the error.
+The proposed follow-up is an exact-zero dynamic-channel path after c0/offset
+handling, gated by validated zero dynamic moments and preserving the static
+constant. It must preserve the existing tiny-nonzero/nonzero-moment contracts.
+This would change `project` and the old `skipped=False` test contract, so it
+is reported for separate approval. No tolerance or static-fit change is made.
+
 ## Verification and deployment boundary
 
-The freshly measured utility baseline is **515 passed / 23 failed**, rather
+The earlier no-causal backend baseline was **515 passed / 23 failed**, rather
 than the 9 failures anticipated by the plan. Dtype and binding commits retain
 those exact 23 failing IDs. After the K+ switch, the suite is **517 passed /
 23 failed**, with two new tests and zero newly failing IDs. Failing-ID equality
 does not establish identical residuals in projection-containing tests.
 The adapter/symmetric subset has 63 passes.
 
+On `DLR_GW_EDMFT`, the measured baseline is **497 passed / 2 failed**. After
+the nine selected cherry-picks it is **562 passed / 10 failed**, with exactly
+the supplied simulation failure IDs. After K+ QP support it is **575 passed /
+4 failed**: all six constructor failures are resolved, the two original
+HFLoc/GWLoc failures and the two static-QP numerical failures remain. There
+are no unexpected failure IDs. Twelve asymmetric comparisons (both signs,
+both reflection settings, three input types including forced QP solves) give
+byte-identical moment rows, coefficients and project outputs before/after.
+
 The full native binding suite is **125 passed / 4 failed**. All four failures
 are the existing direct `Basis(symmetrize=True)` large-cutoff accuracy tests;
 they remain because that API is preserved. The fast native suite, including
 PairedBoson, has 104 passes. OMP/OpenBLAS 1/8 determinism tests include K+.
 No existing tolerance was relaxed.
+On macOS, run the suite outside the sandbox: `/usr/bin/time -l` requires
+`kern.clockrate`, otherwise all 24 resource benchmarks fail on permissions.
+The local binding was rebuilt with the documented SDK26.5 setting after the
+default SDK27.0 failed with missing NAN/INFINITY in LLVM's complex header.
 
 Fermion and nonsymmetric boson nodes and all six transform/evaluation outputs
 match frozen f20a102 exactly in the compatibility probe. An additional cache

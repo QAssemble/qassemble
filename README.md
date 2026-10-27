@@ -234,7 +234,12 @@ kernels. Mirror samples are averaged before square native LU; coefficients
 are independent nonnegative-pole weights. Odd or imaginary residuals above
 `max(100 * eps, 1e-10)` produce a warning. Use `BosonSymmetry=False` when this
 assumption does not apply, including general complex or odd channels. The
-single-pole bosonic causal QP also requires `BosonSymmetry=False`.
+bosonic causal QP supports K+ with `reflection_symmetry=True` only, since K+
+has no odd m1 sector. Its m2 row includes multiplicity 2 for each positive
+pole (1 for a selected zero pole): `multiplicity * tanh(x/2) * x/beta`.
+At `Lambda=160`, `beta=20`, `nu=2*pi*1e6/beta`, the ratio of `nu^2*K` to
+the single-pole moment is `2.0000000` for K+ and `1.0000000` for the
+asymmetric basis; the corrected rows agree within `6.48e-10` relative.
 
 The adapter clamps `eps` to at least `1e-14`. K+ selects poles and independent
 nodes with cppdlr pivrgs and uses native LAPACK LU without SVD; the existing
