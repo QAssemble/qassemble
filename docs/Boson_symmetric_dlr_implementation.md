@@ -1,76 +1,69 @@
-# Common Lambda and K+ boson DLR implementation
+# Symmetric boson DLR: native cppdlr K+
 
-Implemented on 2026-10-23, starting from `0294e8f` on
-`DLR_GW_EDMFT_nocausal`.
+Updated 2026-10-27 on `DLR_GW_EDMFT_nocausal`, replacing the f20a102
+post-projection basis. Both statistics retain `Lambda=beta*cutoff`.
 
-## Behavior
+`BosonSymmetry=True` selects `pycppdlr.PairedBoson`: each positive-pole
+column is the sum of the native kernel images at opposite poles, so it is
+reflection-even by construction. Zero is a candidate with the single native
+kernel, but is not forced into the pivrgs result. This preserves the scratch
+selection after the user clarified the original zero-pole assertion.
+The adapter applies real/even projection to samples before solving and warns
+on discarded residuals. It does not average solved coefficients.
 
-- Both statistics use `Lambda = beta * cutoff`. `TauUniform` is unchanged.
-- The global chemical-potential bracket uses `[-cutoff, cutoff]` plus the
-  existing Hartree shift/spread, independently of Matsubara node locations.
-- `Control['BosonSymmetry']` defaults to `True`. `False` selects the native
-  pydlr boson basis, while retaining the new common bandwidth.
-- K+ poles and independent time/frequency nodes use deterministic pivoted QR.
-  The nonnegative pole grid includes zero. The zero-mode kernels are `1` in
-  time and `beta * delta(nu, 0)` in frequency.
-- Exposed time and Matsubara nodes include all mirror partners. Their counts
-  can differ from one another and from the coefficient rank. Coefficient
-  recovery averages mirror partners before a square LU solve.
-- Odd and imaginary components outside the real/even sector produce a
-  `QAssemble` warning when their relative maximum exceeds
-  `max(100 * eps, 1e-10)`. Uniform fitting retains all signed input rows and
-  minimizes the data residual with real coefficients.
-- `T2mT` uses a node permutation, preserving non-even fermion data.
+Native `cppdlr::pivrgs` selects poles on the sqrt-quadrature-weighted paired
+fine kernel and selects independent tau/Matsubara rows. Native LAPACK
+`getrf/getrs` solves the square half-grid systems. No SVD is used in these
+node transforms. The existing signed-uniform-grid SVD data fit is retained.
 
-## Plan adjustments
+For coefficient rank r, exposed tau nodes have 2r or 2r-1 rows and frequency
+nodes have 2r-1 rows including zero. The raw zero-column normalization, if
+selected, is -1/2 in time and -beta/2 at frequency zero. QAssemble coefficients
+reverse the native sign. General complex input is preserved by PairedBoson;
+QAssemble's symmetric adapter implements the element-wise real/even sector.
 
-- The uniform-fit identity matrix and coefficient-return shape now use the
-  coefficient rank rather than the exposed frequency-node count.
-- Existing correction-specific and causal-QP tests explicitly use
-  `symmetry=False`; general uniform-fit tests cover both bases.
-- Direct `CausalBosonProjector` use with K+ raises `NotImplementedError`.
-  Its single-pole moment normalization is incompatible with the pair kernel.
-  The active local no-causal path returns before constructing this projector.
-- BLatDyn/BLocDyn already distinguish time/frequency dimensions, and the
-  fermionic consumers of W already preserve batch axes. No edits were needed
-  in those consumers; new tests exercise their transforms.
+`BF2T`/`BT2F` return complex128 so their batched local/lattice consumers can
+apply complex Fourier phases. `K2R`, `T2mT`, and the W-on-fermion-tau consumers
+are unchanged. Symmetric bosonic causal QP remains unsupported, and K+
+frequency evaluation accepts only Matsubara points. Fermion and nonsymmetric
+boson paths retain their previous implementation.
 
-## Local verification
+## Measured clean-function comparison
 
-Command: `PYTHONPATH=$PWD/src python -m pytest src/QAssemble/utility/test/ -q`.
-The final run set `MPLCONFIGDIR=/private/tmp/qassemble-mpl` for a writable cache.
+Lambda=50000, beta=100, eps=1e-14. Errors are normalized maxima on the same
+dense off-node time grid; see the full [migration report](Cppdlr_backend_migration.md)
+for functions, evaluation grids, all four directions and provenance.
 
-| Stage | Passed | Failed |
-|---|---:|---:|
-| Original baseline | 445 | 22 |
-| Common Lambda only | 440 | 27 |
-| Common Lambda + K+ and integration tests | 480 | 25 |
+| i-nu -> tau relative error | f20a102 | RS-LU | Native K+ |
+|---|---:|---:|---:|
+| In-band four-pole-pair function | 2.426e-11 | 2.995e-11 | 3.2566e-12 |
+| Near-zero pole function | 5.691e-11 | 6.354e-11 | 1.5558e-13 |
 
-All K+ kernel, zero-mode, determinism, symmetry-warning, axis-order,
-non-even-fermion reflection, local/lattice transform, uniform fit, and config
-tests pass. Small-Lambda single-pole time/frequency round trips meet `1e-12`.
-The bosonic noisy-tau regression tests pass with K+ at both noise levels.
+All selected nodes and reported clean-function metrics match the scratch
+native K+ implementation exactly. The in-band result still exceeds 1e-12;
+this is not a uniform accuracy guarantee. The Lambda=10000 regression meets
+1e-11 in all four directions and has maximum coefficient below 10, while
+the frozen old implementation fails both frequency-origin bounds.
 
-The final 25 failures comprise all 22 baseline failures and these three
-additional failures already observed in the Lambda-only stage:
+The plan also supplied prior test16 scratch replay targets: Sigma_GW
+coefficient maximum 2.6e7 -> 2.8e5, W_c 4.5e8 -> 1.4e7, off-node Sigma_GW
+relative error 3.4e-5 -> 1.2e-6, and K+ P3 node-pair error 3.6e-10.
+These remote replay figures were not rerun or independently verified during
+the local implementation; they are explicitly marked as supplied evidence
+in the migration report. The repository-code Grammar replay is a later gate.
 
-| Test | Observed | Required |
-|---|---:|---:|
-| `test_static_only_boson_is_split_as_c0` (legacy boson QP) | max difference `5.15e-6` | `atol=1e-6`, `rtol=1e-7` |
-| `test_flocdyn_elastic_projection_accepts_noisy_uniform_data` | max independently recovered coefficient `7.58e-5` | `<=1e-5` |
-| `test_fermion_noise_tau_regression` | max anti-Hermitian component `3.95e-6` | `<1e-6` |
+## Tests and boundaries
 
-These remain unresolved numerical regressions of the common bandwidth change.
-No tolerances were relaxed. The full suite is **not green**.
+The local utility baseline was 515 passed / 23 failed. After the change it is
+517 passed / the same 23 failing IDs; the adapter/symmetric subset has 63 passes.
+The native binding suite has 125 passes and the same four prior failures in
+the preserved direct Basis(symmetrize=True) large-cutoff stress tests.
+No tolerances were relaxed. Shared failing IDs do not prove unchanged numerical
+residuals in tests that also exercise causal projection.
 
-## Validation boundary
-
-The test16 replay and fresh-Prefix Grammar SCF require separate approval and
-have not been run. No scheduler jobs, remote edits, plots, or Drive uploads were made.
-Synthetic transform tests do not establish scientific or SCF convergence.
-
-Start with a new Prefix. Existing HDF5 nodes/mixing history are not migrated;
-historical-file postprocessing with the changed basis is not validated.
-The odd K- sector, general complex/non-density channels, fermion symmetry,
-static Sigma Hermiticity, and the polarization-assembly floor remain outside
-this implementation.
+Rebuild the binding and start with a fresh Prefix. Nodes and coefficient
+counts change, and old HDF5/mixing history is not migrated. Grammar build,
+replay, fresh multi-iteration SCF and iteration plots require separate approval.
+No new K+ remote job was submitted here. Static Sigma_H/G2-floor analysis,
+general odd/complex channel physics, and symmetric bosonic causal QP remain
+outside this change.

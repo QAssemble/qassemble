@@ -1,144 +1,175 @@
-# cppdlr backend migration
+# Native cppdlr K+ boson backend
 
-All three QAssemble paths now use `pycppdlr.Basis`: fermion with
-`symmetrize=False`, and boson with `symmetrize=BosonSymmetry`. The local binding
-must be installed first; see [installation](../pycppdlr/README.md).
-Neither the runtime nor the utility tests require pydlr.
+Updated 2026-10-27 from `f20a102` on `DLR_GW_EDMFT_nocausal`.
+`BosonSymmetry=True` now uses `pycppdlr.PairedBoson`; fermions and
+`BosonSymmetry=False` retain `Basis(..., symmetrize=False)`. The local binding
+must be rebuilt; see [installation](../pycppdlr/README.md).
 
-## Adapter contracts
+## Kernel and node definition
 
-`CppdlrDLR` exposes ascending absolute-time nodes, ascending Matsubara integer
-indices, and ascending dimensionless poles. Node input is reordered for native
-operators; output is reordered back. Coefficients have the pydlr sign:
-`c_adapter = -c_cppdlr`. Native transforms apply beta and the bosonic tanh
-correction once. Effective `eps = max(requested_eps, 1e-14)`.
+For a positive dimensionless pole `x`, the native time kernel is
+`k_it(t,x) + k_it(t,-x)`, and the frequency kernel is
+`Re[k_if(n,x) + k_if(-n,x)]`. Thus each column is already reflection-even.
+This uses the sum normalization; an averaged image kernel spans the same
+sector with rescaled coefficients. There are no redundant +/-pole coefficient
+pairs and no post-solve coefficient averaging.
 
-Tau transforms and Matsubara inverses preserve trailing axes. Matsubara forward
-and arbitrary-frequency evaluation swap the two trailing axes only for rank-3
-arrays, preserving the historical interface. Arbitrary-frequency evaluation
-retains pydlr's anti-linear convention:
+The pole candidates are zero plus the positive half of cppdlr's fine grid.
+`pivrgs(weighted_kernel, eps)` selects poles using cppdlr's existing
+sqrt-quadrature weights on the full relative-time fine grid. Independent
+time rows come from the first fine-grid half, and independent frequency rows
+from integers `0..nmax`; both use `pivrgs(..., 1e-100)`. Both transforms solve
+square systems with native `nda::lapack::getrf/getrs`, without SVD.
+
+**Zero is a candidate, not a forced selected pole.** This follows the explicit
+decision to preserve the scratch algorithm. In the measured `Lambda=50000`
+basis the first pole is `0.0016335119334385077`, not zero. If zero is selected,
+its kernel is the single native kernel: `-1/2` in time and
+`-beta/2 * delta(n,0)` in frequency. The adapter reverses the sign, so a
+selected zero coefficient of 2 represents constant time data of 1.
+The raw zero-kernel convention is tested independently of pole selection.
+
+With coefficient rank `r`, exposed time samples contain `2r` or `2r-1` rows;
+exposed frequency samples contain `2r-1` rows, including zero. Time and
+frequency samples include both mirror partners. The low-level `PairedBoson`
+solves only independent half rows and preserves complex data by solving real
+and imaginary RHS separately. It does not project samples.
+
+The QAssemble adapter projects samples onto the element-wise real/even sector
+before solving. Odd/imaginary residuals above `max(100*eps, 1e-10)` warn.
+The existing uniform-grid SVD data fit is retained with all signed rows;
+it is separate from the native node transforms.
+
+## Interface and dtype contracts
+
+Public adapter nodes remain ascending absolute times and integer Matsubara
+indices. Relative-time coordinates are retained inside the native kernels.
+Coefficients obey `c_adapter = -c_native`, and beta is applied once.
+Tau transforms and frequency inverses preserve trailing axes; rank-3 frequency
+forward/evaluation retains the legacy transpose. Frequency evaluation retains
+the legacy whole-output conjugation. Symmetric K+ evaluation accepts only
+Matsubara points in the native integer range; other complex points raise
+`ValueError`. Nonsymmetric real-axis evaluation is unchanged.
+
+`DLR.BF2T` and `BT2F` now always return `complex128`, including real/even
+bosonic data. Their batched and local/lattice callers inherit this contract.
+This fixes `BLatDyn.K2R` failing when it multiplies the returned array by
+complex phases in place. `K2R` itself is unchanged. Fermionic symmetry is
+rejected by this adapter; symmetric bosonic causal QP remains unsupported.
+
+## Fresh local synthetic comparison
+
+Python 3.13.9, one OMP/OpenBLAS thread, `eps=1e-14`, `beta=100`,
+`Lambda=50000`. The comparison freezes the old adapter from `git show f20a102`
+and does not replace that arm with the new implementation. Dense time points
+combine 401 uniform points with 60 logarithmic points near each endpoint.
+Frequency indices combine -4000..4000 with logarithmic tails up to 3e6.
+Errors are `max(abs(actual-exact))/max(abs(exact))` per output domain.
+
+The analytic paired-pole functions are
 
 ```text
-eval(c,z) = conjugate(sum_x c_x * correction_x / (z + pole_x/beta))
+T(u) = sum_j a_j [exp(-u*x_j)+exp(-(1-u)*x_j)]/[1+exp(-x_j)]
+F(n) = sum_j a_j beta*2*x_j*tanh(x_j/2)/[(2*pi*n)^2+x_j^2].
 ```
 
-For Matsubara points this calls native evaluation at `-n-1` (fermion) or `-n`
-(boson), then applies the historical transpose/conjugation. Other complex
-frequencies use the same explicit rational kernel. Node reconstruction uses
-native `coef_to_tau`, preserving its relative-coordinate precision. Absolute
-tau evaluation maps `u=tau/beta` to `u-1` for `u>1/2`, preserving `u=1` as the
-right endpoint. Absolute node sampling can still lose endpoint precision at
-large bandwidths, as explained in the binding README.
+| i-nu -> tau relative error | f20a102 | RS (SVD) | RS-LU | Native K+ |
+|---|---:|---:|---:|---:|
+| In-band: x=[50,300,2000,49000], a=[.5,1,2,5] | 2.426e-11 | 5.050e-12 | 2.995e-11 | **3.2566e-12** |
+| x=[18550,.913], a=[.7,.3] | 1.866e-11 | 2.717e-11 | 5.706e-12 | **1.7193e-12** |
+| Near zero: x=[.01,300,2000], a=[1,1,1] | 5.691e-11 | 6.859e-12 | 6.354e-11 | **1.5558e-13** |
 
-Symmetric boson nodes alone do not enforce the element-wise real/even sector.
-The adapter averages real mirror samples before solving, warns on discarded
-odd/imaginary residuals, and averages recovered real coefficients over exact
-opposite-pole pairs. Coefficient evaluation also applies this projection, so
-uniform-grid fitting retains the real/even sector. This additional coefficient
-projection corrects parity breaking by native LU/GELSS. Symmetric bosons have
-`rank` tau nodes, `rank+1` Matsubara nodes (including zero), and no zero pole.
-The single-pole causal QP remains explicitly unsupported for this basis.
+For the in-band function, native K+ errors in the four directions
+tau->tau, tau->frequency, frequency->tau, frequency->frequency are
+`[3.5563e-12, 7.3987e-14, 3.2566e-12, 8.2197e-15]`.
+Its coefficient maxima are `5.35` from tau and `5.37` from frequency.
+The repository and scratch native-LU arms select identical nodes and have
+zero difference in every reported metric across all four clean cases,
+including a deliberately out-of-band control.
 
-## Step 0 measurements, 2026-10-25
+RS retains redundant kernel images and uses SVD; RS-LU retains the original
+cppdlr nodes and restricts to square blocks. Native K+ selects nodes on the
+paired kernels themselves. RS-LU is about 9.2 times worse on the in-band case
+and 408 times worse on the near-zero case; the second table row has a smaller
+factor. These comparisons support the selected clean-function path, not a
+universal superiority claim. SciPy/native LU have comparable function errors;
+their ill-conditioned coefficients need not agree bit for bit.
 
-Python 3.13.9, installed pycppdlr from the native binding implementation at
-QAssemble commit `1b4347a`; cppdlr 1.3.0. Measurements used one OpenBLAS thread
-unless indicated. The pre-existing dirty cppdlr ChangeLog was preserved.
+The Lambda=10000 regression uses x=[10,60,400,9800], a=[.5,1,2,5].
+Native K+ frequency->tau error is `6.63e-13`, maximum coefficient `5.33`;
+f20a102 gives `3.60e-11` and `13.69`. The test requires all four errors below
+`1e-11` and both coefficient maxima below 10. This clean-data coefficient bound
+does not bound coefficients of noisy CTQMC data.
 
-Unit-coefficient time/frequency kernels confirmed the sign, beta factor,
-bosonic tanh correction and integer-index conventions for both statistics with
-symmetrization on and off. Maximum frequency-kernel absolute difference at
-`Lambda=50000` was `4.58e-16`; the time-kernel comparison was exact.
-Symmetric time nodes were exact mirror pairs at the tested bandwidths.
+The `1e-12` target is still exceeded by the Lambda=50000 in-band function.
+The out-of-band control at E=1500 (cutoff=500) has native K+ frequency->tau
+error `2.26e-3` and coefficients around `8.24e8`; finite-band accuracy does
+not extend to that input.
 
-OMP 1 versus 8 gave identical bytes for poles, native relative-time nodes,
-integer frequency nodes, and unit-coefficient tau/frequency arrays for all four
-statistic/symmetrization combinations at `Lambda=100` and `50000`. At `100`, a
-comparison changing both OMP and OpenBLAS threads from 1 to 8 also passed.
-This is same-build determinism, not a cross-platform guarantee.
-
-The large-bandwidth comparison used `Lambda=50000`, `eps=1e-14`, `beta=7.3`,
-two even pole pairs at dimensionless energies `+/-18550` and `+/-0.913`, with
-pair weights `0.7` and `0.3`. Errors below are maximum absolute error divided by
-the maximum absolute analytic value in the output domain. Evaluation used 201
-uniform absolute-time points and Matsubara indices -157 through 157. The old K+
-implementation was measured before removal, with the same eps and function.
-
-| Input/output | Previous K+ | Native cppdlr | cppdlr plus coefficient parity projection |
-|---|---:|---:|---:|
-| tau -> tau | 7.88e-15 | 1.41e-13 | 1.41e-13 |
-| tau -> frequency | 2.01e-15 | 1.87e-15 | 1.87e-15 |
-| frequency -> tau | 1.33e-13 | 2.10e-11 | 1.79e-11 |
-| frequency -> frequency | 3.38e-15 | 9.91e-15 | 8.66e-15 |
-
-**The frequency-to-tau error exceeds the unchanged 1e-12 target.** Pair
-projection restores real/even symmetry but does not cure the native accuracy
-limit. The user reviewed these measurements and authorized completing the
-migration with this limitation documented. No tolerance was relaxed.
-
-The current adapter diagnostic is reproducible from the repository root:
-The simplified analytic formula below gives about `1.81e-11` on this build;
-roundoff differences in the sampled inputs affect this ill-conditioned solve.
+Current in-band diagnostic, from the repository root:
 
 ```bash
 PYTHONPATH=$PWD/src OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python - <<'PY'
 import numpy as np
 from QAssemble.utility.DLR import CppdlrDLR
-beta = 7.3
-d = CppdlrDLR(50000, 1e-14, xi=1, symmetrize=True)
-x, weights = np.array([18550., .913]), np.array([.7, .3])
+d = CppdlrDLR(50000, 1e-14, 1, True)
+beta = 100.
+x, a = np.array([50.,300.,2000.,49000.]), np.array([.5,1.,2.,5.])
 def tau(u):
-    return ((np.exp(-u[:, None]*x) + np.exp(-(1-u[:, None])*x))
-            / (1+np.exp(-x))) @ weights
-def frequency(n):
-    return (beta * 2*x*np.tanh(x/2)
-            / ((2*np.pi*n[:, None])**2+x*x)) @ weights
-c = d.dlr_from_matsubara(frequency(d.dlrmf), beta)
-u = np.linspace(0, 1, 201)
-error = np.max(abs(d.eval_dlr_tau(c, u*beta, beta)-tau(u))) / np.max(abs(tau(u)))
-print('frequency-to-tau relative error:', error, 'target:', 1e-12)
+    return ((np.exp(-u[:,None]*x)+np.exp(-(1-u[:,None])*x))/(1+np.exp(-x))) @ a
+def freq(n):
+    return (beta*2*x*np.tanh(x/2)/((2*np.pi*n[:,None])**2+x*x)) @ a
+u = np.unique(np.r_[np.linspace(0,1,401),np.geomspace(1e-8,.5,60),1-np.geomspace(1e-8,.5,60)])
+c = d.dlr_from_matsubara(freq(d.dlrmf), beta)
+print(np.max(abs(d.eval_dlr_tau(c,beta*u,beta)-tau(u)))/np.max(abs(tau(u))))
 PY
 ```
 
-## Validation and boundaries
+## Prior test16 scratch replay: supplied evidence, not rerun here
 
-The requested Python 3.13.9 utility suite, with `PYTHONPATH=$PWD/src` and one
-OMP/OpenBLAS thread, changed from **480 passed / 25 failed** before the migration
-to **515 passed / 23 failed** afterward. The new backend test file has 33 passing
-cases. Failure-ID comparison found zero new failures and these two resolved IDs:
+The following rounded figures were supplied with the implementation plan.
+The local checkout did not contain the corresponding remote replay JSONs.
+They are reference targets for the separately approved repository-code replay,
+not measurements of a new production run after this change.
 
-- `test_fermion_causal_projection.py::test_flocdyn_elastic_projection_accepts_noisy_uniform_data`
-- `test_uniform_to_dlr_interp.py::test_fermion_noise_tau_regression`
+| Metric | f20a102 scratch arm | K+ scratch arm |
+|---|---:|---:|
+| max abs Sigma_GW coefficient | 2.6e7 | 2.8e5 |
+| max abs W_c coefficient | 4.5e8 | 1.4e7 |
+| Off-node tau Sigma_GW relative error | 3.4e-5 | 1.2e-6 |
+| P3 node-pair metric (`p3.pair.abs`) | not supplied | 3.6e-10 |
 
-The remaining 23 baseline failures are in boson causal projection (18), boson
-static fitting (1), GW+EDMFT composition (2), and local-method result types (2).
-No existing tolerance was relaxed. The full suite remains red because of these
-baseline failures. Shared failing IDs do not establish unchanged numerical
-residuals: QP-containing tests exercise causal projection as well as the basis,
-and their input/output differences are not standalone DLR transform errors.
-QP solver optimality was not established by this migration validation.
-Validation also imported DLR/Causal and exercised all three
-runtime paths with imports of `pydlr` deliberately blocked. Changed Python and
-project metadata parse, and `git diff --check` passes.
+Coefficient size depends on basis normalization; the off-node function metric
+is necessary alongside coefficient comparisons. The static Sigma_H analysis
+and G2 floor are outside this implementation.
 
-`README.md` and the local `CLAUDE.md` contain installation/restart guidance;
-`CLAUDE.md` remains untracked by the repository's pre-existing ignore rule.
-Historical diagnostic notebooks were not executed or migrated.
+## Verification and deployment boundary
 
-`test_cppdlr_backend.py` checks analytic off-basis multipole Hermitian matrices
-on common tau and Matsubara points for all three runtime paths. Unit-pole
-coefficient functions check arbitrary complex frequencies, including real-axis
-`z+i*eta`, the legacy transpose/conjugation distinction, native delegation,
-coefficient sign, beta scaling, endpoint handling, and invalid inputs.
+The freshly measured utility baseline is **515 passed / 23 failed**, rather
+than the 9 failures anticipated by the plan. Dtype and binding commits retain
+those exact 23 failing IDs. After the K+ switch, the suite is **517 passed /
+23 failed**, with two new tests and zero newly failing IDs. Failing-ID equality
+does not establish identical residuals in projection-containing tests.
+The adapter/symmetric subset has 63 passes.
 
-An imaginary-axis DLR fit does not guarantee accurate analytic continuation
-of off-basis poles near the real axis. The complex-frequency tests establish
-the rational evaluator's convention using known coefficients; they do not
-claim physical real-axis accuracy from an imaginary-axis fit. The existing
-`FLatDyn.AnalyticContinuation` docstring/code sign discrepancy is outside this
-migration; its runtime convention was preserved.
+The full native binding suite is **125 passed / 4 failed**. All four failures
+are the existing direct `Basis(symmetrize=True)` large-cutoff accuracy tests;
+they remain because that API is preserved. The fast native suite, including
+PairedBoson, has 104 passes. OMP/OpenBLAS 1/8 determinism tests include K+.
+No existing tolerance was relaxed.
 
-Start with a **new Prefix**. Existing pydlr/K+ HDF5 samples, checkpoints and
-mixing histories use incompatible nodes and cannot be reused. There is no
-automatic restart migration or backend fallback. Physical GW/EDMFT comparison,
-Grammar compilation/deployment and job submission remain outside this validation.
+Fermion and nonsymmetric boson nodes and all six transform/evaluation outputs
+match frozen f20a102 exactly in the compatibility probe. An additional cache
+fixture was changed to use actual boson Matsubara points rather than fermion
+points when selecting the K+ evaluator. The uniform-fit algorithm is unchanged.
+
+Rebuild pycppdlr and use a **fresh Prefix**: this replacement changes nodes
+again, so f20a102 HDF5 data and mixing history cannot be restarted. There is
+no automatic migration or backend fallback. `CLAUDE.md` is updated locally and
+retains its pre-existing ignored status. The unrelated scratch-analysis doc
+and dirty cppdlr submodule are preserved.
+
+Grammar build/replay and multi-iteration SCF require the separately requested
+approval. They have not been executed for these new K+ commits. Future submitted
+jobs must retain completion/failure email notifications. Scientific convergence
+and the proposed iteration plots remain unverified.

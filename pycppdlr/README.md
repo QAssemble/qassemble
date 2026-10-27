@@ -52,9 +52,8 @@ pip may still need its own cached build requirements.
 
 ## Native API and convention
 
-All transforms and kernel evaluations call cppdlr `imtime_ops`/`imfreq_ops`
-methods, as TRIQS does. Python contains no kernel implementation, linear solve,
-least-squares solver, or matrix transform. It validates/reshapes arrays and restores
+`Basis` transforms and kernel evaluations call cppdlr `imtime_ops`/`imfreq_ops`
+methods, as TRIQS does. Its Python wrapper validates/reshapes arrays and restores
 their trailing axes. The diagnostic test alone retains a NumPy solve for comparison.
 
 ```python
@@ -96,6 +95,20 @@ array `u`. Its methods are `tau_to_coef(values)`, `coef_to_tau(c)`,
 `freq_to_coef(values, beta=1)`, `coef_to_freq(c, beta=1)`,
 `eval_tau(c, t_rel)` and `eval_freq(c, n, beta=1)`.
 
+`PairedBoson(lamb, eps)` has the same common attributes (`rf`, `rank`, `t_rel`,
+`n`, `u`, `statistic="boson"`, `symmetrize=True`) and six transform/evaluation
+methods. It uses native paired kernels, cppdlr pivrgs pole/node selection,
+and square `nda::lapack::getrf/getrs` solves through `_core.RealLU`; NumPy
+contracts the returned real kernel matrices. There is no SVD/SciPy solve.
+It exposes mirror-complete samples and solves only the independent half.
+Complex RHS components are solved separately without sample projection.
+Zero is a pole candidate, not a forced selection; if present it uses a single
+native kernel (-1/2 in time and -beta/2 at n=0), while positive poles use the
+sum of opposite-pole kernels. The adapter is responsible for real/even input
+projection. With rank r, time node count is 2r or 2r-1 and frequency count is
+2r-1. `eval_freq` takes integer Matsubara indices in [-1073741823,1073741823].
+The original `Basis(symmetrize=True)` continues to expose the upstream option.
+
 **Time coordinates changed from the initial wrapper:** node order is cppdlr's
 native order, never sorted. Sample and evaluate using `t_rel`, in [-0.5, 0.5],
 with +1 reserved for the right endpoint. Negative t means distance from the right
@@ -121,9 +134,23 @@ Symmetric nodes/poles do not project data into the real/reflection-even K+ secto
 TRIQS explicitly labels symmetrize **Experimental!**
 ([pinned source](https://github.com/TRIQS/triqs/blob/b85f3d131d6a20fe59ce224ffe4c1319b6dc4676/c%2B%2B/triqs/mesh/dlr_imtime.hpp#L60)).
 Use **eps >= 1e-14 for symmetric modes** as a minimum precaution, not an accuracy
-guarantee. eps=1e-15 remains a stress case. K+ projection, exact constant-time
-zero mode handling, pydlr adaptation, MPI rank-0 generation, and the QAssemble eps
-default remain outside this change.
+guarantee. eps=1e-15 remains a stress case for `Basis`. QAssemble now selects
+`PairedBoson` for its K+ path and supplies its own input projection, sign/axis
+adaptation and minimum effective eps. MPI rank-0 generation remains outside
+this binding.
+
+## PairedBoson validation (2026-10-27)
+
+After rebuilding locally: 104 fast tests pass; the full suite has 125 passes
+and the same four pre-existing failures in direct `Basis(symmetrize=True)`
+large-cutoff accuracy tests. New paired tests cover analytic even functions,
+complex axes, mirror nodes, independent-half solving without projection,
+native LU versus NumPy, copied factor ownership, raw zero normalization,
+invalid input, prohibited Python solvers, and OMP/OpenBLAS 1/8 determinism.
+No threshold was relaxed. Selected nodes and native solves match the scratch
+K+ prototype exactly for identically projected samples at Lambda=100,10000,50000.
+The [QAssemble migration report](../docs/Cppdlr_backend_migration.md) records
+all four transform errors and the separate Grammar validation boundary.
 
 ## Native validation (2026-10-23)
 
