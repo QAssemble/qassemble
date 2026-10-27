@@ -109,9 +109,16 @@ def symmetric_dlr():
 def test_symmetry_default_and_unsymmetrized_opt_out(symmetric_dlr):
     assert isinstance(symmetric_dlr.dB, CppdlrDLR)
     assert symmetric_dlr.dB.symmetrize
-    legacy = DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1e-12, "symmetry": False})
+    assert symmetric_dlr.dF.symmetrize
+    assert symmetric_dlr.fermion_symmetry
+    assert not symmetric_dlr.dF.paired
+    assert symmetric_dlr.dB.paired
+    legacy = DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1e-12,
+                  "symmetry": False, "fermion_symmetry": False})
     assert isinstance(legacy.dB, CppdlrDLR)
     assert not legacy.dB.symmetrize
+    assert not legacy.dF.symmetrize
+    assert not legacy.fermion_symmetry
     assert legacy.lambB == legacy.lambF == symmetric_dlr.lambB
 
 

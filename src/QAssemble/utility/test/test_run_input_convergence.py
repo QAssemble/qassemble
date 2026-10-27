@@ -269,3 +269,13 @@ def test_local_methods_keep_legacy_g_tolerance_warning(monkeypatch, tmp_path, ca
     runner.ReadInput()
     assert runner.control["run"]["tol_dGLoc_abs"] == 1e-6
     assert "'tol_dG_abs' is deprecated" in caplog.text
+
+
+@pytest.mark.parametrize("extra,expected", [("", True), ("'FermionSymmetry': False,", False),
+                                           ("'FermionSymmetry': True,", True)])
+def test_input_fermion_symmetry(monkeypatch, tmp_path, extra, expected):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_input(tmp_path / "input.ini", extra)
+    runner = object.__new__(Run)
+    runner.ReadInput()
+    assert runner.control["ft"]["fermion_symmetry"] is expected

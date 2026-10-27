@@ -1,8 +1,10 @@
 # Native cppdlr K+ boson backend
 
 Updated 2026-10-27 from `f20a102` on `DLR_GW_EDMFT_nocausal`.
-`BosonSymmetry=True` now uses `pycppdlr.PairedBoson`; fermions and
-`BosonSymmetry=False` retain `Basis(..., symmetrize=False)`. The local binding
+`BosonSymmetry=True` now uses `pycppdlr.PairedBoson`. Fermions default to
+`Basis(..., statistic="fermion", symmetrize=True)` (`FermionSymmetry=True`);
+`FermionSymmetry=False` and `BosonSymmetry=False` use unsymmetrized Basis.
+The local binding
 must be rebuilt; see [installation](../pycppdlr/README.md).
 
 ## Kernel and node definition
@@ -54,8 +56,27 @@ Matsubara points in the native integer range; other complex points raise
 `DLR.BF2T` and `BT2F` now always return `complex128`, including real/even
 bosonic data. Their batched and local/lattice callers inherit this contract.
 This fixes `BLatDyn.K2R` failing when it multiplies the returned array by
-complex phases in place. `K2R` itself is unchanged. Fermionic symmetry is
-rejected by this adapter; symmetric bosonic causal QP remains unsupported.
+complex phases in place. `K2R` itself is unchanged. Symmetric fermions retain
+complex coefficients and off-axis evaluation. Adapter `symmetrize` selects
+mirror nodes, whereas `paired` identifies K+ bosons only; symmetric bosonic
+causal QP remains unsupported on this branch.
+
+## Symmetric fermion default and restart compatibility
+
+`FermionSymmetry=True` selects mirror-closed poles, tau nodes, and fermionic
+Matsubara indices (`n <-> -n-1`). This is grid symmetry only, without coefficient
+projection or tau Hermitian averaging. Stable Hermitian-fold sorting preserves
+original positive samples when a mirrored sample duplicates their frequency.
+
+The user-supplied test18 iteration-1 production replay changed only fermion
+symmetry: max Im G decreased from 1.17e-4 to 1.59e-6, and Im n from 4.7e-6
+to 1.7e-8. Sigma_imp differed by 0.13 CTQMC sigma and mu1 by 2.4e-5
+(symmetric mu1: 2.6399771325). These are supplied prior replay measurements,
+not a rerun of the implementation here or multi-iteration convergence evidence.
+The approximately 1e-5 real-part error is outside this change's scope.
+
+Changing either symmetry flag changes the DLR nodes; old HDF5 node data and
+mixing histories cannot be restarted, so start with a new Prefix.
 
 ## Fresh local synthetic comparison
 
