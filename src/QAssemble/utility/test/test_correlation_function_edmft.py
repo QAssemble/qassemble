@@ -497,7 +497,14 @@ def _edmft_correlation_object(cf_mod, tmp_path, *, nscf=1, conv=None):
         },
     }
     corr.crystal = SimpleNamespace(_basis_index="basis")
-    corr.dlr = SimpleNamespace(nu=np.asarray([0.0, 1.0]))
+    corr.dlr = SimpleNamespace(
+        beta=1., cutoff=1., lambF=1., lambB=1.,
+        fermion_symmetry=True, symmetry=True,
+        dF=SimpleNamespace(eps=1e-14, rank=2),
+        dB=SimpleNamespace(eps=1e-14, rank=2),
+        tauF=np.array([.1, .9]), omega=np.array([-1., 1.]),
+        tauB=np.array([.1, .9]), nu=np.asarray([0.0, 1.0]),
+    )
     corr.c = 1.0
     corr.niham = SimpleNamespace(k=np.asarray([0.0]))
     corr.greenbare = SimpleNamespace(kf=np.asarray([0.0]))
@@ -1129,6 +1136,7 @@ def test_gwedmft_resume_uses_previous_bath_ledger_without_prerun(monkeypatch, tm
     corr.control["run"]["mode"] = "Restart"
     with h5py.File(corr.hdf5path, "w") as handle:
         handle.require_group("gwedmft").attrs["static_convention"] = 4
+        stack.cf_mod.IO.WriteBasisFingerprint(handle, "gwedmft", corr.dlr)
         for subgroup, name, value in (
             ("SigH", "sigh_mixed.k.1", [110.0]),
             ("SigF", "sigf_mixed.k.1", [120.0]),
@@ -1278,6 +1286,7 @@ def test_gwedmft_rewinds_static_fallback_pairs_before_wloc(monkeypatch, tmp_path
     with h5py.File(corr.hdf5path, "a") as handle:
         root = handle.require_group("gwedmft")
         root.attrs["static_convention"] = 4
+        stack.cf_mod.IO.WriteBasisFingerprint(handle, "gwedmft", corr.dlr)
         for subgroup, stem, value, static in (("WLoc", "wloc", 2., .04), ("BWeiss", "bweiss", 4., .05)):
             group = root.require_group(subgroup)
             if resume:
@@ -1340,3 +1349,24 @@ def test_gwedmft_static_gw_dc_is_added_before_dc_mixing(monkeypatch, tmp_path):
     np.testing.assert_allclose(saved[0],-0.5)
     assert stack.cf_mod.FWeiss.instances[0].kwargs['eimp'] is stack.cf_mod.EImp.instances[0]
     assert stack.cf_mod.BWeiss.instances[0].kwargs['static_fit'] is True
+
+
+@pytest.mark.parametrize("mode", ["Auto", "Restart"])
+@pytest.mark.parametrize("fingerprint", ["missing", "changed"])
+def test_gwedmft_refuses_incompatible_basis_without_mutation(monkeypatch, tmp_path, mode, fingerprint):
+    stack = _install_fake_edmft_stack(monkeypatch)
+    corr = _edmft_correlation_object(stack.cf_mod, tmp_path)
+    corr.control["run"]["mode"] = mode
+    with h5py.File(corr.hdf5path, "w") as handle:
+        group = handle.create_group("gwedmft")
+        group.attrs["static_convention"] = 4
+        group.create_dataset("old_checkpoint", data=[42.])
+        if fingerprint == "changed":
+            stack.cf_mod.IO.WriteBasisFingerprint(handle, "gwedmft", corr.dlr)
+            corr.dlr.fermion_symmetry = False
+    original = Path(corr.hdf5path).read_bytes()
+    with pytest.raises(RuntimeError, match="DLR basis fingerprint.*new Prefix"):
+        corr.GWEDMFT()
+    assert Path(corr.hdf5path).read_bytes() == original
+    assert not stack.HFLoc.instances
+    assert not stack.ImpurityAction.instances

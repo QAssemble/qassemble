@@ -969,7 +969,11 @@ class CorrelationFunction(object):
                         "required with a new output prefix (static_convention=4). "
                         "이전 규약 checkpoint, fresh start 필요."
                     )
+                if group in handle:
+                    IO.CheckBasisFingerprint(handle, group, self.dlr)
         with h5py.File(hdf5file, "a") as handle:
+            if mode not in ("Auto", "Restart") or group not in handle:
+                IO.WriteBasisFingerprint(handle, group, self.dlr)
             handle.require_group(group).attrs["static_convention"] = 4
         resume = (IO.LastCompleteIteration(hdf5file, group, problem_keys, itermax)
                   if mode in ("Auto", "Restart") else 0)
