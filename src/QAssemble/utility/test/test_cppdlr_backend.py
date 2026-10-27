@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from pycppdlr import PairedBoson
 
 from QAssemble.utility.DLR import CppdlrDLR
 
@@ -22,13 +23,28 @@ def time_values(u, poles, weights):
 
 
 def frequency_values(z, poles, weights, beta, xi, *, evaluation=False):
-    kernel = 1 / (z[:, None] + poles / beta) if evaluation else -1 / (z[:, None] - poles / beta)
     if xi == 1:
-        kernel *= np.tanh(poles / 2)
+        nonzero = poles != 0
+        kernel = np.zeros((z.size, poles.size), dtype=complex)
+        x = poles[nonzero] / beta
+        kernel[:, nonzero] = (1 / (z[:, None] + x) if evaluation else
+                              -1 / (z[:, None] - x)) * np.tanh(poles[nonzero] / 2)
+        kernel[np.ix_(z == 0, ~nonzero)] = beta / 2
+    else:
+        kernel = 1 / (z[:, None] + poles / beta) if evaluation else -1 / (z[:, None] - poles / beta)
     out = np.einsum("nx,x...->n...", kernel, weights)
     if out.ndim == 3:
         out = out.swapaxes(1, 2)
     return out.conj() if evaluation else out
+
+
+def expanded_coefficients(basis, coefficients):
+    poles = basis.dlrrf
+    if not basis.symmetrize:
+        return poles, coefficients
+    positive = poles > 0
+    return (np.r_[poles, -poles[positive]],
+            np.concatenate((coefficients, coefficients[positive]), axis=0))
 
 
 def analytic_data(basis):
@@ -61,7 +77,6 @@ def test_analytic_multipole_matrix_transforms_and_evaluation(basis):
         expected = frequency_values(uniform_z, poles, weights, beta, basis.xi, evaluation=True)
         np.testing.assert_allclose(basis.eval_dlr_freq(c, uniform_z, beta), expected, atol=1e-12, rtol=0)
         if basis.symmetrize:
-            np.testing.assert_array_equal(c, c[::-1])
             np.testing.assert_array_equal(c.imag, 0)
             np.testing.assert_array_equal(basis.matsubara_from_dlr(c, beta).imag, 0)
             values = basis.eval_dlr_tau(c, uniform_tau, beta)
@@ -76,14 +91,22 @@ def test_unit_coefficients_preserve_axes_sign_and_legacy_frequency_conventions(b
     c = np.zeros((basis.rank, *shape), dtype=complex)
     c[3] = -amplitude
     if basis.symmetrize:
-        c = .5 * (c.real + c[::-1].real)
-    expected_tau = time_values(basis.dlrit, basis.dlrrf, c)
-    expected_freq = frequency_values(basis.get_matsubara_frequencies(beta), basis.dlrrf, c, beta, basis.xi)
+        c = c.real
+    poles, expanded = expanded_coefficients(basis, c)
+    expected_tau = time_values(basis.dlrit, poles, expanded)
+    expected_freq = frequency_values(basis.get_matsubara_frequencies(beta), poles, expanded, beta, basis.xi)
     np.testing.assert_allclose(basis.tau_from_dlr(c), expected_tau, atol=1e-14, rtol=0)
     np.testing.assert_allclose(basis.matsubara_from_dlr(c, beta), expected_freq, atol=1e-14, rtol=0)
-    for z in (basis.get_matsubara_frequencies(beta), np.array([-.3 + .13j, .7 + .2j])):
+    off_axis = np.array([-.3 + .13j, .7 + .2j])
+    points = [basis.get_matsubara_frequencies(beta)]
+    if basis.symmetrize:
+        with pytest.raises(ValueError, match="Matsubara"):
+            basis.eval_dlr_freq(c, off_axis, beta)
+    else:
+        points.append(off_axis)
+    for z in points:
         np.testing.assert_allclose(basis.eval_dlr_freq(c, z, beta),
-            frequency_values(z, basis.dlrrf, c, beta, basis.xi, evaluation=True), atol=1e-14, rtol=0)
+            frequency_values(z, poles, expanded, beta, basis.xi, evaluation=True), atol=1e-14, rtol=0)
     assert np.sum(c).real < 0  # Causal residues retain pydlr's negative coefficient sign.
 
 
@@ -91,17 +114,16 @@ def test_native_node_order_and_beta_scaling(basis):
     assert np.all(np.diff(basis.dlrit) > 0)
     assert np.all(np.diff(basis.dlrmf) > 0)
     c = -np.eye(basis.rank)[:, :2]
-    if basis.symmetrize:
-        c = .5 * (c + c[::-1])
     np.testing.assert_allclose(basis.tau_from_dlr(c),
         basis.basis.coef_to_tau(-c)[basis._tau_order], atol=0, rtol=0)
     np.testing.assert_allclose(basis.matsubara_from_dlr(c, 2),
         2 * basis.matsubara_from_dlr(c, 1), atol=0, rtol=0)
     if basis.symmetrize:
-        assert len(basis.dlrit) == basis.rank
-        assert len(basis.dlrmf) == basis.rank + 1
+        assert isinstance(basis.basis, PairedBoson)
+        assert len(basis.dlrit) in (2*basis.rank-1, 2*basis.rank)
+        assert len(basis.dlrmf) == 2*basis.rank-1
         assert np.count_nonzero(basis.dlrmf == 0) == 1
-        assert not np.any(basis.dlrrf == 0)
+        assert np.all(basis.dlrrf >= 0)
 
 
 def test_eps_clamp_and_invalid_inputs(basis):
@@ -121,15 +143,20 @@ def test_eps_clamp_and_invalid_inputs(basis):
 
 def test_absolute_tau_right_endpoint_is_preserved(basis):
     c = -np.ones(basis.rank)
+    poles, expanded = expanded_coefficients(basis, c)
     np.testing.assert_allclose(basis.eval_dlr_tau(c, [0, 2], 2),
-        time_values(np.array([0, 1]), basis.dlrrf, c), atol=1e-13, rtol=0)
+        time_values(np.array([0, 1]), poles, expanded), atol=1e-13, rtol=0)
 
 
 def test_frequency_outside_native_index_range_uses_complex_kernel(basis):
     c = -np.ones(basis.rank)
     z = 1j * np.pi * (2 * np.array([-2**31, 2**31], dtype=float) + (basis.xi == -1))
-    np.testing.assert_allclose(basis.eval_dlr_freq(c, z, 1),
-        frequency_values(z, basis.dlrrf, c, 1, basis.xi, evaluation=True), atol=1e-22, rtol=1e-14)
+    if basis.symmetrize:
+        with pytest.raises(ValueError, match="Matsubara"):
+            basis.eval_dlr_freq(c, z, 1)
+    else:
+        np.testing.assert_allclose(basis.eval_dlr_freq(c, z, 1),
+            frequency_values(z, basis.dlrrf, c, 1, basis.xi, evaluation=True), atol=1e-22, rtol=1e-14)
 
 
 def test_node_transforms_delegate_to_native_solvers(basis, monkeypatch):
@@ -139,8 +166,6 @@ def test_node_transforms_delegate_to_native_solvers(basis, monkeypatch):
         raise AssertionError("node transforms must use cppdlr")
 
     c = -np.eye(basis.rank)[:, 3]
-    if basis.symmetrize:
-        c = .5 * (c + c[::-1])
     tau = basis.tau_from_dlr(c)
     freq = basis.matsubara_from_dlr(c, 3.7)
     monkeypatch.setattr(np.linalg, "solve", forbidden)
@@ -155,10 +180,45 @@ def test_complex_frequency_evaluation_retains_legacy_antilinearity(basis):
     c = -np.ones((basis.rank, 2, 2))
     z = np.array([-.3 + .2j, .7 + .1j])
     if basis.symmetrize:
-        np.testing.assert_array_equal(basis.eval_dlr_freq(1j*c, z, 2), 0)
+        with pytest.raises(ValueError, match="Matsubara"):
+            basis.eval_dlr_freq(1j*c, z, 2)
         np.testing.assert_array_equal(basis.matsubara_from_dlr(1j*c, 2), 0)
     else:
         np.testing.assert_allclose(basis.eval_dlr_freq(1j*c, z, 2),
                                    -1j*basis.eval_dlr_freq(c, z, 2), atol=1e-14, rtol=0)
         np.testing.assert_allclose(basis.matsubara_from_dlr(1j*c, 2),
                                    1j*basis.matsubara_from_dlr(c, 2), atol=1e-14, rtol=0)
+
+
+def test_symmetric_fermion_adapter_is_rejected():
+    with pytest.raises(ValueError, match="bosons"):
+        CppdlrDLR(100, 1e-14, xi=-1, symmetrize=True)
+
+
+def test_large_bandwidth_paired_accuracy_and_bounded_coefficients():
+    beta = 100.
+    d = CppdlrDLR(1e4, 1e-14, xi=1, symmetrize=True)
+    poles = np.array([10., 60., 400., 9800.])
+    weights = np.array([.5, 1., 2., 5.])
+
+    def tau(u):
+        return ((np.exp(-u[:, None]*poles) + np.exp(-(1-u[:, None])*poles))
+                / (1+np.exp(-poles))) @ weights
+
+    def frequency(n):
+        return (beta * 2*poles*np.tanh(poles/2)
+                / ((2*np.pi*n[:, None])**2+poles*poles)) @ weights
+
+    u = np.unique(np.r_[np.linspace(0, 1, 401), np.geomspace(1e-8, .5, 60),
+                        1-np.geomspace(1e-8, .5, 60)])
+    n = np.unique(np.r_[np.arange(-4000, 4001), np.round(np.geomspace(4000, 3e6, 120)).astype(int)])
+    n = np.r_[n, -n[n > 4000]]
+    exact_tau, exact_freq = tau(u), frequency(n)
+    coefficients = (d.dlr_from_tau(tau(d.dlrit)),
+                    d.dlr_from_matsubara(frequency(d.dlrmf), beta))
+    for c in coefficients:
+        assert np.max(abs(c)) < 10
+        actual_tau = d.eval_dlr_tau(c, beta*u, beta)
+        actual_freq = d.eval_dlr_freq(c, 2j*np.pi*n/beta, beta)
+        assert np.max(abs(actual_tau-exact_tau))/np.max(abs(exact_tau)) < 1e-11
+        assert np.max(abs(actual_freq-exact_freq))/np.max(abs(exact_freq)) < 1e-11

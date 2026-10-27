@@ -243,8 +243,8 @@ def test_frequency_kernel_matches_matsubara_from_dlr(production_dlr, sign):
     rank = d.get_dlr_frequencies().size
     coefficients = rng.standard_normal((rank, 3)) + 1j * rng.standard_normal((rank, 3))
     if sign == 1 and d.symmetrize:
-        # The symmetric backend evaluates only real/even pole-pair coefficients.
-        coefficients = .5 * (coefficients.real + coefficients[::-1].real)
+        # K+ columns are already even; their independent coefficients are real.
+        coefficients = coefficients.real
     kernel = d.eval_dlr_freq(np.eye(rank), 1j * freq, dlr.beta, xi=sign)
     expected = d.matsubara_from_dlr(coefficients, dlr.beta, xi=sign)
     np.testing.assert_allclose(kernel @ coefficients, expected, rtol=1.0e-12, atol=1.0e-12)
@@ -292,7 +292,12 @@ def test_uniform_pseudoinverse_cache_reuses_sorted_grid(monkeypatch):
     second = dlr.MatsubaraUniform2DLR(2 * uniform[::-1], omega=grid[::-1])
     np.testing.assert_allclose(second, 2 * first)
     assert len(calls) == 1
-    dlr.MatsubaraUniform2DLR(uniform, omega=grid, sign=1)
+    # K+ evaluation requires bosonic Matsubara points rather than a fermion grid.
+    boson_grid = dlr.MatsubaraBosonUniformFull(Emax=emax + 2 * np.pi / dlr.beta)
+    boson_values = -0.6 / (boson_grid**2 + 0.3**2)
+    first_boson = dlr.MatsubaraUniform2DLR(boson_values, omega=boson_grid, sign=1)
+    reverse_boson = dlr.MatsubaraUniform2DLR(2 * boson_values[::-1], omega=boson_grid[::-1], sign=1)
+    np.testing.assert_allclose(reverse_boson, 2 * first_boson)
     assert len(calls) == 2
     np.testing.assert_allclose(dlr.MatsubaraUniform2DLR(uniform, omega=grid), first)
 

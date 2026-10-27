@@ -1,4 +1,4 @@
-"""Native symmetric cppdlr nodes and the retained real/even projection."""
+"""Native cppdlr K+ kernels and the retained real/even sample projection."""
 
 import logging
 from types import SimpleNamespace
@@ -24,10 +24,9 @@ def test_nodes_are_mirror_complete_and_deterministic(basis):
     np.testing.assert_array_equal(basis.dlrrf, other.dlrrf)
     np.testing.assert_array_equal(basis.dlrit, other.dlrit)
     np.testing.assert_array_equal(basis.dlrmf, other.dlrmf)
-    assert not np.any(basis.dlrrf == 0)
-    np.testing.assert_array_equal(basis.dlrrf, -basis.dlrrf[::-1])
-    assert basis.rank == basis.dlrit.size
-    assert basis.rank + 1 == basis.dlrmf.size
+    assert np.all(basis.dlrrf >= 0)
+    assert basis.dlrit.size in (2*basis.rank-1, 2*basis.rank)
+    assert 2*basis.rank-1 == basis.dlrmf.size
     assert np.all(np.diff(basis.dlrit) > 0)
     assert np.all(np.diff(basis.dlrmf) > 0)
     np.testing.assert_allclose(basis.dlrit, 1 - basis.dlrit[::-1], atol=1e-16)
@@ -41,7 +40,6 @@ def test_single_pole_roundtrip_preserves_axes_and_is_real(basis, pole, batch_sha
     beta = 20.0
     coeff = np.zeros((basis.rank, *batch_shape))
     coeff[pole] = np.arange(np.prod(batch_shape) or 1).reshape(batch_shape) + 1
-    coeff = .5 * (coeff + coeff[::-1])
     tau = basis.tau_from_dlr(coeff)
     freq = basis.matsubara_from_dlr(coeff, beta)
     unswapped = freq.swapaxes(1, 2) if freq.ndim == 3 else freq
@@ -55,7 +53,7 @@ def test_single_pole_roundtrip_preserves_axes_and_is_real(basis, pole, batch_sha
     assert np.count_nonzero(tau_back.imag) == np.count_nonzero(freq_back.imag) == 0
 
 
-def test_constant_time_data_has_delta_matsubara_mode_without_zero_pole(basis):
+def test_constant_time_data_has_delta_matsubara_mode(basis):
     coeff = basis.dlr_from_tau(np.ones(basis.dlrit.size))
     np.testing.assert_allclose(basis.tau_from_dlr(coeff), 1, atol=1e-12, rtol=0)
     z = 2j * np.pi / 20 * np.array([-1, 0, 1])
@@ -143,7 +141,6 @@ def test_local_and_lattice_batch_roundtrip_and_w_on_fermion_tau(symmetric_dlr, l
     rng = np.random.default_rng(90)
     coefficients = rng.normal(size=(d.dB.rank, *shape))
     coefficients *= np.exp(-np.arange(d.dB.rank)).reshape((-1,) + (1,) * len(shape))
-    coefficients = .5 * (coefficients + coefficients[::-1])
     freq = np.moveaxis(d.dB.matsubara_from_dlr(coefficients, d.beta), 0, -1)
     owner = SimpleNamespace(dlr=d)
     boson = BLatDyn if lattice else BLocDyn
@@ -166,7 +163,6 @@ def test_uniform_fit_uses_coefficient_rank_and_preserves_axes(symmetric_dlr, ndi
     shape = [(), (3,), (2, 3)][ndim - 1]
     coefficients = np.zeros((d.dB.rank, *shape))
     coefficients[4] = np.arange(np.prod(shape) or 1).reshape(shape) + 1
-    coefficients = .5 * (coefficients + coefficients[::-1])
     grid = d.MatsubaraBosonUniformFull(Emax=max(abs(d.nu)))
     flat = coefficients.reshape(d.dB.rank, -1)
     uniform = d.dB.eval_dlr_freq(flat, 1j * grid, d.beta).reshape(grid.size, *shape)
@@ -191,7 +187,6 @@ def test_batched_and_scalar_dlr_to_uniform_evaluation(symmetric_dlr):
     d = symmetric_dlr
     coefficients = np.zeros((d.dB.rank, 3))
     coefficients[3] = [1, 2, 3]
-    coefficients = .5 * (coefficients + coefficients[::-1])
     freq = d.dB.matsubara_from_dlr(coefficients, d.beta)
     expected = d.dB.eval_dlr_freq(coefficients, 1j * d.MatsubaraBosonUniform(), d.beta)
     actual = d.MatsubaraDLR2Uniform(freq, sign=1, method="dlr").reshape(expected.shape)

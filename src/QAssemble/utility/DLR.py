@@ -7,15 +7,15 @@ logger = logging.getLogger("QAssemble")
 
 
 class CppdlrDLR:
-    """cppdlr transforms with QAssemble's pydlr coefficient/axis conventions.
+    """Native cppdlr transforms with a paired-kernel K+ boson sector.
 
     Public nodes are ascending and tau is absolute. Coefficients are the
-    negative of native cppdlr coefficients. Symmetric bosons additionally
-    project onto the element-wise real, reflection-even sector.
+    negative of native cppdlr coefficients. Symmetric bosons use independent
+    nonnegative K+ poles and real/even sample projection before square LU.
     """
 
     def __init__(self, lamb, eps=1e-15, xi=-1, symmetrize=False):
-        from pycppdlr import Basis
+        from pycppdlr import Basis, PairedBoson
 
         if xi not in (-1, 1):
             raise ValueError("xi must be -1 for fermions or 1 for bosons")
@@ -23,9 +23,12 @@ class CppdlrDLR:
             raise ValueError("eps must lie between zero and one")
         self.lamb, self.eps, self.xi = float(lamb), max(float(eps), 1e-14), xi
         self.symmetrize = bool(symmetrize)
-        self.basis = Basis(self.lamb, self.eps,
-                           statistic="fermion" if xi == -1 else "boson",
-                           symmetrize=self.symmetrize)
+        if self.symmetrize and xi != 1:
+            raise ValueError("symmetric K+ adapter requires bosons (xi=1)")
+        self.basis = (PairedBoson(self.lamb, self.eps) if self.symmetrize else
+                      Basis(self.lamb, self.eps,
+                            statistic="fermion" if xi == -1 else "boson",
+                            symmetrize=False))
         self.rank = self.basis.rank
         self.dlrrf = self.basis.rf.copy()
         self._tau_order = np.argsort(self.basis.u)
@@ -75,9 +78,6 @@ class CppdlrDLR:
             raise ValueError(f"coefficients must have {self.rank} rows")
         if not np.all(np.isfinite(coefficients)):
             raise ValueError("coefficients must be finite")
-        if self.symmetrize and self.xi == 1:
-            # Native LU/GELSS can break parity even after projecting the samples.
-            return 0.5 * (coefficients.real + coefficients[::-1].real)
         return coefficients
 
     @staticmethod
@@ -140,6 +140,8 @@ class CppdlrDLR:
             out = self.basis.eval_freq(-coefficients, mirror_n, beta)
             if self.symmetrize and self.xi == 1:
                 out = out.real
+        elif self.symmetrize:
+            raise ValueError("K+ frequency evaluation requires native-range Matsubara points")
         else:
             kernel = 1 / (z[:, None] + self.dlrrf[None, :] / beta)
             if self.xi == 1:
