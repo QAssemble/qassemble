@@ -10,7 +10,8 @@ import sys
 import numpy as np
 import pytest
 
-from pycppdlr import Basis, ImFreq, ImTime, build_dlr_rf
+from pycppdlr import Basis, ImFreq, ImTime, PairedBoson, build_dlr_rf
+from pycppdlr._core import RealLU, paired_boson_k_freq, paired_boson_k_tau
 
 
 def exact_tau(u, poles, weights):
@@ -45,6 +46,142 @@ def exact_freq(n, poles, weights, statistic, beta):
             correction = np.tanh(w / 2) if statistic == "boson" else 1
             result += beta * weight * correction / (z - w)
     return result
+
+
+def expand_paired(poles, weights):
+    poles, weights = np.asarray(poles), np.asarray(weights)
+    positive = poles > 0
+    return np.r_[poles, -poles[positive]], np.r_[weights, weights[positive]]
+
+
+@pytest.fixture(scope="module")
+def paired():
+    return PairedBoson(100, 1e-14)
+
+
+def test_paired_nodes_are_mirror_complete_and_deterministic(paired):
+    other = PairedBoson(100, 1e-14)
+    for name in ("rf", "t_rel", "n"):
+        np.testing.assert_array_equal(getattr(paired, name), getattr(other, name))
+    assert np.all(paired.rf >= 0)
+    assert np.all(np.diff(paired.rf) > 0)
+    assert paired.t_rel.size in (2*paired.rank-1, 2*paired.rank)
+    assert paired.n.size == 2*paired.rank-1
+    np.testing.assert_allclose(paired.u, 1-paired.u[::-1], atol=1e-16, rtol=0)
+    np.testing.assert_array_equal(paired.n, -paired.n[::-1])
+    assert np.count_nonzero(paired.n == 0) == 1
+
+
+def test_paired_analytic_even_function(paired):
+    beta = 7.3
+    poles, weights = expand_paired([.913, 37.1], [.3, .7])
+    t = evaluation_times()
+    n = np.arange(-157, 158)
+    samples = (paired.tau_to_coef(exact_tau_rel(paired.t_rel, poles, weights)),
+               paired.freq_to_coef(exact_freq(paired.n, poles, weights, "boson", beta), beta))
+    for c in samples:
+        np.testing.assert_allclose(paired.eval_tau(c, t), exact_tau_rel(t, poles, weights), atol=1e-12, rtol=0)
+        np.testing.assert_allclose(paired.eval_freq(c, n, beta), exact_freq(n, poles, weights, "boson", beta),
+                                   atol=1e-12, rtol=0)
+
+
+@pytest.mark.parametrize("shape", [(), (3,), (2, 3)])
+def test_paired_complex_roundtrip_and_axes(paired, shape):
+    count = int(np.prod(shape)) if shape else 1
+    c = np.zeros((paired.rank, *shape), dtype=complex)
+    c[3] = (1 + np.arange(count).reshape(shape)) / count * (.7 + .2j)
+    tau, freq = paired.coef_to_tau(c), paired.coef_to_freq(c, 2.7)
+    for recovered in (paired.tau_to_coef(tau), paired.freq_to_coef(freq, 2.7)):
+        assert recovered.shape == c.shape
+        np.testing.assert_allclose(paired.coef_to_tau(recovered), tau, atol=1e-12, rtol=0)
+        np.testing.assert_allclose(paired.coef_to_freq(recovered, 2.7), freq, atol=1e-12, rtol=0)
+
+
+def test_paired_does_not_project_complex_or_mirror_samples(paired):
+    c = np.zeros(paired.rank, dtype=complex)
+    c[3] = .7 + .2j
+    for values, rows, solve in (
+        (paired.coef_to_tau(c), paired._tau_rows, paired.tau_to_coef),
+        (paired.coef_to_freq(c), paired._freq_rows, paired.freq_to_coef),
+    ):
+        changed = values.copy()
+        omitted = np.setdiff1d(np.arange(values.size), rows)
+        changed[omitted] += 30 + 20j
+        np.testing.assert_array_equal(solve(changed), solve(values))
+        recovered = solve(changed)
+        assert np.max(np.abs(recovered.imag)) > .1
+
+
+def test_paired_native_kernels_and_single_zero_normalization():
+    poles = np.array([0., .913, 37.1])
+    times = np.ascontiguousarray(evaluation_times())
+    n = np.arange(-10, 11, dtype=np.int64)
+    tau = paired_boson_k_tau(times, poles)
+    freq = paired_boson_k_freq(n, poles)
+    for j, w in enumerate(poles):
+        expanded, weights = expand_paired([w], [1.])
+        np.testing.assert_allclose(tau[:, j], exact_tau_rel(times, expanded, weights), atol=1e-14, rtol=0)
+        np.testing.assert_allclose(freq[:, j], exact_freq(n, expanded, weights, "boson", 1), atol=1e-14, rtol=0)
+    np.testing.assert_array_equal(tau[:, 0], -.5)
+    np.testing.assert_array_equal(freq[:, 0], np.where(n == 0, -.5, 0))
+
+
+def test_real_lu_matches_numpy_and_owns_its_factorization():
+    a = np.array([[3., 1., .2], [-.4, 2., 1.], [.7, .3, 4.]])
+    b = np.arange(12, dtype=float).reshape(3, 4)
+    expected = np.linalg.solve(a, b)
+    lu = RealLU(a)
+    a[:] = np.nan
+    np.testing.assert_allclose(lu.solve(b), expected, atol=1e-14, rtol=1e-14)
+
+
+def test_real_lu_invalid_inputs():
+    for a in (np.empty((0, 0)), np.zeros((2, 3)), np.full((2, 2), np.nan)):
+        with pytest.raises(ValueError):
+            RealLU(a)
+    with pytest.raises(RuntimeError, match="getrf"):
+        RealLU(np.zeros((2, 2)))
+    lu = RealLU(np.eye(2))
+    for b in (np.ones((3, 1)), np.full((2, 1), np.inf)):
+        with pytest.raises(ValueError):
+            lu.solve(b)
+
+
+def test_paired_transforms_do_not_call_python_solvers(paired, monkeypatch):
+    import scipy.linalg
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("paired node transforms must use native RealLU")
+
+    c = np.zeros(paired.rank)
+    c[3] = 1
+    tau, freq = paired.coef_to_tau(c), paired.coef_to_freq(c, 2.7)
+    for module, name in ((np.linalg, "solve"), (np.linalg, "lstsq"),
+                         (scipy.linalg, "lu_factor"), (scipy.linalg, "lu_solve")):
+        monkeypatch.setattr(module, name, forbidden)
+    np.testing.assert_allclose(paired.coef_to_tau(paired.tau_to_coef(tau)), tau, atol=1e-12, rtol=0)
+    np.testing.assert_allclose(paired.coef_to_freq(paired.freq_to_coef(freq, 2.7), 2.7), freq, atol=1e-12, rtol=0)
+
+
+@pytest.mark.parametrize("lamb,eps", [(0, 1e-14), (np.nan, 1e-14), (np.inf, 1e-14),
+                                       (20, 0), (20, np.nan), (20, 1)])
+def test_invalid_paired_basis(lamb, eps):
+    with pytest.raises(ValueError):
+        PairedBoson(lamb, eps)
+
+
+def test_paired_invalid_transform_inputs(paired):
+    with pytest.raises(ValueError):
+        paired.tau_to_coef(np.zeros(paired.t_rel.size + 1))
+    with pytest.raises(ValueError):
+        paired.freq_to_coef(np.full(paired.n.size, np.nan))
+    for beta in (0, -1, np.nan):
+        with pytest.raises(ValueError):
+            paired.coef_to_freq(np.zeros(paired.rank), beta)
+    with pytest.raises(ValueError):
+        paired.eval_tau(np.zeros(paired.rank), [-.6])
+    with pytest.raises(ValueError):
+        paired.eval_freq(np.zeros(paired.rank), [.5])
 
 
 def evaluation_times():
@@ -301,7 +438,7 @@ def test_invalid_transform_inputs(basis):
 def test_thread_determinism(tmp_path):
     code = """
 import numpy as np, sys
-from pycppdlr import Basis
+from pycppdlr import Basis, PairedBoson
 arrays = {}
 for statistic in ('fermion', 'boson'):
     for sym in (False, True):
@@ -311,6 +448,11 @@ for statistic in ('fermion', 'boson'):
         eye = np.eye(b.rank)
         arrays[f'{statistic}_{sym}_tau'] = b.coef_to_tau(eye)
         arrays[f'{statistic}_{sym}_freq'] = b.coef_to_freq(eye)
+b = PairedBoson(1000, 1e-14)
+for name in ('rf', 't_rel', 'n'):
+    arrays[f'paired_{name}'] = getattr(b, name)
+arrays['paired_tau'] = b.coef_to_tau(np.eye(b.rank))
+arrays['paired_freq'] = b.coef_to_freq(np.eye(b.rank))
 np.savez(sys.argv[1], **arrays)
 """
     files = []

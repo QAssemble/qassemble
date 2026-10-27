@@ -1,20 +1,28 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/tuple.h>
 #include <cppdlr/dlr_build.hpp>
 #include <cppdlr/dlr_imfreq.hpp>
 #include <cppdlr/dlr_imtime.hpp>
+#include <cppdlr/dlr_kernels.hpp>
+#include <cppdlr/utils.hpp>
+#include <nda/lapack.hpp>
+#include <algorithm>
 #include <cmath>
 #include <climits>
 #include <cstdint>
 #include <memory>
 #include <new>
 #include <stdexcept>
+#include <string>
+#include <tuple>
 
 namespace nb = nanobind;
 using namespace nb::literals;
 using RF = nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu>;
 using Values = nb::ndarray<const cppdlr::dcomplex, nb::ndim<2>, nb::c_contig, nb::device::cpu>;
 using Indices = nb::ndarray<const std::int64_t, nb::ndim<1>, nb::c_contig, nb::device::cpu>;
+using RealValues = nb::ndarray<const double, nb::ndim<2>, nb::c_contig, nb::device::cpu>;
 
 // Own a separate contiguous buffer before any local cppdlr operator is destroyed.
 template <typename T, typename A> auto copy_array(A const &a) {
@@ -39,6 +47,58 @@ void check_lambda(double lamb) {
     if (!std::isfinite(lamb) || lamb <= 0 || lamb > double(INT_MAX / 2 - 1))
         throw std::invalid_argument("lamb must be finite, positive, and fit cppdlr's integer grid");
 }
+
+void check_eps(double eps) {
+    if (!std::isfinite(eps) || eps <= 0 || eps >= 1)
+        throw std::invalid_argument("eps must be finite and between zero and one");
+}
+
+void check_paired_rf(RF rf) {
+    if (rf.size() == 0) throw std::invalid_argument("rf must not be empty");
+    for (size_t j = 0; j < rf.size(); ++j)
+        if (!std::isfinite(rf(j)) || rf(j) < 0 || (j && rf(j) <= rf(j - 1)))
+            throw std::invalid_argument("paired rf must be finite, nonnegative and strictly increasing");
+}
+
+double paired_tau(double t, double w) {
+    return w == 0 ? cppdlr::k_it(t, 0) : cppdlr::k_it(t, w) + cppdlr::k_it(t, -w);
+}
+
+double paired_freq(int n, double w) {
+    if (w == 0) return std::real(cppdlr::k_if(n, 0, cppdlr::Boson));
+    return std::real(cppdlr::k_if(n, w, cppdlr::Boson) + cppdlr::k_if(-n, w, cppdlr::Boson));
+}
+
+struct RealLU {
+    nda::matrix<double, nda::F_layout> lu;
+    nda::vector<int> piv;
+
+    explicit RealLU(RealValues a) : lu(a.shape(0), a.shape(1)), piv(a.shape(0)) {
+        if (!a.shape(0) || a.shape(0) != a.shape(1))
+            throw std::invalid_argument("RealLU requires a nonempty square matrix");
+        for (size_t i = 0; i < a.shape(0); ++i)
+            for (size_t j = 0; j < a.shape(1); ++j) {
+                if (!std::isfinite(a(i, j))) throw std::invalid_argument("matrix must be finite");
+                lu(i, j) = a(i, j);
+            }
+        int info = nda::lapack::getrf(lu, piv);
+        if (info != 0) throw std::runtime_error("getrf failed, info = " + std::to_string(info));
+    }
+
+    auto solve(RealValues b) const {
+        if (b.shape(0) != size_t(lu.extent(0)))
+            throw std::invalid_argument("rhs rows must match LU size");
+        auto x = nda::matrix<double, nda::F_layout>(b.shape(0), b.shape(1));
+        for (size_t i = 0; i < b.shape(0); ++i)
+            for (size_t j = 0; j < b.shape(1); ++j) {
+                if (!std::isfinite(b(i, j))) throw std::invalid_argument("rhs must be finite");
+                x(i, j) = b(i, j);
+            }
+        int info = nda::lapack::getrs(lu, x, piv);
+        if (info != 0) throw std::runtime_error("getrs failed, info = " + std::to_string(info));
+        return copy_array<double>(x);
+    }
+};
 
 nda::vector<double> copy_rf(double lamb, RF rf, bool symmetrize) {
     check_lambda(lamb);
@@ -80,10 +140,78 @@ void check_beta(double beta) {
 NB_MODULE(_core, m) {
     m.def("build_dlr_rf", [](double lamb, double eps, bool symmetrize) {
         check_lambda(lamb);
-        if (!std::isfinite(eps) || eps <= 0 || eps >= 1)
-            throw std::invalid_argument("eps must be finite and between zero and one");
+        check_eps(eps);
         return copy_array<double>(cppdlr::build_dlr_rf(lamb, eps, symmetrize));
     }, "lamb"_a, "eps"_a, "symmetrize"_a = false);
+
+    nb::class_<RealLU>(m, "RealLU")
+        .def(nb::init<RealValues>(), "a"_a)
+        .def("solve", &RealLU::solve, "b"_a);
+
+    m.def("paired_boson_nodes", [](double lamb, double eps) {
+        check_lambda(lamb);
+        check_eps(eps);
+        auto fine = cppdlr::fineparams(lamb);
+        auto [t, weights] = cppdlr::build_it_fine(fine);
+        auto poles = cppdlr::build_rf_fine(fine);
+        long half = fine.nom / 2;
+        auto candidates = nda::vector<double>(half + 1);
+        candidates(0) = 0;
+        for (long j = 0; j < half; ++j) candidates(j + 1) = poles(half + j);
+        auto weighted = nda::matrix<double>(candidates.size(), fine.nt);
+        for (long j = 0; j < candidates.size(); ++j)
+            for (long i = 0; i < fine.nt; ++i)
+                weighted(j, i) = weights(i) * paired_tau(t(i), candidates(j));
+        auto [q1, norms1, piv1] = cppdlr::pivrgs(weighted, eps);
+        long rank = norms1.size();
+        if (rank == 0) throw std::runtime_error("paired kernel has zero numerical rank");
+        std::sort(piv1.begin(), piv1.end());
+        auto rf = nda::vector<double>(rank);
+        for (long j = 0; j < rank; ++j) rf(j) = candidates(piv1(j));
+
+        auto kt = nda::matrix<double>(fine.nt / 2, rank);
+        for (long i = 0; i < fine.nt / 2; ++i)
+            for (long j = 0; j < rank; ++j) kt(i, j) = paired_tau(t(i), rf(j));
+        auto [q2, norms2, piv2] = cppdlr::pivrgs(kt, 1e-100);
+        if (norms2.size() != rank) throw std::runtime_error("paired time kernel lost rank");
+        std::sort(piv2.begin(), piv2.end());
+        auto t_half = nda::vector<double>(rank);
+        for (long j = 0; j < rank; ++j) t_half(j) = t(piv2(j));
+
+        auto kf = nda::matrix<double>(fine.nmax + 1, rank);
+        for (int n = 0; n <= fine.nmax; ++n)
+            for (long j = 0; j < rank; ++j) kf(n, j) = paired_freq(n, rf(j));
+        auto [q3, norms3, piv3] = cppdlr::pivrgs(kf, 1e-100);
+        if (norms3.size() != rank) throw std::runtime_error("paired frequency kernel lost rank");
+        std::sort(piv3.begin(), piv3.end());
+        auto n_half = nda::vector<std::int64_t>(rank);
+        for (long j = 0; j < rank; ++j) n_half(j) = piv3(j);
+        return std::make_tuple(copy_array<double>(rf), copy_array<double>(t_half),
+                               copy_array<std::int64_t>(n_half));
+    }, "lamb"_a, "eps"_a);
+
+    m.def("paired_boson_k_tau", [](RF t_rel, RF rf) {
+        check_paired_rf(rf);
+        auto out = nda::matrix<double>(t_rel.size(), rf.size());
+        for (size_t i = 0; i < t_rel.size(); ++i) {
+            double t = t_rel(i);
+            if (!std::isfinite(t) || !((t >= -0.5 && t <= 0.5) || t == 1))
+                throw std::invalid_argument("relative times must lie in [-0.5, 0.5] or equal endpoint +1");
+            for (size_t j = 0; j < rf.size(); ++j) out(i, j) = paired_tau(t, rf(j));
+        }
+        return copy_array<double>(out);
+    }, "t_rel"_a, "rf"_a);
+
+    m.def("paired_boson_k_freq", [](Indices n, RF rf) {
+        check_paired_rf(rf);
+        auto out = nda::matrix<double>(n.size(), rf.size());
+        for (size_t i = 0; i < n.size(); ++i) {
+            if (n(i) < -(INT_MAX - 1) / 2 || n(i) > (INT_MAX - 1) / 2)
+                throw std::invalid_argument("Matsubara index exceeds paired kernel's safe integer range");
+            for (size_t j = 0; j < rf.size(); ++j) out(i, j) = paired_freq(int(n(i)), rf(j));
+        }
+        return copy_array<double>(out);
+    }, "n"_a.noconvert(), "rf"_a);
     nb::class_<cppdlr::imtime_ops>(m, "ImTime")
         .def("__init__", [](cppdlr::imtime_ops *self, double lamb, RF rf, bool symmetrize) {
             auto poles = copy_rf(lamb, rf, symmetrize);
