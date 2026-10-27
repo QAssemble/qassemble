@@ -212,7 +212,7 @@ QAssemble/
 | `Control` | `Mix` | Mixing parameter for self-consistency |
 | `Control` | `T` | Temperature in Kelvin |
 | `Control` | `MatsubaraCutOff` | Energy cutoff; both DLR bandwidths use `Lambda = beta * MatsubaraCutOff` |
-| `Control` | `BosonSymmetry` | Default `True`: cppdlr symmetric boson basis with real/even projection; `False`: cppdlr unsymmetrized boson basis |
+| `Control` | `BosonSymmetry` | Default `True`: cppdlr K+ paired kernels with real/even sample projection; `False`: cppdlr unsymmetrized boson basis |
 | `Control` | `ConstantW` | Constant W parameter for GW |
 | `Crystal` | `RVec` | 3x3 lattice vectors |
 | `Crystal` | `Basis` | Basis atom positions and orbital counts |
@@ -229,14 +229,19 @@ The cppdlr backend changes the sampling nodes for both statistics, including
 `BosonSymmetry=False`. Start with a new `Prefix`: existing pydlr/K+ HDF5 data
 and mixing history cannot be reused and are not migrated.
 
-`BosonSymmetry=True` represents each bosonic channel as real and even. Mirror
-samples and recovered pole coefficients are pair-averaged; odd or imaginary residuals above
+`BosonSymmetry=True` represents each bosonic channel using native K+ paired
+kernels. Mirror samples are averaged before square native LU; coefficients
+are independent nonnegative-pole weights. Odd or imaginary residuals above
 `max(100 * eps, 1e-10)` produce a warning. Use `BosonSymmetry=False` when this
 assumption does not apply, including general complex or odd channels. The
 single-pole bosonic causal QP also requires `BosonSymmetry=False`.
 
-The adapter clamps `eps` to at least `1e-14`. Native symmetrization is
-experimental and this clamp is not an accuracy guarantee. At `Lambda=50000`,
-`eps=1e-14`, an even two-pole-pair diagnostic gave frequency-to-tau relative
-error `1.79e-11` after parity projection (previous K+: `1.33e-13`), above the
-unchanged `1e-12` target. See [migration validation](docs/Cppdlr_backend_migration.md).
+The adapter clamps `eps` to at least `1e-14`. K+ selects poles and independent
+nodes with cppdlr pivrgs and uses native LAPACK LU without SVD; the existing
+uniform-grid least-squares fit is retained. Zero is a candidate, not a forced
+selected pole. At `Lambda=50000`, `eps=1e-14`, `beta=100`, the clean in-band
+frequency-to-tau relative error is `3.26e-12`, and the near-zero-pole case gives
+`1.56e-13`. These are function-specific measurements, not a uniform `1e-12`
+guarantee. K+ frequency evaluation is Matsubara-only. Rebuild pycppdlr and
+use another fresh `Prefix` after replacing the previous symmetric basis;
+see [migration validation](docs/Cppdlr_backend_migration.md).
