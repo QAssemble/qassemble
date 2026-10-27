@@ -115,10 +115,14 @@ def test_symmetry_default_and_unsymmetrized_opt_out(symmetric_dlr):
     assert legacy.lambB == legacy.lambF == symmetric_dlr.lambB
 
 
-def test_unsupported_causal_qp_fails_explicitly(symmetric_dlr):
-    with pytest.raises(NotImplementedError, match="BosonSymmetry=False"):
+def test_causal_qp_supports_kplus_with_reflection_symmetry(symmetric_dlr):
+    projector = CausalBosonProjector(d=symmetric_dlr.dB, beta=symmetric_dlr.beta,
+                                     fit_omega=symmetric_dlr.nu)
+    assert projector.reflection_symmetry is True
+    assert projector.moment_rows.shape == (1, symmetric_dlr.dB.rank)
+    with pytest.raises(ValueError, match=r"K\+ basis has no odd \(m1\) sector"):
         CausalBosonProjector(d=symmetric_dlr.dB, beta=symmetric_dlr.beta,
-                             fit_omega=symmetric_dlr.nu)
+                             fit_omega=symmetric_dlr.nu, reflection_symmetry=False)
 
 
 def test_t2mt_is_exact_permutation_for_non_even_fermions(symmetric_dlr):

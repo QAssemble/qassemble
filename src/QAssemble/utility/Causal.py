@@ -573,9 +573,9 @@ class CausalBosonProjector:
         moment_sigma_safety: float = 3.0,
         raise_on_failure: bool = True,
     ) -> None:
-        if getattr(d, "symmetrize", False):
-            raise NotImplementedError(
-                "CausalBosonProjector does not support symmetric cppdlr; use BosonSymmetry=False"
+        if getattr(d, "symmetrize", False) and not reflection_symmetry:
+            raise ValueError(
+                "K+ basis has no odd (m1) sector; use reflection_symmetry=True"
             )
         if coefficient_sign not in (-1, 1):
             raise ValueError("coefficient_sign must be -1 or +1")
@@ -646,6 +646,11 @@ class CausalBosonProjector:
         self.rank = int(x_nodes.size)
         self.omega = self.nodes
         self.bose_corr = np.tanh(0.5 * self.x_nodes)
+        # Positive K+ columns sum +/-omega poles; verified by the nu^2 K tail.
+        self.pole_multiplicity = (
+            np.where(x_nodes > 0, 2.0, 1.0)
+            if getattr(d, "symmetrize", False) else np.ones(self.rank)
+        )
 
         self.coefficient_sign = int(coefficient_sign)
         self.reflection_symmetry = bool(reflection_symmetry)
@@ -1047,7 +1052,7 @@ class CausalBosonProjector:
         return self._basis_freq(1j * omega)
 
     def _moment_rows(self) -> np.ndarray:
-        row_m2 = self.bose_corr * self.nodes
+        row_m2 = self.pole_multiplicity * self.bose_corr * self.nodes
         if self.reflection_symmetry:
             return row_m2.reshape(1, -1)
         return np.vstack([self.bose_corr, row_m2])

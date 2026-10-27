@@ -17,8 +17,13 @@ from QAssemble.utility.Fourier import Fourier
 
 
 def _boson_dlr():
-    # The single-pole causal QP does not support K+ normalization.
+    # Keep the legacy single-pole QP checks on the asymmetric basis.
     return DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1.0e-12, "symmetry": False})
+
+
+@pytest.fixture
+def kplus_dlr():
+    return DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1.0e-12, "symmetry": True})
 
 
 def _single_band_crystal():
@@ -200,6 +205,57 @@ def test_moment_rows_use_dimensionless_tanh():
     assert plain.moment_rows.shape == (2, x.size)
     np.testing.assert_allclose(plain.moment_rows[0], bose)
     np.testing.assert_allclose(plain.moment_rows[1], bose * omega_l)
+
+
+@pytest.mark.parametrize("sym", [False, True])
+def test_moment_row_matches_even_kernel_tail(sym):
+    dlr = DLR({"beta": 20.0, "cutoff": 8.0, "eps": 1.0e-12, "symmetry": sym})
+    boson = _boson(dlr)
+    nu = 2 * np.pi * 1_000_000 / dlr.beta
+    tail = nu**2 * boson._frequency_kernel(np.array([nu]))[0]
+    np.testing.assert_allclose(tail, boson.moment_rows[0], rtol=1e-8, atol=0)
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_kplus_causal_input_is_certified_unchanged(kplus_dlr, monkeypatch, sign):
+    boson = _boson(kplus_dlr, coefficient_sign=sign)
+    coefficients = sign * np.ones(boson.rank)
+    target = boson.kernel @ coefficients
+    moments = {"m2": float((boson.moment_rows @ coefficients)[0])}
+    monkeypatch.setattr(boson, "_solve_qp", lambda *args: pytest.fail("causal input reached QP"))
+
+    projected = boson.project(target, moments=moments)
+
+    assert boson.last_validation["skip_reason"] == "causal_certificate"
+    assert boson.last_validation["valid"] is True
+    np.testing.assert_array_equal(projected, target)
+    assert projected is not target
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_kplus_noncausal_input_is_projected(kplus_dlr, sign):
+    boson = _boson(kplus_dlr, coefficient_sign=sign)
+    coefficients = sign * np.ones(boson.rank)
+    coefficients[boson.rank // 2] *= -1
+    target = boson.kernel @ coefficients
+    moments = {"m2": float((boson.moment_rows @ coefficients)[0])}
+    assert sign * moments["m2"] > 0
+
+    projected = boson.project(target, moments=moments)
+
+    validation = boson.last_validation
+    assert validation["skipped"] is False
+    assert validation["moment_constraint"] == "hard"
+    assert validation["valid"] is True
+    assert validation["coefficient_violation"] <= boson.constraint_tol
+    assert abs(validation["moment_m2_residual"]) <= boson.constraint_tol
+    np.testing.assert_array_equal(projected, boson.kernel @ boson.last_coefficients)
+    assert not np.allclose(projected, target)
+
+
+def test_kplus_rejects_reflection_symmetry_false(kplus_dlr):
+    with pytest.raises(ValueError, match=r"K\+ basis has no odd \(m1\) sector; use reflection_symmetry=True"):
+        _boson(kplus_dlr, reflection_symmetry=False)
 
 
 def test_reflection_kernel_is_symmetrized():
