@@ -212,6 +212,8 @@ QAssemble/
 | `Control` | `Mix` | Mixing parameter for self-consistency |
 | `Control` | `T` | Temperature in Kelvin |
 | `Control` | `MatsubaraCutOff` | Energy cutoff; both DLR bandwidths use `Lambda = beta * MatsubaraCutOff` |
+| `Control` | `GreenCutoff` | CTQMC Green's-function measurement cutoff in eV; default `MatsubaraCutOff / 100`; finite, positive, in `[pi / beta, MatsubaraCutOff]` |
+| `Control` | `SusceptibilityCutoff` | CTQMC susceptibility measurement cutoff in eV; default `MatsubaraCutOff / 50`; finite, positive, in `[2*pi / beta, MatsubaraCutOff]` |
 | `Control` | `FermionSymmetry` | Default `True`: native cppdlr mirror-symmetric fermion nodes; `False`: unsymmetrized fermion basis |
 | `Control` | `BosonSymmetry` | Default `True`: cppdlr K+ paired kernels with real/even sample projection; `False`: cppdlr unsymmetrized boson basis |
 | `Control` | `ConstantW` | Constant W parameter for GW |
@@ -225,6 +227,13 @@ QAssemble/
 | `Hamiltonian` | `Hopping` | One-body hopping terms |
 | `Hamiltonian` | `Onsite` | On-site energy terms |
 | `Hamiltonian` | `Parameter` | Coulomb parameterization: `"SlaterKanamori"`, `"Slater"`, `"Kanamori"` |
+
+Set `GreenCutoff` and `SusceptibilityCutoff` explicitly for new CTQMC runs to
+choose the measured frequency ranges and their joins to the high-frequency
+tails independently of the DLR bandwidth. Invalid values, including defaults
+below the minimum Matsubara frequency, are rejected while reading the input.
+The susceptibility tail extent remains `max(2 * MatsubaraCutOff, dlr_tail)`,
+covering the DLR nodes.
 
 The cppdlr backend changes the sampling nodes for both statistics, including
 `BosonSymmetry=False`. Start with a new `Prefix`: existing pydlr/K+ HDF5 data

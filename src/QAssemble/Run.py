@@ -1,6 +1,7 @@
 import copy
 import datetime
 import logging
+import math
 import os
 import sys
 import time
@@ -314,6 +315,23 @@ class Run:
         control["ft"]["T"] = T
         control["ft"]["beta"] = beta
         control["ft"]["cutoff"] = cutoff
+        for name, alias, divisor, minimum in (
+            ("GreenCutoff", "green_cutoff", 100, math.pi / beta),
+            ("SusceptibilityCutoff", "susceptibility_cutoff", 50, 2 * math.pi / beta),
+        ):
+            value = ini.get(name, cutoff / divisor)
+            message = (
+                f"{name}={value!r} must be finite and positive, in "
+                f"[{minimum}, {cutoff}] eV (MatsubaraCutOff={cutoff} eV)"
+            )
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                raise ValueError(message) from None
+            if not math.isfinite(value) or not (0 < value and minimum <= value <= cutoff):
+                raise ValueError(message)
+            control["run"][name] = value
+            control["run"][alias] = value
         control["ft"]["symmetry"] = ini.get("BosonSymmetry", True)
         control["ft"]["fermion_symmetry"] = ini.get("FermionSymmetry", True)
 
