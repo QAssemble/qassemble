@@ -334,6 +334,7 @@ class Run:
             control["run"][alias] = value
         control["ft"]["symmetry"] = ini.get("BosonSymmetry", True)
         control["ft"]["fermion_symmetry"] = ini.get("FermionSymmetry", True)
+        control["ft"]["eps"] = ini.get("DLREps", 1e-12)
 
         self.control = control
 

@@ -282,6 +282,15 @@ def test_input_fermion_symmetry(monkeypatch, tmp_path, extra, expected):
     assert runner.control["ft"]["fermion_symmetry"] is expected
 
 
+@pytest.mark.parametrize("extra,expected", [("", 1e-12), ("'DLREps': 1e-14,", 1e-14)])
+def test_input_dlr_eps(monkeypatch, tmp_path, extra, expected):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_input(tmp_path / "input.ini", extra)
+    runner = object.__new__(Run)
+    runner.ReadInput()
+    assert runner.control["ft"]["eps"] == expected
+
+
 @pytest.mark.parametrize("extra,expected", [
     ("", (0.5, 1.0)),
     ("'MatsubaraCutOff': 100,", (1.0, 2.0)),
