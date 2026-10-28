@@ -1133,6 +1133,8 @@ class Chi(BLocDyn):
             coefficient_sign=1,
             oddzero=True,
             highzero=True,
+            tail_points=5,
+            tail_log_spaced=False,
             fallback_matrix=fallback,
         )
         self.WriteBrdPrev("chi", self.f)
@@ -1292,6 +1294,7 @@ class PImp(BLocDyn):
         self.f = self.CausalProjection(
             self.f_uniform, grid="uniform", coefficient_sign=-1,
             oddzero=True, highzero=True, constraint_tol="auto",
+            tail_points=5, tail_log_spaced=False,
             fallback_matrix=self.ReadBrdPrev(
                 "pimp", self.f_uniform.shape[:4] + (len(self.dlr.nu),)
             ),

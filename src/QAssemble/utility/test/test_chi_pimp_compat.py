@@ -110,6 +110,8 @@ def test_chi_cal_projects_ctqmc_susceptibility_causally(monkeypatch):
     assert kwargs["coefficient_sign"] == 1
     assert kwargs["oddzero"] is True
     assert kwargs["highzero"] is True
+    assert kwargs["tail_points"] == 5
+    assert kwargs["tail_log_spaced"] is False
     # No hdf5 cache target: the previous-iteration fallback is absent.
     assert kwargs["fallback_matrix"] is None
     np.testing.assert_allclose(value[0, 0, 0, 0, :], raw)
@@ -148,6 +150,8 @@ def test_pimp_uses_uniform_chi_and_utilde_before_causal_projection(monkeypatch):
         assert kwargs["coefficient_sign"] == -1
         assert kwargs["oddzero"] is True
         assert kwargs["highzero"] is True
+        assert kwargs["tail_points"] == 5
+        assert kwargs["tail_log_spaced"] is False
         assert kwargs["fallback_matrix"] is None
         projected_inputs.append(np.array(value, copy=True))
         return np.asfortranarray(value[..., : len(self.dlr.nu)] + 100.0)
