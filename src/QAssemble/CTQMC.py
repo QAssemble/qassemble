@@ -340,7 +340,9 @@ class CTQMC(object):
         if broadener is None:
             return sigma_grid
         # Full uses the solver's green Matsubara cutoff (params.json).
-        cutoff = float(self.dlr.cutoff) / 100
+        cutoff = self._control_float(
+            "GreenCutoff", "green_cutoff", default=float(self.dlr.cutoff) / 100
+        )
         return broadener(omega, sigma_grid, 0.05, 1.0 / float(self.dlr.beta), cutoff)
 
     def _resolve_sighimp_vloc(self, key):
@@ -472,26 +474,30 @@ class CTQMC(object):
                     params["hloc"]['one body'] = Eimp_final.tolist()
                     params["hloc"]["two body"] = self.bweiss.vloc.GetUijklComCTQMC(key).tolist()
 
-                    green_cutoff = float(self.dlr.cutoff)
-                    susc_cutoff = float(self.dlr.cutoff)
+                    green_cutoff = self._control_float(
+                        "GreenCutoff", "green_cutoff", default=float(self.dlr.cutoff) / 100
+                    )
+                    susc_cutoff = self._control_float(
+                        "SusceptibilityCutoff", "susceptibility_cutoff", default=float(self.dlr.cutoff) / 50
+                    )
 
                     params["partition"]={}
 
                     params["partition"]["green basis"]= "matsubara"
                     params["partition"]["green bulla"]= True
-                    params["partition"]["green matsubara cutoff"] = green_cutoff / 100
+                    params["partition"]["green matsubara cutoff"] = green_cutoff
                     params["partition"]["occupation susceptibility bulla"]=True
                     params["partition"]["occupation susceptibility direct"]=False
                     params["partition"]["quantum number susceptibility"] = True
-                    params["partition"]["susceptibility cutoff"] = susc_cutoff / 50
-                    # measured up to susc_cutoff/50; EVALSIM fills the rest with the
+                    params["partition"]["susceptibility cutoff"] = susc_cutoff
+                    # Measured up to susc_cutoff; EVALSIM fills the rest with the
                     # analytic -M/(nu^2+alpha) tail. Cover both the cutoff and DLR
                     # nodes; Chi truncates the output to the solver uniform grid.
                     spacing = 2 * np.pi / self.dlr.beta
                     required = max(float(np.max(np.abs(self.dlr.nu))), float(np.max(np.abs(self.dlr.omega))))
                     # EVALSIM emits indices 0..nTail-1, so include one more point.
                     dlr_tail = np.nextafter(spacing * (np.ceil(required / spacing) + 1), np.inf)
-                    params["partition"]["susceptibility tail"] = max(2 * susc_cutoff, dlr_tail)
+                    params["partition"]["susceptibility tail"] = max(2 * float(self.dlr.cutoff), dlr_tail)
                     params["partition"]["quantum numbers"]={}
                     tempmat = np.ones(Eimp_final.shape[0])
                     params["partition"]["quantum numbers"]["N"]=tempmat.tolist()

@@ -58,10 +58,19 @@ def test_ctqmc_keeps_run_control_for_impurity_objects(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("static_fit", [False, True])
-def test_preprocessing_mixes_inputs_before_writing_json(monkeypatch, tmp_path, static_fit):
+@pytest.mark.parametrize("node_max", [4.0, 22.0])
+@pytest.mark.parametrize("cutoffs", [
+    {},
+    {"GreenCutoff": 2.0, "SusceptibilityCutoff": 3.0},
+    {"green_cutoff": 2.0, "susceptibility_cutoff": 3.0},
+])
+def test_preprocessing_mixes_inputs_before_writing_json(
+    monkeypatch, tmp_path, static_fit, node_max, cutoffs
+):
     monkeypatch.chdir(tmp_path)
     events = []
     control = {"mix": 0.25, "mixing_method": "linear", "npulay": 3}
+    control.update(cutoffs)
 
     ctqmc = object.__new__(CTQMC)
     ctqmc.key = "1"
@@ -70,7 +79,7 @@ def test_preprocessing_mixes_inputs_before_writing_json(monkeypatch, tmp_path, s
     ctqmc.projector = _fake_projector()
     ctqmc.dlr = SimpleNamespace(
         beta=10.0, cutoff=8.0,
-        nu=np.asarray([-22., 0., 22.]), omega=np.asarray([-15., 15.]),
+        nu=np.asarray([-node_max, 0., node_max]), omega=np.asarray([-node_max, node_max]),
         MatsubaraFermionUniform=lambda: np.asarray([1.0, 3.0, 5.0, 7.0]),
         MatsubaraBosonUniform=lambda: np.asarray([0.0, 2.0]),
     )
@@ -105,12 +114,18 @@ def test_preprocessing_mixes_inputs_before_writing_json(monkeypatch, tmp_path, s
     import json
     with open(tmp_path / "impurity_2_1" / "params.json") as stream:
         partition = json.load(stream)["partition"]
-    assert partition["green matsubara cutoff"] == 0.08
-    assert partition["susceptibility cutoff"] == 0.16
+    if cutoffs:
+        assert partition["green matsubara cutoff"] == 2.0
+        assert partition["susceptibility cutoff"] == 3.0
+    else:
+        assert partition["green matsubara cutoff"] == 0.08
+        assert partition["susceptibility cutoff"] == 0.16
     spacing = 2*np.pi/ctqmc.dlr.beta
     n_tail = int(partition["susceptibility tail"]/spacing)
     assert (n_tail-1)*spacing >= np.max(np.abs(ctqmc.dlr.nu))
     assert partition["susceptibility tail"] >= 2*ctqmc.dlr.cutoff
+    if node_max == 4.0:
+        assert partition["susceptibility tail"] == 2*ctqmc.dlr.cutoff
 
     # Both inputs are mixed strictly before their json files are written, and
     # each Mixing receives the run control (hyb additionally the iteration).
@@ -121,6 +136,32 @@ def test_preprocessing_mixes_inputs_before_writing_json(monkeypatch, tmp_path, s
         ("bweiss_save", "bweiss"),
         ("write", "dyn", 2, "1"),
     ]
+
+
+@pytest.mark.parametrize("control,expected", [
+    ({}, 0.08), ({"GreenCutoff": 2.0}, 2.0), ({"green_cutoff": 3.0}, 3.0),
+])
+def test_sigma_smoothing_uses_green_cutoff(control, expected):
+    ctqmc = object.__new__(CTQMC)
+    ctqmc.control = control
+    omega = np.asarray([1.0, 3.0, 5.0])
+    sigma = np.full((1, 1, 1, 3), -0.1j)
+    ctqmc.dlr = SimpleNamespace(
+        beta=10.0, cutoff=8.0, MatsubaraFermionUniform=lambda: omega
+    )
+    calls = []
+
+    def broadener(grid, data, width, temperature, cutoff):
+        calls.append((grid, data, width, temperature, cutoff))
+        return data
+
+    ctqmc.fweiss = SimpleNamespace(GaussianLinearBroad=broadener)
+    assert ctqmc._smooth_sigma_grid(sigma) is sigma
+    assert len(calls) == 1
+    grid, data, width, temperature, cutoff = calls[0]
+    np.testing.assert_array_equal(grid, omega)
+    assert data is sigma
+    assert (width, temperature, cutoff) == (0.05, 0.1, expected)
 
 
 def test_preprocessing_static_bath_skips_bweiss_mixing(monkeypatch, tmp_path):

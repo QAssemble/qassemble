@@ -1,3 +1,4 @@
+import math
 import textwrap
 
 import pytest
@@ -279,3 +280,54 @@ def test_input_fermion_symmetry(monkeypatch, tmp_path, extra, expected):
     runner = object.__new__(Run)
     runner.ReadInput()
     assert runner.control["ft"]["fermion_symmetry"] is expected
+
+
+@pytest.mark.parametrize("extra,expected", [
+    ("", (0.5, 1.0)),
+    ("'MatsubaraCutOff': 100,", (1.0, 2.0)),
+    ("'GreenCutoff': 4.0, 'SusceptibilityCutoff': 7.0,", (4.0, 7.0)),
+    ("'GreenCutoff': 5.0,", (5.0, 1.0)),
+    ("'SusceptibilityCutoff': 9.0,", (0.5, 9.0)),
+])
+def test_input_ctqmc_cutoffs(monkeypatch, tmp_path, extra, expected):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_input(tmp_path / "input.ini", extra)
+    runner = object.__new__(Run)
+    runner.ReadInput()
+    for name, alias, value in zip(
+        ("GreenCutoff", "SusceptibilityCutoff"),
+        ("green_cutoff", "susceptibility_cutoff"), expected,
+    ):
+        assert runner.control["run"][name] == value
+        assert runner.control["run"][alias] == value
+
+
+@pytest.mark.parametrize("name,factor", [("GreenCutoff", 1), ("SusceptibilityCutoff", 2)])
+@pytest.mark.parametrize("boundary", ["minimum", "maximum"])
+def test_input_ctqmc_cutoff_inclusive_bounds(monkeypatch, tmp_path, name, factor, boundary):
+    monkeypatch.chdir(tmp_path)
+    value = factor * math.pi / 100 if boundary == "minimum" else 50.0
+    _write_minimal_input(tmp_path / "input.ini", f"'{name}': {value!r},")
+    runner = object.__new__(Run)
+    runner.ReadInput()
+    assert runner.control["run"][name] == value
+
+
+@pytest.mark.parametrize("name", ["GreenCutoff", "SusceptibilityCutoff"])
+@pytest.mark.parametrize("value", ["0", "-1", "0.01", "51", "float('nan')",
+                                   "float('inf')", "-float('inf')", "'invalid'"])
+def test_input_ctqmc_cutoff_rejects_invalid(monkeypatch, tmp_path, name, value):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_input(tmp_path / "input.ini", f"'{name}': {value},")
+    with pytest.raises(ValueError, match=rf"{name}=.*finite.*\[.*MatsubaraCutOff=50"):
+        object.__new__(Run).ReadInput()
+
+
+@pytest.mark.parametrize("extra,name", [
+    ("", "GreenCutoff"), ("'GreenCutoff': 0.1,", "SusceptibilityCutoff"),
+])
+def test_input_ctqmc_cutoff_validates_defaults(monkeypatch, tmp_path, extra, name):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_input(tmp_path / "input.ini", f"'MatsubaraCutOff': 1, {extra}")
+    with pytest.raises(ValueError, match=name):
+        object.__new__(Run).ReadInput()
