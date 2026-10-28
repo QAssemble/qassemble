@@ -1240,7 +1240,7 @@ def test_run_dispatch_calls_gwedmft(monkeypatch):
 
 
 @pytest.mark.parametrize("mode", ["Auto", "Restart"])
-@pytest.mark.parametrize("convention", [None, 1, 2, 3])
+@pytest.mark.parametrize("convention", [None, 1, 2, 3, 4])
 def test_gwedmft_rejects_previous_static_convention_without_mutation(monkeypatch, tmp_path, mode, convention):
     stack = _install_fake_edmft_stack(monkeypatch)
     corr = _edmft_correlation_object(stack.cf_mod, tmp_path)
@@ -1248,6 +1248,7 @@ def test_gwedmft_rejects_previous_static_convention_without_mutation(monkeypatch
     with h5py.File(corr.hdf5path, "w") as handle:
         group = handle.create_group("gwedmft")
         group.create_dataset("old_checkpoint", data=[42.0])
+        stack.cf_mod.IO.WriteBasisFingerprint(handle, "gwedmft", corr.dlr)
         if convention is not None:
             group.attrs["static_convention"] = convention
     original = Path(corr.hdf5path).read_bytes()
@@ -1352,18 +1353,23 @@ def test_gwedmft_static_gw_dc_is_added_before_dc_mixing(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("mode", ["Auto", "Restart"])
-@pytest.mark.parametrize("fingerprint", ["missing", "changed"])
+@pytest.mark.parametrize("fingerprint", ["missing", "changed", "eps"])
 def test_gwedmft_refuses_incompatible_basis_without_mutation(monkeypatch, tmp_path, mode, fingerprint):
     stack = _install_fake_edmft_stack(monkeypatch)
     corr = _edmft_correlation_object(stack.cf_mod, tmp_path)
     corr.control["run"]["mode"] = mode
+    if fingerprint == "eps":
+        corr.dlr = DLR(dict(beta=4., cutoff=5., eps=1e-15))
     with h5py.File(corr.hdf5path, "w") as handle:
         group = handle.create_group("gwedmft")
         group.attrs["static_convention"] = 5
         group.create_dataset("old_checkpoint", data=[42.])
-        if fingerprint == "changed":
+        if fingerprint != "missing":
             stack.cf_mod.IO.WriteBasisFingerprint(handle, "gwedmft", corr.dlr)
-            corr.dlr.fermion_symmetry = False
+            if fingerprint == "eps":
+                corr.dlr = DLR(dict(beta=4., cutoff=5., eps=1e-12))
+            else:
+                corr.dlr.fermion_symmetry = False
     original = Path(corr.hdf5path).read_bytes()
     with pytest.raises(RuntimeError, match="DLR basis fingerprint.*new Prefix"):
         corr.GWEDMFT()

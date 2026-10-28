@@ -276,6 +276,23 @@ def test_basis_fingerprint_roundtrip_effective_eps_and_symmetry(tmp_path):
             IO.CheckBasisFingerprint(handle, "gwedmft", different)
 
 
+def test_basis_fingerprint_rejects_real_eps_change(tmp_path):
+    from QAssemble.utility.DLR import DLR
+
+    options = {"beta": 4., "cutoff": 5.}
+    dlr = DLR({**options, "eps": 1e-15})
+    same = DLR({**options, "eps": 1e-14})
+    different = DLR({**options, "eps": 1e-12})
+    assert dlr.dF.eps == dlr.dB.eps == 1e-14
+    assert different.dF.eps == different.dB.eps == 1e-12
+    with h5py.File(tmp_path / "basis.h5", "w") as handle:
+        IO.WriteBasisFingerprint(handle, "gwedmft", dlr)
+    with h5py.File(tmp_path / "basis.h5", "r") as handle:
+        IO.CheckBasisFingerprint(handle, "gwedmft", same)
+        with pytest.raises(RuntimeError, match="mismatched.*new Prefix"):
+            IO.CheckBasisFingerprint(handle, "gwedmft", different)
+
+
 @pytest.mark.parametrize("attribute", ["beta", "cutoff", "lambF", "lambB", "symmetry",
     "fermion_symmetry", "dF.eps", "dB.eps", "dF.rank", "dB.rank",
     "tauF", "omega", "tauB", "nu"])
