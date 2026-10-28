@@ -215,6 +215,7 @@ QAssemble/
 | `Control` | `GreenCutoff` | CTQMC Green's-function measurement cutoff in eV; default `MatsubaraCutOff / 100`; finite, positive, in `[pi / beta, MatsubaraCutOff]` |
 | `Control` | `SusceptibilityCutoff` | CTQMC susceptibility measurement cutoff in eV; default `MatsubaraCutOff / 50`; finite, positive, in `[2*pi / beta, MatsubaraCutOff]` |
 | `Control` | `FermionSymmetry` | Default `True`: native cppdlr mirror-symmetric fermion nodes; `False`: unsymmetrized fermion basis |
+| `Control` | `DLREps` | DLR basis tolerance; default `1e-12` (clamped to at least `1e-14`); changing it changes the basis fingerprint, so restarts need a fresh `Prefix` |
 | `Control` | `BosonSymmetry` | Default `True`: cppdlr K+ paired kernels with real/even sample projection; `False`: cppdlr unsymmetrized boson basis |
 | `Control` | `ConstantW` | Constant W parameter for GW |
 | `Crystal` | `RVec` | 3x3 lattice vectors |
