@@ -48,6 +48,29 @@ def _source(func):
     return inspect.getsource(func)
 
 
+def test_gimp_cal_passes_identity_first_moment():
+    recorded = {}
+
+    def convert(value, **kwargs):
+        recorded.update(kwargs)
+        return value
+
+    green = np.zeros((2,2,2,8), complex)
+    owner = object.__new__(GImp)
+    owner.projector = SimpleNamespace(equiv={"imp": [0,1]})
+    owner.key = "imp"
+    owner.green = {"0": {"real": np.zeros(8)}}
+    owner.ReadDict = lambda equiv, values: green
+    owner.dlr = SimpleNamespace(MatsubaraAddNegativeFrequency=lambda value: value,
+                                MatsubaraUniformGrid2DLR=convert)
+    owner.F2T = lambda value: value
+    owner.Occ = lambda value: None
+    owner.Cal()
+    assert recorded["highzero"] is True
+    assert recorded["m1"].shape == (2,2,2)
+    np.testing.assert_array_equal(recorded["m1"], np.repeat(np.eye(2)[:,:,None], 2, axis=2))
+
+
 def test_local_occ_reads_the_last_dlr_tau_node():
     """GLoc.Occ and GImp.Occ evaluate at dlr.tauF[-1], not dlr.beta."""
     for cls in (GLoc, GImp):

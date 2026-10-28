@@ -953,7 +953,8 @@ class GImp(FLocDyn):
             green = self._read_ctqmc_green(self.green)
             self.f_uniform = self.ReadDict(equiv, green)
             green_uniform = self.dlr.MatsubaraAddNegativeFrequency(self.f_uniform)
-            self.f = self.dlr.MatsubaraUniformGrid2DLR(green_uniform, highzero=True)
+            m1 = np.broadcast_to(np.eye(green_uniform.shape[0])[:, :, None], green_uniform.shape[:-1])
+            self.f = self.dlr.MatsubaraUniformGrid2DLR(green_uniform, highzero=True, m1=m1)
         else:
             self.f = np.asfortranarray(self.green, dtype=np.complex128)
 
