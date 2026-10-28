@@ -251,3 +251,50 @@ def test_restore_wlat_rebuilds_connected_real_time_part(tmp_path):
     np.testing.assert_allclose(wlat.kf, saved)
     np.testing.assert_allclose(wlat.ckf, saved - 1)
     np.testing.assert_allclose(wlat.crt, (saved - 1) * 6)
+
+
+def test_basis_fingerprint_roundtrip_effective_eps_and_symmetry(tmp_path):
+    from QAssemble.utility.DLR import DLR
+
+    options = {"beta": 4., "cutoff": 5., "eps": 1e-15}
+    dlr = DLR(options)
+    fingerprint = IO.BasisFingerprint(dlr)
+    assert fingerprint["eps_F"] == fingerprint["eps_B"] == 1e-14
+    assert fingerprint["fermion_symmetry"] is True
+    assert fingerprint["rank_F"] == dlr.dF.rank
+    assert len(fingerprint["omega_sha256"]) == 64
+    same = DLR({**options, "eps": 1e-14})
+    different = DLR({**options, "fermion_symmetry": False})
+    with h5py.File(tmp_path / "basis.h5", "w") as handle:
+        handle.create_group("gwedmft")
+        with pytest.raises(RuntimeError, match="missing.*new Prefix"):
+            IO.CheckBasisFingerprint(handle, "gwedmft", dlr)
+        IO.WriteBasisFingerprint(handle, "gwedmft", dlr)
+    with h5py.File(tmp_path / "basis.h5", "r") as handle:
+        IO.CheckBasisFingerprint(handle, "gwedmft", same)
+        with pytest.raises(RuntimeError, match="mismatched.*new Prefix"):
+            IO.CheckBasisFingerprint(handle, "gwedmft", different)
+
+
+@pytest.mark.parametrize("attribute", ["beta", "cutoff", "lambF", "lambB", "symmetry",
+    "fermion_symmetry", "dF.eps", "dB.eps", "dF.rank", "dB.rank",
+    "tauF", "omega", "tauB", "nu"])
+def test_basis_fingerprint_rejects_changed_metadata_or_nodes(tmp_path, attribute):
+    dlr = SimpleNamespace(
+        beta=4., cutoff=5., lambF=20., lambB=20., symmetry=True,
+        fermion_symmetry=True, dF=SimpleNamespace(eps=1e-14, rank=2),
+        dB=SimpleNamespace(eps=1e-14, rank=2),
+        tauF=np.array([.1, 3.9]), omega=np.array([-1., 1.]),
+        tauB=np.array([.2, 3.8]), nu=np.array([-2., 0., 2.]),
+    )
+    with h5py.File(tmp_path / "basis.h5", "w") as handle:
+        IO.WriteBasisFingerprint(handle, "gwedmft", dlr)
+        owner = dlr
+        parts = attribute.split(".")
+        if len(parts) == 2:
+            owner = getattr(owner, parts[0])
+        name = parts[-1]
+        value = getattr(owner, name)
+        setattr(owner, name, not value if isinstance(value, bool) else value * 2)
+        with pytest.raises(RuntimeError, match="mismatched.*new Prefix"):
+            IO.CheckBasisFingerprint(handle, "gwedmft", dlr)

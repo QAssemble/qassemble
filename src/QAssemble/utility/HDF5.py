@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 import os
 
@@ -33,6 +35,39 @@ class IO:
         if dtype is None:
             return group.create_dataset(name, data=data)
         return group.create_dataset(name, data=data, dtype=dtype)
+
+    @staticmethod
+    def BasisFingerprint(dlr) -> dict:
+        """Identify the actual transform grids before reusing SCF history."""
+        fingerprint = {
+            "version": 1,
+            "beta": float(dlr.beta), "cutoff": float(dlr.cutoff),
+            "lambda_F": float(dlr.lambF), "lambda_B": float(dlr.lambB),
+            "eps_F": float(dlr.dF.eps), "eps_B": float(dlr.dB.eps),
+            "fermion_symmetry": bool(dlr.fermion_symmetry),
+            "boson_symmetry": bool(dlr.symmetry),
+            "rank_F": int(dlr.dF.rank), "rank_B": int(dlr.dB.rank),
+        }
+        for name in ("tauF", "omega", "tauB", "nu"):
+            nodes = np.asarray(getattr(dlr, name), dtype="<f8")
+            fingerprint[f"{name}_sha256"] = hashlib.sha256(nodes.tobytes()).hexdigest()
+        return fingerprint
+
+    @staticmethod
+    def WriteBasisFingerprint(handle, group, dlr):
+        IO.Group(handle, group).attrs["basis_fingerprint"] = json.dumps(
+            IO.BasisFingerprint(dlr), sort_keys=True)
+
+    @staticmethod
+    def CheckBasisFingerprint(handle, group, dlr):
+        saved = handle[group].attrs.get("basis_fingerprint") if group in handle else None
+        expected = json.dumps(IO.BasisFingerprint(dlr), sort_keys=True)
+        if saved != expected:
+            reason = "missing" if saved is None else "mismatched"
+            raise RuntimeError(
+                f"GW+EDMFT {reason} DLR basis fingerprint: fresh start required "
+                "with a new Prefix; checkpoint grids and mixing history cannot be reused."
+            )
 
     @staticmethod
     def LastCompleteIteration(hdf5file, group, keys, itermax) -> int:
