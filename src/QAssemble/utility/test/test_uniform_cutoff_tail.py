@@ -37,6 +37,13 @@ def test_complex_matrix_tail_extension_and_hermitian_fold(sign, highzero, oddzer
     values[...,~positive] = matrix.reshape(shape)[...,None]
     supplied, extended_freq = dlr._ExtendUniformTail(values, freq, sign, tail=moments, highzero=highzero, oddzero=oddzero)
     inferred, inferred_freq = dlr._ExtendUniformTail(values, freq, sign, highzero=highzero, oddzero=oddzero)
+    precedence, precedence_freq = dlr._ExtendUniformTail(values, freq, sign, tail=moments, highzero=highzero, oddzero=oddzero, m1=np.nan)
+    np.testing.assert_array_equal(precedence, supplied)
+    np.testing.assert_array_equal(precedence_freq, extended_freq)
+    if oddzero:
+        ignored, ignored_freq = dlr._ExtendUniformTail(values, freq, sign, highzero=highzero, oddzero=oddzero, m1=np.nan)
+        np.testing.assert_array_equal(ignored, inferred)
+        np.testing.assert_array_equal(ignored_freq, inferred_freq)
     np.testing.assert_allclose(inferred_freq, extended_freq)
     np.testing.assert_allclose(inferred, supplied, atol=1e-10, rtol=1e-10)
     np.testing.assert_array_equal(supplied[...,:len(freq)], values)
@@ -56,6 +63,45 @@ def test_complex_matrix_tail_extension_and_hermitian_fold(sign, highzero, oddzer
     np.testing.assert_allclose(negative,expected)
     np.testing.assert_allclose(dlr.MatsubaraUniformGrid2DLR(values,omega=freq,sign=sign,tail=moments,highzero=highzero,oddzero=oddzero),
                                dlr.MatsubaraUniformGrid2DLR(signed,omega=signed_freq,sign=sign,tail=moments,highzero=highzero,oddzero=oddzero),atol=1e-10)
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_uniform_grid_fixed_m1_matches_supplied_tail(sign):
+    dlr = DLR(dict(beta=20., cutoff=8.))
+    freq = dlr.MatsubaraFermionUniform() if sign == -1 else dlr.MatsubaraBosonUniform()
+    shape = (2,2,1) if sign == -1 else (2,2,1,1)
+    matrix = np.array([[1., 0.2+0.3j], [0.2-0.3j, 0.7]])
+    moments = np.zeros((*shape,4), complex)
+    for k in (1,2,3):
+        moments[...,k] = matrix.reshape(shape)*(k+1)*0.1
+    positive = freq > 0
+    values = np.zeros((*shape,len(freq)), complex)
+    values[...,positive] = sum(moments[...,k,None]/(1j*freq[positive])**k for k in (1,2,3))
+    values[...,~positive] = matrix.reshape(shape)[...,None]
+    fixed = dlr.MatsubaraUniformGrid2DLR(values, omega=freq, sign=sign, m1=moments[...,1])
+    supplied = dlr.MatsubaraUniformGrid2DLR(values, omega=freq, sign=sign, tail=moments)
+    np.testing.assert_allclose(fixed, supplied, atol=1e-10)
+
+
+def test_fixed_m1_only_constrains_appended_tail():
+    dlr = DLR(dict(beta=20., cutoff=8.))
+    freq = dlr.MatsubaraFermionUniform()
+    identity = np.broadcast_to(np.eye(2)[:,:,None], (2,2,2))
+    matrix = np.array([[0.4+0.2j, 0.2+0.3j], [0.2-0.3j, 0.7-0.1j]])[:,:,None]
+    perturbed_m1 = identity + 1e-3*matrix
+    values = (perturbed_m1[...,None]/(1j*freq) +
+              0.2*matrix[...,None]/(1j*freq)**2 + 0.3*matrix[...,None]/(1j*freq)**3)
+    for m1, expected in ((identity, identity), (None, perturbed_m1)):
+        extended, omega = dlr._ExtendUniformTail(values, freq, -1, m1=m1)
+        np.testing.assert_array_equal(extended[...,omega <= freq[-1]], values)
+        appended = omega > freq[-1]
+        assert np.any(appended)
+        scale = omega[-1]
+        design = np.column_stack([(scale/(1j*omega[appended]))**k for k in (1,2,3)])
+        rhs = np.moveaxis(extended[...,appended], -1, 0).reshape(np.count_nonzero(appended), -1)
+        fit, *_ = np.linalg.lstsq(design, rhs, rcond=None)
+        actual_m1 = fit[0].reshape(identity.shape)*scale
+        np.testing.assert_allclose(actual_m1, expected, atol=1e-10, rtol=1e-10)
 
 
 @pytest.mark.parametrize("sign", [-1,1])
@@ -81,6 +127,8 @@ def test_tail_extension_rejects_invalid_signed_grid_and_nonfinite_data():
     value=np.ones((1,1,1,len(freq)),complex)
     with pytest.raises(ValueError,match="finite"):
         dlr._ExtendUniformTail(value*np.nan,freq,-1)
+    with pytest.raises(ValueError,match="m1 must be finite"):
+        dlr._ExtendUniformTail(value,freq,-1,m1=np.nan)
     with pytest.raises(ValueError,match="symmetric"):
         dlr._ExtendUniformTail(np.ones((1,1,1,4)),np.array([-3,-1,1,2.]),-1)
     with pytest.raises(ValueError,match="uniform"):

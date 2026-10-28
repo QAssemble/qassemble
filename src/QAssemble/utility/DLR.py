@@ -415,12 +415,13 @@ class DLR(object):
         out = out.reshape(nu_uniform.size, *f_all.shape[:-1])
         return np.asfortranarray(np.moveaxis(out, 0, -1))
 
-    def _ExtendUniformTail(self, ff, omega, sign, *, tail=None, highzero=True, oddzero=False):
+    def _ExtendUniformTail(self, ff, omega, sign, *, tail=None, highzero=True, oddzero=False, m1=None):
         """Extend a truncated uniform grid using complex matrix moments.
 
         Moments are ordered c0, M1, M2, M3 in powers of 1/(i omega).
         Signed input retains its measured negative branch; only new negative
         points are obtained by the same Hermitian fold as positive-only input.
+        m1 fixes the extrapolated-tail first moment and does not constrain the subsequent DLR fit.
         """
         from .Fourier import Fourier
 
@@ -449,15 +450,26 @@ class DLR(object):
         if tail is None:
             indices = Fourier._tail_fit_indices(freq, 24, log_spaced=True)
             indices = indices[freq[indices] > 0]
-            if indices.size < len(powers):
+            fitted = powers
+            rhs_data = data[..., indices]
+            fixed_m1 = None
+            if m1 is not None and 1 in powers:
+                fixed_m1 = np.broadcast_to(np.asarray(m1, dtype=complex), data.shape[:-1])
+                if not np.all(np.isfinite(fixed_m1)):
+                    raise ValueError("m1 must be finite")
+                fitted = [k for k in powers if k != 1]
+                rhs_data = rhs_data - fixed_m1[..., None] / (1j * freq[indices])
+            if indices.size < len(fitted):
                 raise ValueError("too few nonzero frequencies for the moment tail fit")
             scale = float(np.max(freq[indices]))
-            design = np.column_stack([(scale / (1j * freq[indices]))**k for k in powers])
-            rhs = np.moveaxis(data[..., indices], -1, 0).reshape(indices.size, -1)
+            design = np.column_stack([(scale / (1j * freq[indices]))**k for k in fitted])
+            rhs = np.moveaxis(rhs_data, -1, 0).reshape(indices.size, -1)
             fit, *_ = np.linalg.lstsq(design, rhs, rcond=None)
             moments = np.zeros((*data.shape[:-1], 4), dtype=complex)
-            for column, power in enumerate(powers):
+            for column, power in enumerate(fitted):
                 moments[..., power] = fit[column].reshape(data.shape[:-1]) * scale**power
+            if fixed_m1 is not None:
+                moments[..., 1] = fixed_m1
         else:
             moments = np.asarray(tail, dtype=complex)
             if moments.shape != (*data.shape[:-1], 4) or not np.all(np.isfinite(moments)):
@@ -485,7 +497,7 @@ class DLR(object):
         ff : np.ndarray,
         omega : np.ndarray = None,
         sign : int = -1,
-        *, tail=None, highzero=True, oddzero=False,
+        *, tail=None, highzero=True, oddzero=False, m1=None,
     ) -> np.ndarray:
         """Fit uniform Matsubara data and evaluate it on the DLR grid.
 
@@ -506,7 +518,7 @@ class DLR(object):
                     f"frequency dimension {ff.shape[-1]} does not match full signed omega length {omega.size}; "
                     "pass an explicit positive omega to enable positive-only expansion"
                 )
-            ff, omega = self._ExtendUniformTail(ff, omega, sign, tail=tail, highzero=highzero, oddzero=oddzero)
+            ff, omega = self._ExtendUniformTail(ff, omega, sign, tail=tail, highzero=highzero, oddzero=oddzero, m1=m1)
             if omega.ndim == 1 and omega.size > 0 and np.all(omega >= 0.0):
                 istart = 1 if np.isclose(omega[0], 0.0) else 0
                 # F_ij(-nu) = conj(F_ji(+nu)): transpose orbital and spin axes,
@@ -542,7 +554,7 @@ class DLR(object):
                 "pass an explicit positive omega to enable positive-only expansion"
             )
 
-        ff, omega = self._ExtendUniformTail(ff, omega, sign, tail=tail, highzero=highzero, oddzero=oddzero)
+        ff, omega = self._ExtendUniformTail(ff, omega, sign, tail=tail, highzero=highzero, oddzero=oddzero, m1=m1)
         if omega.ndim == 1 and omega.size > 0 and np.all(omega >= 0.0):
             ff = self.MatsubaraAddNegativeFrequency(ff)
             omega = np.concatenate((-omega[::-1], omega))
