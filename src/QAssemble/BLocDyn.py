@@ -1299,6 +1299,7 @@ class PImp(BLocDyn):
                 "pimp", self.f_uniform.shape[:4] + (len(self.dlr.nu),)
             ),
         )
+        self.WriteBrdPrev("pimp", self.f)
         self.t = self.F2T(self.f)
 
         return None
@@ -1313,19 +1314,10 @@ class PImp(BLocDyn):
             npulay=int(self.control["npulay"]),
             key=self.key,
         )
-        # Pulay mixing is an affine (not convex) combination and can leave the
-        # causal cone; re-project the mixed result and overwrite the stored
-        # "last" so the next iteration's fold/residuals are based on the value
-        # the run actually consumes (FullGWEDMFT *brd semantics).
-        self.f = self.CausalProjection(
-            self.f, grid="dlr", coefficient_sign=-1,
-            oddzero=True, highzero=True, constraint_tol="auto",
-            fallback_matrix=self.ReadBrdPrev("pimp", self.f.shape),
-        )
-        IO.OverwriteMixingLast(
-            self.hdf5file, self.group, self.key, self.component, self.f
-        )
-        self.WriteBrdPrev("pimp", self.f)
+        # Cal already projected the input: FullGWEDMFT runs pimpbrd before
+        # comembedmixwrite/compulay and does not re-project the mixed result.
+        # Re-projecting and overwriting "last" fed projection loss back into
+        # the next fold and biased the fixed point.
         self.f_uniform = np.asfortranarray(
             self.dlr.MatsubaraDLR2UniformGrid(self.f, sign=1)
         )
@@ -1653,10 +1645,10 @@ class BWeiss(BLocDyn):
 
         The mixed bath is re-projected and the stored mixing "last" is
         overwritten with the projected value so the next iteration's fold and
-        residuals are based on the bath the run actually consumes (same policy
-        as PImp.Mixing).  All derived quantities (``f``, uniform grids, tau
-        transforms) are rebuilt from the mixed bath so PImp/WImp in
-        PostProcessing see the same interaction CTQMC was given.
+        residuals are based on the bath the run actually consumes. All derived
+        quantities (``f``, uniform grids, tau transforms) are rebuilt from the
+        mixed bath so PImp/WImp in PostProcessing see the same interaction
+        CTQMC was given.
         """
         if self.cf is None:
             return None

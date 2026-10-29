@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import h5py
 import numpy as np
 import pytest
 
@@ -216,3 +217,41 @@ def test_chi_cal_seeds_and_reuses_brd_prev_cache(monkeypatch, tmp_path):
     # The second iteration receives the first one's projected f as fallback.
     np.testing.assert_allclose(projection_calls[1]["fallback_matrix"], first.f)
     assert second.f.shape == first.f.shape
+
+
+def test_pimp_cal_seeds_and_reuses_brd_prev_cache(monkeypatch, tmp_path):
+    crystal = SimpleNamespace(ns=1)
+    projector = _FakeProjector()
+    chi_uniform = np.full((1, 1, 1, 1, 3), 0.1, dtype=np.complex128)
+    utilde_uniform = np.ones_like(chi_uniform)
+    path = str(tmp_path / "glob.h5")
+
+    projection_calls = []
+
+    def fake_causal_projection(self, value, *, grid="dlr", **kwargs):
+        projection_calls.append(kwargs)
+        return np.asfortranarray(value[..., : len(self.dlr.nu)] + 100.0)
+
+    monkeypatch.setattr(PImp, "CausalProjection", fake_causal_projection)
+
+    first = PImp(
+        crystal=crystal, dlr=_FakeDLR(nfreq=2, nuniform=3),
+        projector=projector, key="1",
+        chi=SimpleNamespace(f_uniform=chi_uniform), utilde=utilde_uniform,
+        hdf5file=path, group="calc",
+    )
+    assert projection_calls[0]["fallback_matrix"] is None
+    with h5py.File(path, "r") as handle:
+        np.testing.assert_allclose(handle["calc/PImp/pimp_brd_prev.1"][()], first.f)
+
+    second = PImp(
+        crystal=crystal, dlr=_FakeDLR(nfreq=2, nuniform=3),
+        projector=projector, key="1",
+        chi=SimpleNamespace(f_uniform=chi_uniform), utilde=utilde_uniform,
+        hdf5file=path, group="calc",
+    )
+    assert len(projection_calls) == 2
+    np.testing.assert_allclose(projection_calls[1]["fallback_matrix"], first.f)
+    assert second.f.shape == first.f.shape
+    with h5py.File(path, "r") as handle:
+        np.testing.assert_allclose(handle["calc/PImp/pimp_brd_prev.1"][()], second.f)

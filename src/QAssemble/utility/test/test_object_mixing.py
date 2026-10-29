@@ -297,30 +297,21 @@ def test_pimp_mixing_assigns_f_and_tau(monkeypatch, tmp_path):
 
     np.testing.assert_allclose(obj.f, [4.0])
     np.testing.assert_allclose(obj.t, [24.0])
-    # f_uniform is re-derived from the mixed+projected f (fake DLR adds 10).
+    # f_uniform is re-derived from the mixed f (fake DLR adds 10).
     np.testing.assert_allclose(obj.f_uniform, [14.0])
-    # The mixed value is re-projected on the DLR grid with the zero-static
-    # pimpbrd policy.
-    assert len(projection_calls) == 2
-    grid, kwargs = projection_calls[-1]
-    assert grid == "dlr"
-    assert kwargs["coefficient_sign"] == -1
-    assert kwargs["oddzero"] is True
-    assert kwargs["highzero"] is True
+    assert projection_calls == []
     with h5py.File(path, "r") as handle:
         np.testing.assert_allclose(handle["calc/Mixing/1/pimp/last"][()], [4.0])
-        # The projected result seeds the previous-iteration fallback cache.
-        np.testing.assert_allclose(handle["calc/PImp/pimp_brd_prev.1"][()], [4.0])
 
 
-def test_pimp_mixing_overwrites_last_with_projected_value(monkeypatch, tmp_path):
-    # Pins the FullGWEDMFT semantics: the stored mixing "last" holds the
-    # *projected* value the run consumes, so the next iteration's fold (and
-    # its residuals) are based on the causal result -- while the appended
-    # history entries still reflect the pre-overwrite mixing pipeline.
+@pytest.mark.parametrize("mixing_method", ["linear", "pulay"])
+def test_pimp_mixing_does_not_reproject_or_overwrite_last(
+    monkeypatch, tmp_path, mixing_method
+):
     path = tmp_path / "mix.h5"
     obj = object.__new__(PImp)
     _seed_common(obj, path)
+    obj.control["mixing_method"] = mixing_method
     obj.dlr = _FakeDLR()
     obj.f = np.asarray([0.0], dtype=np.complex128)
     obj.f_uniform = None
@@ -329,32 +320,26 @@ def test_pimp_mixing_overwrites_last_with_projected_value(monkeypatch, tmp_path)
         np.asarray(value, dtype=np.complex128) + 20.0
     )
 
-    fallbacks = []
-
     def fake_causal_projection(self, value, *, grid="dlr", **kwargs):
-        fallbacks.append(kwargs.get("fallback_matrix"))
-        return np.asfortranarray(np.asarray(value, dtype=np.complex128) + 1.0)
+        raise AssertionError("PImp.Mixing must not re-project")
 
     monkeypatch.setattr(PImp, "CausalProjection", fake_causal_projection)
 
     assert obj.Mixing() is None
-    # iter 1: passthrough mixing [0.0] -> projected [1.0] overwrites last.
-    np.testing.assert_allclose(obj.f, [1.0])
+    # The first iteration passes through without projection.
+    np.testing.assert_allclose(obj.f, [0.0])
     with h5py.File(path, "r") as handle:
-        np.testing.assert_allclose(handle["calc/Mixing/1/pimp/last"][()], [1.0])
+        np.testing.assert_allclose(handle["calc/Mixing/1/pimp/last"][()], [0.0])
 
     obj.f = np.asarray([8.0], dtype=np.complex128)
     obj.iteration = 2
     assert obj.Mixing() is None
 
-    # iter 2 folds against the *projected* last: 0.5*8 + 0.5*1 = 4.5, then
-    # the projection (+1) gives 5.5, which again overwrites last and the cache.
-    np.testing.assert_allclose(obj.f, [5.5])
-    # The previous iteration's projected value arrived as the QP fallback.
-    np.testing.assert_allclose(fallbacks[-1], [1.0])
+    # Pulay has only one history entry, so both methods use linear mixing.
+    np.testing.assert_allclose(obj.f, [4.0])
     with h5py.File(path, "r") as handle:
-        np.testing.assert_allclose(handle["calc/Mixing/1/pimp/last"][()], [5.5])
-        np.testing.assert_allclose(handle["calc/PImp/pimp_brd_prev.1"][()], [5.5])
+        np.testing.assert_allclose(handle["calc/Mixing/1/pimp/last"][()], [4.0])
+        assert handle["calc/Mixing/1/pimp"].attrs["method"] == mixing_method
 
 
 def test_fweiss_mixing_mixes_hyb_and_recomputes_h(monkeypatch, tmp_path):
