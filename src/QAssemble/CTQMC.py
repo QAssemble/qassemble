@@ -376,6 +376,50 @@ class CTQMC(object):
             )
         return self.bweiss.vloc.vproj[key], "bare_vloc"
 
+    def _current_bath_hartree_shift(self, iter : int, key):
+        if (getattr(self, "control", {}).get("method") != "gw+edmft"
+                or iter <= 1 or not self._use_dyn()):
+            return None
+        eimp = getattr(getattr(self, "fweiss", None), "eimp", None)
+        hloc = getattr(eimp, "hloc", None)
+        hdf5file = getattr(self, "hdf5file", None)
+        group = getattr(self, "group", None)
+        if hloc is None or hdf5file is None or group is None:
+            return None
+
+        path = f"{group}/GImp/gimp.{iter - 1}.{key}"
+        try:
+            with h5py.File(hdf5file, "r") as handle:
+                green_prev = handle[path][()]
+        except (KeyError, FileNotFoundError):
+            logger.warning(
+                "[sighimp-input] key=%s iter=%s: missing %s; "
+                "retaining the existing impurity level", key, iter, path,
+            )
+            return None
+
+        occ_prev = GImp(
+            crystal=self.crystal, dlr=self.dlr, projector=self.projector,
+            key=key, green=green_prev,
+        ).occ
+        vloc, _ = self._resolve_sighimp_vloc(key)
+        h_new = SigHImp(
+            crystal=self.crystal, projector=self.projector, key=key,
+            occ=occ_prev, vloc=vloc, control=self.control,
+            hdf5file=hdf5file, group=group, iteration=iter,
+        ).h
+        equiv = np.asarray(self.projector.equiv[key], dtype=int)
+        shift = eimp.AverageByEquiv(equiv, h_new - hloc, squeeze=False).real
+        with h5py.File(hdf5file, "a") as handle:
+            diagnostics = IO.Group(handle, group, "SigHImp")
+            IO.CreateDataset(diagnostics, f"sighimp_input.{iter}.{key}", h_new, dtype=complex)
+            IO.CreateDataset(diagnostics, f"sighimp_shift.{iter}.{key}", shift)
+        logger.info(
+            "[sighimp-input] key=%s iter=%s max|dH|=%.6e",
+            key, iter, np.max(np.abs(shift)),
+        )
+        return shift
+
     def _write_sigimp_guard_diagnostics(self, iter : int, diagnostics : dict) -> None:
         if self.hdf5file is None or self.group is None:
             return
@@ -462,6 +506,11 @@ class CTQMC(object):
 
                 logger.info('*** write dyn.json file ***')
                 self.bweiss._write_json_pair('dyn', iter, key, self.bweiss._as_dyn_dict(key))
+
+            hartree_shift = self._current_bath_hartree_shift(iter, key)
+            if hartree_shift is not None:
+                # EImp subtracts hloc; ToCTQMC orders all up orbitals before down.
+                Eimp_final -= np.kron(np.eye(2), hartree_shift[..., 0])
 
             ##############################
             ### Write params.json file ###
