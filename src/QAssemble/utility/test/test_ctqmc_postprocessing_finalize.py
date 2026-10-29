@@ -1,10 +1,14 @@
 from types import SimpleNamespace
 
 import os
+import json
+import h5py
 import numpy as np
 import pytest
 
 from QAssemble.CTQMC import CTQMC
+from QAssemble.FLocStc import EImp
+from QAssemble.utility.DLR import DLR
 
 
 class _Output:
@@ -211,6 +215,144 @@ def test_preprocessing_static_bath_skips_bweiss_mixing(monkeypatch, tmp_path):
         ("fweiss_mix", 1, control),
         ("write", "hyb", 1, "1"),
     ]
+
+
+@pytest.mark.parametrize("method,iteration,use_dyn,has_previous", [
+    ("gw+edmft", 2, True, True),
+    ("gw+edmft", 1, True, True),
+    ("edmft", 2, True, True),
+    ("dmft", 2, True, True),
+    ("gw+edmft", 2, False, True),
+    ("gw+edmft", 2, True, False),
+])
+def test_preprocessing_current_bath_hartree(
+    monkeypatch, tmp_path, caplog, method, iteration, use_dyn, has_previous
+):
+    monkeypatch.chdir(tmp_path)
+    ctqmc = object.__new__(CTQMC)
+    ctqmc.key = "1"
+    ctqmc.control = {"method": method, "mix": 0.1, "mixing_method": "linear", "npulay": 3}
+    ctqmc.crystal = SimpleNamespace(soc=False, ns=1)
+    pairs = [(0, 0), (0, 1), (1, 0), (1, 1)]
+    ctqmc.projector = SimpleNamespace(
+        fprojector={"1": np.eye(2)[:, :, None]},
+        bprojector={"1": np.eye(4)[:, :, None]},
+        equiv={"1": np.array([[1, 2], [2, 1]])},
+        ProbBorb2FPair=lambda key, index: pairs[index],
+    )
+    ctqmc.dlr = DLR(dict(beta=10.0, cutoff=8.0))
+    dlr = ctqmc.dlr
+    rotation = np.array([[0.8, -0.6], [0.6, 0.8]])
+    energies = np.array([-0.12, 0.24])
+    green = np.einsum(
+        "ik,kf,jk->ijf", rotation,
+        1 / (1j * dlr.omega[None, :] - energies[:, None]), rotation,
+    )[:, :, None, :]
+    # Analytic single-pole densities at the same last tau node used by GImp.Occ.
+    rho = rotation @ np.diag(
+        np.exp(-dlr.tauF[-1] * energies) / (1 + np.exp(-dlr.beta * energies))
+    ) @ rotation.T
+    ctqmc.hdf5file = str(tmp_path / "impurity.h5")
+    ctqmc.group = "GWEDMFT"
+    with h5py.File(ctqmc.hdf5file, "w") as handle:
+        group = handle.create_group(f"{ctqmc.group}/GImp")
+        if has_previous:
+            group.create_dataset("gimp.1.1", data=green)
+        group.create_dataset("gimp.1.1_uniform", data=np.zeros_like(green))
+
+    hloc = np.array([[0.4, 0.05], [0.05, 0.6]])[:, :, None]
+    eimp = EImp(
+        ctqmc.crystal, ctqmc.projector, "1",
+        hamtb=np.array([[1.1, 0.2], [0.2, 1.7]])[:, :, None, None],
+        mu=0.3, hloc=hloc.copy(), floc=np.zeros_like(hloc),
+    )
+    old_one_body, old_mu = eimp.ToCTQMC()
+    omega = dlr.MatsubaraFermionUniform()
+    hyb = {"1": {"real": np.zeros_like(omega).tolist(), "imag": (-0.2 / omega).tolist()}}
+    written_hyb = []
+
+    def write_json(stem, iteration, key, payload):
+        with open(f"{stem}.json", "w") as stream:
+            json.dump(payload, stream, sort_keys=True)
+        if stem == "hyb":
+            written_hyb.append((tmp_path / f"impurity_{iteration}_{key}" / "hyb.json").read_bytes())
+
+    ctqmc.fweiss = SimpleNamespace(
+        e=eimp.e.copy(), eimp=eimp,
+        h=np.broadcast_to((0.2 / (1j * omega)), (2, 2, 1, omega.size)).copy(),
+        Mixing=lambda **kwargs: None,
+        _write_json_pair=write_json, _as_hyb_dict=lambda key: hyb,
+    )
+    m = np.array([[1.2, 0.3], [0.3, 0.8]])
+    bare_v = 2 * np.outer(m.ravel(), m.ravel())[:, :, None, None]
+    solver_u = 0.75 * bare_v
+
+    def mix_bweiss(**kwargs):
+        ctqmc.bweiss.f_to_solver_uniform = np.stack([solver_u, bare_v], axis=-1)
+
+    ctqmc.bweiss = SimpleNamespace(
+        cf=np.ones(1) if use_dyn else None,
+        f=0.5 * bare_v[..., None], f_uniform=0.25 * bare_v[..., None],
+        f_to_solver_uniform=None,
+        vloc=SimpleNamespace(vproj={"1": bare_v}, GetUijklComCTQMC=lambda key: np.zeros((2, 2, 2, 2))),
+        Mixing=mix_bweiss, Save=lambda name: None,
+        _write_json_pair=write_json,
+        _as_dyn_dict=lambda key: {"D0": (solver_u - bare_v).ravel().tolist()},
+    )
+    ctqmc.ctqmc_dir = str(tmp_path)
+
+    def no_hartree_mixing(self):
+        pytest.fail("The solver-input Hartree must not be mixed")
+
+    monkeypatch.setattr("QAssemble.CTQMC.SigHImp.Mixing", no_hartree_mixing)
+    with caplog.at_level("INFO", logger="QAssemble"):
+        ctqmc.PreProcessing(iter=iteration)
+
+    workdir = tmp_path / f"impurity_{iteration}_1"
+    params = json.loads((workdir / "params.json").read_text())
+    applied = method == "gw+edmft" and iteration > 1 and use_dyn and has_previous
+    if applied:
+        # H_ab = 2 sum_cd U_(ab),(cd) rho_dc; average equivalent shifts.
+        h_new = (3 * m * np.sum(m * rho.T))[:, :, None]
+        shift = h_new - hloc
+        shift[0, 0, 0] = shift[1, 1, 0] = (shift[0, 0, 0] + shift[1, 1, 0]) / 2
+        expected = old_one_body.real - np.kron(np.eye(2), shift[..., 0])
+        np.testing.assert_allclose(params["hloc"]["one body"], expected, rtol=0, atol=1e-11)
+        # Spin-up orbitals precede spin-down orbitals; mu is not re-centered.
+        np.testing.assert_allclose(np.asarray(params["hloc"]["one body"])[:2, 2:], 0, atol=0)
+        with h5py.File(ctqmc.hdf5file, "r") as handle:
+            diagnostics = handle[f"{ctqmc.group}/SigHImp"]
+            assert set(diagnostics) == {"sighimp_input.2.1", "sighimp_shift.2.1"}
+            np.testing.assert_allclose(diagnostics["sighimp_input.2.1"][()], h_new, rtol=0, atol=1e-11)
+            np.testing.assert_allclose(diagnostics["sighimp_shift.2.1"][()], shift, rtol=0, atol=1e-11)
+            assert f"{ctqmc.group}/Mixing" not in handle
+        assert "key=1 iter=2" in caplog.text
+        assert "max|dH|=" in caplog.text
+    else:
+        np.testing.assert_array_equal(params["hloc"]["one body"], old_one_body.real)
+        with h5py.File(ctqmc.hdf5file, "r") as handle:
+            assert f"{ctqmc.group}/SigHImp" not in handle
+        if not has_previous:
+            assert "GImp/gimp.1.1" in caplog.text
+            assert "WARNING" in caplog.text
+    assert params["mu"] == old_mu
+    np.testing.assert_array_equal(eimp.hloc, hloc)
+    assert (workdir / "hyb.json").read_bytes() == written_hyb[0]
+    assert json.loads((workdir / "hyb.json").read_text()) == hyb
+
+
+@pytest.mark.parametrize("missing", ["control", "hloc", "hdf5file", "group"])
+def test_current_bath_hartree_skips_missing_optional_context(tmp_path, missing):
+    ctqmc = object.__new__(CTQMC)
+    ctqmc.control = {"method": "gw+edmft"}
+    ctqmc.bweiss = SimpleNamespace(cf=np.ones(1))
+    ctqmc.fweiss = SimpleNamespace(eimp=SimpleNamespace(hloc=np.ones((1, 1, 1))))
+    ctqmc.hdf5file = str(tmp_path / "unused.h5")
+    ctqmc.group = "GWEDMFT"
+    delattr(ctqmc.fweiss.eimp if missing == "hloc" else ctqmc, missing)
+
+    assert ctqmc._current_bath_hartree_shift(iter=2, key="1") is None
+    assert not (tmp_path / "unused.h5").exists()
 
 
 def test_hybridization_tail_guard_rejects_nondecaying_constant():
