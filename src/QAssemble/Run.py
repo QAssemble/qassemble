@@ -203,18 +203,6 @@ class Run:
             ini.get("SigImpGuardImTol", 1.0e-10)
         )
         control["run"]["sigimp_guard_im_tol"] = control["run"]["SigImpGuardImTol"]
-        control["run"]["SigImpGuardRoughnessFactor"] = float(
-            ini.get("SigImpGuardRoughnessFactor", 10.0)
-        )
-        control["run"]["sigimp_guard_roughness_factor"] = control["run"][
-            "SigImpGuardRoughnessFactor"
-        ]
-        control["run"]["SigImpGuardErrorFactor"] = float(
-            ini.get("SigImpGuardErrorFactor", 10.0)
-        )
-        control["run"]["sigimp_guard_error_factor"] = control["run"][
-            "SigImpGuardErrorFactor"
-        ]
         control["run"]["SigImpGuardLowFreqPoints"] = int(
             ini.get("SigImpGuardLowFreqPoints", 80)
         )
