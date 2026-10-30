@@ -931,6 +931,7 @@ class Chi(BLocDyn):
         hdf5file : str = None,
         group : str = None,
         iteration: int = None,
+        equiv_average: bool = False,
     ):
 
         super().__init__(crystal, dlr, projector)
@@ -938,7 +939,9 @@ class Chi(BLocDyn):
         self.key = self.ResolveProblemKey(key)
         self.partition = partition
         self.occupation = None
+        self.equiv_average = equiv_average
         self.occupation_susceptibility_bulla = None
+        self.occupation_susceptibility_bulla_raw = None
         self.occupation_susceptibility_xij = None
         self.occupation_susceptibility_xij_uniform = None
         self.f_uniform = None
@@ -1041,6 +1044,34 @@ class Chi(BLocDyn):
 
         return chi_boson
 
+    def _average_density_by_equiv(self, susceptibility: np.ndarray) -> np.ndarray:
+        equiv = np.asarray(self.projector.equiv[self.key], dtype=int)
+        classes = np.diag(equiv)
+        if len(np.unique(classes)) == len(classes):
+            return susceptibility
+
+        density = []
+        for b in range(susceptibility.shape[0]):
+            m1, m2 = self.projector.ProbBorb2FPair(self.key, b)
+            if m1 == m2:
+                density.append((b, m1))
+
+        groups = {}
+        for bi, i in density:
+            for bj, j in density:
+                if i == j:
+                    label = ("diagonal", classes[i])
+                else:
+                    label = ("offdiagonal", *sorted((classes[i], classes[j])))
+                groups.setdefault(label, []).append((bi, bj))
+
+        averaged = susceptibility.copy(order='F')
+        for pairs in groups.values():
+            if len(pairs) > 1:
+                bi, bj = np.asarray(pairs).T
+                averaged[bi, bj] = np.mean(susceptibility[bi, bj], axis=0)
+        return averaged
+
     def _fermion_orbital_count_from_boson(self) -> int:
         pairs = self.projector.blocal2pair[self.key][0].values()
         if len(pairs) == 0:
@@ -1124,6 +1155,9 @@ class Chi(BLocDyn):
             return None
 
         susc_uniform = self.QuadSusceptibility2Boson(susc_uniform)
+        self.occupation_susceptibility_bulla_raw = np.asfortranarray(susc_uniform)
+        if self.equiv_average:
+            susc_uniform = self._average_density_by_equiv(susc_uniform)
         raw_uniform = np.asfortranarray(susc_uniform)
         self.occupation_susceptibility_bulla = raw_uniform
         # chi decays to zero and has non-negative diagonal spectral weight, so
@@ -1164,6 +1198,9 @@ class Chi(BLocDyn):
             else:
                 IO.CreateDataset(chi, fn_write, self.f, dtype=complex)
                 IO.CreateDataset(chi, fn_write + '_uniform', self.f_uniform, dtype=complex)
+                if self.equiv_average:
+                    IO.CreateDataset(chi, fn_write + '_raw_uniform',
+                                     self.occupation_susceptibility_bulla_raw, dtype=complex)
 
         return None
 

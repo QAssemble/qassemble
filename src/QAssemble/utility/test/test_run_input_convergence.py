@@ -52,6 +52,22 @@ def test_input_boson_symmetry(monkeypatch, tmp_path, extra, expected):
     assert runner.control["ft"]["symmetry"] is expected
 
 
+@pytest.mark.parametrize("extra,expected", [
+    ("", False),
+    ("'ChiEquivAverage': True,", True),
+    ("'ChiEquivAverage': False,", False),
+    ("'ChiEquivAverage': 'true',", True),
+    ("'ChiEquivAverage': 'false',", False),
+])
+def test_input_chi_equiv_average(monkeypatch, tmp_path, extra, expected):
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_input(tmp_path / "input.ini", extra)
+    runner = object.__new__(Run)
+    runner.ReadInput()
+    assert runner.control["run"]["ChiEquivAverage"] is expected
+    assert runner.control["run"]["chi_equiv_average"] is expected
+
+
 @pytest.mark.parametrize(
     ("extra", "expected"),
     [
