@@ -784,6 +784,9 @@ class CTQMC(object):
                     hdf5file=self.hdf5file,
                     group=self.group,
                     iteration=iter,
+                    equiv_average=self._control_bool(
+                        "ChiEquivAverage", "chi_equiv_average", default=False
+                    ),
                 )
                 self.pimp = PImp(
                     crystal=self.crystal,

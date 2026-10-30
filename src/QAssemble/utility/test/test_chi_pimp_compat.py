@@ -32,16 +32,17 @@ class _FakeDLR:
 
 
 class _FakeProjector:
-    def __init__(self):
-        self.bprojector = {"1": np.ones((1, 1, 1), dtype=float)}
-        self.equiv = {"1": np.eye(1, dtype=int)}
-        self.blocal2pair = {"1": [{0: (0, 0)}]}
+    def __init__(self, classes=(1,), pairs=None):
+        if pairs is None:
+            pairs = [(i, i) for i in range(len(classes))]
+        self.bprojector = {"1": np.ones((1, len(pairs), 1), dtype=float)}
+        self.equiv = {"1": np.diag(classes)}
+        self.blocal2pair = {"1": [dict(enumerate(pairs))]}
 
     def ProbBorb2FPair(self, key, iorbc, ispace=0):
         assert key == "1"
-        assert int(iorbc) == 0
         assert ispace == 0
-        return (0, 0)
+        return self.blocal2pair[key][ispace][int(iorbc)]
 
 
 def _chi_reader():
@@ -74,6 +75,104 @@ def test_chi_quad_susceptibility_rejects_non_ctqmc_shape():
 
     with pytest.raises(ValueError, match="chi must be 7D"):
         reader.QuadSusceptibility2Boson(chi)
+
+
+@pytest.mark.parametrize("classes,groups", [
+    ((1, 1, 1), [
+        [(1, 1), (2, 2), (4, 4)],
+        [(1, 2), (1, 4), (2, 1), (2, 4), (4, 1), (4, 2)],
+    ]),
+    ((1, 2, 3), []),
+    ((1, 1, 2), [
+        [(2, 2), (4, 4)],
+        [(2, 4), (4, 2)],
+        [(1, 2), (1, 4), (2, 1), (4, 1)],
+    ]),
+], ids=["equivalent", "distinct", "mixed"])
+def test_chi_density_equiv_average_preserves_charge_and_other_pairs(classes, groups):
+    reader = _chi_reader()
+    # Deliberately shuffled boson indices, including non-density pairs.
+    reader.projector = _FakeProjector(
+        classes, pairs=[(0, 1), (2, 2), (0, 0), (1, 0), (1, 1)]
+    )
+    values = np.arange(5 * 5 * 2 * 2 * 3).reshape(5, 5, 2, 2, 3) ** 2
+    raw = np.asfortranarray(6.0 * values + 3.0j * values[::-1])
+    original = raw.copy()
+    expected = raw.copy()
+    for group in groups:
+        mean = sum(raw[bi, bj] for bi, bj in group) / len(group)
+        for bi, bj in group:
+            expected[bi, bj] = mean
+
+    out = reader._average_density_by_equiv(raw)
+
+    np.testing.assert_array_equal(out, expected)
+    np.testing.assert_array_equal(raw, original)
+    density = np.ix_([1, 2, 4], [1, 2, 4])
+    np.testing.assert_array_equal(out[density].sum(axis=(0, 1)),
+                                  raw[density].sum(axis=(0, 1)))
+    np.testing.assert_array_equal(out[[0, 3]], raw[[0, 3]])
+    np.testing.assert_array_equal(out[:, [0, 3]], raw[:, [0, 3]])
+    if not groups:
+        assert out.tobytes() == raw.tobytes()
+
+
+@pytest.mark.parametrize("enabled", [None, False, True], ids=["default", "off", "on"])
+def test_chi_cal_equiv_average_and_raw_save(monkeypatch, tmp_path, enabled):
+    crystal = SimpleNamespace(ns=2)
+    projector = _FakeProjector(classes=(1, 1, 1))
+    values = np.arange(6 * 6 * 3).reshape(6, 6, 3) ** 2
+    solver = 6.0 * values + 3.0j * values[::-1]
+    partition = {"occupation-susceptibility-bulla": {
+        f"{i}_{j}": {"real": solver[i, j].real.tolist(),
+                     "imag": solver[i, j].imag.tolist()}
+        for i in range(6) for j in range(6)
+    }}
+    raw = np.empty((3, 3, 2, 2, 3), dtype=complex, order="F")
+    for js in range(2):
+        for ks in range(2):
+            raw[:, :, js, ks] = solver[3 * js:3 * js + 3, 3 * ks:3 * ks + 3]
+    expected = raw.copy()
+    if enabled:
+        diagonal = np.eye(3, dtype=bool)
+        expected[diagonal] = raw[diagonal].mean(axis=0)
+        expected[~diagonal] = raw[~diagonal].mean(axis=0)
+    projection_calls = []
+
+    def fake_causal_projection(self, value, **kwargs):
+        projection_calls.append(value.copy())
+        return np.asfortranarray(value + 100.0)
+
+    monkeypatch.setattr(Chi, "CausalProjection", fake_causal_projection)
+    monkeypatch.setattr(PImp, "CausalProjection", fake_causal_projection)
+    options = {} if enabled is None else {"equiv_average": enabled}
+    path = str(tmp_path / "chi.h5")
+    chi = Chi(crystal, _FakeDLR(nfreq=3), projector, "1", partition=partition,
+              hdf5file=path, group="calc", iteration=2, **options)
+    assert chi.equiv_average is bool(enabled)
+    np.testing.assert_array_equal(projection_calls[0], expected)
+    np.testing.assert_array_equal(chi.occupation_susceptibility_bulla_raw, raw)
+    np.testing.assert_array_equal(chi.occupation_susceptibility_bulla, expected)
+    np.testing.assert_array_equal(chi.f, expected + 100.0)
+    np.testing.assert_array_equal(chi.f_uniform, expected + 1100.0)
+    np.testing.assert_array_equal(chi.t, chi.f)
+    if not enabled:
+        assert chi.f.tobytes() == (raw + 100.0).tobytes()
+        assert chi.f_uniform.tobytes() == (raw + 1100.0).tobytes()
+    chi.Save("chi")
+    with h5py.File(path, "r") as handle:
+        saved = handle["calc/Chi"]
+        names = {"chi.2.1", "chi.2.1_uniform", "chi_brd_prev.1"}
+        if enabled:
+            names.add("chi.2.1_raw_uniform")
+            np.testing.assert_array_equal(saved["chi.2.1_raw_uniform"][()], raw)
+        assert set(saved) == names
+        np.testing.assert_array_equal(saved["chi.2.1_uniform"][()], chi.f_uniform)
+
+    pimp = PImp(crystal, chi.dlr, projector, "1", chi=chi,
+                utilde=np.zeros_like(chi.f_uniform))
+    np.testing.assert_array_equal(pimp.chi_boson_uniform, chi.f_uniform)
+    np.testing.assert_array_equal(projection_calls[1], -chi.f_uniform)
 
 
 def test_chi_cal_projects_ctqmc_susceptibility_causally(monkeypatch):

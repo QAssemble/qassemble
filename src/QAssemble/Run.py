@@ -193,6 +193,8 @@ class Run:
         control["run"]["mu_search_density_tol"] = control["run"]["MuSearchDensityTol"]
         control["run"]["SigImpGuard"] = self._as_bool(ini.get("SigImpGuard", True))
         control["run"]["sigimp_guard"] = control["run"]["SigImpGuard"]
+        control["run"]["ChiEquivAverage"] = self._as_bool(ini.get("ChiEquivAverage", False))
+        control["run"]["chi_equiv_average"] = control["run"]["ChiEquivAverage"]
         control["run"]["SigImpGuardMode"] = str(
             ini.get("SigImpGuardMode", "fallback_previous")
         ).lower()
