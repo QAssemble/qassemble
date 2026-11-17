@@ -941,6 +941,7 @@ class CorrelationFunction(object):
 
     def GWEDMFT(self):
         itermax = self.control["run"]["nscf"]
+        uoffzero = bool(self.control["run"].get("UOffZero", False))
         hdf5file = self.hdf5path
         group = "gwedmft"
 
@@ -1238,7 +1239,9 @@ class CorrelationFunction(object):
                     projector=projector,
                     key=key,
                 )
-                polc.GWDoubleCounting(gw_loc_result.pol, projector, key)
+                polc.GWDoubleCounting(
+                    gw_loc_result.pol, projector, key, density_only=uoffzero
+                )
 
                 if iteration == 1:
                     bath_h, bath_f, bath_c = dc_h, dc_f, dc_c
@@ -1314,6 +1317,7 @@ class CorrelationFunction(object):
                     group=group,
                     iteration=iteration,
                     static_fit=True,
+                    uoffzero=uoffzero,
                 )
                 bweiss.Save("bweiss")
                 impurity_result = ImpurityAction(

@@ -286,8 +286,9 @@ def _install_fake_edmft_stack(monkeypatch, *, missing=(), hdf5_offset=0.0):
         def GWContribution(self, value):
             self.gw = value
 
-        def GWDoubleCounting(self, value, projector, key):
+        def GWDoubleCounting(self, value, projector, key, density_only=False):
             self.dc = (value, projector, key)
+            self.density_only = density_only
 
         def __call__(self):
             return self.kf
@@ -977,6 +978,18 @@ def test_gwedmft_composes_gw_dc_and_impurity_without_quantity_dicts(monkeypatch,
     assert corr.green is updated and corr.w is updated_w
     assert corr.pol is polc and corr.sigc is sigc
     assert not any(name.endswith("_by_key") for name in vars(corr))
+
+@pytest.mark.parametrize("uoffzero", [False, True])
+def test_gwedmft_passes_uoffzero_to_bosonic_dc_and_bweiss(monkeypatch, tmp_path, uoffzero):
+    stack = _install_fake_edmft_stack(monkeypatch)
+    corr = _edmft_correlation_object(stack.cf_mod, tmp_path, nscf=1)
+    corr.control["run"]["UOffZero"] = uoffzero
+
+    corr.GWEDMFT()
+
+    assert stack.PolC.instances[1].density_only is uoffzero
+    assert stack.BWeiss.instances[0].kwargs["uoffzero"] is uoffzero
+
 
 def test_gwedmft_uses_mixed_non_hartree_dc_in_lattice_and_bath(monkeypatch, tmp_path):
     stack = _install_fake_edmft_stack(monkeypatch)

@@ -897,9 +897,15 @@ class PolC(BLatDyn):
     def GWContribution(self, pgw) -> None:
         self.pgw = self._lattice_array(pgw, "pgw")
 
-    def GWDoubleCounting(self, pgw_loc, projector: Projector, key) -> None:
+    def GWDoubleCounting(self, pgw_loc, projector: Projector, key, density_only=False) -> None:
         if hasattr(pgw_loc, "f"):
             pgw_loc = pgw_loc.f
+        if density_only:
+            pgw_loc = np.array(pgw_loc, dtype=np.complex128, copy=True)
+            off_density = np.ones(pgw_loc.shape[0], dtype=bool)
+            off_density[projector.DensityBorbs(key)] = False
+            pgw_loc[off_density, ...] = 0.0
+            pgw_loc[:, off_density, ...] = 0.0
         embedded = self.Embedding(
             np.asarray(pgw_loc, dtype=np.complex128), projector=projector, key=key
         )

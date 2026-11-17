@@ -4,9 +4,10 @@ import numpy as np
 
 from QAssemble.BLocStc import VLoc
 from QAssemble.BLocDyn import BLocDyn, BWeiss
+from QAssemble.Projector import Projector
 
 
-class _FakeProjector:
+class _FakeProjector(Projector):
     def __init__(self):
         self.bprojector = {
             "1": np.array([[[1.0]], [[0.0]]]),

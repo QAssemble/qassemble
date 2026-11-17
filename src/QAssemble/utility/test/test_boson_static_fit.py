@@ -23,7 +23,8 @@ def fixtures():
     dlr=DLR(dict(beta=20.,cutoff=8.))
     crystal=SimpleNamespace(ns=1)
     projector=SimpleNamespace(bprojector={"1":np.ones((1,1,1))},equiv={"1":np.ones((1,1),int)},
-                              blocal2pair={"1":[{0:(0,0)}]},ProbFPair2Borb=lambda *args:0)
+                              blocal2pair={"1":[{0:(0,0)}]},ProbFPair2Borb=lambda *args:0,
+                              DensityBorbs=lambda key:[0])
     return dlr,crystal,projector
 
 

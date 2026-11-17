@@ -11,11 +11,14 @@ matrix Weiss field the solver never saw.
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from QAssemble.BLocDyn import BWeiss
+from QAssemble.Projector import Projector
+from QAssemble.utility.Dyson import Dyson
 
 
-class _FakeProjector:
+class _FakeProjector(Projector):
     """Two fermionic orbitals -> 4 bosonic pairs; density pairs are 0 and 3."""
 
     def __init__(self):
@@ -29,17 +32,17 @@ class _FakeProjector:
         return self._pair2borb[(iorb, jorb)]
 
 
-def _build_bweiss(cf, cf_uniform, v):
-    obj = object.__new__(BWeiss)
-    obj.projector = _FakeProjector()
-    obj.key = "1"
-    obj.vloc = SimpleNamespace(vproj={"1": v})
+def _build_bweiss(cf, cf_uniform, v, uoffzero=False):
+    obj = BWeiss(
+        crystal=SimpleNamespace(ns=v.shape[2]),
+        dlr=SimpleNamespace(nu=np.arange(cf.shape[-1])),
+        projector=_FakeProjector(),
+        key="1",
+        vloc=SimpleNamespace(vproj={"1": v}),
+        uoffzero=uoffzero,
+    )
     obj.cf = cf
     obj.cf_uniform = cf_uniform
-    obj.cf_to_solver = None
-    obj.cf_to_solver_uniform = None
-    obj.f_to_solver = None
-    obj.f_to_solver_uniform = None
     obj._build_solver_consistent()
     return obj
 
@@ -50,6 +53,24 @@ def _make_v(norbb=4):
     v[3, 3, 0, 0] = 1.0
     v[0, 3, 0, 0] = v[3, 0, 0, 0] = 0.1
     return v
+
+
+def test_density_borbs_matches_bweiss_indices():
+    obj = object.__new__(BWeiss)
+    obj.projector = _FakeProjector()
+
+    assert obj.projector.DensityBorbs("1") == [0, 3]
+    assert obj._density_boson_indices("1") == obj.projector.DensityBorbs("1")
+
+
+def test_density_borbs_rejects_empty_pairs():
+    obj = object.__new__(BWeiss)
+    obj.projector = _FakeProjector()
+    obj.projector.blocal2pair["1"][0].clear()
+
+    for density_borbs in (obj.projector.DensityBorbs, obj._density_boson_indices):
+        with pytest.raises(ValueError, match="bosonic projector for key '1' has no local pairs"):
+            density_borbs("1")
 
 
 def test_uniform_density_block_degenerates_to_f():
@@ -108,3 +129,44 @@ def test_as_dyn_dict_shares_the_solver_scalar():
     np.testing.assert_allclose(
         obj.cf_to_solver_uniform, 2.0 * obj.cf_to_solver
     )
+
+
+@pytest.mark.parametrize("ns", [1, 2])
+def test_uoffzero_masks_solver_interaction_only(ns):
+    shape = (4, 4, ns, ns)
+    v = np.arange(1, np.prod(shape) + 1).reshape(shape) * (0.03 + 0.01j)
+    original_v = v.copy()
+    v.setflags(write=False)
+    cf = np.arange(np.prod(shape) * 3).reshape(shape + (3,)) * (-0.001 + 0.0002j)
+    cf_uniform = np.arange(np.prod(shape) * 5).reshape(shape + (5,)) * (-0.002 + 0.0003j)
+    default = _build_bweiss(cf, cf_uniform, v)
+    masked = _build_bweiss(cf, cf_uniform, v, uoffzero=True)
+
+    keep = np.zeros((4, 4), dtype=bool)
+    keep[np.ix_([0, 3], [0, 3])] = True
+    for attr in ("f_to_solver", "f_to_solver_uniform"):
+        full = getattr(default, attr)
+        density_only = getattr(masked, attr)
+        assert np.array_equal(density_only[keep], full[keep])
+        assert np.count_nonzero(density_only[~keep]) == 0
+        assert np.all(full[~keep] != 0.0)
+    assert np.array_equal(masked.cf_to_solver, default.cf_to_solver)
+    assert np.array_equal(masked.cf_to_solver_uniform, default.cf_to_solver_uniform)
+    assert masked._as_dyn_dict("1") == default._as_dyn_dict("1")
+    assert np.array_equal(v, original_v)
+    assert masked.cf is cf and masked.cf_uniform is cf_uniform
+
+    # PImp amputates density-only chi with this same Dyson operation.
+    for attr in ("f_to_solver", "f_to_solver_uniform"):
+        full = getattr(default, attr)
+        density_only = getattr(masked, attr)
+        chi = np.zeros_like(full)
+        for ib in (0, 3):
+            for jb in (0, 3):
+                chi[ib, jb, ...] = 0.001 * (1 + ib + 2 * jb)
+        np.testing.assert_allclose(
+            -Dyson.BLocDyn(chi, full),
+            -Dyson.BLocDyn(chi, density_only),
+            rtol=1.0e-13,
+            atol=1.0e-15,
+        )

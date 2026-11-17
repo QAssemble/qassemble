@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from QAssemble.BLatDyn import BLatDyn, PolC, W
 
@@ -72,4 +73,43 @@ def test_polc_combines_gw_double_counting_and_impurity(monkeypatch):
     pol.ImpEmbedding(3.0 * local, projector, "1")
 
     np.testing.assert_allclose(pol(), 6.0)
+
+
+@pytest.mark.parametrize("as_quantity", [False, True])
+def test_polc_density_only_double_counting_preserves_density_block(monkeypatch, as_quantity):
+    _patch_lightweight_lattice(monkeypatch)
+    crystal, dlr, _, _ = _inputs()
+    crystal.bind = list(range(9))
+    crystal.ns = 2
+    shape = (9, 9, 2, 2, len(dlr.nu))
+    values = np.arange(np.prod(shape)).reshape(shape) + 1.0
+    local = values + 0.1j * values[..., ::-1]
+    original = local.copy()
+    source = SimpleNamespace(f=local) if as_quantity else local
+    density = [0, 4, 8]
+
+    def embed(self, local, projector, key):
+        return np.repeat(np.asarray(local)[..., np.newaxis, :], crystal.nk, axis=-2)
+
+    monkeypatch.setattr(PolC, "Embedding", embed)
+    projector = SimpleNamespace(DensityBorbs=lambda key: density)
+    default = PolC(crystal, dlr)
+    default.GWDoubleCounting(source, projector, "1")
+    expected_default = embed(default, original, projector, "1")
+    assert np.array_equal(default.pgw_dc, expected_default)
+    assert default.pgw_dc.tobytes() == expected_default.tobytes()
+
+    explicit_false = PolC(crystal, dlr)
+    explicit_false.GWDoubleCounting(source, projector, "1", density_only=False)
+    assert np.array_equal(explicit_false.pgw_dc, default.pgw_dc)
+
+    masked = PolC(crystal, dlr)
+    masked.GWDoubleCounting(source, projector, "1", density_only=True)
+
+    keep = np.zeros((9, 9), dtype=bool)
+    keep[np.ix_(density, density)] = True
+    assert np.array_equal(masked.pgw_dc[keep], default.pgw_dc[keep])
+    assert np.count_nonzero(masked.pgw_dc[~keep]) == 0
+    assert np.all(default.pgw_dc[~keep] != 0.0)
+    assert np.array_equal(local, original)
 
