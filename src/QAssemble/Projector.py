@@ -214,6 +214,17 @@ class Projector(object):
         key = self._require_local_borb(key, ispace, iorbc)
         return self.blocal2pair[key][ispace][int(iorbc)]
 
+    def DensityBorbs(self, key) -> list:
+        """Return local boson indices for the density pairs (i, i)."""
+        pairs = self.blocal2pair[key][0].values()
+        if len(pairs) == 0:
+            raise ValueError(f"bosonic projector for key '{key}' has no local pairs")
+        norbc = max(max(pair) for pair in pairs) + 1
+        return [
+            self.ProbFPair2Borb(key, iorb, iorb)
+            for iorb in range(norbc)
+        ]
+
     def Prob2SiteOrbs(
         self,
         key: str,

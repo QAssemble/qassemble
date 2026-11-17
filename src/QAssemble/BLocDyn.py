@@ -1401,12 +1401,14 @@ class BWeiss(BLocDyn):
 
     def __init__(self, crystal : Crystal, dlr : DLR, projector : Projector, key,
                  vloc : VLoc, w = None, p = None,
-                 hdf5file : str = None, group : str = None, iteration: int = None, static_fit: bool = False):
+                 hdf5file : str = None, group : str = None, iteration: int = None, static_fit: bool = False,
+                 uoffzero: bool = False):
 
         super().__init__(crystal, dlr, projector)
 
         self.key = self.ResolveProblemKey(key)
         self.static_fit = static_fit
+        self.uoffzero = uoffzero
         self.cstatic = None
         self.vloc = vloc
         if hasattr(self.vloc, "projector") and self.vloc.projector is None:
@@ -1492,14 +1494,7 @@ class BWeiss(BLocDyn):
         )
 
     def _density_boson_indices(self, pkey) -> list:
-        pairs = self.projector.blocal2pair[pkey][0].values()
-        if len(pairs) == 0:
-            raise ValueError(f"bosonic projector for key '{pkey}' has no local pairs")
-        norbc = max(max(pair) for pair in pairs) + 1
-        return [
-            self.projector.ProbFPair2Borb(pkey, iorb, iorb)
-            for iorb in range(norbc)
-        ]
+        return self.projector.DensityBorbs(pkey)
 
     def _dynamic_average(self, key, mat : np.ndarray) -> np.ndarray:
         ns = mat.shape[2]
@@ -1538,6 +1533,12 @@ class BWeiss(BLocDyn):
         v = np.asarray(self.vloc.vproj[pkey], dtype=np.complex128)
         density_b = self._density_boson_indices(pkey)
         ix = np.ix_(density_b, density_b)
+        if self.uoffzero:
+            v = v.copy()
+            off_density = np.ones(v.shape[0], dtype=bool)
+            off_density[density_b] = False
+            v[off_density, ...] = 0.0
+            v[:, off_density, ...] = 0.0
 
         def _assemble(scalar):
             f = np.repeat(v[..., np.newaxis], scalar.shape[-1], axis=4)

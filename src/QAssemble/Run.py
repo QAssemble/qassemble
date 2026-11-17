@@ -195,6 +195,8 @@ class Run:
         control["run"]["sigimp_guard"] = control["run"]["SigImpGuard"]
         control["run"]["ChiEquivAverage"] = self._as_bool(ini.get("ChiEquivAverage", False))
         control["run"]["chi_equiv_average"] = control["run"]["ChiEquivAverage"]
+        control["run"]["UOffZero"] = self._as_bool(ini.get("UOffZero", False))
+        control["run"]["u_off_zero"] = control["run"]["UOffZero"]
         control["run"]["SigImpGuardMode"] = str(
             ini.get("SigImpGuardMode", "fallback_previous")
         ).lower()
