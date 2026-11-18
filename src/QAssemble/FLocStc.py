@@ -716,7 +716,11 @@ class SigFImp(FLocStc):
         return None
 
     def Mixing(self) -> None:
-        """Mix diagrammatic Fock; preserve the legacy HF complement otherwise."""
+        """Mix diagrammatic Fock and otherwise preserve the HF complement.
+
+        EDMFT keeps the CTQMC HF moment unmixed so SigHImp + SigFImp equals
+        the same moment subtracted by SigCImp (c7ffca5).
+        """
         if getattr(self, "occ", None) is None:
             self.Cal()
         else:

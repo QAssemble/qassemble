@@ -172,7 +172,6 @@ class HFLoc(object):
         )
 
         if (self.iteration % 50 == 0) or (self.iteration == 1):
-            sigh.Save('sighloc')
             sigf.Save('sigfloc')
 
         return HFLocResult(sigh=sigh, sigf=sigf)
@@ -316,6 +315,7 @@ class ImpurityAction(object):
         if self.group is None:
             self.group = 'ctqmc'
         self.iteration = kwargs.get('iteration', 1)
+        self.bweiss_prepared = kwargs.get('bweiss_prepared', False)
 
     def __call__(self, iteration : int = None):
 
@@ -334,7 +334,7 @@ class ImpurityAction(object):
             hdf5file=self.hdf5file,
             group=self.group,
         )
-        ctqmc.PreProcessing(iter=iter)
+        ctqmc.PreProcessing(iter=iter, bweiss_prepared=self.bweiss_prepared)
         ctqmc.Run(iter=iter)
         ctqmc.PostProcessing(iter=iter)
 

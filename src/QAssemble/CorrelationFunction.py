@@ -1052,7 +1052,7 @@ class CorrelationFunction(object):
         bare_wloc_by_key = {}
         if not resume:
             for key in problem_keys:
-                # Bare V needs no dynamic projection; keep the first bath exactly U=V.
+                # Seed the first bosonic bath from bare V.
                 bare_wloc_by_key[key] = WLoc(
                     crystal=self.crystal, dlr=self.dlr, projector=projector,
                     key=key, wlat=wlat.kf, vloc=self.vbare.vloc.vproj[key],
@@ -1226,7 +1226,6 @@ class CorrelationFunction(object):
                     npulay=npulay,
                 )
 
-                dc_h = hf_loc_result.sigh.hloc
                 dc_f = hf_loc_result.sigf.floc
                 dc_c = gw_loc_result.siggwc.f
                 hf_loc_result.sigf.Save("sigfdc", obj=dc_f)
@@ -1244,8 +1243,6 @@ class CorrelationFunction(object):
                 )
 
                 if iteration == 1:
-                    bath_h, bath_f, bath_c = dc_h, dc_f, dc_c
-                    bath_dc_f = dc_f
                     p_seed = None
                 else:
                     with h5py.File(hdf5file, "r") as handle:
@@ -1262,6 +1259,41 @@ class CorrelationFunction(object):
                         p_seed = np.asfortranarray(
                             handle[f"{group}/PImp/pimp.{previous}.{key}"][()]
                         )
+
+                bweiss = BWeiss(
+                    crystal=self.crystal,
+                    dlr=self.dlr,
+                    projector=projector,
+                    key=key,
+                    vloc=self.vbare.vloc,
+                    w=bare_wloc_by_key[key] if iteration == 1 else wloc_by_key[key],
+                    p=p_seed,
+                    hdf5file=hdf5file,
+                    group=group,
+                    iteration=iteration,
+                    static_fit=False,
+                    uoffzero=uoffzero,
+                )
+                # The solver uses this bath after mixing.
+                logger.info('*** mix dynamic interaction input ***')
+                bweiss.Mixing(control=self.control["run"])
+                bweiss.Save("bweiss")
+                solver_u0, _ = bweiss.SolverStaticInteraction(key)
+                dc_h = SigHLoc(
+                    crystal=self.crystal,
+                    projector=projector,
+                    key=key,
+                    occ=gloc_by_key[key].occ,
+                    vloc=solver_u0,
+                    hdf5file=hdf5file,
+                    group=group,
+                    iteration=iteration,
+                )
+                hf_loc_result.sigh.Save("sighloc_bare")
+                dc_h.Save("sighloc")
+                if iteration == 1:
+                    bath_h, bath_f, bath_c = dc_h.hloc, dc_f, dc_c
+                    bath_dc_f = dc_f
 
                 eimp = EImp(
                     crystal=self.crystal,
@@ -1305,24 +1337,10 @@ class CorrelationFunction(object):
                     hdf5file=hdf5file,
                     group=group,
                 )
-                bweiss = BWeiss(
-                    crystal=self.crystal,
-                    dlr=self.dlr,
-                    projector=projector,
-                    key=key,
-                    vloc=self.vbare.vloc,
-                    w=bare_wloc_by_key[key] if iteration == 1 else wloc_by_key[key],
-                    p=p_seed,
-                    hdf5file=hdf5file,
-                    group=group,
-                    iteration=iteration,
-                    static_fit=False,
-                    uoffzero=uoffzero,
-                )
-                bweiss.Save("bweiss")
                 impurity_result = ImpurityAction(
                     fweiss=fweiss,
                     bweiss=bweiss,
+                    bweiss_prepared=True,
                     key=key,
                     control=self.control["run"],
                     hdf5file=hdf5file,

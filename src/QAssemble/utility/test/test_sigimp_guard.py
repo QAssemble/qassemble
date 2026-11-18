@@ -6,6 +6,7 @@ import h5py
 import numpy as np
 import pytest
 
+from QAssemble.BLocDyn import BWeiss
 from QAssemble.CTQMC import CTQMC
 from QAssemble.FLocDyn import FWeiss
 from QAssemble.utility.DLR import DLR
@@ -32,9 +33,8 @@ def _fake_ctqmc(tmp_path, *, control=None, equiv=None, ns=1):
         MatsubaraDLR2UniformGrid=lambda arr, sign=-1: np.asarray(arr),
     )
     obj.fweiss = SimpleNamespace()
-    obj.bweiss = SimpleNamespace(
-        f=None,
-        f_uniform=None,
+    obj.bweiss = BWeiss(
+        obj.crystal, obj.dlr, projector, obj.key,
         vloc=SimpleNamespace(vproj={"1": np.asarray([[[[2.0]]]])}),
     )
     return obj
@@ -394,7 +394,7 @@ def test_sighimp_uses_solver_consistent_dlr_fallback(tmp_path):
     ctqmc.bweiss.f = np.asarray([[[[[999.0]]]]])
     ctqmc.bweiss.f_uniform = np.asarray([[[[[123.0, 124.0]]]]])
     ctqmc.bweiss.f_to_solver = np.asarray([[[[[456.0]]]]])
-    ctqmc.dlr = SimpleNamespace(
+    ctqmc.bweiss.dlr = SimpleNamespace(
         MatsubaraDLR2UniformGrid=lambda arr, sign=1: np.concatenate(
             (arr, arr + 1.0), axis=-1
         )
@@ -422,7 +422,7 @@ def test_sighimp_legacy_dlr_fallback_warns(tmp_path, caplog):
     ctqmc = _fake_ctqmc(tmp_path)
     ctqmc.bweiss.f = np.asarray([[[[[999.0]]]]])
     ctqmc.bweiss.f_uniform = None
-    ctqmc.dlr = SimpleNamespace(
+    ctqmc.bweiss.dlr = SimpleNamespace(
         MatsubaraDLR2UniformGrid=lambda arr, sign=1: np.asarray([[[[[456.0, 457.0]]]]])
     )
 
