@@ -19,3 +19,6 @@ src/QAssemble/graphify-out
 *graphify-out
 pycppdlr/build/
 !pycppdlr/tests/
+
+# codex-duel review runs (local only)
+.duel/
