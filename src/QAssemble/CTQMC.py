@@ -346,35 +346,7 @@ class CTQMC(object):
         return broadener(omega, sigma_grid, 0.05, 1.0 / float(self.dlr.beta), cutoff)
 
     def _resolve_sighimp_vloc(self, key):
-        if self.bweiss.f is None:
-            return self.bweiss.vloc.vproj[key], "bare_vloc"
-
-        solver_uniform = getattr(self.bweiss, "f_to_solver_uniform", None)
-        if solver_uniform is not None:
-            return solver_uniform[..., 0], "bweiss_solver_uniform_nu0"
-
-        solver_dlr = getattr(self.bweiss, "f_to_solver", None)
-        if solver_dlr is not None and hasattr(
-            self.dlr, "MatsubaraDLR2UniformGrid"
-        ):
-            return (
-                self.dlr.MatsubaraDLR2UniformGrid(solver_dlr, sign=1)[..., 0],
-                "bweiss_solver_dlr_to_uniform_nu0",
-            )
-
-        logger.warning(
-            "[sighimp] key=%s: solver-consistent BWeiss unavailable; "
-            "using legacy matrix-valued interaction",
-            key,
-        )
-        if getattr(self.bweiss, "f_uniform", None) is not None:
-            return self.bweiss.f_uniform[..., 0], "bweiss_uniform_nu0"
-        if hasattr(self.dlr, "MatsubaraDLR2UniformGrid"):
-            return (
-                self.dlr.MatsubaraDLR2UniformGrid(self.bweiss.f, sign=1)[..., 0],
-                "bweiss_dlr_to_uniform_nu0",
-            )
-        return self.bweiss.vloc.vproj[key], "bare_vloc"
+        return self.bweiss.SolverStaticInteraction(key)
 
     def _current_bath_hartree_shift(self, iter : int, key):
         if (getattr(self, "control", {}).get("method") != "gw+edmft"
@@ -471,7 +443,7 @@ class CTQMC(object):
                 f"max|c0|={max_c0:.6e} > {limit:.6e}."
             )
 
-    def PreProcessing(self, iter : int):
+    def PreProcessing(self, iter : int, *, bweiss_prepared: bool = False):
 
         # iter = iter + 1 ### convert index from 0-based to 1-based
 
@@ -500,9 +472,10 @@ class CTQMC(object):
             ### Write dyn.json file ###
             ###########################
             if self._use_dyn():
-                logger.info('*** mix dynamic interaction input ***')
-                self.bweiss.Mixing(control=self.control)
-                self.bweiss.Save("bweiss")
+                if not bweiss_prepared:
+                    logger.info('*** mix dynamic interaction input ***')
+                    self.bweiss.Mixing(control=self.control)
+                    self.bweiss.Save("bweiss")
 
                 logger.info('*** write dyn.json file ***')
                 self.bweiss._write_json_pair('dyn', iter, key, self.bweiss._as_dyn_dict(key))
@@ -737,8 +710,8 @@ class CTQMC(object):
                 group=self.group,
                 iteration=iter,
             )
-            # EDMFT retains the HF complement. GW+EDMFT contracts bare V
-            # with the DLR impurity density and mixes Fock independently.
+            # Hartree uses the solver's U(0). GW+EDMFT contracts bare V with
+            # the DLR impurity density for its independently mixed Fock.
             self.sighimp.Mixing()
             fock_inputs = {}
             if self.control.get("method") == "gw+edmft":

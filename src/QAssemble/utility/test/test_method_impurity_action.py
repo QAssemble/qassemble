@@ -48,7 +48,8 @@ def _install_fake_ctqmc(monkeypatch, *, missing=(), include_bosons=False):
             self.wimp = None
             FakeCTQMC.instances.append(self)
 
-        def PreProcessing(self, iter):
+        def PreProcessing(self, iter, *, bweiss_prepared=False):
+            self.bweiss_prepared = bweiss_prepared
             self.calls.append(("PreProcessing", iter))
 
         def Run(self, iter):
@@ -103,6 +104,7 @@ def test_impurity_action_runs_ctqmc_and_returns_outputs(monkeypatch, tmp_path):
     assert ctqmc.dlr == "dlr"
     assert ctqmc.key == "imp0"
     assert ctqmc.control == {"method": "dmft"}
+    assert ctqmc.bweiss_prepared is False
     assert ctqmc.hdf5file == str(tmp_path / "calc.h5")
     assert ctqmc.group == "impurity_solver"
     assert isinstance(result, method_mod.ImpurityActionResult)
@@ -147,11 +149,13 @@ def test_impurity_action_passes_control_to_ctqmc(monkeypatch, tmp_path):
         fweiss,
         bweiss,
         control=control,
+        bweiss_prepared=True,
         iteration=4,
     )()
 
     ctqmc = method_mod.CTQMC.instances[0]
     assert ctqmc.control is control
+    assert ctqmc.bweiss_prepared is True
     assert result.gimp.mixed == []
     assert result.sighimp.mixed == []
     assert result.sigfimp.mixed == []
@@ -216,6 +220,8 @@ def test_hfloc_builds_local_hf_objects_and_saves_on_first_iteration(monkeypatch)
         iteration=1,
     )()
 
+    assert result.sigh.saved == []
+    assert result.sigf.saved == ["sigfloc"]
     assert isinstance(result, method_mod.HFResult)
     assert vloc.projector == "projector"
     assert result.sigh.label == "sighloc"
@@ -240,8 +246,6 @@ def test_hfloc_builds_local_hf_objects_and_saves_on_first_iteration(monkeypatch)
         "group": "hfloc",
         "iteration": 1,
     }
-    assert result.sigh.saved == ["sighloc"]
-    assert result.sigf.saved == ["sigfloc"]
     sigh, sigf = result
     assert (sigh, sigf) == (result.sigh, result.sigf)
 

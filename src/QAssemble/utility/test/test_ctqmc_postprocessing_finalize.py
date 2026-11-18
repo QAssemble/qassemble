@@ -6,6 +6,7 @@ import h5py
 import numpy as np
 import pytest
 
+from QAssemble.BLocDyn import BWeiss
 from QAssemble.CTQMC import CTQMC
 from QAssemble.FLocStc import EImp
 from QAssemble.utility.DLR import DLR
@@ -217,16 +218,17 @@ def test_preprocessing_static_bath_skips_bweiss_mixing(monkeypatch, tmp_path):
     ]
 
 
-@pytest.mark.parametrize("method,iteration,use_dyn,has_previous", [
-    ("gw+edmft", 2, True, True),
-    ("gw+edmft", 1, True, True),
-    ("edmft", 2, True, True),
-    ("dmft", 2, True, True),
-    ("gw+edmft", 2, False, True),
-    ("gw+edmft", 2, True, False),
+@pytest.mark.parametrize("method,iteration,use_dyn,has_previous,bweiss_prepared", [
+    ("gw+edmft", 2, True, True, False),
+    ("gw+edmft", 2, True, True, True),
+    ("gw+edmft", 1, True, True, False),
+    ("edmft", 2, True, True, False),
+    ("dmft", 2, True, True, False),
+    ("gw+edmft", 2, False, True, False),
+    ("gw+edmft", 2, True, False, False),
 ])
 def test_preprocessing_current_bath_hartree(
-    monkeypatch, tmp_path, caplog, method, iteration, use_dyn, has_previous
+    monkeypatch, tmp_path, caplog, method, iteration, use_dyn, has_previous, bweiss_prepared
 ):
     monkeypatch.chdir(tmp_path)
     ctqmc = object.__new__(CTQMC)
@@ -290,23 +292,29 @@ def test_preprocessing_current_bath_hartree(
     def mix_bweiss(**kwargs):
         ctqmc.bweiss.f_to_solver_uniform = np.stack([solver_u, bare_v], axis=-1)
 
-    ctqmc.bweiss = SimpleNamespace(
-        cf=np.ones(1) if use_dyn else None,
-        f=0.5 * bare_v[..., None], f_uniform=0.25 * bare_v[..., None],
-        f_to_solver_uniform=None,
+    ctqmc.bweiss = BWeiss(
+        ctqmc.crystal, dlr, ctqmc.projector, ctqmc.key,
         vloc=SimpleNamespace(vproj={"1": bare_v}, GetUijklComCTQMC=lambda key: np.zeros((2, 2, 2, 2))),
-        Mixing=mix_bweiss, Save=lambda name: None,
-        _write_json_pair=write_json,
-        _as_dyn_dict=lambda key: {"D0": (solver_u - bare_v).ravel().tolist()},
     )
+    ctqmc.bweiss.cf = np.ones(1) if use_dyn else None
+    ctqmc.bweiss.f = 0.5 * bare_v[..., None]
+    ctqmc.bweiss.f_uniform = 0.25 * bare_v[..., None]
+    ctqmc.bweiss.Mixing = mix_bweiss
+    ctqmc.bweiss.Save = lambda name: None
+    ctqmc.bweiss._write_json_pair = write_json
+    ctqmc.bweiss._as_dyn_dict = lambda key: {"D0": (solver_u - bare_v).ravel().tolist()}
     ctqmc.ctqmc_dir = str(tmp_path)
+    if bweiss_prepared:
+        ctqmc.bweiss.Mixing(control=ctqmc.control)
+        ctqmc.bweiss.Mixing = lambda **kwargs: pytest.fail("BWeiss was already mixed")
+        ctqmc.bweiss.Save = lambda name: pytest.fail("BWeiss was already saved")
 
     def no_hartree_mixing(self):
         pytest.fail("The solver-input Hartree must not be mixed")
 
     monkeypatch.setattr("QAssemble.CTQMC.SigHImp.Mixing", no_hartree_mixing)
     with caplog.at_level("INFO", logger="QAssemble"):
-        ctqmc.PreProcessing(iter=iteration)
+        ctqmc.PreProcessing(iter=iteration, bweiss_prepared=bweiss_prepared)
 
     workdir = tmp_path / f"impurity_{iteration}_1"
     params = json.loads((workdir / "params.json").read_text())
@@ -339,6 +347,8 @@ def test_preprocessing_current_bath_hartree(
     np.testing.assert_array_equal(eimp.hloc, hloc)
     assert (workdir / "hyb.json").read_bytes() == written_hyb[0]
     assert json.loads((workdir / "hyb.json").read_text()) == hyb
+    if use_dyn:
+        assert json.loads((workdir / "dyn.json").read_text()) == ctqmc.bweiss._as_dyn_dict("1")
 
 
 @pytest.mark.parametrize("missing", ["control", "hloc", "hdf5file", "group"])

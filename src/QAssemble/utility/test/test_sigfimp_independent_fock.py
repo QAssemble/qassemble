@@ -7,6 +7,7 @@ import h5py
 import numpy as np
 import pytest
 
+from QAssemble.BLocDyn import BWeiss
 from QAssemble.FLocStc import SigFImp, SigFLoc
 from QAssemble.utility.HDF5 import IO
 from QAssemble.BLocStc import VLoc
@@ -144,7 +145,10 @@ def test_postprocessing_routes_independent_fock_only_for_gwedmft(monkeypatch, tm
     (work / "params.json").write_text(json.dumps({"partition": {"green matsubara cutoff": 3}}))
     rho = np.full((1, 1, 1), 0.3)
     bare = np.full((1, 1, 1, 1), 2.0)
-    obj.bweiss = SimpleNamespace(cf=None, f=None, vloc=SimpleNamespace(vproj={"1": bare}))
+    obj.bweiss = BWeiss(
+        obj.crystal, obj.dlr, obj.projector, obj.key,
+        vloc=SimpleNamespace(vproj={"1": bare}),
+    )
     calls = []
 
     def output(**kwargs):
