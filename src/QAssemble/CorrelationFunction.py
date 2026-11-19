@@ -1049,16 +1049,7 @@ class CorrelationFunction(object):
         else:
             wlat.Save("wkf_ini", scf=False)
 
-        bare_wloc_by_key = {}
         if not resume:
-            for key in problem_keys:
-                # Seed the first bosonic bath from bare V.
-                bare_wloc_by_key[key] = WLoc(
-                    crystal=self.crystal, dlr=self.dlr, projector=projector,
-                    key=key, wlat=wlat.kf, vloc=self.vbare.vloc.vproj[key],
-                    hdf5file=hdf5file, group=group, iteration=0, causal=False,
-                )
-
             pre_hf = HF(
                 occ=green.occ, occr=green.occr, v=self.vbare,
                 hdf5file=hdf5file, group=group, iteration=0, mix=None,
@@ -1243,7 +1234,14 @@ class CorrelationFunction(object):
                 )
 
                 if iteration == 1:
-                    p_seed = None
+                    # First bath: (I + W_loc P_dc)^-1 W_loc (FullGWEDMFT pdc1st=1).
+                    p_seed = gw_loc_result.pol.f
+                    if uoffzero:
+                        p_seed = p_seed.copy(order="F")
+                        off_density = np.ones(p_seed.shape[0], dtype=bool)
+                        off_density[projector.DensityBorbs(key)] = False
+                        p_seed[off_density, ...] = 0.0
+                        p_seed[:, off_density, ...] = 0.0
                 else:
                     with h5py.File(hdf5file, "r") as handle:
                         bath_h, bath_f, bath_c = (
@@ -1266,7 +1264,7 @@ class CorrelationFunction(object):
                     projector=projector,
                     key=key,
                     vloc=self.vbare.vloc,
-                    w=bare_wloc_by_key[key] if iteration == 1 else wloc_by_key[key],
+                    w=wloc_by_key[key],
                     p=p_seed,
                     hdf5file=hdf5file,
                     group=group,
